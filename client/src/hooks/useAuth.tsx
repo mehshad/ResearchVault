@@ -184,20 +184,22 @@ export const RequireAuth: React.FC<{ children: ReactNode; adminOnly?: boolean }>
   children,
   adminOnly = false,
 }) => {
-  const { isAuthenticated, isAdmin, loading, user } = useAuth();
+  const { isAuthenticated, isAdmin, loading, user, authConfig } = useAuth();
   const [, navigate] = useLocation();
+  const isDemo = authConfig.mode === 'demo';
 
   useEffect(() => {
     if (!loading) {
-      if (!isAuthenticated) {
+      // Demo mode: server auto-injects a guest user — no login required.
+      if (!isDemo && !isAuthenticated) {
         navigate('/');
-      } else if ((user as any)?.needsRegistration) {
+      } else if (user?.needsRegistration) {
         navigate('/register');
       } else if (adminOnly && !isAdmin) {
         navigate('/');
       }
     }
-  }, [isAuthenticated, isAdmin, loading, navigate, adminOnly, user]);
+  }, [isAuthenticated, isAdmin, loading, navigate, adminOnly, user, isDemo]);
 
   if (loading) {
     return (
@@ -207,7 +209,7 @@ export const RequireAuth: React.FC<{ children: ReactNode; adminOnly?: boolean }>
     );
   }
 
-  if (!isAuthenticated || (adminOnly && !isAdmin)) {
+  if (!isDemo && (!isAuthenticated || (adminOnly && !isAdmin))) {
     return null;
   }
 
