@@ -58,7 +58,14 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       try {
         const configResponse = await fetch('/api/auth/config');
         if (configResponse.ok) {
-          setAuthConfig({ ...DEFAULT_AUTH_CONFIG, ...(await configResponse.json()) });
+          const raw = await configResponse.json();
+          setAuthConfig({
+            ...DEFAULT_AUTH_CONFIG,
+            ...raw,
+            // ssoEnabled = any mode that has a real identity provider (ldap or oidc)
+            ssoEnabled: raw.mode === 'ldap' || raw.mode === 'oidc',
+            providerName: raw.oidcProviderName ?? null,
+          });
         }
 
         const authResponse = await fetch('/api/auth/me');
