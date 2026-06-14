@@ -1,4 +1,6 @@
-import * as XLSX from "xlsx";
+import ExcelJS from "exceljs";
+import { parse as csvParse } from "csv-parse/sync";
+import { stringify as csvStringify } from "csv-stringify/sync";
 import { z } from "zod";
 import { sql } from "drizzle-orm";
 import type { PgDatabase } from "drizzle-orm/pg-core";
@@ -45,20 +47,16 @@ export function scientistsToRows(scientists: Scientist[]): Record<string, any>[]
   });
 }
 
-export function buildExportBuffer(
+export async function buildExportBuffer(
   scientists: Scientist[],
   format: "xlsx" | "csv"
-): { buffer: Buffer; mime: string; filename: string } {
+): Promise<{ buffer: Buffer; mime: string; filename: string }> {
   const rows = scientistsToRows(scientists);
-  const ws = XLSX.utils.json_to_sheet(rows, {
-    header: EXPORT_COLUMNS.map(c => c.header),
-  });
-  ws["!cols"] = EXPORT_COLUMNS.map(c => ({ wch: Math.max(c.header.length + 2, 18) }));
-
   const stamp = new Date().toISOString().slice(0, 10);
 
   if (format === "csv") {
-    const csv = XLSX.utils.sheet_to_csv(ws);
+    const headers = EXPORT_COLUMNS.map(c => c.header);
+    const csv = csvStringify(rows, { header: true, columns: headers });
     return {
       buffer: Buffer.from(csv, "utf-8"),
       mime: "text/csv; charset=utf-8",
@@ -66,25 +64,67 @@ export function buildExportBuffer(
     };
   }
 
-  const wb = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(wb, ws, "Staff");
-  const buffer = XLSX.write(wb, { type: "buffer", bookType: "xlsx" }) as Buffer;
+  const workbook = new ExcelJS.Workbook();
+  const worksheet = workbook.addWorksheet("Staff");
+  worksheet.columns = EXPORT_COLUMNS.map(c => ({
+    header: c.header,
+    key: c.header,
+    width: Math.max(c.header.length + 2, 18),
+  }));
+  for (const row of rows) {
+    worksheet.addRow(row);
+  }
+  const arrayBuffer = await workbook.xlsx.writeBuffer();
   return {
-    buffer,
+    buffer: Buffer.from(arrayBuffer),
     mime: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
     filename: `staff-export-${stamp}.xlsx`,
   };
 }
 
-export function parseUploadedFile(base64: string, fileName: string): Record<string, any>[] {
+export async function parseUploadedFile(base64: string, fileName: string): Promise<Record<string, any>[]> {
   const buf = Buffer.from(base64, "base64");
-  const wb = XLSX.read(buf, { type: "buffer", raw: false });
-  const sheetName = wb.SheetNames[0];
-  if (!sheetName) throw new Error("File contains no sheets");
-  const sheet = wb.Sheets[sheetName];
-  const rows = XLSX.utils.sheet_to_json<Record<string, any>>(sheet, { defval: "", raw: false });
+  const lowerName = (fileName || "").toLowerCase();
+
+  if (lowerName.endsWith(".csv")) {
+    const text = buf.toString("utf-8");
+    const records: Record<string, any>[] = csvParse(text, {
+      columns: true,
+      skip_empty_lines: true,
+      trim: false,
+      cast: false,
+    });
+    return records;
+  }
+
+  const workbook = new ExcelJS.Workbook();
+  await workbook.xlsx.load(buf);
+  const worksheet = workbook.worksheets[0];
+  if (!worksheet) throw new Error("File contains no sheets");
+
+  const headers: string[] = [];
+  const rows: Record<string, any>[] = [];
+
+  worksheet.eachRow((row, rowNumber) => {
+    if (rowNumber === 1) {
+      row.eachCell({ includeEmpty: true }, (cell, colNumber) => {
+        headers[colNumber] = cell.value == null ? "" : String(cell.value);
+      });
+    } else {
+      const rowObj: Record<string, any> = {};
+      row.eachCell({ includeEmpty: true }, (cell, colNumber) => {
+        const header = headers[colNumber];
+        if (header) {
+          rowObj[header] = cell.value == null ? "" : String(cell.value);
+        }
+      });
+      rows.push(rowObj);
+    }
+  });
+
   return rows;
 }
+
 
 const fileRowSchema = z.object({
   staffId: z.string().trim().optional(),

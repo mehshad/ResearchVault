@@ -121,11 +121,11 @@ export default function DataManagementPlanDetail() {
               <div>
                 <h2 className="text-xl font-semibold">{dataManagementPlan.title}</h2>
                 <div className="flex items-center gap-2 mt-1">
-                  <Badge variant="outline" className="rounded-sm bg-purple-50 text-purple-700 border-purple-200">
+                  <Badge variant="outline" className="rounded-sm bg-purple-50 text-purple-700 border-purple-200 dark:bg-purple-950 dark:text-purple-300 dark:border-purple-800">
                     {dataManagementPlan.dmpNumber}
                   </Badge>
                   {researchActivity && (
-                    <Badge variant="outline" className="rounded-sm bg-blue-50 text-blue-700 border-blue-200">
+                    <Badge variant="outline" className="rounded-sm bg-blue-50 text-blue-700 border-blue-200 dark:bg-blue-950 dark:text-blue-300 dark:border-blue-800">
                       {researchActivity.sdrNumber}
                     </Badge>
                   )}
@@ -200,7 +200,7 @@ export default function DataManagementPlanDetail() {
                   <Layers className="h-4 w-4 mr-2" /> 
                   <span className="flex-1 text-left">Research Activity</span>
                   {researchActivity && (
-                    <Badge variant="outline" className="ml-2 rounded-sm bg-blue-50 text-blue-700 border-blue-200">
+                    <Badge variant="outline" className="ml-2 rounded-sm bg-blue-50 text-blue-700 border-blue-200 dark:bg-blue-950 dark:text-blue-300 dark:border-blue-800">
                       {researchActivity.sdrNumber}
                     </Badge>
                   )}
@@ -214,7 +214,7 @@ export default function DataManagementPlanDetail() {
                   <FileText className="h-4 w-4 mr-2" /> 
                   <span className="flex-1 text-left">Publications</span>
                   {researchActivity && (
-                    <Badge variant="outline" className="ml-2 rounded-sm bg-green-50 text-green-700 border-green-200">
+                    <Badge variant="outline" className="ml-2 rounded-sm bg-green-50 text-green-700 border-green-200 dark:bg-green-950 dark:text-green-300 dark:border-green-800">
                       {publicationCount}
                     </Badge>
                   )}

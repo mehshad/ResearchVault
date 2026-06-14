@@ -2,7 +2,8 @@
 // Most errors here stem from untyped `useQuery` results (data inferred as `unknown`), drifted shared/schema field renames, and form values typed as `unknown`. They are not known runtime bugs but should be fixed file-by-file as each is next touched: remove this directive, run `npx tsc --noEmit`, and resolve what surfaces.
 import type { Express, Request, Response, NextFunction } from "express";
 import { createServer, type Server } from "http";
-import { storage } from "./databaseStorage";
+import { createHmac, timingSafeEqual } from "crypto";
+import { storage, normalizeJournalName } from "./databaseStorage";
 import { ZodError, z } from "zod";
 import { fromZodError } from "zod-validation-error";
 import {
@@ -12,7 +13,7 @@ import {
 import { LocalObjectStorageService } from "./localObjectStorage";
 import { db } from "./db";
 import { scientists, publicationAuthors, journals, journalImpactFactorMetrics, manuscriptHistory, users } from "@shared/schema";
-import { eq, inArray, desc } from "drizzle-orm";
+import { eq, inArray, desc, sql } from "drizzle-orm";
 import {
   buildExportBuffer,
   parseUploadedFile,
@@ -57,12 +58,472 @@ import {
   insertRa205aApplicationSchema,
   insertTeamMemberSchema
 } from "@shared/schema";
-import { requireAuth, requireAdmin, requireContractsOfficer, requireContractsRead } from "./auth";
+import { requireAuth, requireAdmin, requireContractsOfficer, requireContractsRead, requirePublicationOfficer, getAuthMode } from "./auth";
+import { resolveOwnershipAccess, maxAccess, type AccessLevel as OwnershipAccessLevel } from "./ownershipResolver";
+import { matchesAuthorName, isLinkedAuthorInAuthorsText } from "@shared/authorMatching";
+import { detectDuplicateGroups, pickDefaultSurvivorId } from "@shared/publicationDeduplication";
+import { getObjectAclPolicy, ObjectPermission } from "./objectAcl";
 
 const isLocalStorage = process.env.STORAGE_TYPE === "local";
 
 function getObjectStorageService(): ObjectStorageService | LocalObjectStorageService {
   return isLocalStorage ? new LocalObjectStorageService() : new ObjectStorageService();
+}
+
+// ── Upload finalization tokens ────────────────────────────────────────────────
+// When the server mints a presigned upload URL it also issues a short-lived
+// HMAC token that binds the objectPath to the requesting user and an expiry.
+// The client must present this token when calling POST /api/uploads/finalize,
+// preventing any other authenticated user from setting/hijacking ACL on an
+// object they did not upload.
+
+const FINALIZE_TOKEN_TTL_SEC = 3600; // 1 hour
+
+function generateFinalizeToken(objectPath: string, userId: string): string {
+  const expiry = Math.floor(Date.now() / 1000) + FINALIZE_TOKEN_TTL_SEC;
+  const secret = process.env.SESSION_SECRET ?? "dev-fallback-secret";
+  const payload = `${objectPath}|${userId}|${expiry}`;
+  const sig = createHmac("sha256", secret).update(payload).digest("hex");
+  return `${expiry}.${sig}`;
+}
+
+function verifyFinalizeToken(objectPath: string, userId: string, token: string): boolean {
+  const dotIdx = token.indexOf(".");
+  if (dotIdx < 1) return false;
+  const expiryStr = token.slice(0, dotIdx);
+  const sig = token.slice(dotIdx + 1);
+  const expiry = parseInt(expiryStr, 10);
+  if (!Number.isFinite(expiry) || Math.floor(Date.now() / 1000) > expiry) return false;
+  const secret = process.env.SESSION_SECRET ?? "dev-fallback-secret";
+  const payload = `${objectPath}|${userId}|${expiry}`;
+  const expectedSig = createHmac("sha256", secret).update(payload).digest("hex");
+  const sigBuf = Buffer.from(sig, "hex");
+  const expBuf = Buffer.from(expectedSig, "hex");
+  if (sigBuf.length !== expBuf.length || sigBuf.length === 0) return false;
+  return timingSafeEqual(sigBuf, expBuf);
+}
+
+// Optional text fields on `scientists` that allow NULL. Blank/empty strings are
+// normalized to null so they don't store noise and (for `staffId`, which is
+// UNIQUE) don't collide with other blank records on the unique constraint.
+const SCIENTIST_NULLABLE_TEXT_FIELDS = [
+  "jobTitle",
+  "staffId",
+  "department",
+  "bio",
+  "profileImageInitials",
+  "orcidId",
+  "linkedInUrl",
+  "googleScholarUrl",
+  "webOfScienceId",
+] as const;
+
+function normalizeScientistPayload(body: any): any {
+  if (!body || typeof body !== "object") return body;
+  const normalized: any = { ...body };
+  for (const field of SCIENTIST_NULLABLE_TEXT_FIELDS) {
+    if (typeof normalized[field] === "string" && normalized[field].trim() === "") {
+      normalized[field] = null;
+    }
+  }
+  return normalized;
+}
+
+// Maps a Postgres unique-constraint violation (error code 23505) on the
+// `scientists` table to a clear, field-specific message. Returns undefined for
+// any other error so the caller can fall back to a generic 500.
+function scientistUniqueConflictMessage(error: any): string | undefined {
+  // Drizzle wraps the underlying pg driver error in `error.cause`, so the
+  // Postgres error code/detail live there rather than on the top-level error.
+  const pgError = error?.code ? error : error?.cause;
+  if (!pgError || pgError.code !== "23505") return undefined;
+  const detail: string = `${pgError.detail ?? ""} ${pgError.constraint ?? ""}`.toLowerCase();
+  if (detail.includes("email")) {
+    return "A staff member with this email already exists.";
+  }
+  if (detail.includes("staff_id")) {
+    return "A staff member with this Staff ID already exists.";
+  }
+  return "A staff member with these details already exists.";
+}
+
+// ── ORCID / Google Scholar missing-paper import helpers ──────────────────────
+
+// Normalize a free-form DOI for comparison: lowercase, strip any resolver
+// prefix (https://doi.org/, http://dx.doi.org/, doi:) and surrounding noise.
+// The `doi` column is free-form and not unique, so all DOI matching goes
+// through this normalizer to avoid false "missing" / duplicate results.
+function normalizeDoi(doi: string | null | undefined): string {
+  if (!doi || typeof doi !== "string") return "";
+  return doi
+    .trim()
+    .toLowerCase()
+    .replace(/^https?:\/\/(dx\.)?doi\.org\//, "")
+    .replace(/^doi:\s*/, "")
+    .trim();
+}
+
+interface MissingPaperMeta {
+  doi: string;
+  title: string;
+  journal: string;
+  year: number | null;
+  source: string;
+}
+
+// Fetch a researcher's works from the ORCID public API and return one entry
+// per DOI with display metadata pulled straight from the ORCID summaries.
+// Throws on network / non-OK responses so the caller can report ORCID as
+// unavailable.
+async function fetchOrcidWorks(orcidId: string): Promise<MissingPaperMeta[]> {
+  const id = orcidId.trim().replace(/^https?:\/\/orcid\.org\//i, "");
+  const url = `https://pub.orcid.org/v3.0/${encodeURIComponent(id)}/works`;
+  const response = await fetch(url, { headers: { Accept: "application/json" } });
+  if (!response.ok) {
+    throw new Error(`ORCID API returned ${response.status}`);
+  }
+  const data: any = await response.json();
+  const groups: any[] = Array.isArray(data?.group) ? data.group : [];
+  const results: MissingPaperMeta[] = [];
+  const seen = new Set<string>();
+
+  for (const group of groups) {
+    const extIds: any[] = group?.["external-ids"]?.["external-id"] ?? [];
+    const doiEntry = extIds.find(
+      (e) => (e?.["external-id-type"] ?? "").toLowerCase() === "doi"
+    );
+    const rawDoi = doiEntry?.["external-id-value"];
+    const norm = normalizeDoi(rawDoi);
+    if (!norm || seen.has(norm)) continue;
+
+    const summary: any = group?.["work-summary"]?.[0] ?? {};
+    const title: string =
+      summary?.title?.title?.value ?? "Untitled work";
+    const journal: string = summary?.["journal-title"]?.value ?? "";
+    const yearRaw = summary?.["publication-date"]?.year?.value;
+    const year = yearRaw ? parseInt(yearRaw, 10) : null;
+
+    seen.add(norm);
+    results.push({
+      doi: norm,
+      title,
+      journal,
+      year: Number.isFinite(year as number) ? (year as number) : null,
+      source: "ORCID",
+    });
+  }
+  return results;
+}
+
+// Validate a stored Google Scholar URL before the server fetches it. The URL
+// is user-editable, so fetching it unchecked would be an SSRF sink (the server
+// could be coerced into requesting internal/private addresses). We require
+// HTTPS, restrict the host to known Google Scholar domains, and reject IP
+// literals outright. Returns null when the URL is not safe to fetch.
+function validateGoogleScholarUrl(scholarUrl: string): URL | null {
+  let parsed: URL;
+  try {
+    parsed = new URL(scholarUrl);
+  } catch {
+    return null;
+  }
+  if (parsed.protocol !== "https:") return null;
+
+  const host = parsed.hostname.toLowerCase();
+
+  // Reject IPv4/IPv6 literals (e.g. 169.254.169.254, [::1]) — Scholar is only
+  // ever reached by DNS hostname, never by raw IP.
+  if (/^\d{1,3}(\.\d{1,3}){3}$/.test(host) || host.includes(":") || parsed.hostname.startsWith("[")) {
+    return null;
+  }
+
+  // Allowlist: scholar.google.com and regional Google Scholar hosts
+  // (e.g. scholar.google.de, scholar.google.co.uk, scholar.google.com.au).
+  // The TLD suffix is bounded to one or two short labels so a crafted host
+  // like `scholar.google.com.evil.com` cannot slip through as a "regional"
+  // domain.
+  const prefix = "scholar.google.";
+  let isScholarHost = false;
+  if (host === "scholar.google.com") {
+    isScholarHost = true;
+  } else if (host.startsWith(prefix)) {
+    const suffix = host.slice(prefix.length);
+    isScholarHost = /^[a-z]{2,3}(\.[a-z]{2,3})?$/.test(suffix);
+  }
+  if (!isScholarHost) return null;
+
+  return parsed;
+}
+
+// Best-effort Google Scholar DOI scrape. Scholar has no official API and
+// actively blocks scraping, so any failure (block, empty, parse error) is
+// swallowed and an empty array is returned — this must never break the ORCID
+// result. We simply scan the fetched HTML for any DOI-shaped strings.
+async function fetchGoogleScholarDois(scholarUrl: string): Promise<MissingPaperMeta[]> {
+  // SSRF guard: only fetch validated Scholar URLs.
+  const safeUrl = validateGoogleScholarUrl(scholarUrl);
+  if (!safeUrl) return [];
+
+  try {
+    const response = await fetch(safeUrl.toString(), {
+      redirect: "error", // never follow redirects to a non-allowlisted host
+      headers: {
+        "User-Agent":
+          "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36",
+        Accept: "text/html",
+      },
+    });
+    if (!response.ok) return [];
+    const html = await response.text();
+    const matches = html.match(/10\.\d{4,9}\/[^\s"'<>)\]}]+/g) ?? [];
+    const results: MissingPaperMeta[] = [];
+    const seen = new Set<string>();
+    for (const m of matches) {
+      const norm = normalizeDoi(m);
+      if (!norm || seen.has(norm)) continue;
+      seen.add(norm);
+      results.push({
+        doi: norm,
+        title: "",
+        journal: "",
+        year: null,
+        source: "Google Scholar",
+      });
+    }
+    return results;
+  } catch {
+    return [];
+  }
+}
+
+// bioRxiv/medRxiv append a version suffix to the preprint URL (e.g.
+// "...25339324v1") but CrossRef registers the DOI WITHOUT that suffix, so a
+// raw lookup 404s. Strip a trailing "vN", but ONLY for the openRxiv preprint
+// namespace (10.1101/) so we never mangle a legitimate DOI that happens to end
+// in "vN".
+function stripDoiVersionSuffix(doi: string): string {
+  if (!/^10\.1101\//i.test(doi)) return doi;
+  return doi.replace(/v\d+$/i, "");
+}
+
+// Fetch a CrossRef work record. If the DOI is genuinely not found (404), retry
+// once with the preprint version suffix stripped. Returns the `message` object
+// or null. We only retry on 404 (not transient 429/5xx) so a temporary error
+// can't make us silently resolve a different DOI form.
+async function fetchCrossrefWork(doi: string): Promise<any | null> {
+  const tryFetch = async (candidate: string): Promise<{ work: any | null; status: number }> => {
+    try {
+      const response = await fetch(
+        `https://api.crossref.org/works/${encodeURIComponent(candidate)}`,
+      );
+      if (!response.ok) return { work: null, status: response.status };
+      const data: any = await response.json();
+      return { work: data?.message ?? null, status: response.status };
+    } catch {
+      return { work: null, status: 0 };
+    }
+  };
+
+  const first = await tryFetch(doi);
+  if (first.work) return first.work;
+
+  if (first.status === 404) {
+    const stripped = stripDoiVersionSuffix(doi);
+    if (stripped !== doi) {
+      const retry = await tryFetch(stripped);
+      if (retry.work) return retry.work;
+    }
+  }
+  return null;
+}
+
+// Resolve a journal/venue name from a CrossRef work. Preprints (type
+// "posted-content") leave container-title empty and put the server name (e.g.
+// "medRxiv") in `institution`, so fall back to that, then publisher.
+function crossrefJournalName(work: any): string {
+  return (
+    work["container-title"]?.[0] ||
+    work.institution?.[0]?.name ||
+    (work.type === "posted-content" ? work.publisher || "" : "") ||
+    ""
+  );
+}
+
+// Fetch and parse a single work from CrossRef into an insert-ready publication
+// shape. Returns null when the DOI can't be resolved. Reused by the batch
+// import endpoint so imported papers get full enrichment.
+async function fetchCrossrefPublication(doi: string): Promise<{
+  title: string;
+  authors: string;
+  journal: string;
+  volume: string;
+  issue: string;
+  pages: string;
+  doi: string;
+  abstract: string;
+  publicationDate: Date | null;
+} | null> {
+  try {
+    const work = await fetchCrossrefWork(doi);
+    if (!work) return null;
+
+    const authors =
+      work.author
+        ?.map((a: any) => `${a.given || ""} ${a.family || ""}`.trim())
+        .filter(Boolean)
+        .join(", ") || "";
+
+    const dateParts = work.published?.["date-parts"]?.[0];
+    const publicationDate =
+      dateParts && dateParts[0]
+        ? new Date(dateParts[0], (dateParts[1] || 1) - 1, dateParts[2] || 1)
+        : null;
+
+    const journal = crossrefJournalName(work);
+
+    return {
+      title: work.title?.[0] || "Untitled work",
+      authors,
+      journal,
+      volume: work.volume || "",
+      issue: work.issue || "",
+      pages: work.page || "",
+      doi: work.DOI || doi,
+      abstract: work.abstract ? stripXml(work.abstract) : "",
+      publicationDate,
+    };
+  } catch {
+    return null;
+  }
+}
+
+// Strip XML/HTML tags and decode the handful of entities PubMed emits so the
+// extracted text (titles, abstracts) is plain readable text.
+function stripXml(input: string): string {
+  return input
+    .replace(/<[^>]+>/g, "")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&quot;/g, '"')
+    .replace(/&apos;/g, "'")
+    .replace(/&#x([0-9a-fA-F]+);/g, (_, h) => String.fromCodePoint(parseInt(h, 16)))
+    .replace(/&#(\d+);/g, (_, d) => String.fromCodePoint(parseInt(d, 10)))
+    .replace(/&amp;/g, "&")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+// Pull data for a single XML element by tag name (first match), tags stripped.
+function xmlText(xml: string, tag: string): string {
+  const m = xml.match(new RegExp(`<${tag}[^>]*>([\\s\\S]*?)</${tag}>`));
+  return m ? stripXml(m[1]) : "";
+}
+
+// PubMed enrichment: resolve a DOI to a PMID via E-utilities esearch, then
+// efetch the record to recover the abstract, PMID, authors, and bibliographic
+// fields that CrossRef often lacks (CrossRef rarely has abstracts and some
+// publishers — e.g. Science — aren't in CrossRef at all). Best-effort: any
+// failure returns null and the caller falls back to CrossRef/ORCID metadata.
+async function fetchPubmedByDoi(doi: string): Promise<{
+  pmid: string;
+  title: string;
+  authors: string;
+  journal: string;
+  volume: string;
+  issue: string;
+  pages: string;
+  abstract: string;
+  publicationDate: Date | null;
+} | null> {
+  try {
+    const eutils = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils";
+    const common = "tool=qbridge&email=research@qbridge.local";
+
+    const searchUrl = `${eutils}/esearch.fcgi?db=pubmed&term=${encodeURIComponent(
+      `${doi}[DOI]`
+    )}&retmode=json&${common}`;
+    const searchRes = await fetch(searchUrl);
+    if (!searchRes.ok) return null;
+    const searchData: any = await searchRes.json();
+    const pmid: string | undefined = searchData?.esearchresult?.idlist?.[0];
+    if (!pmid) return null;
+
+    const fetchUrl = `${eutils}/efetch.fcgi?db=pubmed&id=${encodeURIComponent(
+      pmid
+    )}&retmode=xml&${common}`;
+    const fetchRes = await fetch(fetchUrl);
+    if (!fetchRes.ok) return null;
+    const xml = await fetchRes.text();
+
+    // Authors: "ForeName LastName" (fall back to Initials / CollectiveName).
+    const authors: string[] = [];
+    const authorBlocks = xml.match(/<Author[^>]*>[\s\S]*?<\/Author>/g) ?? [];
+    for (const block of authorBlocks) {
+      const last = xmlText(block, "LastName");
+      const fore = xmlText(block, "ForeName") || xmlText(block, "Initials");
+      const collective = xmlText(block, "CollectiveName");
+      if (last) authors.push(`${fore ? fore + " " : ""}${last}`.trim());
+      else if (collective) authors.push(collective);
+    }
+
+    // Abstract: concatenate every AbstractText section (labeled or not).
+    const abstractParts: string[] = [];
+    const abstractBlocks =
+      xml.match(/<AbstractText[^>]*>[\s\S]*?<\/AbstractText>/g) ?? [];
+    for (const block of abstractBlocks) {
+      const labelMatch = block.match(/label="([^"]+)"/i);
+      const text = stripXml(block.replace(/<\/?AbstractText[^>]*>/g, ""));
+      if (text) {
+        abstractParts.push(labelMatch ? `${labelMatch[1]}: ${text}` : text);
+      }
+    }
+
+    // Pages: prefer MedlinePgn, fall back to ELocationID (e.g. article number).
+    let pages = xmlText(xml, "MedlinePgn");
+    if (!pages) {
+      const eloc = xml.match(/<ELocationID[^>]*>([\s\S]*?)<\/ELocationID>/);
+      if (eloc) pages = stripXml(eloc[1]);
+    }
+
+    // Publication date from the article's PubDate.
+    let publicationDate: Date | null = null;
+    const pubDateBlock = xml.match(/<PubDate>([\s\S]*?)<\/PubDate>/);
+    if (pubDateBlock) {
+      const yearStr = xmlText(pubDateBlock[1], "Year");
+      const year = parseInt(yearStr, 10);
+      if (!isNaN(year)) {
+        const monthStr = xmlText(pubDateBlock[1], "Month");
+        const dayStr = xmlText(pubDateBlock[1], "Day");
+        const months: Record<string, number> = {
+          jan: 0, feb: 1, mar: 2, apr: 3, may: 4, jun: 5,
+          jul: 6, aug: 7, sep: 8, oct: 9, nov: 10, dec: 11,
+        };
+        let month = 0;
+        if (monthStr) {
+          const numMonth = parseInt(monthStr, 10);
+          month = !isNaN(numMonth)
+            ? numMonth - 1
+            : months[monthStr.slice(0, 3).toLowerCase()] ?? 0;
+        }
+        const day = parseInt(dayStr, 10);
+        publicationDate = new Date(Date.UTC(year, month, isNaN(day) ? 1 : day));
+      }
+    }
+
+    return {
+      pmid,
+      title: xmlText(xml, "ArticleTitle"),
+      authors: authors.join(", "),
+      journal: xmlText(xml, "Title"),
+      volume: xmlText(xml, "Volume"),
+      issue: xmlText(xml, "Issue"),
+      pages,
+      abstract: abstractParts.join("\n\n"),
+      publicationDate,
+    };
+  } catch {
+    return null;
+  }
 }
 
 export async function registerRoutes(app: Express): Promise<Server> {
@@ -82,19 +543,64 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Object Storage Routes
-  app.post("/api/objects/upload", async (req, res) => {
+  app.post("/api/objects/upload", requireAuth, async (req, res) => {
     const objectStorageService = getObjectStorageService();
     try {
       const uploadURL = await objectStorageService.getObjectEntityUploadURL();
-      res.json({ uploadURL });
+      const objectPath = objectStorageService.normalizeObjectEntityPath(uploadURL);
+      const sessionUser = (req.session as any)?.user;
+      const userId = sessionUser?.id?.toString() ?? "demo";
+      const finalizeToken = generateFinalizeToken(objectPath, userId);
+      res.json({ uploadURL, objectPath, finalizeToken });
     } catch (error) {
       console.error("Error getting upload URL:", error);
       res.status(500).json({ error: "Failed to generate upload URL" });
     }
   });
+
+  // Finalize an upload by setting a private ACL on the object.
+  // Requires a valid HMAC finalizeToken issued by the upload-URL endpoint so
+  // that only the user who requested the upload can set ACL on that objectPath.
+  app.post("/api/uploads/finalize", requireAuth, async (req, res) => {
+    const { objectPath, finalizeToken } = req.body;
+    if (!objectPath || typeof objectPath !== "string") {
+      return res.status(400).json({ error: "objectPath is required" });
+    }
+    const authMode = getAuthMode();
+    const sessionUser = (req.session as any)?.user;
+
+    if (authMode !== "demo") {
+      // Real auth modes: require and verify the HMAC token.
+      if (!sessionUser) {
+        return res.status(401).json({ error: "Authentication required" });
+      }
+      if (!finalizeToken || typeof finalizeToken !== "string") {
+        return res.status(400).json({ error: "finalizeToken is required" });
+      }
+      const userId = sessionUser.id.toString();
+      if (!verifyFinalizeToken(objectPath, userId, finalizeToken)) {
+        return res.status(403).json({ error: "Invalid or expired finalize token" });
+      }
+      // Token is valid: set private ACL with this user as owner.
+      if (!isLocalStorage) {
+        const objectStorageService = new ObjectStorageService();
+        try {
+          await objectStorageService.trySetObjectEntityAclPolicy(objectPath, {
+            owner: userId,
+            visibility: "private",
+          });
+        } catch (error) {
+          console.error("Failed to set ACL on upload:", error);
+          return res.status(500).json({ error: "Failed to finalize upload" });
+        }
+      }
+    }
+    // demo mode or local storage: no GCS ACL to set; return success.
+    res.json({ ok: true });
+  });
   
   // Upload URL request for presigned uploads
-  app.post("/api/uploads/request-url", async (req, res) => {
+  app.post("/api/uploads/request-url", requireAuth, async (req, res) => {
     const objectStorageService = new ObjectStorageService();
     try {
       const { name, size, contentType } = req.body;
@@ -104,10 +610,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
       
       const uploadURL = await objectStorageService.getObjectEntityUploadURL();
       const objectPath = objectStorageService.normalizeObjectEntityPath(uploadURL);
+      const sessionUser = (req.session as any)?.user;
+      const userId = sessionUser?.id?.toString() ?? "demo";
+      const finalizeToken = generateFinalizeToken(objectPath, userId);
       
       res.json({
         uploadURL,
         objectPath,
+        finalizeToken,
         metadata: { name, size, contentType },
       });
     } catch (error) {
@@ -116,12 +626,54 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
   
-  // Serve uploaded objects
+  // Serve uploaded objects — single consolidated handler for GCS and local storage.
+  //
+  // Authorization matrix:
+  //   demo mode (AUTH_MODE=demo) → open access (entire app is unauthenticated in this mode)
+  //   GCS, real auth, ACL=public → world-readable
+  //   GCS, real auth, ACL=private or no ACL → require session + canAccessObjectEntity();
+  //       no-ACL objects return false (deny-by-default) unless finalized via
+  //       POST /api/uploads/finalize which sets owner+private ACL after upload.
+  //   Local storage, real auth   → require session only (no GCS ACL metadata)
   app.get("/objects/:objectPath(*)", async (req, res) => {
-    const objectStorageService = new ObjectStorageService();
+    const objectStorageService = getObjectStorageService();
     try {
       const objectFile = await objectStorageService.getObjectEntityFile(req.path);
-      await objectStorageService.downloadObject(objectFile, res);
+
+      const authMode = getAuthMode();
+      const sessionUser = (req.session as any)?.user;
+
+      if (authMode !== "demo") {
+        // Real authentication modes: enforce access control.
+        if (!isLocalStorage) {
+          const aclPolicy = await getObjectAclPolicy(objectFile as any);
+          if (aclPolicy?.visibility !== "public") {
+            // Non-public (private ACL or no ACL): require a real session.
+            if (!sessionUser) {
+              return res.status(401).json({ error: "Authentication required" });
+            }
+            // Route all private/no-ACL decisions through canAccessObjectEntity so
+            // deny-by-default is enforced: no-ACL → false, private+non-owner → false.
+            const canAccess = await (objectStorageService as ObjectStorageService).canAccessObjectEntity({
+              userId: sessionUser.id.toString(),
+              objectFile: objectFile as any,
+              requestedPermission: ObjectPermission.READ,
+            });
+            if (!canAccess) {
+              return res.status(403).json({ error: "Access denied" });
+            }
+          }
+          // aclPolicy?.visibility === "public" → world-readable, fall through to download.
+        } else {
+          // Local storage: no GCS ACL metadata; session presence is the sole gate.
+          if (!sessionUser) {
+            return res.status(401).json({ error: "Authentication required" });
+          }
+        }
+      }
+      // demo mode: fall through to download with no restriction.
+
+      await objectStorageService.downloadObject(objectFile as any, res);
     } catch (error) {
       console.error("Error serving object:", error);
       if (error instanceof ObjectNotFoundError) {
@@ -132,39 +684,76 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Local filesystem upload handler (used when STORAGE_TYPE=local)
-  app.put("/api/objects/local-upload/:id", async (req, res) => {
+  app.put("/api/objects/local-upload/:id", requireAuth, async (req, res) => {
     if (!isLocalStorage) return res.status(404).end();
-    try {
-      const { id } = req.params;
-      const chunks: Buffer[] = [];
-      req.on("data", (chunk: Buffer) => chunks.push(chunk));
-      req.on("end", async () => {
+    const { id } = req.params;
+    const chunks: Buffer[] = [];
+    req.on("data", (chunk: Buffer) => chunks.push(chunk));
+    req.on("end", async () => {
+      try {
         const localService = new LocalObjectStorageService();
         await localService.saveFile(id, Buffer.concat(chunks), req.headers["content-type"] || "application/octet-stream");
         res.status(200).end();
-      });
-      req.on("error", () => res.status(500).json({ error: "Upload failed" }));
-    } catch (error) {
-      console.error("Local upload error:", error);
-      res.status(500).json({ error: "Upload failed" });
-    }
+      } catch (err: any) {
+        console.error("Local upload error:", err);
+        // localFilePath throws for non-UUID ids and path traversal attempts.
+        const status = err?.message?.includes("Invalid file id") || err?.message?.includes("Path traversal") ? 400 : 500;
+        if (!res.headersSent) res.status(status).json({ error: err?.message || "Upload failed" });
+      }
+    });
+    req.on("error", () => { if (!res.headersSent) res.status(500).json({ error: "Upload failed" }); });
   });
 
+  // Returns true only if the path is a server-issued /objects/... reference.
+  // The ObjectUploader stores objectPath (e.g. "/objects/<uuid>") as the file URL
+  // after upload, so this is the expected form. Rejecting everything else prevents
+  // SSRF and arbitrary GCS object reads: object paths are resolved server-side via
+  // getObjectEntityFile(), which validates the path against PRIVATE_OBJECT_DIR.
+  function isAllowedObjectPath(path: string): boolean {
+    if (typeof path !== "string") return false;
+    // Must be a server-issued /objects/<non-empty-id> path, no query string or fragment.
+    return /^\/objects\/[^?#]+$/.test(path);
+  }
+
   // Certificate processing - batch detection with OCR
-  app.post("/api/certificates/process-batch", async (req, res) => {
+  app.post("/api/certificates/process-batch", requireAuth, async (req, res) => {
     try {
-      const { fileUrls } = req.body;
+      const { fileUrls, fileNames } = req.body;
       if (!fileUrls || !Array.isArray(fileUrls)) {
         return res.status(400).json({ message: "File URLs array is required" });
       }
+      const sessionUser = (req.session as any)?.user;
+      const callerId: string | undefined = sessionUser?.id?.toString();
 
       const modules = await storage.getCertificationModules();
       const results = [];
 
-      for (const fileUrl of fileUrls) {
+      for (let fileIndex = 0; fileIndex < fileUrls.length; fileIndex++) {
+        const fileUrl = fileUrls[fileIndex];
+        // Prefer the real, client-supplied filename; fall back to the object
+        // path basename (a UUID) only when no name was provided.
+        const providedName = Array.isArray(fileNames) ? fileNames[fileIndex] : undefined;
+        const displayName =
+          (providedName && String(providedName).trim()) ||
+          String(fileUrl).split('/').pop();
         try {
+          // Security: only accept server-issued /objects/... paths.
+          // This prevents SSRF and arbitrary GCS object reads. The path is resolved
+          // server-side via getObjectEntityFile(), which validates it against
+          // PRIVATE_OBJECT_DIR so it can only address files this app uploaded.
+          if (!isAllowedObjectPath(fileUrl)) {
+            results.push({
+              fileName: displayName,
+              filePath: fileUrl,
+              originalUrl: fileUrl,
+              status: 'error',
+              error: 'File path is not a valid server-issued upload reference.'
+            });
+            continue;
+          }
+
           let detectedData: any = {
-            fileName: fileUrl.split('/').pop(),
+            fileName: displayName,
             filePath: fileUrl,
             originalUrl: fileUrl,
             status: 'processing',
@@ -173,6 +762,79 @@ export async function registerRoutes(app: Express): Promise<Server> {
           };
 
           const startTime = Date.now();
+
+          // Resolve the uploaded file server-side via the object storage service.
+          // getObjectEntityFile() validates the path against PRIVATE_OBJECT_DIR and
+          // confirms the object exists in GCS — no caller-controlled URL is followed.
+          const objectStorageService = getObjectStorageService();
+          let gcsFile: any;
+          try {
+            gcsFile = await objectStorageService.getObjectEntityFile(fileUrl);
+          } catch (resolveError: any) {
+            results.push({
+              ...detectedData,
+              status: 'error',
+              error: 'Uploaded file not found in storage.'
+            });
+            continue;
+          }
+
+          // Authorization: verify the caller is allowed to read this object.
+          // In demo mode the whole app is open and /api/uploads/finalize does
+          // NOT set any GCS ACL, so there is no owner to check against — skip
+          // the ACL check (otherwise every demo upload is denied and OCR never
+          // runs). In real-auth modes finalize sets the uploader as owner, so
+          // we enforce the GCS ACL ownership check here.
+          if (!isLocalStorage && getAuthMode() !== "demo") {
+            try {
+              const canAccess = await (objectStorageService as ObjectStorageService).canAccessObjectEntity({
+                userId: callerId,
+                objectFile: gcsFile,
+                requestedPermission: ObjectPermission.READ,
+              });
+              if (!canAccess) {
+                results.push({
+                  ...detectedData,
+                  status: 'error',
+                  error: 'Access denied: you are not the owner of this file.'
+                });
+                continue;
+              }
+            } catch (aclError) {
+              // If ACL check fails (e.g. no ACL set yet), deny by default.
+              results.push({
+                ...detectedData,
+                status: 'error',
+                error: 'Access denied: could not verify file ownership.'
+              });
+              continue;
+            }
+          }
+
+          // Download the file content once from the authoritative GCS File object.
+          // All subsequent processing (type detection, OCR) uses this buffer — no
+          // further outbound fetch calls based on caller-supplied input are made.
+          let fileBuffer: Buffer;
+          let contentType = '';
+          try {
+            // Get content type from GCS metadata (no outbound fetch to user URL).
+            try {
+              const [metadata] = await gcsFile.getMetadata();
+              contentType = metadata.contentType || '';
+              console.log(`Content-Type from GCS metadata: ${contentType}`);
+            } catch (metaError) {
+              console.log('Could not read GCS metadata, will detect from bytes');
+            }
+            const [fileContent] = await gcsFile.download();
+            fileBuffer = fileContent;
+          } catch (downloadError: any) {
+            results.push({
+              ...detectedData,
+              status: 'error',
+              error: 'Failed to download file from storage.'
+            });
+            continue;
+          }
           
           // Create initial PDF import history entry
           const historyEntry = await storage.createPdfImportHistoryEntry({
@@ -183,163 +845,49 @@ export async function registerRoutes(app: Express): Promise<Server> {
             ocrProvider: 'unknown'
           });
 
-          // Check file type first, before attempting any OCR
-          let contentType = '';
+          // Determine file type from GCS metadata content-type + magic bytes in the
+          // downloaded buffer. No user-supplied URL is fetched for this step.
           let isPDF = false;
           let isValidFile = false;
-          
-          try {
-            console.log('Checking file type via HEAD request...');
-            const headResponse = await fetch(fileUrl, { method: 'HEAD' });
-            contentType = headResponse.headers.get('content-type') || '';
-            console.log(`Content-Type: ${contentType}`);
-            
-            // Check for supported file types - be more lenient with detection
-            if (contentType.includes('pdf') || contentType.includes('application/pdf')) {
+
+          if (contentType.includes('pdf') || contentType.includes('application/pdf')) {
+            isPDF = true;
+            isValidFile = true;
+            console.log('PDF detected via Content-Type metadata');
+          } else if (contentType.includes('image/')) {
+            isValidFile = true;
+            console.log('Image file detected via Content-Type metadata');
+          } else {
+            // Fall back to magic-byte detection from the already-downloaded buffer.
+            const bytes = new Uint8Array(fileBuffer.buffer, fileBuffer.byteOffset, Math.min(fileBuffer.byteLength, 10));
+            console.log(`File signature bytes: ${Array.from(bytes).map(b => b.toString(16).padStart(2, '0')).join(' ')}`);
+            if (bytes.length >= 4 && bytes[0] === 0x25 && bytes[1] === 0x50 && bytes[2] === 0x44 && bytes[3] === 0x46) {
+              console.log('PDF detected via magic bytes (%PDF)');
               isPDF = true;
               isValidFile = true;
-              console.log('PDF detected via Content-Type');
-            } else if (
-              contentType.includes('image/') || 
-              contentType.includes('image/jpeg') || 
-              contentType.includes('image/jpg') || 
-              contentType.includes('image/png') || 
-              contentType.includes('image/gif') || 
-              contentType.includes('image/bmp') ||
-              contentType.includes('image/tiff')
-            ) {
+            } else if (bytes.length >= 4 && bytes[0] === 0x89 && bytes[1] === 0x50 && bytes[2] === 0x4E && bytes[3] === 0x47) {
+              console.log('PNG detected via magic bytes');
               isValidFile = true;
-              console.log('Image file detected via Content-Type');
+            } else if (bytes.length >= 3 && bytes[0] === 0xFF && bytes[1] === 0xD8 && bytes[2] === 0xFF) {
+              console.log('JPEG detected via magic bytes');
+              isValidFile = true;
             } else {
-              // For unknown content types, try filename-based detection first
-              console.log(`Unknown content type: ${contentType}, checking filename...`);
-              try {
-                const url = new URL(fileUrl);
-                const pathSegments = url.pathname.split('/');
-                const fileName = pathSegments[pathSegments.length - 1];
-                
-                if (fileName && fileName.toLowerCase().includes('pdf')) {
-                  isPDF = true;
-                  isValidFile = true;
-                  console.log('PDF detected via filename despite unknown content-type');
-                } else if (fileName && /\.(jpg|jpeg|png|gif|bmp|tiff)$/i.test(fileName)) {
-                  isValidFile = true;
-                  console.log('Image file detected via filename despite unknown content-type');
-                } else {
-                  // Try to download and check file headers as last resort
-                  console.log('Attempting to detect file type from file headers...');
-                  try {
-                    // Try a small GET request to check file signature
-                    const sampleResponse = await fetch(fileUrl, { 
-                      headers: { 'Range': 'bytes=0-10' }
-                    });
-                    
-                    if (sampleResponse.ok) {
-                      const buffer = await sampleResponse.arrayBuffer();
-                      const bytes = new Uint8Array(buffer);
-                      
-                      console.log(`File signature bytes: ${Array.from(bytes).map(b => b.toString(16).padStart(2, '0')).join(' ')}`);
-                      
-                      // Check for PNG signature (89 50 4E 47)
-                      if (bytes.length >= 4 && bytes[0] === 0x89 && bytes[1] === 0x50 && bytes[2] === 0x4E && bytes[3] === 0x47) {
-                        console.log('PNG file detected via file signature');
-                        isValidFile = true;
-                      }
-                      // Check for JPEG signature (FF D8 FF)
-                      else if (bytes.length >= 3 && bytes[0] === 0xFF && bytes[1] === 0xD8 && bytes[2] === 0xFF) {
-                        console.log('JPEG file detected via file signature');
-                        isValidFile = true;
-                      }
-                      // Check for PDF signature (%PDF)
-                      else if (bytes.length >= 4 && bytes[0] === 0x25 && bytes[1] === 0x50 && bytes[2] === 0x44 && bytes[3] === 0x46) {
-                        console.log('PDF file detected via file signature');
-                        isPDF = true;
-                        isValidFile = true;
-                      } else {
-                        console.log('Unknown file signature - assuming image format for OCR processing');
-                        isValidFile = true; // Default to allowing the file for Tesseract
-                      }
-                    } else {
-                      console.log('Could not fetch file headers, assuming image format for Tesseract processing');
-                      isValidFile = true; // Default to allowing the file
-                    }
-                  } catch (detectionError) {
-                    console.log('File signature detection failed, assuming image format');
-                    isValidFile = true; // Default to allowing the file
-                  }
-                }
-              } catch (urlError) {
-                // If all detection fails, still try as PDF since user uploaded for certificate processing
-                console.log('Filename detection failed, assuming PDF for certificate processing');
-                isPDF = true;
-                isValidFile = true;
-              }
-            }
-          } catch (headerError) {
-            console.log('Could not detect file type via headers, checking URL...');
-            // Fallback: try URL-based detection
-            try {
-              const url = new URL(fileUrl);
-              const pathSegments = url.pathname.split('/');
-              const fileName = pathSegments[pathSegments.length - 1];
-              if (fileName && fileName.toLowerCase().includes('pdf')) {
-                isPDF = true;
-                isValidFile = true;
-                console.log('PDF detected via filename in URL');
-              } else if (fileName && /\.(jpg|jpeg|png|gif|bmp|tiff)$/i.test(fileName)) {
-                isValidFile = true;
-                console.log('Image file detected via filename in URL');
-              } else {
-                console.log('Could not detect valid file type from URL');
-                detectedData.status = 'error';
-                detectedData.error = 'Could not determine file type. Please ensure file is a PDF or image format.';
-                
-                // Update history entry with error
-                await storage.updatePdfImportHistoryEntry(historyEntry.id, {
-                  processingStatus: 'failed',
-                  errorMessage: detectedData.error,
-                  
-                  processingDuration: Date.now() - startTime
-                });
-                
-                results.push(detectedData);
-                continue; // Skip OCR processing
-              }
-            } catch (urlError) {
-              console.log('Could not detect file type from URL either');
-              detectedData.status = 'error';
-              detectedData.error = 'Could not determine file type. Please ensure file is a PDF or image format.';
-              
-              // Update history entry with error
-              await storage.updatePdfImportHistoryEntry(historyEntry.id, {
-                processingStatus: 'failed',
-                errorMessage: detectedData.error,
-                
-                processingTimeMs: Date.now() - startTime
-              });
-              
-              results.push(detectedData);
-              continue; // Skip OCR processing
+              console.log('Unknown file signature - treating as image for OCR attempt');
+              isValidFile = true;
             }
           }
-          
-          // Only proceed if we have a valid file type
+
           if (!isValidFile) {
             console.log('File type validation failed, skipping OCR processing');
             continue;
           }
 
           // Get OCR configuration and perform OCR based on settings
-          // Get OCR service configuration outside try block to ensure provider is available in catch blocks
           const ocrConfig = await storage.getSystemConfiguration('ocr_service');
-          const ocrSettings = ocrConfig?.value as any || { provider: 'ocr_space' }; // Default to OCR.space for PDF support
-          
-          // Auto-switch to OCR.space for PDFs since Tesseract doesn't support them
+          const ocrSettings = ocrConfig?.value as any || { provider: 'ocr_space' };
           let provider = ocrSettings.provider;
 
           try {
-            
-            // Use the configured OCR provider, but warn if using Tesseract for PDFs
             if (isPDF && provider === 'tesseract') {
               console.log('Warning: Using Tesseract for PDF processing - may have limited accuracy');
             }
@@ -349,118 +897,70 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
             let extractedText = '';
 
-            if (provider === 'ocr_space') {
-              // Use OCR.space API
-              const controller = new AbortController();
-              const timeoutId = setTimeout(() => controller.abort(), 30000);
+            // CITI PDFs are usually text-based (not scanned images). Extract the
+            // embedded text layer directly first — it's far more accurate than OCR
+            // for module names, record IDs and dates. Only fall back to OCR when
+            // the PDF has little/no embedded text (i.e. it's a scanned image).
+            if (isPDF) {
+              try {
+                const pdfText = await extractPdfText(Buffer.from(fileBuffer));
+                if (pdfText && pdfText.replace(/\s/g, '').length >= 100) {
+                  extractedText = pdfText;
+                  provider = 'pdf-text';
+                  console.log(`Extracted embedded PDF text (${pdfText.length} chars) — skipping OCR`);
+                } else {
+                  console.log('PDF has little/no embedded text — falling back to OCR (likely scanned image)');
+                }
+              } catch (pdfErr: any) {
+                console.error('Embedded PDF text extraction failed, falling back to OCR:', pdfErr?.message);
+              }
+            }
 
+            if (!extractedText && provider === 'ocr_space') {
+              // Use OCR.space API
               try {
                 console.log('Attempting OCR.space API call...');
                 console.log('API Key available:', !!(process.env.OCR_SPACE_API_KEY || ocrSettings.ocrSpaceApiKey));
-                console.log('File URL length:', fileUrl.length);
-                
-                // OCR.space API uses GET with query parameters
+
                 const apiKey = process.env.OCR_SPACE_API_KEY || ocrSettings.ocrSpaceApiKey || 'helloworld';
-                
-                // Download file using GCS client (bypasses URL access restrictions)
-                console.log('Downloading file from GCS for OCR.space upload...');
-                
-                // Parse GCS URL to extract bucket and object name
-                // URL format: https://storage.googleapis.com/bucket-name/.private/uploads/filename?X-Goog-Algorithm=...
-                const urlParts = fileUrl.split('?')[0]; // Remove query params
-                const pathParts = urlParts.split('/');
-                const bucketName = pathParts[3]; // storage.googleapis.com/BUCKET/...
-                const objectName = pathParts.slice(4).join('/'); // Everything after bucket name
-                
-                console.log(`Downloading from bucket: ${bucketName}, object: ${objectName}`);
-                
-                // Import the GCS client
-                const { objectStorageClient } = await import('./objectStorage');
-                const bucket = objectStorageClient.bucket(bucketName);
-                const file = bucket.file(objectName);
-                
-                // Download file content
-                const [fileContent] = await file.download();
-                const fileBuffer = fileContent.buffer;
-                const fileBlob = new Blob([fileBuffer], { type: 'application/pdf' });
-                
-                console.log('Uploading file to OCR.space...', fileBlob.size, 'bytes');
-                
-                // Use file upload instead of URL method (more reliable)
-                const formData = new FormData();
-                formData.append('file', fileBlob, 'certificate.pdf');
-                formData.append('apikey', apiKey);
-                formData.append('language', 'eng');
-                formData.append('isOverlayRequired', 'false');
-                formData.append('filetype', 'PDF');
-                formData.append('detectOrientation', 'false');
-                formData.append('isCreateSearchablePdf', 'false');
-                formData.append('isSearchablePdfHideTextLayer', 'false');
-                formData.append('scale', 'true');
-                formData.append('isTable', 'false');
-                formData.append('OCREngine', '2');
 
-                const ocrResponse = await fetch('https://api.ocr.space/parse/image', {
-                  method: 'POST',
-                  body: formData,
-                  signal: controller.signal
-                });
-                
-                console.log('OCR.space response status:', ocrResponse.status);
-                console.log('OCR.space response headers:', Object.fromEntries(ocrResponse.headers.entries()));
-
-                clearTimeout(timeoutId);
-
-                if (ocrResponse.ok) {
-                  const ocrResult = await ocrResponse.json();
-                  console.log('OCR.space API Response:', JSON.stringify(ocrResult, null, 2));
-                  
-                  // Check for page limit error (E301) - reject files with >2 pages
-                  if (ocrResult.IsErroredOnProcessing === true) {
-                    const errorMessages = Array.isArray(ocrResult.ErrorMessage) ? ocrResult.ErrorMessage : [ocrResult.ErrorMessage];
-                    const hasPageLimitError = errorMessages.some((msg: string) => 
-                      msg && msg.includes('maximum page limit') && msg.includes('3')
-                    );
-                    
-                    if (hasPageLimitError) {
-                      console.error('Document exceeds 2-page limit, rejecting');
-                      throw new Error('Document rejected: CITI certificates should be 2 pages maximum. Multi-page merged reports are not supported. Please upload individual certificate reports only.');
+                // OCR.space free tier rejects PDFs with more than 3 pages. Split
+                // multi-page PDFs (e.g. CITI completion reports) into ≤3-page chunks,
+                // OCR each, then stitch the text back together. Non-PDFs and short
+                // PDFs go through as a single buffer.
+                let buffersToOcr: Buffer[] = [Buffer.from(fileBuffer)];
+                if (isPDF) {
+                  try {
+                    buffersToOcr = await splitPdfIntoChunks(Buffer.from(fileBuffer), 3);
+                    if (buffersToOcr.length > 1) {
+                      console.log(`PDF split into ${buffersToOcr.length} chunk(s) to stay within OCR page limit`);
                     }
-                    
-                    console.error('OCR processing error:', errorMessages);
-                    throw new Error(errorMessages.join(', ') || 'OCR processing failed');
+                  } catch (splitErr: any) {
+                    console.error('PDF split failed, sending whole file:', splitErr?.message);
+                    buffersToOcr = [Buffer.from(fileBuffer)];
                   }
-                  
-                  if (ocrResult.IsErroredOnProcessing === false && ocrResult.ParsedResults?.length > 0) {
-                    extractedText = ocrResult.ParsedResults[0].ParsedText;
-                    console.log(`OCR Extracted Text Length: ${extractedText.length} characters`);
-                    console.log('First 500 characters of extracted text:', extractedText.substring(0, 500));
-                  } else {
-                    console.error('OCR processing error:', ocrResult.ErrorMessage || ocrResult);
-                    throw new Error(ocrResult.ErrorMessage || 'OCR processing failed');
-                  }
-                } else {
-                  const errorText = await ocrResponse.text();
-                  console.error('OCR.space HTTP error:', ocrResponse.status, errorText);
-                  
-                  // Handle rate limiting specifically
-                  if (ocrResponse.status === 403) {
-                    if (errorText.includes('180 number of times')) {
-                      throw new Error('RATE_LIMIT: OCR service rate limit exceeded. Please wait about an hour before processing more certificates.');
-                    }
-                  }
-                  
-                  throw new Error(`Failed to connect to OCR.space service: ${ocrResponse.status}`);
                 }
+
+                const chunkTexts: string[] = [];
+                for (let chunkIndex = 0; chunkIndex < buffersToOcr.length; chunkIndex++) {
+                  console.log(`Uploading chunk ${chunkIndex + 1}/${buffersToOcr.length} to OCR.space (${buffersToOcr[chunkIndex].byteLength} bytes)...`);
+                  const chunkText = await ocrSpaceExtractText(buffersToOcr[chunkIndex], apiKey, isPDF, contentType);
+                  if (chunkText && chunkText.trim().length > 0) {
+                    chunkTexts.push(chunkText);
+                  }
+                }
+
+                extractedText = chunkTexts.join('\n');
+                console.log(`OCR Extracted Text Length: ${extractedText.length} characters across ${buffersToOcr.length} chunk(s)`);
+                console.log('First 500 characters of extracted text:', extractedText.substring(0, 500));
               } catch (apiError: any) {
                 console.error('OCR.space failed:', apiError.message);
-                clearTimeout(timeoutId);
-                
+
                 // Don't fallback to Tesseract for rate limit errors or 403 errors
                 if (apiError.message && (apiError.message.includes('RATE_LIMIT') || apiError.message.includes('403'))) {
                   throw new Error('OCR service temporarily unavailable (rate limit). Please wait about an hour and try again.');
                 }
-                
+
                 console.log('Falling back to Tesseract.js...');
                 // Don't throw error yet, let it fall back to Tesseract
                 extractedText = null; // Signal to use fallback
@@ -480,40 +980,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
               // Use Tesseract.js for image processing
               console.log('Attempting Tesseract.js processing for image file...');
               try {
-                // Check file format first - handle signed URLs properly
-                let fileExtension = '';
-                try {
-                  // For signed URLs, try to extract the original filename or use Content-Type
-                  const url = new URL(fileUrl);
-                  const pathSegments = url.pathname.split('/');
-                  const fileName = pathSegments[pathSegments.length - 1];
-                  
-                  // If we have a clean filename with extension, use it
-                  if (fileName && fileName.includes('.')) {
-                    fileExtension = fileName.split('.').pop()?.toLowerCase() || '';
-                  } else {
-                    // For signed URLs without clear extensions, try to fetch headers
-                    try {
-                      const headResponse = await fetch(fileUrl, { method: 'HEAD' });
-                      const contentType = headResponse.headers.get('content-type') || '';
-                      
-                      if (contentType.includes('image/')) {
-                        // Extract image format from content type
-                        const imageType = contentType.split('/')[1]?.split(';')[0];
-                        fileExtension = imageType || '';
-                      }
-                    } catch (headerError) {
-                      console.log('Could not fetch file headers, proceeding with OCR attempt');
-                    }
-                  }
-                } catch (urlError) {
-                  console.log('Could not parse URL for format detection, proceeding with OCR attempt');
-                }
-
-                const supportedFormats = ['jpg', 'jpeg', 'png', 'gif', 'bmp', 'tiff', 'webp'];
-                if (fileExtension && !supportedFormats.includes(fileExtension)) {
-                  console.log(`Detected file format: ${fileExtension}, proceeding with OCR attempt as detection may be inaccurate for signed URLs`);
-                }
+                // Use the already-downloaded fileBuffer for Tesseract recognition.
+                // Content type was determined from GCS metadata above, no HEAD fetch needed.
+                const detectedFileType = contentType.includes('image/') ? contentType.split('/')[1]?.split(';')[0] : '';
+                console.log(`Tesseract processing buffer (${fileBuffer.byteLength} bytes), content-type: ${contentType || 'unknown'}`);
 
                 const { createWorker } = await import('tesseract.js');
                 let worker = null;
@@ -522,7 +992,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
                   worker = await createWorker(ocrSettings.tesseractOptions?.language || 'eng');
                   
                   // Add timeout to prevent hanging and wrap recognition in additional error handling
-                  const recognitionPromise = worker.recognize(fileUrl).catch((err: any) => {
+                  // Pass the Buffer directly — Tesseract.js accepts Buffer/ArrayBuffer, so no
+                  // URL-based network fetch is made here.
+                  const recognitionPromise = worker.recognize(fileBuffer).catch((err: any) => {
                     console.error('Tesseract recognition failed:', err);
                     throw new Error(`Image recognition failed: ${err?.message || 'Unknown error'}`);
                   });
@@ -637,7 +1109,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           results.push(detectedData);
         } catch (error: any) {
           results.push({
-            fileName: fileUrl.split('/').pop(),
+            fileName: displayName,
             filePath: fileUrl,
             originalUrl: fileUrl,
             status: 'error',
@@ -657,25 +1129,253 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
 
+  // Extract the embedded text layer from a (text-based) PDF. CITI certificates
+  // and completion reports are normally generated as text PDFs, so reading the
+  // text layer directly is far more accurate than OCR. Returns '' when the PDF
+  // has no usable text (e.g. a scanned image), signalling the caller to OCR.
+  async function extractPdfText(buffer: Buffer): Promise<string> {
+    const { PDFParse } = await import('pdf-parse');
+    const parser = new PDFParse({ data: new Uint8Array(buffer) });
+    try {
+      const result = await parser.getText();
+      return result?.text || '';
+    } finally {
+      await parser.destroy?.();
+    }
+  }
+
+  // Split a PDF into chunks of at most `pagesPerChunk` pages so each chunk stays
+  // within OCR.space's free-tier 3-page limit. CITI completion reports are often
+  // 4+ pages (Requirements + Transcript) and would otherwise be rejected outright.
+  // Returns the original buffer unchanged when the PDF is already within the limit
+  // or when it can't be parsed.
+  async function splitPdfIntoChunks(buffer: Buffer, pagesPerChunk = 3): Promise<Buffer[]> {
+    const { PDFDocument } = await import('pdf-lib');
+    const src = await PDFDocument.load(buffer, { ignoreEncryption: true });
+    const total = src.getPageCount();
+    if (total <= pagesPerChunk) {
+      return [buffer];
+    }
+    const chunks: Buffer[] = [];
+    for (let start = 0; start < total; start += pagesPerChunk) {
+      const chunkDoc = await PDFDocument.create();
+      const indices: number[] = [];
+      for (let i = start; i < Math.min(start + pagesPerChunk, total); i++) {
+        indices.push(i);
+      }
+      const copied = await chunkDoc.copyPages(src, indices);
+      copied.forEach((p) => chunkDoc.addPage(p));
+      const bytes = await chunkDoc.save();
+      chunks.push(Buffer.from(bytes));
+    }
+    return chunks;
+  }
+
+  // Send a single buffer to OCR.space and return the concatenated text across all
+  // pages in the response. Throws on rate limit, HTTP, or processing errors.
+  async function ocrSpaceExtractText(
+    buffer: Buffer,
+    apiKey: string,
+    isPDF: boolean,
+    contentType: string,
+  ): Promise<string> {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 30000);
+    try {
+      const fileBlob = new Blob([buffer], {
+        type: isPDF ? 'application/pdf' : (contentType || 'application/octet-stream'),
+      });
+      const formData = new FormData();
+      formData.append('file', fileBlob, isPDF ? 'certificate.pdf' : 'certificate.img');
+      formData.append('apikey', apiKey);
+      formData.append('language', 'eng');
+      formData.append('isOverlayRequired', 'false');
+      if (isPDF) {
+        formData.append('filetype', 'PDF');
+      }
+      formData.append('detectOrientation', 'false');
+      formData.append('isCreateSearchablePdf', 'false');
+      formData.append('isSearchablePdfHideTextLayer', 'false');
+      formData.append('scale', 'true');
+      formData.append('isTable', 'false');
+      formData.append('OCREngine', '2');
+
+      const ocrResponse = await fetch('https://api.ocr.space/parse/image', {
+        method: 'POST',
+        body: formData,
+        signal: controller.signal,
+      });
+
+      if (!ocrResponse.ok) {
+        const errorText = await ocrResponse.text();
+        if (ocrResponse.status === 403 && errorText.includes('180 number of times')) {
+          throw new Error('RATE_LIMIT: OCR service rate limit exceeded. Please wait about an hour before processing more certificates.');
+        }
+        throw new Error(`Failed to connect to OCR.space service: ${ocrResponse.status}`);
+      }
+
+      const ocrResult = await ocrResponse.json();
+      if (ocrResult.IsErroredOnProcessing === true) {
+        const errorMessages = Array.isArray(ocrResult.ErrorMessage) ? ocrResult.ErrorMessage : [ocrResult.ErrorMessage];
+        throw new Error(errorMessages.join(', ') || 'OCR processing failed');
+      }
+      if (ocrResult.ParsedResults?.length > 0) {
+        return ocrResult.ParsedResults.map((r: any) => r.ParsedText || '').join('\n');
+      }
+      throw new Error(ocrResult.ErrorMessage || 'OCR processing failed');
+    } finally {
+      clearTimeout(timeoutId);
+    }
+  }
+
   // Helper function to detect CITI document type
   function detectCITIDocumentType(text: string): 'certificate' | 'report' | 'unknown' {
-    // Certificate format indicators
-    if (text.includes('This is to certify that:') || 
-        text.includes('Has completed the following CITI Program course:') ||
-        text.includes('Collaborative Institutional Training Initiative')) {
-      return 'certificate';
-    }
-    
-    // Report format indicators  
-    if (text.includes('COMPLETION REPORT') || 
-        text.includes('COURSEWORK REQUIREMENTS') ||
-        text.includes('Part 1 of 2') || 
-        text.includes('Part 2 of 2')) {
+    // Report format indicators are checked FIRST. Completion reports also contain
+    // the generic "Collaborative Institutional Training Initiative" line (in their
+    // footer), so checking certificate markers first would misclassify reports.
+    if (/completion report/i.test(text) ||
+        /coursework requirements/i.test(text) ||
+        /coursework transcript/i.test(text) ||
+        /part 1 of 2/i.test(text) ||
+        /part 2 of 2/i.test(text)) {
       return 'report';
     }
-    
+
+    // Certificate format indicators
+    if (/this is to certify that/i.test(text) ||
+        /has completed the following citi program course/i.test(text) ||
+        /collaborative institutional training initiative/i.test(text)) {
+      return 'certificate';
+    }
+
     return 'unknown';
   }
+
+  // --- Certification module matching helpers ---------------------------------
+  // Stopwords that carry no discriminating meaning for course names.
+  const MODULE_STOPWORDS = new Set([
+    'the', 'of', 'and', 'for', 'with', 'a', 'an', 'to', 'in', 'on',
+    'course', 'training', 'series', 'complete', 'program', 'citi', 'stage'
+  ]);
+
+  // Normalize a course/module name: lowercase, strip parentheticals + punctuation.
+  function normalizeModuleName(s: string): string {
+    return (s || '')
+      .toLowerCase()
+      .replace(/\([^)]*\)/g, ' ')
+      .replace(/[^a-z0-9\s]/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
+  }
+
+  // Significant (non-stopword) tokens used for fuzzy overlap matching.
+  function significantTokens(s: string): string[] {
+    return normalizeModuleName(s).split(' ').filter(t => t && !MODULE_STOPWORDS.has(t));
+  }
+
+  // Pull an abbreviation out of a parenthetical, e.g. "Animal Biosafety (ABS)" -> "abs".
+  function extractAbbrev(name: string): string | null {
+    const m = (name || '').match(/\(([^)]+)\)/);
+    if (m) {
+      const inner = m[1].trim();
+      if (/^[A-Za-z]{2,8}$/.test(inner)) return inner.toLowerCase();
+    }
+    return null;
+  }
+
+  // Strict module matcher. Returns a module only on a confident match,
+  // otherwise null so the caller can flag the course as a NEW module.
+  // Deliberately conservative: better to create a new module than mis-assign.
+  function matchCertificationModule(courseName: string, modules: any[]): any | null {
+    if (!courseName) return null;
+    const courseNorm = normalizeModuleName(courseName);
+    if (!courseNorm) return null;
+    const courseAbbrev = extractAbbrev(courseName);
+    const courseTokens = significantTokens(courseName);
+
+    // 1) Exact normalized name match (parentheticals/punctuation ignored).
+    let found = modules.find(m => normalizeModuleName(m.name) === courseNorm);
+    if (found) return found;
+
+    // 2) Abbreviation match (e.g. course text contains/equals the module's abbrev).
+    if (courseAbbrev) {
+      found = modules.find(m => extractAbbrev(m.name) === courseAbbrev);
+      if (found) return found;
+    }
+    if (courseTokens.length === 1) {
+      found = modules.find(m => extractAbbrev(m.name) === courseTokens[0]);
+      if (found) return found;
+    }
+
+    // 3) Strong token overlap. Require at least 2 shared significant tokens and
+    //    a high Jaccard similarity so single-word coincidences (e.g. "biosafety"
+    //    matching "Animal Biosafety") do NOT produce a false positive.
+    if (courseTokens.length > 0) {
+      found = modules.find(m => {
+        const mTokens = significantTokens(m.name);
+        if (mTokens.length === 0) return false;
+        const setM = new Set(mTokens);
+        const shared = courseTokens.filter(t => setM.has(t));
+        const union = new Set([...courseTokens, ...mTokens]).size;
+        const jaccard = union > 0 ? shared.length / union : 0;
+        return shared.length >= 2 && jaccard >= 0.6;
+      });
+      if (found) return found;
+    }
+
+    return null;
+  }
+
+  // Build a suggested abbreviation for a brand-new module from its course name.
+  function suggestAbbreviation(courseName: string): string {
+    const existing = extractAbbrev(courseName);
+    if (existing) return existing.toUpperCase();
+    // Initials of meaningful words (drop only articles/prepositions, keep nouns).
+    const minimalStop = new Set(['the', 'of', 'and', 'for', 'with', 'a', 'an', 'to', 'in', 'on']);
+    const words = normalizeModuleName(courseName).split(' ').filter(w => w && !minimalStop.has(w));
+    let abbr = words.map(w => w[0].toUpperCase()).join('').slice(0, 6);
+    if (abbr.length < 2) {
+      abbr = (courseName || '').replace(/[^A-Za-z]/g, '').slice(0, 3).toUpperCase();
+    }
+    return abbr;
+  }
+
+  // Whole months between two YYYY-MM-DD strings.
+  function monthsBetween(start: string, end: string): number {
+    const s = new Date(start);
+    const e = new Date(end);
+    if (isNaN(s.getTime()) || isNaN(e.getTime())) return 0;
+    let months = (e.getFullYear() - s.getFullYear()) * 12 + (e.getMonth() - s.getMonth());
+    if (e.getDate() < s.getDate()) months -= 1;
+    return months;
+  }
+
+  // Derive an expiration interval (months) for a new module from the cert dates,
+  // snapping to common CITI renewal periods (1/2/3/4/5 years) when close.
+  function suggestExpirationMonths(completionDate: string | null, expirationDate: string | null): number {
+    if (!completionDate || !expirationDate) return 36;
+    const m = monthsBetween(completionDate, expirationDate);
+    if (m <= 0) return 36;
+    const common = [12, 24, 36, 48, 60];
+    let best = common[0];
+    let bestDiff = Infinity;
+    for (const c of common) {
+      const d = Math.abs(c - m);
+      if (d < bestDiff) { bestDiff = d; best = c; }
+    }
+    if (bestDiff <= 2) return best;
+    return Math.max(12, Math.round(m / 12) * 12);
+  }
+
+  // Attach new-module suggestion fields when no existing module matched.
+  function applyModuleSuggestions(result: any): void {
+    if (result.module || !result.courseName) return;
+    result.isNewModule = true;
+    result.suggestedModuleName = result.courseName.trim().replace(/\s+/g, ' ');
+    result.suggestedAbbreviation = suggestAbbreviation(result.courseName);
+    result.suggestedExpirationMonths = suggestExpirationMonths(result.completionDate, result.expirationDate);
+  }
+  // ---------------------------------------------------------------------------
 
   // Helper function to parse CITI certificate text (router function)
   async function parseCITICertificate(text: string, modules: any[]) {
@@ -763,7 +1463,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
           return /completion/i.test(context);
         });
       if (completionMatch) {
-        const dateStr = completionMatch[1] || completionMatch[0]; // Use captured group, fallback to full match
+        // Formats 1-3 return a RegExpMatchArray (use captured group [1]); Format 4
+        // returns a plain string from .find() — indexing it would grab single
+        // characters, so use the whole string in that case.
+        const dateStr = typeof completionMatch === 'string' ? completionMatch : (completionMatch[1] || completionMatch[0]);
         result.completionDate = convertDateFormat(dateStr);
         console.log('Found completion date:', result.completionDate);
       } else {
@@ -787,7 +1490,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
           return /expir/i.test(context);
         });
       if (expirationMatch) {
-        const dateStr = expirationMatch[1] || expirationMatch[0]; // Use captured group, fallback to full match  
+        // Formats 1-3 return a RegExpMatchArray (use captured group [1]); Format 4
+        // returns a plain string from .find() — indexing it would grab single
+        // characters, so use the whole string in that case.
+        const dateStr = typeof expirationMatch === 'string' ? expirationMatch : (expirationMatch[1] || expirationMatch[0]);
         result.expirationDate = convertDateFormat(dateStr);
         console.log('Found expiration date:', result.expirationDate);
       } else {
@@ -808,7 +1514,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
                            }) ||
                            cleanText.match(/Record ID:\s*(\d+)/i);
       if (recordIdMatch) {
-        const idStr = Array.isArray(recordIdMatch) ? recordIdMatch[0] : recordIdMatch[1];
+        // Array matches expose the captured digits at [1]; Format 4's .find()
+        // returns the plain matched string. Strip non-digits either way.
+        const idStr = typeof recordIdMatch === 'string' ? recordIdMatch : (recordIdMatch[1] || recordIdMatch[0]);
         result.recordId = idStr.replace(/\D/g, ''); // Remove any non-digits
         console.log('Found record ID:', result.recordId);
       } else {
@@ -859,67 +1567,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
         result.courseName = courseMatch[1].trim().replace(/\s+/g, ' ');
         console.log('Found course name:', result.courseName);
         
-        // Define variables for module matching
-        const courseLower = result.courseName.toLowerCase();
-        
-        // Find matching module with enhanced matching for both formats
-        const module = modules.find(m => {
-          const moduleLower = m.name.toLowerCase();
-          
-          // Direct matches
-          if (moduleLower.includes(courseLower) || courseLower.includes(moduleLower)) {
-            return true;
-          }
-          
-          // Enhanced matching for specific patterns
-          const keywordMatches = [
-            // Biosafety variations
-            (courseLower.includes('biosafety') && moduleLower.includes('biosafety')),
-            // Biomedical research variations - handle "Basic/Refresher" vs "Basic"
-            (courseLower.includes('biomedical') && moduleLower.includes('biomedical') && 
-             courseLower.includes('basic') && moduleLower.includes('basic')),
-            // Conflict of interest
-            (courseLower.includes('conflict') && moduleLower.includes('conflict')),
-            // Animal-related courses
-            (courseLower.includes('animal') && moduleLower.includes('animal')),
-            // Human subjects
-            (courseLower.includes('human') && moduleLower.includes('human')),
-            // RCR - Responsible Conduct
-            (courseLower.includes('responsible conduct') && moduleLower.includes('responsible conduct')),
-            // IACUC
-            (courseLower.includes('iacuc') && moduleLower.includes('iacuc')),
-            // BCT - Biomedical Conduct
-            (courseLower.includes('biomedical') && moduleLower.includes('biomedical') && 
-             courseLower.includes('conduct') && moduleLower.includes('conduct'))
-          ];
-          
-          return keywordMatches.some(match => match);
-        });
-        
+        // Strict module matching (conservative — flags unknown courses as NEW).
         console.log('Module matching results:');
-        console.log('Course name to match:', courseLower);
-        const matchedModule = modules.find(m => {
-          const mLower = m.name.toLowerCase();
-          const directMatch = mLower.includes(courseLower) || courseLower.includes(mLower);
-          const biomedicalMatch = courseLower.includes('biomedical') && mLower.includes('biomedical') && 
-                                 courseLower.includes('basic') && mLower.includes('basic');
-          const biosafetyMatch = courseLower.includes('biosafety') && mLower.includes('biosafety');
-          return directMatch || biomedicalMatch || biosafetyMatch;
-        });
-        
-        if (matchedModule) {
-          console.log(`Found matching module: ${matchedModule.name}`);
-        } else {
-          console.log('No matching module found, will create new placeholder');
-        }
-        
+        console.log('Course name to match:', result.courseName);
+        const module = matchCertificationModule(result.courseName, modules);
+
         result.module = module || null;
         result.isNewModule = !module;
-        
+
         if (module) {
           console.log('Matched with existing module:', module.name);
         } else {
-          console.log('No matching module found, will create new placeholder');
+          console.log('No matching module found — will suggest a new module from the course title');
         }
       } else {
         console.log('No course name match found');
@@ -969,6 +1628,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
     }
 
+    applyModuleSuggestions(result);
     return result;
   }
 
@@ -992,9 +1652,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const cleanText = text.replace(/\s+/g, ' ').trim();
 
       // Report format specific patterns
-      // Name extraction - usually appears after bullet points and contact info
+      // Name extraction. CITI reports list the learner as "• Name: First Last (ID: 12345)".
+      // Prefer that labeled form; fall back to the older heuristic patterns.
       console.log('Searching for person name in report format...');
-      const nameMatch = text.match(/Phone:\s*([A-Za-z\s]+?)(?:\s+\([^)]*\))?$/m) ||
+      const nameMatch = text.match(/Name:\s*([A-Za-z][A-Za-z.'\-\s]+?)\s*\(ID:/i) ||
+                       text.match(/Name:\s*([A-Za-z][A-Za-z.'\-\s]+?)(?:\s*\n|$)/i) ||
+                       text.match(/Phone:\s*([A-Za-z\s]+?)(?:\s+\([^)]*\))?$/m) ||
                        text.match(/•\s*Phone:\s*.*?\n\s*([A-Za-z\s]+)/i) ||
                        text.match(/Institution Unit:\s*•\s*Phone:\s*(.+?)(?:\s|$)/i) ||
                        text.match(/([A-Za-z]+\s+[A-Za-z]+)(?:\s+\([^)]*\))?(?:\s*$)/m);
@@ -1002,55 +1665,75 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (nameMatch) {
         const rawName = nameMatch[1].trim();
         // Clean up the name - remove extra whitespace and validate
-        if (rawName.length > 2 && rawName.length < 50 && /^[A-Za-z\s]+$/.test(rawName)) {
+        if (rawName.length > 2 && rawName.length < 50 && /^[A-Za-z.'\-\s]+$/.test(rawName)) {
           result.name = rawName;
           console.log('Found name in report format:', result.name);
         }
       }
 
-      // Course name extraction - different pattern for reports
+      // Course name extraction. Reports identify the course via "Curriculum Group:".
       console.log('Searching for course name in report format...');
-      const reportCourseMatch = text.match(/COURSEWORK REQUIREMENTS[\s\S]*?([A-Za-z][^•\n]+?)(?:\s*•|\s*$)/i) ||
+      const reportCourseMatch = text.match(/Curriculum Group:\s*([^\n•]+?)(?:\s*•|\n|$)/i) ||
+                               text.match(/Course Learner Group:\s*([^\n•]+?)(?:\s*•|\n|$)/i) ||
+                               text.match(/COURSEWORK REQUIREMENTS[\s\S]*?([A-Za-z][^•\n]+?)(?:\s*•|\s*$)/i) ||
                                text.match(/Course:\s*([^•\n]+)/i) ||
                                text.match(/Training[\s\S]*?-\s*([^•\n]+)/i);
       
       if (reportCourseMatch) {
-        result.courseName = reportCourseMatch[1].trim();
+        let courseName = reportCourseMatch[1].trim();
+        // "Same as Curriculum Group" is a placeholder, not a real course name.
+        if (/^same as/i.test(courseName)) {
+          const curr = text.match(/Curriculum Group:\s*([^\n•]+?)(?:\s*•|\n|$)/i);
+          if (curr) courseName = curr[1].trim();
+        }
+        result.courseName = courseName;
         console.log('Found course name in report format:', result.courseName);
         
-        // Try to match with existing modules
-        const courseLower = result.courseName.toLowerCase();
-        const module = modules.find(m => {
-          const mLower = m.name.toLowerCase();
-          return mLower.includes(courseLower) || courseLower.includes(mLower) ||
-                 (courseLower.includes('basic') && mLower.includes('basic')) ||
-                 (courseLower.includes('biosafety') && mLower.includes('biosafety'));
-        });
-        
+        // Strict module matching (conservative — flags unknown courses as NEW).
+        const module = matchCertificationModule(result.courseName, modules);
         result.module = module || null;
         result.isNewModule = !module;
       }
 
-      // Date extraction for report format - usually no explicit completion/expiration labels
+      // Date extraction. Prefer the explicitly labeled completion/expiration dates;
+      // fall back to positional (first/second date) only if labels are missing.
       console.log('Searching for dates in report format...');
-      const allDates = text.match(/(\d{1,2}-\w{3}-20\d{2})/g);
-      if (allDates && allDates.length > 0) {
-        // First date is usually completion, second (if exists) is expiration
-        result.completionDate = convertDateFormat(allDates[0]);
-        console.log('Found completion date in report format:', result.completionDate);
-        
-        if (allDates.length > 1) {
-          result.expirationDate = convertDateFormat(allDates[1]);
-          console.log('Found expiration date in report format:', result.expirationDate);
+      const completionLabel = text.match(/Completion Date:\s*(\d{1,2}-\w{3}-\d{4})/i);
+      const expirationLabel = text.match(/Expiration Date:\s*(\d{1,2}-\w{3}-\d{4})/i);
+      if (completionLabel) {
+        result.completionDate = convertDateFormat(completionLabel[1]);
+        console.log('Found completion date (labeled) in report format:', result.completionDate);
+      }
+      if (expirationLabel) {
+        result.expirationDate = convertDateFormat(expirationLabel[1]);
+        console.log('Found expiration date (labeled) in report format:', result.expirationDate);
+      }
+      if (!result.completionDate || !result.expirationDate) {
+        const allDates = text.match(/(\d{1,2}-\w{3}-20\d{2})/g);
+        if (allDates && allDates.length > 0) {
+          if (!result.completionDate) {
+            result.completionDate = convertDateFormat(allDates[0]);
+            console.log('Found completion date (positional) in report format:', result.completionDate);
+          }
+          if (!result.expirationDate && allDates.length > 1) {
+            // Use the latest distinct date as expiration (module rows repeat the
+            // completion date, so the largest year is the real expiration).
+            const distinct = Array.from(new Set(allDates))
+              .map((d) => convertDateFormat(d))
+              .filter((d): d is string => !!d);
+            const latest = distinct.sort((a, b) => a.localeCompare(b)).pop();
+            if (latest && latest !== result.completionDate) {
+              result.expirationDate = latest;
+              console.log('Found expiration date (positional) in report format:', result.expirationDate);
+            }
+          }
         }
       }
 
-      // Record ID extraction for reports - similar pattern but may be in different location
+      // Record ID extraction. Prefer the labeled "Record ID:" value.
       console.log('Searching for record ID in report format...');
-      const reportIdMatch = text.match(/(\d{8})/g)?.find(match => {
-        // In reports, ID might be at the end or with different context
-        return match.length === 8; // 8-digit CITI record IDs
-      });
+      const reportIdMatch = text.match(/Record ID:\s*(\d+)/i)?.[1] ||
+                            text.match(/(\d{8})/g)?.find(match => match.length === 8);
       
       if (reportIdMatch) {
         result.recordId = reportIdMatch;
@@ -1058,7 +1741,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       // Institution extraction
-      const institutionMatch = text.match(/Institution:\s*([^\n\r•]+)/i);
+      const institutionMatch = text.match(/Institution Affiliation:\s*([^\n\r•(]+)/i) ||
+                               text.match(/Institution:\s*([^\n\r•]+)/i);
       if (institutionMatch) {
         result.institution = institutionMatch[1].trim();
       }
@@ -1099,23 +1783,43 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
     }
 
+    applyModuleSuggestions(result);
     return result;
   }
 
-  // Helper function to convert date format from "05-Mar-2025" to "2025-03-05"
-  function convertDateFormat(dateStr: string): string {
-    try {
-      const months: { [key: string]: string } = {
-        'Jan': '01', 'Feb': '02', 'Mar': '03', 'Apr': '04',
-        'May': '05', 'Jun': '06', 'Jul': '07', 'Aug': '08',
-        'Sep': '09', 'Oct': '10', 'Nov': '11', 'Dec': '12'
-      };
-      
-      const [day, month, year] = dateStr.split('-');
-      return `${year}-${months[month]}-${day.padStart(2, '0')}`;
-    } catch (error) {
-      return dateStr; // Return original if conversion fails
-    }
+  // Convert a CITI date like "05-Mar-2025" to ISO "2025-03-05". Returns null
+  // for anything it can't parse into a real date, so a partial/garbage match
+  // (e.g. just "04") never becomes a malformed string like "undefined-undefined-04"
+  // that would crash the DATE column insert downstream.
+  function convertDateFormat(dateStr: string): string | null {
+    if (!dateStr || typeof dateStr !== 'string') return null;
+    const s = dateStr.trim();
+
+    // Already ISO (YYYY-MM-DD) — accept as-is.
+    if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
+
+    const months: { [key: string]: string } = {
+      'Jan': '01', 'Feb': '02', 'Mar': '03', 'Apr': '04',
+      'May': '05', 'Jun': '06', 'Jul': '07', 'Aug': '08',
+      'Sep': '09', 'Oct': '10', 'Nov': '11', 'Dec': '12'
+    };
+
+    const parts = s.split('-');
+    if (parts.length !== 3) return null;
+    const [day, month, year] = parts;
+    const mm = months[month];
+    if (!mm || !/^\d{4}$/.test(year) || !/^\d{1,2}$/.test(day)) return null;
+    return `${year}-${mm}-${day.padStart(2, '0')}`;
+  }
+
+  // Strict ISO YYYY-MM-DD validator used as a final guard before DB writes.
+  // Verifies the calendar date is real (round-trips exactly), so values like
+  // "2027-11-31" or "2024-02-30" are rejected rather than silently normalized.
+  function isValidIsoDate(value: unknown): value is string {
+    if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+    const [y, m, d] = value.split('-').map(Number);
+    const dt = new Date(Date.UTC(y, m - 1, d));
+    return dt.getUTCFullYear() === y && dt.getUTCMonth() === m - 1 && dt.getUTCDate() === d;
   }
 
   // Test endpoint for parsing certificate text (for debugging)
@@ -1141,9 +1845,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Certificate batch confirmation
-  app.post("/api/certificates/confirm-batch", async (req: any, res) => {
+  app.post("/api/certificates/confirm-batch", requireAuth, async (req: any, res) => {
     try {
-      const userId = req.user?.claims?.sub;
+      // uploaded_by is NOT NULL. The session user holds the identity in every
+      // auth mode (demo/local/ldap/oidc); the old req.user.claims.sub path was
+      // always undefined here, which made every certificate insert fail.
+      const userId = req.session?.user?.scientistId ?? req.session?.user?.id ?? 1;
       const { certifications } = req.body;
 
       if (!certifications || !Array.isArray(certifications)) {
@@ -1155,13 +1862,46 @@ export async function registerRoutes(app: Express): Promise<Server> {
         try {
           const {
             scientistId,
-            moduleId,
             startDate,
             endDate,
             certificateFilePath,
             reportFilePath,
-            notes
+            notes,
+            newModule
           } = cert;
+          let { moduleId } = cert;
+
+          // First-use population: if the row carries a new-module request instead
+          // of an existing moduleId, create it now (reusing an existing module with
+          // the same name to avoid duplicates) and use the resulting id.
+          if (!moduleId && newModule && typeof newModule.name === 'string' && newModule.name.trim()) {
+            try {
+              const desiredName = newModule.name.trim().replace(/\s+/g, ' ');
+              const allModules = await storage.getCertificationModules();
+              const existing = allModules.find(
+                (m: any) => normalizeModuleName(m.name) === normalizeModuleName(desiredName)
+              );
+              if (existing) {
+                moduleId = existing.id;
+              } else {
+                const created = await storage.createCertificationModule({
+                  name: desiredName,
+                  description: newModule.description?.trim() || null,
+                  isCore: !!newModule.isCore,
+                  expirationMonths: Number(newModule.expirationMonths) || 36,
+                  isActive: true,
+                });
+                moduleId = created.id;
+              }
+            } catch (moduleErr: any) {
+              results.push({
+                ...cert,
+                status: 'error',
+                error: `Could not create new module: ${moduleErr?.message || 'unknown error'}`
+              });
+              continue;
+            }
+          }
 
           // Validate required fields
           if (!scientistId || !moduleId || !startDate || !endDate) {
@@ -1169,6 +1909,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
               ...cert,
               status: 'error',
               error: `Missing required fields: ${!scientistId ? 'scientistId ' : ''}${!moduleId ? 'moduleId ' : ''}${!startDate ? 'startDate ' : ''}${!endDate ? 'endDate ' : ''}`
+            });
+            continue;
+          }
+
+          // Guard against malformed/partial dates (e.g. a bad OCR/parse that
+          // produced "undefined-undefined-04"). The DATE column would otherwise
+          // reject the whole insert with a raw SQL error.
+          if (!isValidIsoDate(startDate) || !isValidIsoDate(endDate)) {
+            results.push({
+              ...cert,
+              status: 'error',
+              error: `Could not read the ${!isValidIsoDate(startDate) ? 'completion' : 'expiration'} date correctly. Please set it manually before saving.`
             });
             continue;
           }
@@ -1246,21 +1998,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.get("/objects/:objectPath(*)", async (req, res) => {
-    const objectStorageService = getObjectStorageService();
-    try {
-      const objectFile = await objectStorageService.getObjectEntityFile(
-        req.path,
-      );
-      objectStorageService.downloadObject(objectFile, res);
-    } catch (error) {
-      console.error("Error checking object access:", error);
-      if (error instanceof ObjectNotFoundError) {
-        return res.sendStatus(404);
-      }
-      return res.sendStatus(500);
-    }
-  });
 
   // Dashboard
   app.get('/api/dashboard/stats', async (req: Request, res: Response) => {
@@ -1269,6 +2006,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.json(stats);
     } catch (error) {
       res.status(500).json({ message: "Failed to fetch dashboard statistics" });
+    }
+  });
+
+  app.get('/api/dashboard/recent-activity', async (req: Request, res: Response) => {
+    try {
+      const limit = req.query.limit ? parseInt(req.query.limit as string) : 8;
+      const activity = await storage.getRecentActivity(limit);
+      res.json(activity);
+    } catch (error) {
+      console.error("Error fetching recent activity:", error);
+      res.status(500).json({ message: "Failed to fetch recent activity" });
     }
   });
 
@@ -1612,7 +2360,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const format = (req.query.format === 'csv' ? 'csv' : 'xlsx') as 'csv' | 'xlsx';
       const allScientists = await storage.getScientists();
-      const { buffer, mime, filename } = buildExportBuffer(allScientists, format);
+      const { buffer, mime, filename } = await buildExportBuffer(allScientists, format);
       res.setHeader('Content-Type', mime);
       res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
       res.send(buffer);
@@ -1757,19 +2505,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
         m.set(row.publicationId, existing ? `${existing},${row.authorshipType}` : row.authorshipType);
       }
 
-      // lower(journalName) -> year -> impactFactor (numeric)
+      // normalizeJournalName(journalName) -> year -> impactFactor (numeric)
       const ifByJournalYear = new Map<string, Map<number, number>>();
       for (const m of allMetricRows) {
         const ifVal = m.impactFactor != null ? parseFloat(String(m.impactFactor)) : NaN;
         if (!Number.isFinite(ifVal)) continue;
-        const key = m.journalName.toLowerCase();
+        const key = normalizeJournalName(m.journalName);
         let yearMap = ifByJournalYear.get(key);
         if (!yearMap) { yearMap = new Map(); ifByJournalYear.set(key, yearMap); }
         yearMap.set(m.year, ifVal);
       }
 
       const lookupIf = (journalName: string, year: number): number | null => {
-        const yearMap = ifByJournalYear.get(journalName.trim().toLowerCase());
+        const yearMap = ifByJournalYear.get(normalizeJournalName(journalName));
         if (!yearMap) return null;
         const v = yearMap.get(year);
         return v != null ? v : null;
@@ -1790,7 +2538,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
             const pubDate = new Date(publication.publicationDate);
             if (pubDate < cutoffDate) continue;
-            if (!publication.status || !['Published', 'Published *', 'Accepted/In Press'].includes(publication.status)) continue;
+            if (!publication.status || !['published', 'published *', 'accepted/in press', 'in press'].includes(publication.status.toLowerCase())) continue;
             if (!publication.journal || publication.journal.trim() === '') continue;
 
             const pubYear = pubDate.getFullYear();
@@ -1890,7 +2638,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
       let fileRows;
       try {
-        fileRows = parseUploadedFile(String(fileBase64), String(fileName));
+        fileRows = await parseUploadedFile(String(fileBase64), String(fileName));
       } catch (e: any) {
         return res.status(400).json({ message: `Could not parse file: ${e?.message || e}` });
       }
@@ -1916,7 +2664,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
       let fileRows;
       try {
-        fileRows = parseUploadedFile(String(fileBase64), String(fileName));
+        fileRows = await parseUploadedFile(String(fileBase64), String(fileName));
       } catch (e: any) {
         return res.status(400).json({ message: `Could not parse file: ${e?.message || e}` });
       }
@@ -2033,13 +2781,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.post('/api/scientists', async (req: Request, res: Response) => {
     try {
-      const validateData = insertScientistSchema.parse(req.body);
+      const validateData = insertScientistSchema.parse(normalizeScientistPayload(req.body));
       const scientist = await storage.createScientist(validateData);
       res.status(201).json(scientist);
     } catch (error) {
       if (error instanceof ZodError) {
         return res.status(400).json({ message: fromZodError(error).message });
       }
+      const conflict = scientistUniqueConflictMessage(error);
+      if (conflict) {
+        console.error("Failed to create scientist (unique constraint):", error);
+        return res.status(409).json({ message: conflict });
+      }
+      console.error("Failed to create scientist:", error);
       res.status(500).json({ message: "Failed to create scientist" });
     }
   });
@@ -2051,7 +2805,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).json({ message: "Invalid scientist ID" });
       }
 
-      const validateData = insertScientistSchema.partial().parse(req.body);
+      const validateData = insertScientistSchema.partial().parse(normalizeScientistPayload(req.body));
       const scientist = await storage.updateScientist(id, validateData);
       
       if (!scientist) {
@@ -2063,6 +2817,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (error instanceof ZodError) {
         return res.status(400).json({ message: fromZodError(error).message });
       }
+      const conflict = scientistUniqueConflictMessage(error);
+      if (conflict) {
+        console.error("Failed to update scientist (unique constraint):", error);
+        return res.status(409).json({ message: conflict });
+      }
+      console.error("Failed to update scientist:", error);
       res.status(500).json({ message: "Failed to update scientist" });
     }
   });
@@ -2950,6 +3710,213 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       console.error('Error getting publication journal counts:', error);
       res.status(500).json({ message: 'Failed to count publications by journal' });
+    }
+  });
+
+  // Publications needing author-linking fixes for the current user.
+  // Returns only the logged-in user's likely publications that have a real
+  // author-linking problem: either no internal authors linked, or a linked
+  // internal author that does not appear in the free-text author list.
+  // Registered before "/api/publications/:id" so the literal path isn't
+  // swallowed by the id param route.
+  app.get('/api/publications/needs-author-fix', async (req: Request, res: Response) => {
+    try {
+      // Resolve the current user's first/last name for author matching.
+      // In demo mode, the feature treats the user as "Dr. Wouter Hendrickx"
+      // (only for this feature; the rest of the demo identity is unchanged).
+      let firstName: string | null = null;
+      let lastName: string | null = null;
+
+      if (getAuthMode() === "demo") {
+        firstName = "Wouter";
+        lastName = "Hendrickx";
+      } else {
+        const sessionUser = req.session.user;
+        if (!sessionUser) {
+          return res.status(401).json({ message: "Not authenticated" });
+        }
+        // Prefer the linked scientist profile for accurate first/last name.
+        if (sessionUser.scientistId) {
+          const scientist = await storage.getScientist(sessionUser.scientistId);
+          if (scientist) {
+            firstName = scientist.firstName;
+            lastName = scientist.lastName;
+          }
+        }
+        // Fall back to parsing the session display name (strip an honorific).
+        if ((!firstName || !lastName) && sessionUser.name) {
+          const cleaned = sessionUser.name
+            .replace(/^(dr\.?|prof\.?|professor|mr\.?|ms\.?|mrs\.?|phd\.?|md\.?)\s+/i, '')
+            .trim();
+          const parts = cleaned.split(/\s+/);
+          if (parts.length >= 2) {
+            firstName = parts[0];
+            lastName = parts[parts.length - 1];
+          }
+        }
+      }
+
+      if (!firstName || !lastName) {
+        // Can't determine the user's name, so there's nothing to match.
+        return res.json([]);
+      }
+
+      const [allPublications, allAuthors] = await Promise.all([
+        storage.getPublications(),
+        storage.getAllPublicationAuthors(),
+      ]);
+
+      // Group internal author links by publication id.
+      const authorsByPublication = new Map<number, (typeof allAuthors)>();
+      for (const author of allAuthors) {
+        const list = authorsByPublication.get(author.publicationId) || [];
+        list.push(author);
+        authorsByPublication.set(author.publicationId, list);
+      }
+
+      const flagged = allPublications
+        // Only the logged-in user's likely publications.
+        .filter(pub => matchesAuthorName(pub.authors, firstName, lastName))
+        .map(pub => {
+          const linkedAuthors = authorsByPublication.get(pub.id) || [];
+
+          if (linkedAuthors.length === 0) {
+            return { publication: pub, reason: "no_internal_authors" as const };
+          }
+
+          const mismatched = linkedAuthors.filter(
+            a => !isLinkedAuthorInAuthorsText(pub.authors, a.scientist.firstName, a.scientist.lastName)
+          );
+
+          if (mismatched.length > 0) {
+            return {
+              publication: pub,
+              reason: "author_mismatch" as const,
+              mismatchedAuthors: mismatched.map(a => ({
+                scientistId: a.scientistId,
+                firstName: a.scientist.firstName,
+                lastName: a.scientist.lastName,
+              })),
+            };
+          }
+
+          return null;
+        })
+        .filter((item): item is NonNullable<typeof item> => item !== null);
+
+      res.json(flagged);
+    } catch (error) {
+      console.error("Error finding publications needing author fixes:", error);
+      res.status(500).json({ message: "Failed to find publications needing author fixes" });
+    }
+  });
+
+  // Duplicate publication detection. Returns groups of likely-duplicate
+  // publications (same DOI / PMID / fuzzy metadata, or preprint<->published
+  // pairs) with the records needed to render a side-by-side merge review.
+  // Registered before "/api/publications/:id" so the literal path isn't
+  // swallowed by the id param route.
+  app.get('/api/publications/duplicates', async (req: Request, res: Response) => {
+    try {
+      const [allPublications, allAuthors] = await Promise.all([
+        storage.getPublications(),
+        storage.getAllPublicationAuthors(),
+      ]);
+
+      const groups = detectDuplicateGroups(allPublications);
+
+      const authorCountByPublication = new Map<number, number>();
+      for (const a of allAuthors) {
+        authorCountByPublication.set(
+          a.publicationId,
+          (authorCountByPublication.get(a.publicationId) || 0) + 1,
+        );
+      }
+      const byId = new Map(allPublications.map((p) => [p.id, p]));
+
+      const result = groups.map((group) => {
+        const groupPubs = group.publicationIds
+          .map((id) => byId.get(id))
+          .filter((p): p is NonNullable<typeof p> => p != null);
+        return {
+          reasons: group.reasons,
+          isPreprintPair: group.isPreprintPair,
+          defaultSurvivorId: pickDefaultSurvivorId(groupPubs),
+          publications: groupPubs.map((p) => ({
+            ...p,
+            authorCount: authorCountByPublication.get(p.id) || 0,
+          })),
+        };
+      });
+
+      res.json(result);
+    } catch (error) {
+      console.error("Error detecting duplicate publications:", error);
+      res.status(500).json({ message: "Failed to detect duplicate publications" });
+    }
+  });
+
+  // Lightweight count of duplicate groups for the tab badge.
+  app.get('/api/publications/duplicates/count', async (req: Request, res: Response) => {
+    try {
+      const allPublications = await storage.getPublications();
+      const groups = detectDuplicateGroups(allPublications);
+      res.json({ count: groups.length });
+    } catch (error) {
+      console.error("Error counting duplicate publication groups:", error);
+      res.status(500).json({ message: "Failed to count duplicate publication groups" });
+    }
+  });
+
+  // Merge a set of duplicate publications into a chosen survivor. Office-only;
+  // performs the whole operation atomically (author de-dup, history re-pointing,
+  // research-activity carry-over, deletion) so a failure changes nothing.
+  app.post('/api/publications/merge', requirePublicationOfficer, async (req: Request, res: Response) => {
+    try {
+      const mergeSchema = z.object({
+        survivorId: z.number().int(),
+        mergeIds: z.array(z.number().int()).min(1),
+        fields: z.record(z.any()).optional(),
+      });
+      const { survivorId, mergeIds, fields } = mergeSchema.parse(req.body);
+
+      const targetIds = Array.from(new Set(mergeIds)).filter((id) => id !== survivorId);
+      if (targetIds.length === 0) {
+        return res.status(400).json({ message: "Provide at least one distinct publication to merge into the survivor." });
+      }
+
+      // Only allow known publication columns to be overridden on the survivor.
+      const allowedFields = [
+        "title", "abstract", "authors", "journal", "volume", "issue", "pages",
+        "doi", "pmid", "publicationDate", "publicationType", "status",
+        "prepublicationUrl", "prepublicationSite", "researchActivityId",
+      ] as const;
+      const overrides: Record<string, any> = {};
+      if (fields) {
+        for (const key of allowedFields) {
+          if (key in fields) overrides[key] = (fields as any)[key];
+        }
+      }
+
+      const changedBy = req.session?.user?.id || 1;
+
+      const survivor = await storage.mergePublications(
+        survivorId,
+        targetIds,
+        overrides,
+        changedBy,
+      );
+      if (!survivor) {
+        return res.status(404).json({ message: "Surviving publication not found" });
+      }
+
+      res.json(survivor);
+    } catch (error: any) {
+      if (error instanceof ZodError) {
+        return res.status(400).json({ message: fromZodError(error).message });
+      }
+      console.error("Error merging publications:", error);
+      res.status(500).json({ message: error?.message || "Failed to merge publications" });
     }
   });
 
@@ -6273,21 +7240,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.get('/api/publications/import/doi/:doi', async (req: Request, res: Response) => {
     try {
-      const doi = decodeURIComponent(req.params.doi);
-      
-      // Fetch from CrossRef API
-      const crossrefUrl = `https://api.crossref.org/works/${doi}`;
-      const crossrefResponse = await fetch(crossrefUrl);
-      
-      if (!crossrefResponse.ok) {
-        return res.status(404).json({ message: "DOI not found" });
-      }
-      
-      const crossrefData = await crossrefResponse.json();
-      const work = crossrefData.message;
-      
+      const doi = normalizeDoi(decodeURIComponent(req.params.doi));
+
+      // Fetch from CrossRef (retries without the preprint version suffix).
+      const work = await fetchCrossrefWork(doi);
+
       if (!work) {
-        return res.status(404).json({ message: "Publication not found for this DOI" });
+        return res.status(404).json({ message: "DOI not found" });
       }
       
       // Parse CrossRef data
@@ -6298,14 +7257,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const publication = {
         title: work.title?.[0] || '',
         authors: authors,
-        journal: work['container-title']?.[0] || '',
+        journal: crossrefJournalName(work),
         year: work.published?.['date-parts']?.[0]?.[0] || work.created?.['date-parts']?.[0]?.[0] || null,
         volume: work.volume || '',
         issue: work.issue || '',
         pages: work.page || '',
         doi: work.DOI || doi,
         pmid: '', // CrossRef doesn't provide PMID
-        abstract: work.abstract || '',
+        abstract: work.abstract ? stripXml(work.abstract) : '',
         publicationDate: work.published?.['date-parts']?.[0] ? 
           new Date(work.published['date-parts'][0][0], (work.published['date-parts'][0][1] || 1) - 1, work.published['date-parts'][0][2] || 1).toISOString().split('T')[0] : ''
       };
@@ -6314,6 +7273,285 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       console.error('Error fetching CrossRef data:', error);
       res.status(500).json({ message: "Failed to fetch publication data from CrossRef" });
+    }
+  });
+
+  // List a scientist's published works (from ORCID, plus best-effort Google
+  // Scholar) that are NOT already present in our publications table, matched by
+  // normalized DOI. Fails gracefully when the person has no ORCID or ORCID is
+  // unreachable.
+  app.get('/api/scientists/:id/missing-papers', requireAuth, async (req: Request, res: Response) => {
+    try {
+      const id = parseInt(req.params.id);
+      if (isNaN(id)) {
+        return res.status(400).json({ message: "Invalid scientist ID" });
+      }
+
+      const scientist = await storage.getScientist(id);
+      if (!scientist) {
+        return res.status(404).json({ message: "Scientist not found" });
+      }
+
+      const hasOrcid = !!scientist.orcidId && scientist.orcidId.trim() !== "";
+      const hasScholar =
+        !!scientist.googleScholarUrl && scientist.googleScholarUrl.trim() !== "";
+
+      if (!hasOrcid && !hasScholar) {
+        return res.json({
+          orcidAttempted: false,
+          orcidAvailable: false,
+          scholarAttempted: false,
+          scholarAvailable: false,
+          missing: [],
+          message:
+            "This person has no ORCID iD or Google Scholar URL on file, so there are no external works to check.",
+        });
+      }
+
+      // Existing DOIs already in the system (normalized).
+      const existingPublications = await storage.getPublications();
+      const existingDois = new Set(
+        existingPublications
+          .map((p) => normalizeDoi(p.doi))
+          .filter((d) => d !== "")
+      );
+
+      let orcidAttempted = false;
+      let orcidAvailable = false;
+      let orcidWorks: MissingPaperMeta[] = [];
+      if (hasOrcid) {
+        orcidAttempted = true;
+        try {
+          orcidWorks = await fetchOrcidWorks(scientist.orcidId as string);
+          orcidAvailable = true;
+        } catch (err) {
+          console.error("ORCID fetch failed:", err);
+          orcidAvailable = false;
+        }
+      }
+
+      // Best-effort Google Scholar — never blocks or breaks the ORCID result.
+      let scholarAttempted = false;
+      let scholarWorks: MissingPaperMeta[] = [];
+      if (hasScholar) {
+        scholarAttempted = true;
+        scholarWorks = await fetchGoogleScholarDois(
+          scientist.googleScholarUrl as string
+        );
+      }
+      const scholarAvailable = scholarWorks.length > 0;
+
+      // Merge ORCID + Scholar, dedupe by normalized DOI (ORCID wins because it
+      // carries richer metadata), and drop anything already in the system.
+      const byDoi = new Map<string, MissingPaperMeta>();
+      for (const w of orcidWorks) {
+        if (!existingDois.has(w.doi)) byDoi.set(w.doi, w);
+      }
+      for (const w of scholarWorks) {
+        if (existingDois.has(w.doi) || byDoi.has(w.doi)) continue;
+        byDoi.set(w.doi, w);
+      }
+
+      const missing = Array.from(byDoi.values()).sort(
+        (a, b) => (b.year ?? 0) - (a.year ?? 0)
+      );
+
+      let message: string | undefined;
+      if (orcidAttempted && !orcidAvailable) {
+        message =
+          "ORCID could not be reached right now. Please try again later.";
+      } else if (missing.length === 0 && orcidAvailable) {
+        message =
+          "No missing papers found — everything in ORCID is already in the system.";
+      }
+
+      res.json({
+        orcidAttempted,
+        orcidAvailable,
+        scholarAttempted,
+        scholarAvailable,
+        missing,
+        message,
+      });
+    } catch (error) {
+      console.error("Error checking for missing papers:", error);
+      res
+        .status(500)
+        .json({ message: "Failed to check for missing papers" });
+    }
+  });
+
+  // Import a set of selected DOIs as standalone publication records. Each DOI
+  // is enriched via CrossRef, created with researchActivityId null and NO
+  // author link. DOIs already present (normalized re-check, so a stale client
+  // list can't create duplicates) are skipped.
+  app.post('/api/scientists/:id/import-papers', requireAuth, async (req: Request, res: Response) => {
+    try {
+      const id = parseInt(req.params.id);
+      if (isNaN(id)) {
+        return res.status(400).json({ message: "Invalid scientist ID" });
+      }
+
+      const scientist = await storage.getScientist(id);
+      if (!scientist) {
+        return res.status(404).json({ message: "Scientist not found" });
+      }
+
+      // Audit actor must be a real authenticated user (requireAuth guarantees a
+      // session user — demo mode injects one). Never fall back to an anonymous
+      // placeholder id for persisted history.
+      const actorId = req.session?.user?.id;
+      if (actorId == null) {
+        return res.status(401).json({ message: "Authentication required" });
+      }
+
+      // Accept either a rich `papers` array (doi + the title/journal/year we
+      // already pulled from ORCID) or a plain `dois` string array for
+      // backward compatibility. The metadata is used as a fallback so a paper
+      // still saves even when CrossRef can't resolve its DOI.
+      const rawPapers: unknown = req.body?.papers;
+      const rawDois: unknown = req.body?.dois;
+
+      type RequestedPaper = {
+        doi: string;
+        title: string;
+        journal: string;
+        year: number | null;
+      };
+
+      const requestedMap = new Map<string, RequestedPaper>();
+
+      if (Array.isArray(rawPapers)) {
+        for (const p of rawPapers) {
+          const doi = normalizeDoi(typeof p?.doi === "string" ? p.doi : "");
+          if (!doi || requestedMap.has(doi)) continue;
+          requestedMap.set(doi, {
+            doi,
+            title: typeof p?.title === "string" ? p.title : "",
+            journal: typeof p?.journal === "string" ? p.journal : "",
+            year: typeof p?.year === "number" ? p.year : null,
+          });
+        }
+      } else if (Array.isArray(rawDois)) {
+        for (const d of rawDois) {
+          const doi = normalizeDoi(typeof d === "string" ? d : "");
+          if (!doi || requestedMap.has(doi)) continue;
+          requestedMap.set(doi, { doi, title: "", journal: "", year: null });
+        }
+      }
+
+      if (requestedMap.size === 0) {
+        return res
+          .status(400)
+          .json({ message: "Provide a non-empty list of papers to import." });
+      }
+
+      const requestedPapers = Array.from(requestedMap.values());
+
+      // Server-side duplicate guard against the current DB state.
+      const existingPublications = await storage.getPublications();
+      const existingDois = new Set(
+        existingPublications
+          .map((p) => normalizeDoi(p.doi))
+          .filter((d) => d !== "")
+      );
+
+      const created: { doi: string; title: string }[] = [];
+      const skipped: { doi: string; reason: string }[] = [];
+
+      for (const paper of requestedPapers) {
+        const doi = paper.doi;
+        if (existingDois.has(doi)) {
+          skipped.push({ doi, reason: "already exists" });
+          continue;
+        }
+
+        // Enrich from CrossRef and PubMed in parallel, then merge. CrossRef
+        // gives clean author/bibliographic fields; PubMed adds the PMID and an
+        // abstract (which CrossRef usually lacks) and covers DOIs CrossRef is
+        // missing. Anything still empty falls back to the ORCID metadata the
+        // client already had, so the paper always saves.
+        const [crossref, pubmed] = await Promise.all([
+          fetchCrossrefPublication(doi),
+          fetchPubmedByDoi(doi),
+        ]);
+
+        const pick = (...vals: (string | undefined | null)[]) =>
+          vals.find((v) => typeof v === "string" && v.trim() !== "")?.trim() ?? "";
+
+        const title =
+          pick(crossref?.title, pubmed?.title, paper.title) || "Untitled work";
+        const journal = pick(crossref?.journal, pubmed?.journal, paper.journal);
+        // Authors: CrossRef first (full given+family names), then PubMed.
+        const authors = pick(crossref?.authors, pubmed?.authors);
+        const volume = pick(crossref?.volume, pubmed?.volume);
+        const issue = pick(crossref?.issue, pubmed?.issue);
+        const pages = pick(crossref?.pages, pubmed?.pages);
+        // Abstract: prefer PubMed (clean text); CrossRef abstracts are rare and
+        // carry JATS markup, so strip tags if that's all we have.
+        const abstract =
+          pubmed?.abstract?.trim() ||
+          (crossref?.abstract ? stripXml(crossref.abstract) : "");
+        const pmid = pubmed?.pmid || "";
+
+        const resolvedDate =
+          crossref?.publicationDate ?? pubmed?.publicationDate ?? null;
+        let publicationDate: string | null = resolvedDate
+          ? resolvedDate.toISOString()
+          : null;
+        if (!publicationDate && paper.year) {
+          // Year-only fallback: store as Jan 1 of that year.
+          publicationDate = new Date(Date.UTC(paper.year, 0, 1)).toISOString();
+        }
+
+        const enrichedFromAnySource = Boolean(crossref || pubmed);
+
+        try {
+          const publicationData = insertPublicationSchema.parse({
+            researchActivityId: null,
+            title,
+            authors,
+            journal,
+            volume,
+            issue,
+            pages,
+            doi: crossref?.doi || doi,
+            pmid: pmid || null,
+            abstract,
+            publicationType: "Journal Article",
+            status: "Published",
+            publicationDate,
+          });
+
+          const publication = await storage.createPublication(publicationData);
+          await storage.createManuscriptHistoryEntry({
+            publicationId: publication.id,
+            fromStatus: "",
+            toStatus: publication.status || "Published",
+            changedBy: actorId,
+            changeReason: enrichedFromAnySource
+              ? "Imported from ORCID/Google Scholar"
+              : "Imported from ORCID/Google Scholar (metadata not enriched via CrossRef/PubMed)",
+          });
+
+          // Mark as present so a duplicate inside the same batch is skipped.
+          existingDois.add(doi);
+          created.push({ doi, title });
+        } catch (err) {
+          console.error(`Failed to import DOI ${doi}:`, err);
+          skipped.push({ doi, reason: "failed to save" });
+        }
+      }
+
+      res.json({
+        created,
+        skipped,
+        createdCount: created.length,
+        skippedCount: skipped.length,
+      });
+    } catch (error) {
+      console.error("Error importing papers:", error);
+      res.status(500).json({ message: "Failed to import papers" });
     }
   });
 
@@ -6933,32 +8171,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // OCR endpoint for PDF processing (stub for now)
-  app.post('/api/certifications/process-pdf', async (req: Request, res: Response) => {
-    try {
-      const { fileUrl, fileName } = req.body;
-      
-      // TODO: Implement OCR processing here
-      // For now, return a mock response
-      const extractedData = {
-        staffName: "Extracted Name",
-        moduleName: "Extracted Module",
-        startDate: "2024-01-01",
-        endDate: "2027-01-01",
-        confidence: 0.85
-      };
-
-      res.json({ 
-        success: true, 
-        extractedData,
-        message: "PDF processed successfully (mock implementation)" 
-      });
-    } catch (error) {
-      console.error('Error processing PDF:', error);
-      res.status(500).json({ message: "Failed to process PDF" });
-    }
-  });
-
   // PDF Import History routes
   app.get('/api/pdf-import-history', async (req: Request, res: Response) => {
     try {
@@ -7512,6 +8724,118 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (err) {
       console.error('Error during registration:', err);
       res.status(500).json({ message: 'Failed to create profile' });
+    }
+  });
+
+  // ── Access level helpers ─────────────────────────────────────────────────────
+  const ACCESS_LEVEL_ORDER: Record<string, number> = { edit: 3, create: 2, view: 1, hide: 0 };
+  function maxAccessLevel(a: string | null, b: string | null): string | null {
+    if (a === null && b === null) return null;
+    if (a === null) return b;
+    if (b === null) return a;
+    return (ACCESS_LEVEL_ORDER[a] ?? -1) >= (ACCESS_LEVEL_ORDER[b] ?? -1) ? a : b;
+  }
+
+  // ── GET /api/access-check ─────────────────────────────────────────────────
+  app.get('/api/access-check', requireAuth, async (req: Request, res: Response) => {
+    try {
+      const sessionUser = (req.session as any)?.user;
+      if (!sessionUser) return res.status(401).json({ message: 'Not authenticated' });
+
+      const { module, recordId: recordIdStr } = req.query as { module?: string; recordId?: string };
+      if (!module) return res.status(400).json({ message: 'module query param required' });
+      const recordId = recordIdStr ? parseInt(recordIdStr) : NaN;
+      if (isNaN(recordId)) return res.status(400).json({ message: 'recordId must be an integer' });
+
+      // Get role-based access for this user's role groups
+      let roleAccess: string | null = null;
+      try {
+        // Get user's role group assignments
+        const assignments = await db.execute(
+          sql`SELECT role_group_id FROM user_role_assignments WHERE user_id = ${sessionUser.id}`
+        );
+        const assignmentRows: any[] = (assignments as any).rows ?? (assignments as any);
+        if (assignmentRows.length > 0) {
+          const groupIds = assignmentRows.map((r: any) => r.role_group_id);
+          const perms = await db.execute(
+            sql`SELECT access_level FROM role_permissions WHERE role_group_id = ANY(${groupIds}::int[]) AND navigation_item = ${module}`
+          );
+          const permRows: any[] = (perms as any).rows ?? (perms as any);
+          for (const row of permRows) {
+            roleAccess = maxAccessLevel(roleAccess, row.access_level);
+          }
+        }
+      } catch {
+        // role_permissions lookup failed — leave roleAccess at default
+      }
+
+      // If user is admin/superadmin give edit by default for role
+      if (!roleAccess && (sessionUser.role === 'admin' || sessionUser.role === 'superadmin')) {
+        roleAccess = 'edit';
+      }
+      if (!roleAccess) roleAccess = 'hide';
+
+      const ownershipAccess = await resolveOwnershipAccess(sessionUser.id, module, recordId);
+      const effectiveAccess = maxAccessLevel(roleAccess, ownershipAccess as string | null) ?? 'hide';
+
+      res.json({ roleAccess, ownershipAccess: ownershipAccess ?? null, effectiveAccess });
+    } catch (error) {
+      console.error('Error in access-check:', error);
+      res.status(500).json({ message: 'Failed to check access' });
+    }
+  });
+
+  // ── Ownership overrides CRUD (admin only) ──────────────────────────────────
+  app.get('/api/ownership-overrides', requireAdmin, async (req: Request, res: Response) => {
+    try {
+      const overrides = await storage.getOwnershipOverrides();
+      res.json(overrides);
+    } catch (error) {
+      console.error('Error fetching ownership overrides:', error);
+      res.status(500).json({ message: 'Failed to fetch ownership overrides' });
+    }
+  });
+
+  app.get('/api/ownership-overrides/:module', requireAdmin, async (req: Request, res: Response) => {
+    try {
+      const { module } = req.params;
+      const overrides = await storage.getOwnershipOverridesForModule(module);
+      res.json(overrides);
+    } catch (error) {
+      console.error('Error fetching ownership overrides for module:', error);
+      res.status(500).json({ message: 'Failed to fetch ownership overrides' });
+    }
+  });
+
+  app.put('/api/ownership-overrides', requireAdmin, async (req: Request, res: Response) => {
+    try {
+      const { module, relationship, grantedAccess, description } = req.body as {
+        module?: string; relationship?: string; grantedAccess?: string; description?: string;
+      };
+      if (!module || !relationship || !grantedAccess) {
+        return res.status(400).json({ message: 'module, relationship, and grantedAccess are required' });
+      }
+      if (!['view', 'create', 'edit'].includes(grantedAccess)) {
+        return res.status(400).json({ message: 'grantedAccess must be view, create, or edit' });
+      }
+      const result = await storage.upsertOwnershipOverride(module, relationship, grantedAccess, description);
+      res.json(result);
+    } catch (error) {
+      console.error('Error upserting ownership override:', error);
+      res.status(500).json({ message: 'Failed to upsert ownership override' });
+    }
+  });
+
+  app.delete('/api/ownership-overrides/:id', requireAdmin, async (req: Request, res: Response) => {
+    try {
+      const id = parseInt(req.params.id);
+      if (isNaN(id)) return res.status(400).json({ message: 'Invalid id' });
+      const deleted = await storage.deleteOwnershipOverride(id);
+      if (!deleted) return res.status(404).json({ message: 'Ownership override not found' });
+      res.json({ message: 'Deleted successfully' });
+    } catch (error) {
+      console.error('Error deleting ownership override:', error);
+      res.status(500).json({ message: 'Failed to delete ownership override' });
     }
   });
 

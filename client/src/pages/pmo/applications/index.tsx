@@ -9,41 +9,14 @@ import { Input } from "@/components/ui/input";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ClipboardList, Plus, Search, FileText, Eye, Edit, Filter } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
-
-// Mock data for now - will connect to API later
-const mockApplications = [
-  {
-    id: 1,
-    applicationId: "PMO-2025-001",
-    title: "In Vitro Characterization of R. bromii–Tumor–Immune Interactions in Colorectal Cancer",
-    formType: "RA-200",
-    status: "draft",
-    leadScientist: "Christophe Raynaud",
-    projectId: "PRJ12002",
-    budgetHolder: "Wouter Hendrickx",
-    createdAt: "2025-07-17",
-    durationMonths: 10
-  },
-  {
-    id: 2,
-    applicationId: "PMO-2025-002",
-    title: "Sidra Pediatric Precision Oncology Initiative - Title Change Request",
-    formType: "RA-205A",
-    status: "submitted",
-    leadScientist: "Sonia Davila",
-    projectId: "PRJ12003",
-    budgetHolder: "Wouter Hendrickx",
-    createdAt: "2025-07-18",
-    durationMonths: null
-  }
-];
+import type { Scientist } from "@shared/schema";
 
 const statusColors = {
-  draft: "bg-gray-100 text-gray-800",
-  submitted: "bg-blue-100 text-blue-800", 
-  under_review: "bg-yellow-100 text-yellow-800",
-  approved: "bg-green-100 text-green-800",
-  rejected: "bg-red-100 text-red-800"
+  draft: "bg-gray-100 text-gray-800 dark:bg-gray-800 dark:text-gray-200",
+  submitted: "bg-blue-100 text-blue-800 dark:bg-blue-950 dark:text-blue-300", 
+  under_review: "bg-yellow-100 text-yellow-800 dark:bg-yellow-950 dark:text-yellow-300",
+  approved: "bg-green-100 text-green-800 dark:bg-green-950 dark:text-green-300",
+  rejected: "bg-red-100 text-red-800 dark:bg-red-950 dark:text-red-300"
 };
 
 export default function PmoApplicationsList() {
@@ -55,10 +28,22 @@ export default function PmoApplicationsList() {
     queryKey: ['/api/pmo-applications']
   });
 
+  const { data: scientists = [] } = useQuery<Scientist[]>({
+    queryKey: ['/api/scientists']
+  });
+
+  const scientistName = (id: number | null | undefined) => {
+    if (!id) return null;
+    const s = scientists.find((sci) => sci.id === id);
+    if (!s) return null;
+    return [s.honorificTitle, s.firstName, s.lastName].filter(Boolean).join(' ');
+  };
+
   const filteredApplications = applications.filter(app => {
+    const lead = scientistName(app.leadScientistId) || '';
     const matchesSearch = app.title.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                         app.application_id?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                         (app.leadScientist || '').toLowerCase().includes(searchTerm.toLowerCase());
+                         app.applicationId?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+                         lead.toLowerCase().includes(searchTerm.toLowerCase());
     const matchesStatus = statusFilter === "all" || app.status === statusFilter;
     return matchesSearch && matchesStatus;
   });
@@ -98,7 +83,7 @@ export default function PmoApplicationsList() {
         <Card>
           <CardContent className="p-4">
             <div className="flex items-center gap-2">
-              <ClipboardList className="h-5 w-5 text-blue-600" />
+              <ClipboardList className="h-5 w-5 text-blue-600 dark:text-blue-400" />
               <div>
                 <p className="text-sm text-muted-foreground">Total Applications</p>
                 <p className="text-2xl font-bold">{applications.length}</p>
@@ -109,7 +94,7 @@ export default function PmoApplicationsList() {
         <Card>
           <CardContent className="p-4">
             <div className="flex items-center gap-2">
-              <FileText className="h-5 w-5 text-orange-600" />
+              <FileText className="h-5 w-5 text-orange-600 dark:text-orange-400" />
               <div>
                 <p className="text-sm text-muted-foreground">Draft</p>
                 <p className="text-2xl font-bold">{applications.filter(app => app.status === 'draft').length}</p>
@@ -120,7 +105,7 @@ export default function PmoApplicationsList() {
         <Card>
           <CardContent className="p-4">
             <div className="flex items-center gap-2">
-              <Eye className="h-5 w-5 text-yellow-600" />
+              <Eye className="h-5 w-5 text-yellow-600 dark:text-yellow-400" />
               <div>
                 <p className="text-sm text-muted-foreground">Under Review</p>
                 <p className="text-2xl font-bold">{applications.filter(app => app.status === 'under_review').length}</p>
@@ -131,10 +116,10 @@ export default function PmoApplicationsList() {
         <Card>
           <CardContent className="p-4">
             <div className="flex items-center gap-2">
-              <Edit className="h-5 w-5 text-green-600" />
+              <Edit className="h-5 w-5 text-green-600 dark:text-green-400" />
               <div>
                 <p className="text-sm text-muted-foreground">Approved</p>
-                <p className="text-2xl font-bold">0</p>
+                <p className="text-2xl font-bold">{applications.filter(app => app.status === 'approved').length}</p>
               </div>
             </div>
           </CardContent>
@@ -234,25 +219,25 @@ export default function PmoApplicationsList() {
                       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 text-sm text-muted-foreground">
                         <div>
                           <span className="font-medium">Application ID:</span>
-                          <div>{application.application_id}</div>
+                          <div>{application.applicationId || '—'}</div>
                         </div>
                         <div>
                           <span className="font-medium">Lead Scientist:</span>
-                          <div>TBD</div>
+                          <div>{scientistName(application.leadScientistId) || '—'}</div>
                         </div>
                         <div>
                           <span className="font-medium">Project ID:</span>
-                          <div>{application.project_id || 'TBD'}</div>
+                          <div>{application.projectId || '—'}</div>
                         </div>
                         <div>
                           <span className="font-medium">Duration:</span>
-                          <div>{application.duration_months || 'TBD'} months</div>
+                          <div>{application.durationMonths ? `${application.durationMonths} months` : '—'}</div>
                         </div>
                       </div>
                     </div>
                     
                     <div className="flex gap-2 ml-4">
-                      <Link href={`/pmo/applications/${application.id}`}>
+                      <Link href={`/pmo/applications/${application.id}?type=RA-200`}>
                         <Button variant="outline" size="sm">
                           <Eye className="h-4 w-4 mr-1" />
                           View
@@ -312,15 +297,15 @@ export default function PmoApplicationsList() {
                       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 text-sm text-muted-foreground">
                         <div>
                           <span className="font-medium">Application ID:</span>
-                          <div>{application.application_id}</div>
+                          <div>{application.applicationId || '—'}</div>
                         </div>
                         <div>
                           <span className="font-medium">Lead Scientist:</span>
-                          <div>TBD</div>
+                          <div>{scientistName(application.leadScientistId) || '—'}</div>
                         </div>
                         <div>
                           <span className="font-medium">Project ID:</span>
-                          <div>{application.project_id || 'TBD'}</div>
+                          <div>{application.projectId || '—'}</div>
                         </div>
                         <div>
                           <span className="font-medium">Status:</span>
@@ -330,7 +315,7 @@ export default function PmoApplicationsList() {
                     </div>
                     
                     <div className="flex gap-2 ml-4">
-                      <Link href={`/pmo/applications/${application.id}`}>
+                      <Link href={`/pmo/applications/${application.id}?type=RA-205A`}>
                         <Button variant="outline" size="sm">
                           <Eye className="h-4 w-4 mr-1" />
                           View

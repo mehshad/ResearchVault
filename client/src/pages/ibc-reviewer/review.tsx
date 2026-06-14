@@ -26,19 +26,19 @@ import TimelineComments from "@/components/TimelineComments";
 import IbcProtocolView from "@/components/IbcProtocolView";
 
 const IBC_WORKFLOW_STATUSES = [
-  { value: "draft", label: "Draft", color: "bg-gray-100 text-gray-800", icon: FileText },
-  { value: "submitted", label: "Submitted", color: "bg-blue-100 text-blue-800", icon: Send },
-  { value: "vetted", label: "Vetted", color: "bg-purple-100 text-purple-800", icon: CheckCircle },
-  { value: "under_review", label: "Under Review", color: "bg-yellow-100 text-yellow-800", icon: AlertTriangle },
-  { value: "active", label: "Active", color: "bg-green-100 text-green-800", icon: CheckCircle },
-  { value: "expired", label: "Expired", color: "bg-red-100 text-red-800", icon: XCircle },
+  { value: "draft", label: "Draft", color: "bg-gray-100 text-gray-800 dark:bg-gray-800 dark:text-gray-200", icon: FileText },
+  { value: "submitted", label: "Submitted", color: "bg-blue-100 text-blue-800 dark:bg-blue-950 dark:text-blue-300", icon: Send },
+  { value: "vetted", label: "Vetted", color: "bg-purple-100 text-purple-800 dark:bg-purple-950 dark:text-purple-300", icon: CheckCircle },
+  { value: "under_review", label: "Under Review", color: "bg-yellow-100 text-yellow-800 dark:bg-yellow-950 dark:text-yellow-300", icon: AlertTriangle },
+  { value: "active", label: "Active", color: "bg-green-100 text-green-800 dark:bg-green-950 dark:text-green-300", icon: CheckCircle },
+  { value: "expired", label: "Expired", color: "bg-red-100 text-red-800 dark:bg-red-950 dark:text-red-300", icon: XCircle },
 ];
 
 const BIOSAFETY_LEVELS = [
-  { value: "BSL-1", label: "BSL-1", color: "bg-green-100 text-green-800", description: "Minimal risk" },
-  { value: "BSL-2", label: "BSL-2", color: "bg-yellow-100 text-yellow-800", description: "Moderate risk" },
-  { value: "BSL-3", label: "BSL-3", color: "bg-orange-100 text-orange-800", description: "High risk" },
-  { value: "BSL-4", label: "BSL-4", color: "bg-red-100 text-red-800", description: "Extreme danger" },
+  { value: "BSL-1", label: "BSL-1", color: "bg-green-100 text-green-800 dark:bg-green-950 dark:text-green-300", description: "Minimal risk" },
+  { value: "BSL-2", label: "BSL-2", color: "bg-yellow-100 text-yellow-800 dark:bg-yellow-950 dark:text-yellow-300", description: "Moderate risk" },
+  { value: "BSL-3", label: "BSL-3", color: "bg-orange-100 text-orange-800 dark:bg-orange-950 dark:text-orange-300", description: "High risk" },
+  { value: "BSL-4", label: "BSL-4", color: "bg-red-100 text-red-800 dark:bg-red-950 dark:text-red-300", description: "Extreme danger" },
 ];
 
 export default function IbcReviewPage() {
@@ -116,9 +116,9 @@ export default function IbcReviewPage() {
     return (
       <div className="p-6">
         <div className="animate-pulse space-y-4">
-          <div className="h-8 bg-gray-200 rounded w-1/3"></div>
-          <div className="h-32 bg-gray-200 rounded"></div>
-          <div className="h-24 bg-gray-200 rounded"></div>
+          <div className="h-8 bg-gray-200 rounded w-1/3 dark:bg-gray-700"></div>
+          <div className="h-32 bg-gray-200 rounded dark:bg-gray-700"></div>
+          <div className="h-24 bg-gray-200 rounded dark:bg-gray-700"></div>
         </div>
       </div>
     );
@@ -147,8 +147,8 @@ export default function IbcReviewPage() {
             <Building className="h-6 w-6" />
             <h1 className="text-2xl font-bold">IBC Protocol Review</h1>
           </div>
-          <p className="text-gray-600" data-testid="text-ibc-number">{application.ibcNumber}</p>
-          {application.title && <p className="text-sm text-gray-500 mt-1">{application.title}</p>}
+          <p className="text-gray-600 dark:text-gray-300" data-testid="text-ibc-number">{application.ibcNumber}</p>
+          {application.title && <p className="text-sm text-gray-500 mt-1 dark:text-gray-400">{application.title}</p>}
         </div>
         <div className="flex items-center space-x-2">
           <Badge className={currentStatus?.color} data-testid="badge-status">
@@ -189,25 +189,25 @@ export default function IbcReviewPage() {
                     <SelectContent>
                       <SelectItem value="approve">
                         <div className="flex items-center space-x-2">
-                          <CheckCircle className="h-4 w-4 text-green-600" />
+                          <CheckCircle className="h-4 w-4 text-green-600 dark:text-green-400" />
                           <span>Approve</span>
                         </div>
                       </SelectItem>
                       <SelectItem value="minor_revisions">
                         <div className="flex items-center space-x-2">
-                          <MessageSquare className="h-4 w-4 text-yellow-600" />
+                          <MessageSquare className="h-4 w-4 text-yellow-600 dark:text-yellow-400" />
                           <span>Request Minor Revisions</span>
                         </div>
                       </SelectItem>
                       <SelectItem value="major_revisions">
                         <div className="flex items-center space-x-2">
-                          <AlertTriangle className="h-4 w-4 text-orange-600" />
+                          <AlertTriangle className="h-4 w-4 text-orange-600 dark:text-orange-400" />
                           <span>Request Major Revisions</span>
                         </div>
                       </SelectItem>
                       <SelectItem value="reject">
                         <div className="flex items-center space-x-2">
-                          <XCircle className="h-4 w-4 text-red-600" />
+                          <XCircle className="h-4 w-4 text-red-600 dark:text-red-400" />
                           <span>Reject</span>
                         </div>
                       </SelectItem>
@@ -225,7 +225,7 @@ export default function IbcReviewPage() {
                     className="resize-y"
                     data-testid="input-review-comments"
                   />
-                  <p className="text-xs text-gray-500 mt-1">
+                  <p className="text-xs text-gray-500 mt-1 dark:text-gray-400">
                     Your comments will be shared with the Principal Investigator and IBC office
                   </p>
                 </div>

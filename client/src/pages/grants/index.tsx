@@ -121,15 +121,15 @@ export default function GrantsList() {
   };
 
   const statusColors = {
-    submitted: "bg-yellow-100 text-yellow-700",
-    active: "bg-green-100 text-green-700",
-    completed: "bg-blue-100 text-blue-700",
-    cancelled: "bg-red-100 text-red-600",
-    pending: "bg-gray-100 text-gray-700"
+    submitted: "bg-yellow-100 text-yellow-700 dark:bg-yellow-950 dark:text-yellow-300",
+    active: "bg-green-100 text-green-700 dark:bg-green-950 dark:text-green-300",
+    completed: "bg-blue-100 text-blue-700 dark:bg-blue-950 dark:text-blue-300",
+    cancelled: "bg-red-100 text-red-600 dark:bg-red-950 dark:text-red-400",
+    pending: "bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-300"
   };
 
   const getStatusColor = (status: string) => {
-    return statusColors[status.toLowerCase() as keyof typeof statusColors] || "bg-gray-100 text-gray-700";
+    return statusColors[status.toLowerCase() as keyof typeof statusColors] || "bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-300";
   };
 
   const getGrantType = (grant: EnhancedGrant) => {
@@ -222,8 +222,8 @@ export default function GrantsList() {
       <div className="space-y-6">
         <div className="flex justify-between items-center">
           <div>
-            <h1 className="text-3xl font-bold text-gray-900">Grants Office</h1>
-            <p className="text-gray-600 mt-1">Manage research grants and funding applications</p>
+            <h1 className="text-3xl font-bold text-gray-900 dark:text-gray-100">Grants Office</h1>
+            <p className="text-gray-600 mt-1 dark:text-gray-300">Manage research grants and funding applications</p>
           </div>
           <div className="flex gap-2">
             <Button 
@@ -260,7 +260,7 @@ export default function GrantsList() {
           <div className="flex flex-col md:flex-row gap-4 mb-6">
             <div className="flex-1">
               <div className="relative">
-                <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 h-4 w-4" />
+                <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 h-4 w-4 dark:text-gray-500" />
                 <Input
                   placeholder="Search grants, project numbers, investigators, or funding agencies..."
                   value={searchQuery}
@@ -340,7 +340,7 @@ export default function GrantsList() {
               <TableBody>
                 {filteredAndSortedGrants?.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={8} className="text-center py-8 text-gray-500">
+                    <TableCell colSpan={8} className="text-center py-8 text-gray-500 dark:text-gray-400">
                       {searchQuery || statusFilter !== "all" || yearFilter !== "all" 
                         ? "No grants match your filters." 
                         : "No grants found. Create your first grant to get started."}
@@ -350,7 +350,7 @@ export default function GrantsList() {
                   filteredAndSortedGrants?.map((grant) => (
                     <TableRow 
                       key={grant.id} 
-                      className="hover:bg-gray-50 cursor-pointer"
+                      className="hover:bg-gray-50 cursor-pointer dark:hover:bg-gray-900"
                       onClick={() => navigate(`/grants/${grant.id}/edit`)}
                     >
                       <TableCell>
@@ -366,7 +366,7 @@ export default function GrantsList() {
                             </div>
                           </div>
                         ) : (
-                          <span className="text-gray-400">—</span>
+                          <span className="text-gray-400 dark:text-gray-500">—</span>
                         )}
                       </TableCell>
                       <TableCell className="text-sm">
@@ -379,7 +379,7 @@ export default function GrantsList() {
                         <div>
                           <div className="font-medium text-sm line-clamp-2">{grant.title}</div>
                           {grant.description && (
-                            <div className="text-xs text-gray-500 mt-1 line-clamp-1">{grant.description}</div>
+                            <div className="text-xs text-gray-500 mt-1 line-clamp-1 dark:text-gray-400">{grant.description}</div>
                           )}
                         </div>
                       </TableCell>
@@ -388,8 +388,8 @@ export default function GrantsList() {
                           {formatCurrency(grant.awardedAmount)}
                           {grant.awarded && grantSdrCounts[grant.id] > 0 && (
                             <div className="flex items-center gap-1" title={`${grantSdrCounts[grant.id]} linked SDR${grantSdrCounts[grant.id] > 1 ? 's' : ''}`}>
-                              <LinkIcon className="h-3 w-3 text-blue-600" />
-                              <span className="text-xs text-blue-600">{grantSdrCounts[grant.id]}</span>
+                              <LinkIcon className="h-3 w-3 text-blue-600 dark:text-blue-400" />
+                              <span className="text-xs text-blue-600 dark:text-blue-400">{grantSdrCounts[grant.id]}</span>
                             </div>
                           )}
                         </div>
@@ -425,7 +425,7 @@ export default function GrantsList() {
                             >
                               <DropdownMenuItem 
                                 onClick={() => deleteGrantMutation.mutate(grant.id)}
-                                className="text-red-600"
+                                className="text-red-600 dark:text-red-400"
                               >
                                 Delete Grant
                               </DropdownMenuItem>

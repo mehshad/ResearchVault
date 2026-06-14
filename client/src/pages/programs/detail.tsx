@@ -171,7 +171,7 @@ export default function ProgramDetail() {
               <div>
                 <h2 className="text-xl font-semibold">{program.name}</h2>
                 <div className="text-foreground flex items-center gap-1 mt-1">
-                  <Badge variant="outline" className="rounded-sm bg-blue-50 text-blue-700 border-blue-200">{program.programId}</Badge>
+                  <Badge variant="outline" className="rounded-sm bg-blue-50 text-blue-700 border-blue-200 dark:bg-blue-950 dark:text-blue-300 dark:border-blue-800">{program.programId}</Badge>
                 </div>
               </div>
 

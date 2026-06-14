@@ -79,7 +79,7 @@ export default function TimelineComments({
             <Send className="h-4 w-4 text-blue-500" />
             <div>
               <p className="text-sm font-medium">Submitted</p>
-              <p className="text-sm text-gray-500">Application submitted for review</p>
+              <p className="text-sm text-gray-500 dark:text-gray-400">Application submitted for review</p>
             </div>
           </div>
         )
@@ -95,7 +95,7 @@ export default function TimelineComments({
             <Eye className="h-4 w-4 text-purple-500" />
             <div>
               <p className="text-sm font-medium">Vetted</p>
-              <p className="text-sm text-gray-500">Initial review completed</p>
+              <p className="text-sm text-gray-500 dark:text-gray-400">Initial review completed</p>
             </div>
           </div>
         )
@@ -111,7 +111,7 @@ export default function TimelineComments({
             <Eye className="h-4 w-4 text-yellow-500" />
             <div>
               <p className="text-sm font-medium">Under Review</p>
-              <p className="text-sm text-gray-500">Assigned to board members</p>
+              <p className="text-sm text-gray-500 dark:text-gray-400">Assigned to board members</p>
             </div>
           </div>
         )
@@ -127,7 +127,7 @@ export default function TimelineComments({
             <CheckCircle className="h-4 w-4 text-green-500" />
             <div>
               <p className="text-sm font-medium">Approved</p>
-              <p className="text-sm text-gray-500">Protocol approved for implementation</p>
+              <p className="text-sm text-gray-500 dark:text-gray-400">Protocol approved for implementation</p>
             </div>
           </div>
         )
@@ -143,7 +143,7 @@ export default function TimelineComments({
             <Clock className="h-4 w-4 text-orange-500" />
             <div>
               <p className="text-sm font-medium">Expires</p>
-              <p className="text-sm text-gray-500">Protocol expiration date</p>
+              <p className="text-sm text-gray-500 dark:text-gray-400">Protocol expiration date</p>
             </div>
           </div>
         )
@@ -166,12 +166,12 @@ export default function TimelineComments({
             type: 'status',
             element: (
               <div className="flex items-start space-x-2">
-                <AlertTriangle className="h-4 w-4 text-slate-500 mt-0.5" />
+                <AlertTriangle className="h-4 w-4 text-slate-500 mt-0.5 dark:text-slate-400" />
                 <div>
                   <p className="text-sm font-medium">Status Change</p>
-                  <p className="text-sm text-gray-500">{comment.comment}</p>
+                  <p className="text-sm text-gray-500 dark:text-gray-400">{comment.comment}</p>
                   {comment.authorName && (
-                    <p className="text-xs text-gray-400">{comment.authorName}</p>
+                    <p className="text-xs text-gray-400 dark:text-gray-500">{comment.authorName}</p>
                   )}
                 </div>
               </div>
@@ -181,45 +181,45 @@ export default function TimelineComments({
         }
         
         const commentDate = new Date(comment.createdAt);
-        let bgClass = 'bg-amber-50 border-amber-200';
-        let iconClass = 'text-amber-600';
-        let titleClass = 'text-amber-800';
-        let textClass = 'text-amber-700';
-        let authorClass = 'text-amber-600';
+        let bgClass = 'bg-amber-50 border-amber-200 dark:bg-amber-950 dark:border-amber-800';
+        let iconClass = 'text-amber-600 dark:text-amber-400';
+        let titleClass = 'text-amber-800 dark:text-amber-300';
+        let textClass = 'text-amber-700 dark:text-amber-300';
+        let authorClass = 'text-amber-600 dark:text-amber-400';
         let commentTitle = 'Comment';
         
         // Style based on comment type
         switch (comment.commentType) {
           case 'office_comment':
-            bgClass = 'bg-amber-50 border-amber-200';
-            iconClass = 'text-amber-600';
-            titleClass = 'text-amber-800';
-            textClass = 'text-amber-700';
-            authorClass = 'text-amber-600';
+            bgClass = 'bg-amber-50 border-amber-200 dark:bg-amber-950 dark:border-amber-800';
+            iconClass = 'text-amber-600 dark:text-amber-400';
+            titleClass = 'text-amber-800 dark:text-amber-300';
+            textClass = 'text-amber-700 dark:text-amber-300';
+            authorClass = 'text-amber-600 dark:text-amber-400';
             commentTitle = 'Office Comment';
             break;
           case 'reviewer_feedback':
-            bgClass = 'bg-orange-50 border-orange-200';
-            iconClass = 'text-orange-600';
-            titleClass = 'text-orange-800';
-            textClass = 'text-orange-700';
-            authorClass = 'text-orange-600';
+            bgClass = 'bg-orange-50 border-orange-200 dark:bg-orange-950 dark:border-orange-800';
+            iconClass = 'text-orange-600 dark:text-orange-400';
+            titleClass = 'text-orange-800 dark:text-orange-300';
+            textClass = 'text-orange-700 dark:text-orange-300';
+            authorClass = 'text-orange-600 dark:text-orange-400';
             commentTitle = 'Reviewer Feedback';
             break;
           case 'pi_response':
-            bgClass = 'bg-blue-50 border-blue-200';
-            iconClass = 'text-blue-600';
-            titleClass = 'text-blue-800';
-            textClass = 'text-blue-700';
-            authorClass = 'text-blue-600';
+            bgClass = 'bg-blue-50 border-blue-200 dark:bg-blue-950 dark:border-blue-800';
+            iconClass = 'text-blue-600 dark:text-blue-400';
+            titleClass = 'text-blue-800 dark:text-blue-300';
+            textClass = 'text-blue-700 dark:text-blue-300';
+            authorClass = 'text-blue-600 dark:text-blue-400';
             commentTitle = 'PI Response';
             break;
           default:
-            bgClass = 'bg-gray-50 border-gray-200';
-            iconClass = 'text-gray-600';
-            titleClass = 'text-gray-800';
-            textClass = 'text-gray-700';
-            authorClass = 'text-gray-600';
+            bgClass = 'bg-gray-50 border-gray-200 dark:bg-gray-900 dark:border-gray-700';
+            iconClass = 'text-gray-600 dark:text-gray-300';
+            titleClass = 'text-gray-800 dark:text-gray-200';
+            textClass = 'text-gray-700 dark:text-gray-300';
+            authorClass = 'text-gray-600 dark:text-gray-300';
             commentTitle = 'Comment';
         }
         
@@ -259,7 +259,7 @@ export default function TimelineComments({
       {timelineEntries.map((entry, index) => (
         <div key={`timeline-${entry.type}-${index}`} className="relative">
           <div className="flex items-start space-x-3">
-            <div className="flex-shrink-0 text-xs text-gray-400 w-20">
+            <div className="flex-shrink-0 text-xs text-gray-400 w-20 dark:text-gray-500">
               {format(entry.date, 'MMM d, HH:mm')}
             </div>
             <div className="flex-1">

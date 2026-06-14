@@ -10,6 +10,7 @@ interface UploadMetadata {
 interface UploadResponse {
   uploadURL: string;
   objectPath: string;
+  finalizeToken?: string;
   metadata: UploadMetadata;
 }
 
@@ -124,6 +125,19 @@ export function useUpload(options: UseUploadOptions = {}) {
         // Step 2: Upload file directly to presigned URL
         setProgress(30);
         await uploadToPresignedUrl(file, uploadResponse.uploadURL);
+
+        // Step 3: Finalize upload — set private ACL so deny-by-default works.
+        // Non-fatal: if this fails the object is simply inaccessible until resolved.
+        if (uploadResponse.objectPath) {
+          await fetch("/api/uploads/finalize", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              objectPath: uploadResponse.objectPath,
+              finalizeToken: uploadResponse.finalizeToken,
+            }),
+          }).catch(() => { /* best-effort */ });
+        }
 
         setProgress(100);
         options.onSuccess?.(uploadResponse);

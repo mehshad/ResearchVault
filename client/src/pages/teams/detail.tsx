@@ -357,7 +357,7 @@ export default function TeamDetail(props: TeamDetailProps) {
                               <span className="text-xs text-muted-foreground">{scientist.jobTitle}</span>
                             </div>
                             {scientist.staffId && 
-                              <Badge variant="outline" className="text-xs font-mono bg-blue-50 text-blue-700 border-blue-200">
+                              <Badge variant="outline" className="text-xs font-mono bg-blue-50 text-blue-700 border-blue-200 dark:bg-blue-950 dark:text-blue-300 dark:border-blue-800">
                                 {scientist.staffId}
                               </Badge>
                             }
@@ -411,7 +411,7 @@ export default function TeamDetail(props: TeamDetailProps) {
                 {selectedScientistId && (() => {
                   const selectedScientist = scientists?.find(s => s.id === selectedScientistId);
                   return selectedScientist?.jobTitle !== "Investigator" && (
-                    <p className="text-sm text-amber-600 mt-1">
+                    <p className="text-sm text-amber-600 mt-1 dark:text-amber-400">
                       <span className="font-medium">Note:</span> Only scientists with job title "Investigator" can be assigned as Principal Investigator. 
                       {selectedScientist ? formatFullName(selectedScientist) : 'This scientist'} has the job title "{selectedScientist?.jobTitle}".
                     </p>
@@ -438,7 +438,7 @@ export default function TeamDetail(props: TeamDetailProps) {
         <CardHeader>
           <CardTitle>
             Team for {activity?.title || "Research Activity"}
-            <Badge variant="outline" className="ml-2 font-mono bg-blue-50 text-blue-700 border-blue-200">
+            <Badge variant="outline" className="ml-2 font-mono bg-blue-50 text-blue-700 border-blue-200 dark:bg-blue-950 dark:text-blue-300 dark:border-blue-800">
               {activity?.sdrNumber || "SDR-???"}
             </Badge>
           </CardTitle>
@@ -475,8 +475,8 @@ export default function TeamDetail(props: TeamDetailProps) {
           ) : (
             <div className="space-y-4">
               {/* Team Status Indicator */}
-              <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
-                <h4 className="font-medium text-blue-900 mb-2">Team Composition Requirements</h4>
+              <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 dark:bg-blue-950 dark:border-blue-800">
+                <h4 className="font-medium text-blue-900 mb-2 dark:text-blue-200">Team Composition Requirements</h4>
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-3 text-sm">
                   {(() => {
                     const constraints = getRoleConstraints();
@@ -504,7 +504,7 @@ export default function TeamDetail(props: TeamDetailProps) {
                     );
                   })()}
                 </div>
-                <p className="text-xs text-blue-700 mt-2">
+                <p className="text-xs text-blue-700 mt-2 dark:text-blue-300">
                   Each research activity must have exactly 1 Principal Investigator and 1 Lead Scientist, plus any number of team members.
                 </p>
               </div>
@@ -534,9 +534,9 @@ export default function TeamDetail(props: TeamDetailProps) {
                         </TableCell>
                         <TableCell>
                           <Badge className={
-                            member.role === 'Investigator' ? 'bg-blue-100 text-blue-800 border-blue-200' :
-                            member.role === 'Lead Scientist' ? 'bg-purple-100 text-purple-800 border-purple-200' :
-                            'bg-green-100 text-green-800 border-green-200'
+                            member.role === 'Investigator' ? 'bg-blue-100 text-blue-800 border-blue-200 dark:bg-blue-950 dark:text-blue-300 dark:border-blue-800' :
+                            member.role === 'Lead Scientist' ? 'bg-purple-100 text-purple-800 border-purple-200 dark:bg-purple-950 dark:text-purple-300 dark:border-purple-800' :
+                            'bg-green-100 text-green-800 border-green-200 dark:bg-green-950 dark:text-green-300 dark:border-green-800'
                           }>
                             {member.role}
                           </Badge>
@@ -544,7 +544,7 @@ export default function TeamDetail(props: TeamDetailProps) {
                         <TableCell>{scientist?.jobTitle || 'N/A'}</TableCell>
                         <TableCell>
                           {scientist?.staffId ? (
-                            <Badge variant="outline" className="font-mono bg-blue-50 text-blue-700 border-blue-200">
+                            <Badge variant="outline" className="font-mono bg-blue-50 text-blue-700 border-blue-200 dark:bg-blue-950 dark:text-blue-300 dark:border-blue-800">
                               {scientist.staffId}
                             </Badge>
                           ) : (

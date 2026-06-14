@@ -179,19 +179,19 @@ export default function ResearchContractDetail() {
               <div>
                 <h2 className="text-xl font-semibold">{contract.title}</h2>
                 <div className="flex items-center gap-2 mt-1">
-                  <Badge variant="outline" className="rounded-sm bg-blue-50 text-blue-700 border-blue-200">
+                  <Badge variant="outline" className="rounded-sm bg-blue-50 text-blue-700 border-blue-200 dark:bg-blue-950 dark:text-blue-300 dark:border-blue-800">
                     {contract.contractNumber}
                   </Badge>
                   {researchActivity && (
-                    <Badge variant="outline" className="rounded-sm bg-green-50 text-green-700 border-green-200">
+                    <Badge variant="outline" className="rounded-sm bg-green-50 text-green-700 border-green-200 dark:bg-green-950 dark:text-green-300 dark:border-green-800">
                       {researchActivity.sdrNumber}
                     </Badge>
                   )}
                   <Badge className={
-                    contract.status === 'active' ? 'bg-green-100 text-green-800' :
-                    contract.status === 'submitted' || contract.status === 'under_review' ? 'bg-yellow-100 text-yellow-800' :
-                    contract.status === 'completed' ? 'bg-blue-100 text-blue-800' :
-                    'bg-gray-100 text-gray-800'
+                    contract.status === 'active' ? 'bg-green-100 text-green-800 dark:bg-green-950 dark:text-green-300' :
+                    contract.status === 'submitted' || contract.status === 'under_review' ? 'bg-yellow-100 text-yellow-800 dark:bg-yellow-950 dark:text-yellow-300' :
+                    contract.status === 'completed' ? 'bg-blue-100 text-blue-800 dark:bg-blue-950 dark:text-blue-300' :
+                    'bg-gray-100 text-gray-800 dark:bg-gray-800 dark:text-gray-200'
                   }>
                     {contract.status}
                   </Badge>
@@ -335,7 +335,7 @@ export default function ResearchContractDetail() {
                             <Badge 
                               key={index}
                               variant="outline" 
-                              className="rounded-sm bg-green-50 text-green-700 border-green-200"
+                              className="rounded-sm bg-green-50 text-green-700 border-green-200 dark:bg-green-950 dark:text-green-300 dark:border-green-800"
                               data-testid={`badge-budget-source-${index}`}
                             >
                               {source}
@@ -353,7 +353,7 @@ export default function ResearchContractDetail() {
                             <Badge 
                               key={index}
                               variant="outline" 
-                              className="rounded-sm bg-blue-50 text-blue-700 border-blue-200"
+                              className="rounded-sm bg-blue-50 text-blue-700 border-blue-200 dark:bg-blue-950 dark:text-blue-300 dark:border-blue-800"
                               data-testid={`badge-grant-code-${index}`}
                             >
                               {code}
@@ -415,7 +415,7 @@ export default function ResearchContractDetail() {
                   <Layers className="h-4 w-4 mr-2" /> 
                   <span className="flex-1 text-left">Research Activity</span>
                   {researchActivity && (
-                    <Badge variant="outline" className="ml-2 rounded-sm bg-blue-50 text-blue-700 border-blue-200">
+                    <Badge variant="outline" className="ml-2 rounded-sm bg-blue-50 text-blue-700 border-blue-200 dark:bg-blue-950 dark:text-blue-300 dark:border-blue-800">
                       {researchActivity.sdrNumber}
                     </Badge>
                   )}
@@ -430,11 +430,11 @@ export default function ResearchContractDetail() {
                   <Users className="h-4 w-4 mr-2" /> 
                   <span className="flex-1 text-left">Principal Investigator</span>
                   {leadPI && leadPI.staffId ? (
-                    <Badge variant="outline" className="ml-2 rounded-sm bg-blue-50 text-blue-700 border-blue-200">
+                    <Badge variant="outline" className="ml-2 rounded-sm bg-blue-50 text-blue-700 border-blue-200 dark:bg-blue-950 dark:text-blue-300 dark:border-blue-800">
                       ID: {leadPI.staffId}
                     </Badge>
                   ) : leadPI && (
-                    <Badge variant="outline" className="ml-2 rounded-sm bg-purple-50 text-purple-700 border-purple-200">
+                    <Badge variant="outline" className="ml-2 rounded-sm bg-purple-50 text-purple-700 border-purple-200 dark:bg-purple-950 dark:text-purple-300 dark:border-purple-800">
                       PI
                     </Badge>
                   )}
@@ -449,7 +449,7 @@ export default function ResearchContractDetail() {
                   <FileText className="h-4 w-4 mr-2" /> 
                   <span className="flex-1 text-left">Publications</span>
                   {researchActivity && (
-                    <Badge variant="outline" className="ml-2 rounded-sm bg-green-50 text-green-700 border-green-200">
+                    <Badge variant="outline" className="ml-2 rounded-sm bg-green-50 text-green-700 border-green-200 dark:bg-green-950 dark:text-green-300 dark:border-green-800">
                       {publicationCount} {publicationCount === 1 ? 'publication' : 'publications'}
                     </Badge>
                   )}
@@ -476,7 +476,7 @@ export default function ResearchContractDetail() {
                   >
                     <FileText className="h-4 w-4 mr-2" /> 
                     <span className="flex-1 text-left">IRB Protocol</span>
-                    <Badge variant="outline" className="ml-2 rounded-sm bg-amber-50 text-amber-700 border-amber-200">
+                    <Badge variant="outline" className="ml-2 rounded-sm bg-amber-50 text-amber-700 border-amber-200 dark:bg-amber-950 dark:text-amber-300 dark:border-amber-800">
                       {contract.irbProtocol}
                     </Badge>
                   </Button>
@@ -504,7 +504,7 @@ export default function ResearchContractDetail() {
                   >
                     <FileText className="h-4 w-4 mr-2" /> 
                     <span className="flex-1 text-left">IBC Protocol</span>
-                    <Badge variant="outline" className="ml-2 rounded-sm bg-purple-50 text-purple-700 border-purple-200">
+                    <Badge variant="outline" className="ml-2 rounded-sm bg-purple-50 text-purple-700 border-purple-200 dark:bg-purple-950 dark:text-purple-300 dark:border-purple-800">
                       {contract.ibcProtocol}
                     </Badge>
                   </Button>
@@ -572,8 +572,8 @@ export default function ResearchContractDetail() {
                               variant="outline" 
                               className={
                                 item.party === 'sidra' 
-                                  ? 'bg-blue-50 text-blue-700 border-blue-200' 
-                                  : 'bg-purple-50 text-purple-700 border-purple-200'
+                                  ? 'bg-blue-50 text-blue-700 border-blue-200 dark:bg-blue-950 dark:text-blue-300 dark:border-blue-800' 
+                                  : 'bg-purple-50 text-purple-700 border-purple-200 dark:bg-purple-950 dark:text-purple-300 dark:border-purple-800'
                               }
                               data-testid={`badge-scope-party-${item.id}`}
                             >
@@ -666,8 +666,8 @@ export default function ResearchContractDetail() {
                             <Badge 
                               className={
                                 extension.approvedAt ? 
-                                'bg-green-100 text-green-800' : 
-                                'bg-yellow-100 text-yellow-800'
+                                'bg-green-100 text-green-800 dark:bg-green-950 dark:text-green-300' : 
+                                'bg-yellow-100 text-yellow-800 dark:bg-yellow-950 dark:text-yellow-300'
                               }
                               data-testid={`badge-extension-status-${extension.id}`}
                             >

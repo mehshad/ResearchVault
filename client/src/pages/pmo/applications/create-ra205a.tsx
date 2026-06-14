@@ -220,7 +220,7 @@ export default function CreateRA205AApplication() {
           </Button>
           
           <div className="flex items-center gap-3">
-            <FileText className="h-8 w-8 text-orange-600" />
+            <FileText className="h-8 w-8 text-orange-600 dark:text-orange-400" />
             <div>
               <h1 className="text-3xl font-bold">Create RA-205A Application</h1>
               <p className="text-muted-foreground mt-1">Research Activity Change Request Form</p>
@@ -283,7 +283,7 @@ export default function CreateRA205AApplication() {
                             <FormItem>
                               <FormLabel className="text-sm">SDR Number</FormLabel>
                               <FormControl>
-                                <Input {...field} readOnly className="bg-gray-50 h-8 text-sm" />
+                                <Input {...field} readOnly className="bg-gray-50 h-8 text-sm dark:bg-gray-900" />
                               </FormControl>
                             </FormItem>
                           )}
@@ -295,7 +295,7 @@ export default function CreateRA205AApplication() {
                             <FormItem>
                               <FormLabel className="text-sm">Type</FormLabel>
                               <FormControl>
-                                <Input {...field} readOnly className="bg-gray-50 h-8 text-sm" />
+                                <Input {...field} readOnly className="bg-gray-50 h-8 text-sm dark:bg-gray-900" />
                               </FormControl>
                             </FormItem>
                           )}
@@ -312,7 +312,7 @@ export default function CreateRA205AApplication() {
                                   <Input 
                                     value={selectedProject ? `${selectedProject.projectId} - ${selectedProject.title}` : ''} 
                                     readOnly 
-                                    className="bg-gray-50 h-8 text-sm" 
+                                    className="bg-gray-50 h-8 text-sm dark:bg-gray-900" 
                                   />
                                 </FormControl>
                               </FormItem>
@@ -326,7 +326,7 @@ export default function CreateRA205AApplication() {
                             <FormItem className="md:col-span-2">
                               <FormLabel className="text-sm">Current Title</FormLabel>
                               <FormControl>
-                                <Input {...field} readOnly className="bg-gray-50 h-8 text-sm" />
+                                <Input {...field} readOnly className="bg-gray-50 h-8 text-sm dark:bg-gray-900" />
                               </FormControl>
                             </FormItem>
                           )}
@@ -335,8 +335,8 @@ export default function CreateRA205AApplication() {
                     )}
 
                     
-                    <div className="mt-4 p-4 bg-blue-50 rounded-lg">
-                      <p className="text-sm text-blue-800">
+                    <div className="mt-4 p-4 bg-blue-50 rounded-lg dark:bg-blue-950">
+                      <p className="text-sm text-blue-800 dark:text-blue-300">
                         <strong>Date:</strong> {new Date().toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: 'numeric' })}
                       </p>
                     </div>
@@ -793,17 +793,17 @@ export default function CreateRA205AApplication() {
             <Card>
               <CardHeader>
                 <CardTitle className="flex items-center gap-2 text-lg">
-                  <CheckCircle2 className="h-5 w-5 text-green-600" />
+                  <CheckCircle2 className="h-5 w-5 text-green-600 dark:text-green-400" />
                   Certification Requirements
                 </CardTitle>
               </CardHeader>
               <CardContent className="space-y-4 max-h-[80vh] overflow-y-auto">
                 
                 {/* PI Certification Responsibilities */}
-                <div className="p-3 bg-blue-50 rounded-lg border border-blue-200">
-                  <h4 className="font-medium text-blue-900 mb-2">PI Certification Responsibilities</h4>
-                  <p className="text-xs text-blue-800 mb-2">In signing below, the new/transferred PI and/or current PI certifies to:</p>
-                  <ul className="space-y-1 text-xs text-blue-700">
+                <div className="p-3 bg-blue-50 rounded-lg border border-blue-200 dark:bg-blue-950 dark:border-blue-800">
+                  <h4 className="font-medium text-blue-900 mb-2 dark:text-blue-200">PI Certification Responsibilities</h4>
+                  <p className="text-xs text-blue-800 mb-2 dark:text-blue-300">In signing below, the new/transferred PI and/or current PI certifies to:</p>
+                  <ul className="space-y-1 text-xs text-blue-700 dark:text-blue-300">
                     <li>• Accept all responsibilities/know-how for the scientific conduct of the project in terms of, but not limited to, the previous activities that took place before accepting the responsibility to be the PI, all project entries in the PMO database, ethical approvals, regulatory binders, and all aspects related to project ownership.</li>
                     <li>• Account for sound know-how of the project's updates/documents/papers/etc.</li>
                     <li>• Adhere to all biosafety requirements/responsibilities for research in the labs.</li>
@@ -816,10 +816,10 @@ export default function CreateRA205AApplication() {
                 </div>
 
                 {/* Research Labs Certification */}
-                <div className="p-3 bg-purple-50 rounded-lg border border-purple-200">
-                  <h4 className="font-medium text-purple-900 mb-2">Research Labs Manager</h4>
-                  <p className="text-xs text-purple-800 mb-2">In signing below, the Research Laboratories Manager certifies that:</p>
-                  <ul className="space-y-1 text-xs text-purple-700">
+                <div className="p-3 bg-purple-50 rounded-lg border border-purple-200 dark:bg-purple-950 dark:border-purple-800">
+                  <h4 className="font-medium text-purple-900 mb-2 dark:text-purple-200">Research Labs Manager</h4>
+                  <p className="text-xs text-purple-800 mb-2 dark:text-purple-300">In signing below, the Research Laboratories Manager certifies that:</p>
+                  <ul className="space-y-1 text-xs text-purple-700 dark:text-purple-300">
                     <li>• Leaving person has returned all lab notebooks under their name and the ones of their reporting staff in case they have kept it.</li>
                     <li>• Samples have been acknowledged by the receiver; in case the project has been transferred to another researcher. Or samples have been destroyed in case of closure of the study and as per IRB conditions.</li>
                     <li>• Fridges/freezers are emptied.</li>
@@ -828,19 +828,19 @@ export default function CreateRA205AApplication() {
                 </div>
 
                 {/* Biosafety Certification */}
-                <div className="p-3 bg-green-50 rounded-lg border border-green-200">
-                  <h4 className="font-medium text-green-900 mb-2">Biosafety Officer</h4>
-                  <p className="text-xs text-green-800 mb-2">In signing below, the Biosafety Officer certifies that:</p>
-                  <ul className="space-y-1 text-xs text-green-700">
+                <div className="p-3 bg-green-50 rounded-lg border border-green-200 dark:bg-green-950 dark:border-green-800">
+                  <h4 className="font-medium text-green-900 mb-2 dark:text-green-200">Biosafety Officer</h4>
+                  <p className="text-xs text-green-800 mb-2 dark:text-green-300">In signing below, the Biosafety Officer certifies that:</p>
+                  <ul className="space-y-1 text-xs text-green-700 dark:text-green-300">
                     <li>• New/transferred PI is informed about and acknowledges all the upcoming roles/responsibilities/requirements of the LPI as indicated in the Biosafety Manual and IBC Research Application Approval procedure.</li>
                   </ul>
                 </div>
 
                 {/* Finance & Procurement Certification */}
-                <div className="p-3 bg-orange-50 rounded-lg border border-orange-200">
-                  <h4 className="font-medium text-orange-900 mb-2">Finance & Procurement</h4>
-                  <p className="text-xs text-orange-800 mb-2">In signing below, the Business Manager certifies that:</p>
-                  <ul className="space-y-1 text-xs text-orange-700">
+                <div className="p-3 bg-orange-50 rounded-lg border border-orange-200 dark:bg-orange-950 dark:border-orange-800">
+                  <h4 className="font-medium text-orange-900 mb-2 dark:text-orange-200">Finance & Procurement</h4>
+                  <p className="text-xs text-orange-800 mb-2 dark:text-orange-300">In signing below, the Business Manager certifies that:</p>
+                  <ul className="space-y-1 text-xs text-orange-700 dark:text-orange-300">
                     <li>• All unconsumed stock/non-stock/special items purchased against the project have been identified – as applicable.</li>
                     <li>• RA-206 Acknowledgment of Inventory Receipt Form and Inventory List has been discussed/obtained – as applicable.</li>
                     <li>• New/transferred PI acknowledges fulfilling all the upcoming roles/responsibilities pertaining to the research project's budget and have been administered the changes.</li>
@@ -848,20 +848,20 @@ export default function CreateRA205AApplication() {
                 </div>
 
                 {/* Research Grants Certification */}
-                <div className="p-3 bg-indigo-50 rounded-lg border border-indigo-200">
-                  <h4 className="font-medium text-indigo-900 mb-2">Research Grants Manager</h4>
-                  <p className="text-xs text-indigo-800 mb-2">In signing below, the Research Grants Manager certifies that:</p>
-                  <ul className="space-y-1 text-xs text-indigo-700">
+                <div className="p-3 bg-indigo-50 rounded-lg border border-indigo-200 dark:bg-indigo-950 dark:border-indigo-800">
+                  <h4 className="font-medium text-indigo-900 mb-2 dark:text-indigo-200">Research Grants Manager</h4>
+                  <p className="text-xs text-indigo-800 mb-2 dark:text-indigo-300">In signing below, the Research Grants Manager certifies that:</p>
+                  <ul className="space-y-1 text-xs text-indigo-700 dark:text-indigo-300">
                     <li>• All grant-related information has been accurately transferred and acknowledged.</li>
                     <li>• New/transferred PI acknowledges fulfilling all the upcoming roles/responsibilities pertaining to grant(s).</li>
                   </ul>
                 </div>
 
                 {/* Research Contracts Certification */}
-                <div className="p-3 bg-red-50 rounded-lg border border-red-200">
-                  <h4 className="font-medium text-red-900 mb-2">Research Contract Specialist</h4>
-                  <p className="text-xs text-red-800 mb-2">In signing below, the Research Contract Specialist certifies that:</p>
-                  <ul className="space-y-1 text-xs text-red-700">
+                <div className="p-3 bg-red-50 rounded-lg border border-red-200 dark:bg-red-950 dark:border-red-800">
+                  <h4 className="font-medium text-red-900 mb-2 dark:text-red-200">Research Contract Specialist</h4>
+                  <p className="text-xs text-red-800 mb-2 dark:text-red-300">In signing below, the Research Contract Specialist certifies that:</p>
+                  <ul className="space-y-1 text-xs text-red-700 dark:text-red-300">
                     <li>• All legal contracts and terms have been discussed and have been modified, transferred, and/or closed as applicable by all counterparties.</li>
                     <li>• Intellectual Property (IP) materials, contracts, and terms have been discussed and modified, transferred, and/or closed as applicable by all counterparties.</li>
                     <li>• New/transferred PI acknowledges fulfilling all the upcoming roles/responsibilities of the research contract.</li>
@@ -869,16 +869,16 @@ export default function CreateRA205AApplication() {
                 </div>
 
                 {/* Research Governance Certification */}
-                <div className="p-3 bg-yellow-50 rounded-lg border border-yellow-200">
-                  <h4 className="font-medium text-yellow-900 mb-2">Research Governance Manager</h4>
-                  <p className="text-xs text-yellow-800 mb-2">In signing below, the Research Governance Manager ensures that:</p>
-                  <ul className="space-y-1 text-xs text-yellow-700">
+                <div className="p-3 bg-yellow-50 rounded-lg border border-yellow-200 dark:bg-yellow-950 dark:border-yellow-800">
+                  <h4 className="font-medium text-yellow-900 mb-2 dark:text-yellow-200">Research Governance Manager</h4>
+                  <p className="text-xs text-yellow-800 mb-2 dark:text-yellow-300">In signing below, the Research Governance Manager ensures that:</p>
+                  <ul className="space-y-1 text-xs text-yellow-700 dark:text-yellow-300">
                     <li>• Timely transfer of responsibilities to the new PI.</li>
                     <li>• PI responsibilities are shifted to another appropriate PI.</li>
                     <li>• If the Study is closing research records are retained at least for 3 years. Records retention must also comply with all other applicable regulations governing the study.</li>
                     <li>• All data records, including regulatory documentation and participant files, should be retained as per Sidra's retention Policy.</li>
                     <li>• All aspects concerning the project quality and compliance have been conducted in accordance with Sidra policies and procedures based on a sample basis as follows:</li>
-                    <ul className="ml-4 space-y-1 text-xs text-yellow-600">
+                    <ul className="ml-4 space-y-1 text-xs text-yellow-600 dark:text-yellow-400">
                       <li>a. Ensure the availability, completeness, and accuracy of the research PI's sample tracker</li>
                       <li>b. Verification of Research Samples physically exist in the laboratory's location</li>
                       <li>c. Existence of research ICF and Enrollment logs to ensure the existence of consenting related to the Sample verified and samples labeled with deidentify code as per the Informed Consent Log</li>
@@ -890,10 +890,10 @@ export default function CreateRA205AApplication() {
                 </div>
 
                 {/* Research Data Management Certification */}
-                <div className="p-3 bg-teal-50 rounded-lg border border-teal-200">
-                  <h4 className="font-medium text-teal-900 mb-2">Research Data Management Manager</h4>
-                  <p className="text-xs text-teal-800 mb-2">In signing below, the Research Data Management Manager certifies that:</p>
-                  <ul className="space-y-1 text-xs text-teal-700">
+                <div className="p-3 bg-teal-50 rounded-lg border border-teal-200 dark:bg-teal-950 dark:border-teal-800">
+                  <h4 className="font-medium text-teal-900 mb-2 dark:text-teal-200">Research Data Management Manager</h4>
+                  <p className="text-xs text-teal-800 mb-2 dark:text-teal-300">In signing below, the Research Data Management Manager certifies that:</p>
+                  <ul className="space-y-1 text-xs text-teal-700 dark:text-teal-300">
                     <li>• All related data has been accurately identified, located, transferred, and acknowledged by the PI.</li>
                     <li>• R004 - Research Data Access/Sharing Application Form has been obtained/discussed – as applicable.</li>
                     <li>• New/transferred PI acknowledges fulfilling all the upcoming roles/responsibilities pertaining to managing the related data.</li>
@@ -902,10 +902,10 @@ export default function CreateRA205AApplication() {
                 </div>
 
                 {/* PMO Certification */}
-                <div className="p-3 bg-gray-50 rounded-lg border border-gray-200">
-                  <h4 className="font-medium text-gray-900 mb-2">PMO (All changes)</h4>
-                  <p className="text-xs text-gray-800 mb-2">In signing below, the PMO certifies that:</p>
-                  <ul className="space-y-1 text-xs text-gray-700">
+                <div className="p-3 bg-gray-50 rounded-lg border border-gray-200 dark:bg-gray-900 dark:border-gray-700">
+                  <h4 className="font-medium text-gray-900 mb-2 dark:text-gray-100">PMO (All changes)</h4>
+                  <p className="text-xs text-gray-800 mb-2 dark:text-gray-200">In signing below, the PMO certifies that:</p>
+                  <ul className="space-y-1 text-xs text-gray-700 dark:text-gray-300">
                     <li>• Stakeholders, where applicable, have been informed accordingly.</li>
                     <li>• The PMO database has been subsequently implemented to reflect all changes.</li>
                   </ul>

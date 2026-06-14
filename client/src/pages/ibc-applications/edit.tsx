@@ -36,7 +36,7 @@ import { differenceInDays, parseISO } from "date-fns";
 // Helper function to get certification color based on expiry date
 function getCertificationColor(expiryDate: string | null): string {
   if (!expiryDate) {
-    return 'bg-gray-100 text-gray-600';
+    return 'bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-300';
   }
   
   const today = new Date();
@@ -44,11 +44,11 @@ function getCertificationColor(expiryDate: string | null): string {
   const daysUntilExpiry = differenceInDays(expiry, today);
   
   if (daysUntilExpiry < 0) {
-    return 'bg-red-100 text-red-800';
+    return 'bg-red-100 text-red-800 dark:bg-red-950 dark:text-red-300';
   } else if (daysUntilExpiry <= 30) {
-    return 'bg-orange-100 text-orange-800';
+    return 'bg-orange-100 text-orange-800 dark:bg-orange-950 dark:text-orange-300';
   } else {
-    return 'bg-green-100 text-green-800';
+    return 'bg-green-100 text-green-800 dark:bg-green-950 dark:text-green-300';
   }
 }
 
@@ -1664,7 +1664,7 @@ export default function IbcApplicationEdit() {
                                         field.onChange(currentValues.filter(id => id !== activity.id));
                                       }
                                     }}
-                                    className="rounded border-gray-300"
+                                    className="rounded border-gray-300 dark:border-gray-600"
                                   />
                                   <label htmlFor={`sdr-${activity.id}`} className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70">
                                     {activity.sdrNumber} - {activity.title}
@@ -1790,7 +1790,7 @@ export default function IbcApplicationEdit() {
                               checked={field.value}
                               onChange={field.onChange}
                               disabled={isReadOnly}
-                              className="rounded border-gray-300"
+                              className="rounded border-gray-300 dark:border-gray-600"
                             />
                           </FormControl>
                           <FormLabel className="text-sm">Recombinant DNA</FormLabel>
@@ -1808,7 +1808,7 @@ export default function IbcApplicationEdit() {
                               checked={field.value}
                               onChange={field.onChange}
                               disabled={isReadOnly}
-                              className="rounded border-gray-300"
+                              className="rounded border-gray-300 dark:border-gray-600"
                             />
                           </FormControl>
                           <FormLabel className="text-sm">Animal Work</FormLabel>
@@ -1826,7 +1826,7 @@ export default function IbcApplicationEdit() {
                               checked={field.value}
                               onChange={field.onChange}
                               disabled={isReadOnly}
-                              className="rounded border-gray-300"
+                              className="rounded border-gray-300 dark:border-gray-600"
                             />
                           </FormControl>
                           <FormLabel className="text-sm">Field Work</FormLabel>
@@ -1839,10 +1839,10 @@ export default function IbcApplicationEdit() {
 
               {/* Biosafety Options Section - copied from create form */}
               <div className="col-span-full">
-                <Card className="bg-blue-50 border-blue-200">
+                <Card className="bg-blue-50 border-blue-200 dark:bg-blue-950 dark:border-blue-800">
                   <CardHeader>
-                    <CardTitle className="text-lg text-blue-900">Choose Biosafety Options</CardTitle>
-                    <CardDescription className="text-blue-700">
+                    <CardTitle className="text-lg text-blue-900 dark:text-blue-200">Choose Biosafety Options</CardTitle>
+                    <CardDescription className="text-blue-700 dark:text-blue-300">
                       Please indicate if your research involves any of the following materials or organisms (all questions are mandatory)
                     </CardDescription>
                   </CardHeader>
@@ -1853,7 +1853,7 @@ export default function IbcApplicationEdit() {
                         control={form.control}
                         name="recombinantSyntheticNucleicAcid"
                         render={({ field }) => (
-                          <FormItem className="bg-white p-4 rounded-lg border border-gray-200">
+                          <FormItem className="bg-white p-4 rounded-lg border border-gray-200 dark:bg-card dark:border-gray-700">
                             <div className="space-y-3">
                               <FormLabel className="text-base font-medium">
                                 Recombinant and Synthetic Nucleic Acid Molecules (e.g., bacterial/mammalian expression plasmids, replication incompetent viral vectors, chemically synthesized nucleic acid molecules)
@@ -1865,7 +1865,7 @@ export default function IbcApplicationEdit() {
                                       type="radio"
                                       checked={field.value === true}
                                       onChange={() => field.onChange(true)}
-                                      className="w-4 h-4 text-blue-600"
+                                      className="w-4 h-4 text-blue-600 dark:text-blue-400"
                                     />
                                     <span>Yes</span>
                                   </label>
@@ -1882,7 +1882,7 @@ export default function IbcApplicationEdit() {
                                           field.onChange(false);
                                         }
                                       }}
-                                      className="w-4 h-4 text-blue-600"
+                                      className="w-4 h-4 text-blue-600 dark:text-blue-400"
                                     />
                                     <span>No</span>
                                   </label>
@@ -1898,7 +1898,7 @@ export default function IbcApplicationEdit() {
                         control={form.control}
                         name="wholeAnimalsAnimalMaterial"
                         render={({ field }) => (
-                          <FormItem className="bg-white p-4 rounded-lg border border-gray-200">
+                          <FormItem className="bg-white p-4 rounded-lg border border-gray-200 dark:bg-card dark:border-gray-700">
                             <div className="space-y-3">
                               <FormLabel className="text-base font-medium">
                                 Whole Animals/Animal Material (e.g., introduction of biologicals/chemicals into animals, use of animal cell lines and/or tissues)
@@ -1910,7 +1910,7 @@ export default function IbcApplicationEdit() {
                                       type="radio"
                                       checked={field.value === true}
                                       onChange={() => field.onChange(true)}
-                                      className="w-4 h-4 text-blue-600"
+                                      className="w-4 h-4 text-blue-600 dark:text-blue-400"
                                     />
                                     <span>Yes</span>
                                   </label>
@@ -1926,7 +1926,7 @@ export default function IbcApplicationEdit() {
                                           field.onChange(false);
                                         }
                                       }}
-                                      className="w-4 h-4 text-blue-600"
+                                      className="w-4 h-4 text-blue-600 dark:text-blue-400"
                                     />
                                     <span>No</span>
                                   </label>
@@ -1944,9 +1944,9 @@ export default function IbcApplicationEdit() {
                           control={form.control}
                           name="animalMaterialSubOptions"
                           render={({ field }) => (
-                            <FormItem className="bg-blue-50 p-4 rounded-lg border border-blue-200 ml-8">
+                            <FormItem className="bg-blue-50 p-4 rounded-lg border border-blue-200 ml-8 dark:bg-blue-950 dark:border-blue-800">
                               <div className="space-y-4">
-                                <FormLabel className="text-base font-medium text-blue-800">
+                                <FormLabel className="text-base font-medium text-blue-800 dark:text-blue-300">
                                   Please select all that apply to your research:
                                 </FormLabel>
                                 <FormControl>
@@ -1993,7 +1993,7 @@ export default function IbcApplicationEdit() {
                         control={form.control}
                         name="humanNonHumanPrimateMaterial"
                         render={({ field }) => (
-                          <FormItem className="bg-white p-4 rounded-lg border border-gray-200">
+                          <FormItem className="bg-white p-4 rounded-lg border border-gray-200 dark:bg-card dark:border-gray-700">
                             <div className="space-y-3">
                               <FormLabel className="text-base font-medium">
                                 Human & Non-Human Primate Material (e.g., blood, fluids, tissues, primary/established cell lines)
@@ -2014,7 +2014,7 @@ export default function IbcApplicationEdit() {
                                           setIntroducingMaterialsResetKey(prev => prev + 1);
                                         }
                                       }}
-                                      className="w-4 h-4 text-blue-600"
+                                      className="w-4 h-4 text-blue-600 dark:text-blue-400"
                                     />
                                     <span>Yes</span>
                                   </label>
@@ -2032,7 +2032,7 @@ export default function IbcApplicationEdit() {
                                           form.unregister('introducingPrimateMaterialIntoAnimals');
                                         }
                                       }}
-                                      className="w-4 h-4 text-blue-600"
+                                      className="w-4 h-4 text-blue-600 dark:text-blue-400"
                                     />
                                     <span>No</span>
                                   </label>
@@ -2051,9 +2051,9 @@ export default function IbcApplicationEdit() {
                           control={form.control}
                           name="introducingPrimateMaterialIntoAnimals"
                           render={({ field }) => (
-                            <FormItem className="bg-blue-50 p-4 rounded-lg border border-blue-200 ml-8">
+                            <FormItem className="bg-blue-50 p-4 rounded-lg border border-blue-200 ml-8 dark:bg-blue-950 dark:border-blue-800">
                               <div className="space-y-3">
-                                <FormLabel className="text-base font-medium text-blue-800">
+                                <FormLabel className="text-base font-medium text-blue-800 dark:text-blue-300">
                                   Will you be introducing these materials into animals?
                                 </FormLabel>
                                 <FormControl>
@@ -2063,7 +2063,7 @@ export default function IbcApplicationEdit() {
                                         type="radio"
                                         checked={field.value === true}
                                         onChange={() => field.onChange(true)}
-                                        className="w-4 h-4 text-orange-600"
+                                        className="w-4 h-4 text-orange-600 dark:text-orange-400"
                                       />
                                       <span>Yes</span>
                                     </label>
@@ -2072,7 +2072,7 @@ export default function IbcApplicationEdit() {
                                         type="radio"
                                         checked={field.value === false}
                                         onChange={() => field.onChange(false)}
-                                        className="w-4 h-4 text-orange-600"
+                                        className="w-4 h-4 text-orange-600 dark:text-orange-400"
                                       />
                                       <span>No</span>
                                     </label>
@@ -2090,7 +2090,7 @@ export default function IbcApplicationEdit() {
                         control={form.control}
                         name="microorganismsInfectiousMaterial"
                         render={({ field }) => (
-                          <FormItem className="bg-white p-4 rounded-lg border border-gray-200">
+                          <FormItem className="bg-white p-4 rounded-lg border border-gray-200 dark:bg-card dark:border-gray-700">
                             <div className="space-y-3">
                               <FormLabel className="text-base font-medium">
                                 Microorganisms/Infectious Material (e.g., bacteria, fungi, parasites, viruses, or other microorganisms)
@@ -2109,7 +2109,7 @@ export default function IbcApplicationEdit() {
                                           setMicroorganismsResetKey(prev => prev + 1);
                                         }
                                       }}
-                                      className="w-4 h-4 text-blue-600"
+                                      className="w-4 h-4 text-blue-600 dark:text-blue-400"
                                     />
                                     <span>Yes</span>
                                   </label>
@@ -2126,7 +2126,7 @@ export default function IbcApplicationEdit() {
                                           form.unregister('microorganismsRecombinantDna');
                                         }
                                       }}
-                                      className="w-4 h-4 text-blue-600"
+                                      className="w-4 h-4 text-blue-600 dark:text-blue-400"
                                     />
                                     <span>No</span>
                                   </label>
@@ -2145,9 +2145,9 @@ export default function IbcApplicationEdit() {
                           control={form.control}
                           name="microorganismsRecombinantDna"
                           render={({ field }) => (
-                            <FormItem className="bg-blue-50 p-4 rounded-lg border border-blue-200 ml-8">
+                            <FormItem className="bg-blue-50 p-4 rounded-lg border border-blue-200 ml-8 dark:bg-blue-950 dark:border-blue-800">
                               <div className="space-y-3">
-                                <FormLabel className="text-base font-medium text-blue-800">
+                                <FormLabel className="text-base font-medium text-blue-800 dark:text-blue-300">
                                   Will you introduce recombinant/synthetic DNA to any microorganism/potentially infectious agent, use recombinant/synthetic DNA to change the genetic make-up of any microorganism/potentially infectious agent, or use DNA from any microorganism/infectious agent to perform any recombinant DNA experiments? <span className="text-red-500">*</span>
                                 </FormLabel>
                                 <FormControl>
@@ -2157,7 +2157,7 @@ export default function IbcApplicationEdit() {
                                         type="radio"
                                         checked={field.value === true}
                                         onChange={() => field.onChange(true)}
-                                        className="w-4 h-4 text-blue-600"
+                                        className="w-4 h-4 text-blue-600 dark:text-blue-400"
                                       />
                                       <span>Yes</span>
                                     </label>
@@ -2166,7 +2166,7 @@ export default function IbcApplicationEdit() {
                                         type="radio"
                                         checked={field.value === false}
                                         onChange={() => field.onChange(false)}
-                                        className="w-4 h-4 text-blue-600"
+                                        className="w-4 h-4 text-blue-600 dark:text-blue-400"
                                       />
                                       <span>No</span>
                                     </label>
@@ -2183,7 +2183,7 @@ export default function IbcApplicationEdit() {
                         control={form.control}
                         name="biologicalToxins"
                         render={({ field }) => (
-                          <FormItem className="bg-white p-4 rounded-lg border border-gray-200">
+                          <FormItem className="bg-white p-4 rounded-lg border border-gray-200 dark:bg-card dark:border-gray-700">
                             <div className="space-y-3">
                               <FormLabel className="text-base font-medium">
                                 Biological Toxins (e.g., toxins of biological origin, including recombinant forms)
@@ -2195,7 +2195,7 @@ export default function IbcApplicationEdit() {
                                       type="radio"
                                       checked={field.value === true}
                                       onChange={() => field.onChange(true)}
-                                      className="w-4 h-4 text-blue-600"
+                                      className="w-4 h-4 text-blue-600 dark:text-blue-400"
                                     />
                                     <span>Yes</span>
                                   </label>
@@ -2204,7 +2204,7 @@ export default function IbcApplicationEdit() {
                                       type="radio"
                                       checked={field.value === false}
                                       onChange={() => field.onChange(false)}
-                                      className="w-4 h-4 text-blue-600"
+                                      className="w-4 h-4 text-blue-600 dark:text-blue-400"
                                     />
                                     <span>No</span>
                                   </label>
@@ -2220,7 +2220,7 @@ export default function IbcApplicationEdit() {
                         control={form.control}
                         name="nanoparticles"
                         render={({ field }) => (
-                          <FormItem className="bg-white p-4 rounded-lg border border-gray-200">
+                          <FormItem className="bg-white p-4 rounded-lg border border-gray-200 dark:bg-card dark:border-gray-700">
                             <div className="space-y-3">
                               <FormLabel className="text-base font-medium">
                                 Nanoparticles (e.g., engineered nanoparticles for drug delivery or research applications)
@@ -2232,7 +2232,7 @@ export default function IbcApplicationEdit() {
                                       type="radio"
                                       checked={field.value === true}
                                       onChange={() => field.onChange(true)}
-                                      className="w-4 h-4 text-blue-600"
+                                      className="w-4 h-4 text-blue-600 dark:text-blue-400"
                                     />
                                     <span>Yes</span>
                                   </label>
@@ -2241,7 +2241,7 @@ export default function IbcApplicationEdit() {
                                       type="radio"
                                       checked={field.value === false}
                                       onChange={() => field.onChange(false)}
-                                      className="w-4 h-4 text-blue-600"
+                                      className="w-4 h-4 text-blue-600 dark:text-blue-400"
                                     />
                                     <span>No</span>
                                   </label>
@@ -2257,7 +2257,7 @@ export default function IbcApplicationEdit() {
                         control={form.control}
                         name="arthropods"
                         render={({ field }) => (
-                          <FormItem className="bg-white p-4 rounded-lg border border-gray-200">
+                          <FormItem className="bg-white p-4 rounded-lg border border-gray-200 dark:bg-card dark:border-gray-700">
                             <div className="space-y-3">
                               <FormLabel className="text-base font-medium">
                                 Arthropods (e.g., insects, spiders, or other arthropods that may serve as disease vectors)
@@ -2276,7 +2276,7 @@ export default function IbcApplicationEdit() {
                                           setArthropodsResetKey(prev => prev + 1);
                                         }
                                       }}
-                                      className="w-4 h-4 text-blue-600"
+                                      className="w-4 h-4 text-blue-600 dark:text-blue-400"
                                     />
                                     <span>Yes</span>
                                   </label>
@@ -2293,7 +2293,7 @@ export default function IbcApplicationEdit() {
                                           form.unregister('arthropodsRecombinantDna');
                                         }
                                       }}
-                                      className="w-4 h-4 text-blue-600"
+                                      className="w-4 h-4 text-blue-600 dark:text-blue-400"
                                     />
                                     <span>No</span>
                                   </label>
@@ -2312,9 +2312,9 @@ export default function IbcApplicationEdit() {
                           control={form.control}
                           name="arthropodsRecombinantDna"
                           render={({ field }) => (
-                            <FormItem className="bg-blue-50 p-4 rounded-lg border border-blue-200 ml-8">
+                            <FormItem className="bg-blue-50 p-4 rounded-lg border border-blue-200 ml-8 dark:bg-blue-950 dark:border-blue-800">
                               <div className="space-y-3">
-                                <FormLabel className="text-base font-medium text-blue-800">
+                                <FormLabel className="text-base font-medium text-blue-800 dark:text-blue-300">
                                   Will you be using, creating, or breeding transgenic arthropods or exposing arthropods to recombinant DNA? <span className="text-red-500">*</span>
                                 </FormLabel>
                                 <FormControl>
@@ -2324,7 +2324,7 @@ export default function IbcApplicationEdit() {
                                         type="radio"
                                         checked={field.value === true}
                                         onChange={() => field.onChange(true)}
-                                        className="w-4 h-4 text-blue-600"
+                                        className="w-4 h-4 text-blue-600 dark:text-blue-400"
                                       />
                                       <span>Yes</span>
                                     </label>
@@ -2333,7 +2333,7 @@ export default function IbcApplicationEdit() {
                                         type="radio"
                                         checked={field.value === false}
                                         onChange={() => field.onChange(false)}
-                                        className="w-4 h-4 text-blue-600"
+                                        className="w-4 h-4 text-blue-600 dark:text-blue-400"
                                       />
                                       <span>No</span>
                                     </label>
@@ -2350,7 +2350,7 @@ export default function IbcApplicationEdit() {
                         control={form.control}
                         name="plants"
                         render={({ field }) => (
-                          <FormItem className="bg-white p-4 rounded-lg border border-gray-200">
+                          <FormItem className="bg-white p-4 rounded-lg border border-gray-200 dark:bg-card dark:border-gray-700">
                             <div className="space-y-3">
                               <FormLabel className="text-base font-medium">
                                 Plants (e.g., genetically modified plants or plant pathogens)
@@ -2369,7 +2369,7 @@ export default function IbcApplicationEdit() {
                                           setPlantsResetKey(prev => prev + 1);
                                         }
                                       }}
-                                      className="w-4 h-4 text-blue-600"
+                                      className="w-4 h-4 text-blue-600 dark:text-blue-400"
                                     />
                                     <span>Yes</span>
                                   </label>
@@ -2386,7 +2386,7 @@ export default function IbcApplicationEdit() {
                                           form.unregister('plantsRecombinantDna');
                                         }
                                       }}
-                                      className="w-4 h-4 text-blue-600"
+                                      className="w-4 h-4 text-blue-600 dark:text-blue-400"
                                     />
                                     <span>No</span>
                                   </label>
@@ -2405,9 +2405,9 @@ export default function IbcApplicationEdit() {
                           control={form.control}
                           name="plantsRecombinantDna"
                           render={({ field }) => (
-                            <FormItem className="bg-blue-50 p-4 rounded-lg border border-blue-200 ml-8">
+                            <FormItem className="bg-blue-50 p-4 rounded-lg border border-blue-200 ml-8 dark:bg-blue-950 dark:border-blue-800">
                               <div className="space-y-3">
-                                <FormLabel className="text-base font-medium text-blue-800">
+                                <FormLabel className="text-base font-medium text-blue-800 dark:text-blue-300">
                                   Will you be creating transgenic plants, exposing plant to recombinant DNA, transgenic arthropods, or transgenic microorganism/infectious agents? <span className="text-red-500">*</span>
                                 </FormLabel>
                                 <FormControl>
@@ -2417,7 +2417,7 @@ export default function IbcApplicationEdit() {
                                         type="radio"
                                         checked={field.value === true}
                                         onChange={() => field.onChange(true)}
-                                        className="w-4 h-4 text-blue-600"
+                                        className="w-4 h-4 text-blue-600 dark:text-blue-400"
                                       />
                                       <span>Yes</span>
                                     </label>
@@ -2426,7 +2426,7 @@ export default function IbcApplicationEdit() {
                                         type="radio"
                                         checked={field.value === false}
                                         onChange={() => field.onChange(false)}
-                                        className="w-4 h-4 text-blue-600"
+                                        className="w-4 h-4 text-blue-600 dark:text-blue-400"
                                       />
                                       <span>No</span>
                                     </label>
@@ -2461,7 +2461,7 @@ export default function IbcApplicationEdit() {
                 <CardContent className="space-y-6">
                   {/* Add Team Member Section */}
                   {form.watch('researchActivityIds')?.length > 0 && (staffLoading || availableStaff !== undefined) ? (
-                    <div className="border rounded-lg p-4 bg-gray-50">
+                    <div className="border rounded-lg p-4 bg-gray-50 dark:bg-gray-900">
                       <div className="space-y-4">
                         <div className="flex items-center justify-between">
                           <h4 className="font-medium">Add Protocol Team Member</h4>
@@ -2469,7 +2469,7 @@ export default function IbcApplicationEdit() {
                         
                         <div className="space-y-3">
                           <div>
-                            <label className="text-sm font-medium text-gray-700">Select SDR Team Member</label>
+                            <label className="text-sm font-medium text-gray-700 dark:text-gray-300">Select SDR Team Member</label>
                             <Select value={selectedMember} onValueChange={setSelectedMember}>
                               <SelectTrigger className="w-full">
                                 <SelectValue placeholder="Choose from SDR team members..." />
@@ -2502,7 +2502,7 @@ export default function IbcApplicationEdit() {
                           </div>
                           
                           <div>
-                            <label className="text-sm font-medium text-gray-700 mb-2 block">
+                            <label className="text-sm font-medium text-gray-700 mb-2 block dark:text-gray-300">
                               Protocol Roles (Select Multiple)
                             </label>
                             <div className="grid grid-cols-1 gap-3 text-sm">
@@ -2565,7 +2565,7 @@ export default function IbcApplicationEdit() {
                       </div>
                     </div>
                   ) : (
-                    <div className="text-center py-6 text-gray-500">
+                    <div className="text-center py-6 text-gray-500 dark:text-gray-400">
                       {!form.watch('researchActivityIds')?.length 
                         ? "Select research activities in the Basics tab to add team members from their staff"
                         : staffLoading 
@@ -2617,10 +2617,10 @@ export default function IbcApplicationEdit() {
                       });
                       
                       return (
-                        <div key={`${member.scientistId || member.name}-${index}`} className="flex items-center justify-between p-3 bg-white border rounded-lg">
+                        <div key={`${member.scientistId || member.name}-${index}`} className="flex items-center justify-between p-3 bg-white border rounded-lg dark:bg-card">
                           <div className="flex-1">
                             <div className="font-medium">{memberName}</div>
-                            <div className="text-sm text-gray-600">{memberEmail}</div>
+                            <div className="text-sm text-gray-600 dark:text-gray-300">{memberEmail}</div>
                             <div className="flex flex-wrap gap-1 mt-2">
                               <Badge variant="secondary" className="text-xs">{memberRole}</Badge>
                             </div>
@@ -2653,7 +2653,7 @@ export default function IbcApplicationEdit() {
                                           );
                                         })
                                       ) : (
-                                        <Badge className="bg-gray-100 text-gray-600 text-xs" variant="outline">
+                                        <Badge className="bg-gray-100 text-gray-600 text-xs dark:bg-gray-800 dark:text-gray-300" variant="outline">
                                           None
                                         </Badge>
                                       )}
@@ -2680,7 +2680,7 @@ export default function IbcApplicationEdit() {
                                         </TooltipContent>
                                       </Tooltip>
                                     ) : (
-                                      <Badge className="bg-gray-100 text-gray-600 text-xs" variant="outline">
+                                      <Badge className="bg-gray-100 text-gray-600 text-xs dark:bg-gray-800 dark:text-gray-300" variant="outline">
                                         None
                                       </Badge>
                                     )}
@@ -2709,7 +2709,7 @@ export default function IbcApplicationEdit() {
                     })}
                     
                     {(!form.watch('teamMembers') || form.watch('teamMembers')?.length === 0) && (
-                      <div className="text-center py-4 text-gray-500 text-sm">
+                      <div className="text-center py-4 text-gray-500 text-sm dark:text-gray-400">
                         No team members added yet
                       </div>
                     )}
@@ -2785,8 +2785,8 @@ export default function IbcApplicationEdit() {
                   {/* NIH Section III-A/B/C - High Risk Experiments */}
               <Card>
                 <CardHeader>
-                  <CardTitle className="text-xl text-red-800">NIH Section III-A/B/C</CardTitle>
-                  <CardDescription className="text-red-600">
+                  <CardTitle className="text-xl text-red-800 dark:text-red-300">NIH Section III-A/B/C</CardTitle>
+                  <CardDescription className="text-red-600 dark:text-red-400">
                     Experiments requiring additional federal approvals and IBC approval before initiation
                   </CardDescription>
                 </CardHeader>
@@ -2803,7 +2803,7 @@ export default function IbcApplicationEdit() {
                               checked={field.value}
                               onChange={field.onChange}
                               disabled={isReadOnly}
-                              className="rounded border-gray-300"
+                              className="rounded border-gray-300 dark:border-gray-600"
                             />
                           </FormControl>
                           <div className="space-y-1">
@@ -2829,7 +2829,7 @@ export default function IbcApplicationEdit() {
                               checked={field.value}
                               onChange={field.onChange}
                               disabled={isReadOnly}
-                              className="rounded border-gray-300"
+                              className="rounded border-gray-300 dark:border-gray-600"
                             />
                           </FormControl>
                           <div className="space-y-1">
@@ -2855,7 +2855,7 @@ export default function IbcApplicationEdit() {
                               checked={field.value}
                               onChange={field.onChange}
                               disabled={isReadOnly}
-                              className="rounded border-gray-300"
+                              className="rounded border-gray-300 dark:border-gray-600"
                             />
                           </FormControl>
                           <div className="space-y-1">
@@ -2876,8 +2876,8 @@ export default function IbcApplicationEdit() {
               {/* NIH Section III-D - IBC Approval Required */}
               <Card>
                 <CardHeader>
-                  <CardTitle className="text-xl text-orange-800">NIH Section III-D</CardTitle>
-                  <CardDescription className="text-orange-600">
+                  <CardTitle className="text-xl text-orange-800 dark:text-orange-300">NIH Section III-D</CardTitle>
+                  <CardDescription className="text-orange-600 dark:text-orange-400">
                     Experiments that require Institutional Biosafety Committee approval before initiation
                   </CardDescription>
                 </CardHeader>
@@ -2894,7 +2894,7 @@ export default function IbcApplicationEdit() {
                               checked={field.value}
                               onChange={field.onChange}
                               disabled={isReadOnly}
-                              className="rounded border-gray-300"
+                              className="rounded border-gray-300 dark:border-gray-600"
                             />
                           </FormControl>
                           <div className="space-y-1">
@@ -2920,7 +2920,7 @@ export default function IbcApplicationEdit() {
                               checked={field.value}
                               onChange={field.onChange}
                               disabled={isReadOnly}
-                              className="rounded border-gray-300"
+                              className="rounded border-gray-300 dark:border-gray-600"
                             />
                           </FormControl>
                           <div className="space-y-1">
@@ -2946,7 +2946,7 @@ export default function IbcApplicationEdit() {
                               checked={field.value}
                               onChange={field.onChange}
                               disabled={isReadOnly}
-                              className="rounded border-gray-300"
+                              className="rounded border-gray-300 dark:border-gray-600"
                             />
                           </FormControl>
                           <div className="space-y-1">
@@ -2972,7 +2972,7 @@ export default function IbcApplicationEdit() {
                               checked={field.value}
                               onChange={field.onChange}
                               disabled={isReadOnly}
-                              className="rounded border-gray-300"
+                              className="rounded border-gray-300 dark:border-gray-600"
                             />
                           </FormControl>
                           <div className="space-y-1">
@@ -2998,7 +2998,7 @@ export default function IbcApplicationEdit() {
                               checked={field.value}
                               onChange={field.onChange}
                               disabled={isReadOnly}
-                              className="rounded border-gray-300"
+                              className="rounded border-gray-300 dark:border-gray-600"
                             />
                           </FormControl>
                           <div className="space-y-1">
@@ -3024,7 +3024,7 @@ export default function IbcApplicationEdit() {
                               checked={field.value}
                               onChange={field.onChange}
                               disabled={isReadOnly}
-                              className="rounded border-gray-300"
+                              className="rounded border-gray-300 dark:border-gray-600"
                             />
                           </FormControl>
                           <div className="space-y-1">
@@ -3050,7 +3050,7 @@ export default function IbcApplicationEdit() {
                               checked={field.value}
                               onChange={field.onChange}
                               disabled={isReadOnly}
-                              className="rounded border-gray-300"
+                              className="rounded border-gray-300 dark:border-gray-600"
                             />
                           </FormControl>
                           <div className="space-y-1">
@@ -3076,7 +3076,7 @@ export default function IbcApplicationEdit() {
                               checked={field.value}
                               onChange={field.onChange}
                               disabled={isReadOnly}
-                              className="rounded border-gray-300"
+                              className="rounded border-gray-300 dark:border-gray-600"
                             />
                           </FormControl>
                           <div className="space-y-1">
@@ -3097,8 +3097,8 @@ export default function IbcApplicationEdit() {
               {/* NIH Section III-E - Registration Required */}
               <Card>
                 <CardHeader>
-                  <CardTitle className="text-xl text-yellow-800">NIH Section III-E</CardTitle>
-                  <CardDescription className="text-yellow-600">
+                  <CardTitle className="text-xl text-yellow-800 dark:text-yellow-300">NIH Section III-E</CardTitle>
+                  <CardDescription className="text-yellow-600 dark:text-yellow-400">
                     Experiments that require Institutional Biosafety Committee notice simultaneous with initiation
                   </CardDescription>
                 </CardHeader>
@@ -3115,7 +3115,7 @@ export default function IbcApplicationEdit() {
                               checked={field.value}
                               onChange={field.onChange}
                               disabled={isReadOnly}
-                              className="rounded border-gray-300"
+                              className="rounded border-gray-300 dark:border-gray-600"
                             />
                           </FormControl>
                           <div className="space-y-1">
@@ -3141,7 +3141,7 @@ export default function IbcApplicationEdit() {
                               checked={field.value}
                               onChange={field.onChange}
                               disabled={isReadOnly}
-                              className="rounded border-gray-300"
+                              className="rounded border-gray-300 dark:border-gray-600"
                             />
                           </FormControl>
                           <div className="space-y-1">
@@ -3167,7 +3167,7 @@ export default function IbcApplicationEdit() {
                               checked={field.value}
                               onChange={field.onChange}
                               disabled={isReadOnly}
-                              className="rounded border-gray-300"
+                              className="rounded border-gray-300 dark:border-gray-600"
                             />
                           </FormControl>
                           <div className="space-y-1">
@@ -3188,8 +3188,8 @@ export default function IbcApplicationEdit() {
               {/* NIH Section III-F - Exempt Experiments */}
               <Card>
                 <CardHeader>
-                  <CardTitle className="text-xl text-green-800">NIH Section III-F</CardTitle>
-                  <CardDescription className="text-green-600">
+                  <CardTitle className="text-xl text-green-800 dark:text-green-300">NIH Section III-F</CardTitle>
+                  <CardDescription className="text-green-600 dark:text-green-400">
                     Exempt experiments (not subject to NIH Guidelines but may require institutional oversight)
                   </CardDescription>
                 </CardHeader>
@@ -3206,7 +3206,7 @@ export default function IbcApplicationEdit() {
                               checked={field.value}
                               onChange={field.onChange}
                               disabled={isReadOnly}
-                              className="rounded border-gray-300"
+                              className="rounded border-gray-300 dark:border-gray-600"
                             />
                           </FormControl>
                           <div className="space-y-1">
@@ -3232,7 +3232,7 @@ export default function IbcApplicationEdit() {
                               checked={field.value}
                               onChange={field.onChange}
                               disabled={isReadOnly}
-                              className="rounded border-gray-300"
+                              className="rounded border-gray-300 dark:border-gray-600"
                             />
                           </FormControl>
                           <div className="space-y-1">
@@ -3258,7 +3258,7 @@ export default function IbcApplicationEdit() {
                               checked={field.value}
                               onChange={field.onChange}
                               disabled={isReadOnly}
-                              className="rounded border-gray-300"
+                              className="rounded border-gray-300 dark:border-gray-600"
                             />
                           </FormControl>
                           <div className="space-y-1">
@@ -3284,7 +3284,7 @@ export default function IbcApplicationEdit() {
                               checked={field.value}
                               onChange={field.onChange}
                               disabled={isReadOnly}
-                              className="rounded border-gray-300"
+                              className="rounded border-gray-300 dark:border-gray-600"
                             />
                           </FormControl>
                           <div className="space-y-1">
@@ -3310,7 +3310,7 @@ export default function IbcApplicationEdit() {
                               checked={field.value}
                               onChange={field.onChange}
                               disabled={isReadOnly}
-                              className="rounded border-gray-300"
+                              className="rounded border-gray-300 dark:border-gray-600"
                             />
                           </FormControl>
                           <div className="space-y-1">
@@ -3336,7 +3336,7 @@ export default function IbcApplicationEdit() {
                               checked={field.value}
                               onChange={field.onChange}
                               disabled={isReadOnly}
-                              className="rounded border-gray-300"
+                              className="rounded border-gray-300 dark:border-gray-600"
                             />
                           </FormControl>
                           <div className="space-y-1">
@@ -3362,7 +3362,7 @@ export default function IbcApplicationEdit() {
                               checked={field.value}
                               onChange={field.onChange}
                               disabled={isReadOnly}
-                              className="rounded border-gray-300"
+                              className="rounded border-gray-300 dark:border-gray-600"
                             />
                           </FormControl>
                           <div className="space-y-1">
@@ -3388,7 +3388,7 @@ export default function IbcApplicationEdit() {
                               checked={field.value}
                               onChange={field.onChange}
                               disabled={isReadOnly}
-                              className="rounded border-gray-300"
+                              className="rounded border-gray-300 dark:border-gray-600"
                             />
                           </FormControl>
                           <div className="space-y-1">
@@ -3403,9 +3403,9 @@ export default function IbcApplicationEdit() {
                       )}
                     />
                     
-                    <div className="mt-6 p-4 bg-blue-50 border border-blue-200 rounded-lg">
-                      <h4 className="text-sm font-medium text-blue-800 mb-2">Important Exemption Limitations</h4>
-                      <p className="text-xs text-blue-700">
+                    <div className="mt-6 p-4 bg-blue-50 border border-blue-200 rounded-lg dark:bg-blue-950 dark:border-blue-800">
+                      <h4 className="text-sm font-medium text-blue-800 mb-2 dark:text-blue-300">Important Exemption Limitations</h4>
+                      <p className="text-xs text-blue-700 dark:text-blue-300">
                         These exemptions do NOT apply to: (1) experiments involving &gt;10 liters of culture, 
                         (2) experiments with DNA from Risk Groups 3, 4, or restricted organisms, 
                         (3) deliberate cloning of toxin genes with LD50 &lt; 100 ng/kg, or 
@@ -3440,8 +3440,8 @@ export default function IbcApplicationEdit() {
               {/* NIH Appendix C - Exemptions */}
               <Card>
                 <CardHeader>
-                  <CardTitle className="text-xl text-blue-800">Appendix C - Exemptions Under Section III-F-8</CardTitle>
-                  <CardDescription className="text-blue-600">
+                  <CardTitle className="text-xl text-blue-800 dark:text-blue-300">Appendix C - Exemptions Under Section III-F-8</CardTitle>
+                  <CardDescription className="text-blue-600 dark:text-blue-400">
                     Specific exemption categories and containment conditions for certified host-vector systems
                   </CardDescription>
                 </CardHeader>
@@ -3458,7 +3458,7 @@ export default function IbcApplicationEdit() {
                               checked={field.value}
                               onChange={field.onChange}
                               disabled={isReadOnly}
-                              className="rounded border-gray-300"
+                              className="rounded border-gray-300 dark:border-gray-600"
                             />
                           </FormControl>
                           <div className="space-y-1">
@@ -3484,7 +3484,7 @@ export default function IbcApplicationEdit() {
                               checked={field.value}
                               onChange={field.onChange}
                               disabled={isReadOnly}
-                              className="rounded border-gray-300"
+                              className="rounded border-gray-300 dark:border-gray-600"
                             />
                           </FormControl>
                           <div className="space-y-1">
@@ -3510,7 +3510,7 @@ export default function IbcApplicationEdit() {
                               checked={field.value}
                               onChange={field.onChange}
                               disabled={isReadOnly}
-                              className="rounded border-gray-300"
+                              className="rounded border-gray-300 dark:border-gray-600"
                             />
                           </FormControl>
                           <div className="space-y-1">
@@ -3536,7 +3536,7 @@ export default function IbcApplicationEdit() {
                               checked={field.value}
                               onChange={field.onChange}
                               disabled={isReadOnly}
-                              className="rounded border-gray-300"
+                              className="rounded border-gray-300 dark:border-gray-600"
                             />
                           </FormControl>
                           <div className="space-y-1">
@@ -3562,7 +3562,7 @@ export default function IbcApplicationEdit() {
                               checked={field.value}
                               onChange={field.onChange}
                               disabled={isReadOnly}
-                              className="rounded border-gray-300"
+                              className="rounded border-gray-300 dark:border-gray-600"
                             />
                           </FormControl>
                           <div className="space-y-1">
@@ -3588,7 +3588,7 @@ export default function IbcApplicationEdit() {
                               checked={field.value}
                               onChange={field.onChange}
                               disabled={isReadOnly}
-                              className="rounded border-gray-300"
+                              className="rounded border-gray-300 dark:border-gray-600"
                             />
                           </FormControl>
                           <div className="space-y-1">
@@ -3614,7 +3614,7 @@ export default function IbcApplicationEdit() {
                               checked={field.value}
                               onChange={field.onChange}
                               disabled={isReadOnly}
-                              className="rounded border-gray-300"
+                              className="rounded border-gray-300 dark:border-gray-600"
                             />
                           </FormControl>
                           <div className="space-y-1">
@@ -3640,7 +3640,7 @@ export default function IbcApplicationEdit() {
                               checked={field.value}
                               onChange={field.onChange}
                               disabled={isReadOnly}
-                              className="rounded border-gray-300"
+                              className="rounded border-gray-300 dark:border-gray-600"
                             />
                           </FormControl>
                           <div className="space-y-1">
@@ -3666,7 +3666,7 @@ export default function IbcApplicationEdit() {
                               checked={field.value}
                               onChange={field.onChange}
                               disabled={isReadOnly}
-                              className="rounded border-gray-300"
+                              className="rounded border-gray-300 dark:border-gray-600"
                             />
                           </FormControl>
                           <div className="space-y-1">
@@ -3710,7 +3710,7 @@ export default function IbcApplicationEdit() {
                   {/* Synthetic Experiments Section */}
                   {!isReadOnly && form.watch('syntheticExperiments')?.length === 0 && (
                     <div className="text-center py-8">
-                      <p className="text-gray-500 mb-4">No synthetic experiments added yet.</p>
+                      <p className="text-gray-500 mb-4 dark:text-gray-400">No synthetic experiments added yet.</p>
                       <Button
                         type="button"
                         onClick={() => {
@@ -3783,7 +3783,7 @@ export default function IbcApplicationEdit() {
                     return (
                     <Card key={index} className="relative">
                       <CardHeader 
-                        className="cursor-pointer hover:bg-gray-50"
+                        className="cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-900"
                         onClick={() => {
                           const newCollapsed = new Set(collapsedSyntheticExperiments);
                           if (isCollapsed) {
@@ -3797,13 +3797,13 @@ export default function IbcApplicationEdit() {
                         <div className="flex justify-between items-center">
                           <div className="flex items-center space-x-3">
                             <CardTitle className="text-lg">Synthetic Experiment #{index + 1}</CardTitle>
-                            <span className="text-sm text-gray-600 bg-gray-100 px-2 py-1 rounded">
+                            <span className="text-sm text-gray-600 bg-gray-100 px-2 py-1 rounded dark:text-gray-300 dark:bg-gray-800">
                               {backboneSource}
                             </span>
                             {isCollapsed ? (
-                              <ChevronDown className="h-4 w-4 text-gray-500" />
+                              <ChevronDown className="h-4 w-4 text-gray-500 dark:text-gray-400" />
                             ) : (
-                              <ChevronUp className="h-4 w-4 text-gray-500" />
+                              <ChevronUp className="h-4 w-4 text-gray-500 dark:text-gray-400" />
                             )}
                           </div>
                           <div className="flex items-center space-x-2">
@@ -3821,7 +3821,7 @@ export default function IbcApplicationEdit() {
                                   newCollapsed.delete(index);
                                   setCollapsedSyntheticExperiments(newCollapsed);
                                 }}
-                                className="text-red-600 hover:text-red-800"
+                                className="text-red-600 hover:text-red-800 dark:text-red-400 dark:hover:text-red-300"
                               >
                                 <Trash2 className="h-4 w-4" />
                               </Button>
@@ -3892,7 +3892,7 @@ export default function IbcApplicationEdit() {
                                   newCollapsed.add(currentExperiments.length);
                                   setCollapsedSyntheticExperiments(newCollapsed);
                                 }}
-                                className="text-green-600 hover:text-green-800"
+                                className="text-green-600 hover:text-green-800 dark:text-green-400 dark:hover:text-green-300"
                               >
                                 <Plus className="h-4 w-4" />
                               </Button>
@@ -3915,7 +3915,7 @@ export default function IbcApplicationEdit() {
                                   <select
                                     {...field}
                                     disabled={isReadOnly}
-                                    className="w-full p-2 border border-gray-300 rounded-md"
+                                    className="w-full p-2 border border-gray-300 rounded-md dark:border-gray-600"
                                   >
                                     <option value="">Select backbone source...</option>
                                     <option value="adenoviral">Adenoviral</option>
@@ -3947,7 +3947,7 @@ export default function IbcApplicationEdit() {
                                   <select
                                     {...field}
                                     disabled={isReadOnly}
-                                    className="w-full p-2 border border-gray-300 rounded-md"
+                                    className="w-full p-2 border border-gray-300 rounded-md dark:border-gray-600"
                                   >
                                     <option value="">Select vector/insert name...</option>
                                   </select>
@@ -4022,7 +4022,7 @@ export default function IbcApplicationEdit() {
                                         checked={field.value}
                                         onChange={field.onChange}
                                         disabled={isReadOnly}
-                                        className="rounded border-gray-300"
+                                        className="rounded border-gray-300 dark:border-gray-600"
                                       />
                                     </FormControl>
                                     <FormLabel className="text-sm font-normal">{label}</FormLabel>
@@ -4059,7 +4059,7 @@ export default function IbcApplicationEdit() {
                                         checked={field.value}
                                         onChange={field.onChange}
                                         disabled={isReadOnly}
-                                        className="rounded border-gray-300"
+                                        className="rounded border-gray-300 dark:border-gray-600"
                                       />
                                     </FormControl>
                                     <FormLabel className="text-sm font-normal">{label}</FormLabel>
@@ -4101,7 +4101,7 @@ export default function IbcApplicationEdit() {
                                   <select
                                     {...field}
                                     disabled={isReadOnly}
-                                    className="w-full p-2 border border-gray-300 rounded-md"
+                                    className="w-full p-2 border border-gray-300 rounded-md dark:border-gray-600"
                                   >
                                     <option value="">Select fraction...</option>
                                     <option value="<1/2">&lt; 1/2</option>
@@ -4184,7 +4184,7 @@ export default function IbcApplicationEdit() {
                                 <select
                                   {...field}
                                   disabled={isReadOnly}
-                                  className="w-full p-2 border border-gray-300 rounded-md"
+                                  className="w-full p-2 border border-gray-300 rounded-md dark:border-gray-600"
                                 >
                                   <option value="">Select tropism...</option>
                                   <option value="ecotropic">Ecotropic (Rodents)</option>
@@ -4223,7 +4223,7 @@ export default function IbcApplicationEdit() {
                                         checked={field.value}
                                         onChange={field.onChange}
                                         disabled={isReadOnly}
-                                        className="rounded border-gray-300"
+                                        className="rounded border-gray-300 dark:border-gray-600"
                                       />
                                     </FormControl>
                                     <FormLabel className="text-sm font-normal">{label}</FormLabel>
@@ -4256,7 +4256,7 @@ export default function IbcApplicationEdit() {
                                         checked={field.value}
                                         onChange={field.onChange}
                                         disabled={isReadOnly}
-                                        className="rounded border-gray-300"
+                                        className="rounded border-gray-300 dark:border-gray-600"
                                       />
                                     </FormControl>
                                     <FormLabel className="text-sm font-normal">{label}</FormLabel>
@@ -4309,7 +4309,7 @@ export default function IbcApplicationEdit() {
                                           checked={field.value}
                                           onChange={field.onChange}
                                           disabled={isReadOnly}
-                                          className="rounded border-gray-300"
+                                          className="rounded border-gray-300 dark:border-gray-600"
                                         />
                                       </FormControl>
                                       <FormLabel className="text-sm font-normal">{label}</FormLabel>
@@ -4365,7 +4365,7 @@ export default function IbcApplicationEdit() {
                                       checked={field.value || false}
                                       onChange={field.onChange}
                                       disabled={isReadOnly}
-                                      className="rounded border-gray-300"
+                                      className="rounded border-gray-300 dark:border-gray-600"
                                     />
                                   </FormControl>
                                   <FormLabel className="text-sm font-normal">{label}</FormLabel>
@@ -4648,7 +4648,7 @@ export default function IbcApplicationEdit() {
                           control={form.control}
                           name="humanOrigin"
                           render={({ field }) => (
-                            <FormItem className="bg-gray-50 p-4 rounded-lg border border-gray-200">
+                            <FormItem className="bg-gray-50 p-4 rounded-lg border border-gray-200 dark:bg-gray-900 dark:border-gray-700">
                               <div className="flex items-center space-x-2">
                                 <FormControl>
                                   <input
@@ -4656,7 +4656,7 @@ export default function IbcApplicationEdit() {
                                     checked={field.value || false}
                                     onChange={(e) => field.onChange(e.target.checked)}
                                     disabled={isReadOnly}
-                                    className="w-4 h-4 text-blue-600"
+                                    className="w-4 h-4 text-blue-600 dark:text-blue-400"
                                     data-testid="checkbox-human-origin"
                                   />
                                 </FormControl>
@@ -4668,7 +4668,7 @@ export default function IbcApplicationEdit() {
                         />
 
                         {/* Human Materials */}
-                        <div className="bg-white p-4 rounded-lg border border-gray-200 space-y-4">
+                        <div className="bg-white p-4 rounded-lg border border-gray-200 space-y-4 dark:bg-card dark:border-gray-700">
                           <h4 className="font-medium">Human Materials (check all applicable) <span className="text-red-500">*</span></h4>
                           <FormField
                             control={form.control}
@@ -4705,7 +4705,7 @@ export default function IbcApplicationEdit() {
                                               }
                                             }
                                           }}
-                                          className="w-4 h-4 text-blue-600"
+                                          className="w-4 h-4 text-blue-600 dark:text-blue-400"
                                           data-testid={`checkbox-material-${material.toLowerCase().replace(/[^a-z0-9]/g, '-')}`}
                                         />
                                         <label htmlFor={`material-${material}`} className="text-sm cursor-pointer">{material}</label>
@@ -4771,7 +4771,7 @@ export default function IbcApplicationEdit() {
                           control={form.control}
                           name="nonHumanPrimateOrigin"
                           render={({ field }) => (
-                            <FormItem className="bg-gray-50 p-4 rounded-lg border border-gray-200">
+                            <FormItem className="bg-gray-50 p-4 rounded-lg border border-gray-200 dark:bg-gray-900 dark:border-gray-700">
                               <div className="flex items-center space-x-2">
                                 <FormControl>
                                   <input
@@ -4790,7 +4790,7 @@ export default function IbcApplicationEdit() {
                                       }
                                     }}
                                     disabled={isReadOnly}
-                                    className="w-4 h-4 text-blue-600"
+                                    className="w-4 h-4 text-blue-600 dark:text-blue-400"
                                     data-testid="checkbox-non-human-primate-origin"
                                   />
                                 </FormControl>
@@ -4808,7 +4808,7 @@ export default function IbcApplicationEdit() {
                             control={form.control}
                             name="nhpExposureKit"
                             render={({ field }) => (
-                              <FormItem className="bg-gray-50 p-4 rounded-lg border border-gray-200 ml-6">
+                              <FormItem className="bg-gray-50 p-4 rounded-lg border border-gray-200 ml-6 dark:bg-gray-900 dark:border-gray-700">
                                 <div className="space-y-3">
                                   <FormLabel className="text-base font-medium">
                                     Do you have an NHP Exposure Kit? <span className="text-red-500">*</span>
@@ -4821,7 +4821,7 @@ export default function IbcApplicationEdit() {
                                           checked={field.value === true}
                                           onChange={() => field.onChange(true)}
                                           disabled={isReadOnly}
-                                          className="w-4 h-4 text-blue-600"
+                                          className="w-4 h-4 text-blue-600 dark:text-blue-400"
                                           data-testid="radio-nhp-exposure-kit-yes"
                                         />
                                         <span>Yes</span>
@@ -4832,7 +4832,7 @@ export default function IbcApplicationEdit() {
                                           checked={field.value === false}
                                           onChange={() => field.onChange(false)}
                                           disabled={isReadOnly}
-                                          className="w-4 h-4 text-blue-600"
+                                          className="w-4 h-4 text-blue-600 dark:text-blue-400"
                                           data-testid="radio-nhp-exposure-kit-no"
                                         />
                                         <span>No</span>
@@ -4847,7 +4847,7 @@ export default function IbcApplicationEdit() {
                         )}
 
                         {/* Stem Cells */}
-                        <div className="bg-white p-4 rounded-lg border border-gray-200 space-y-4">
+                        <div className="bg-white p-4 rounded-lg border border-gray-200 space-y-4 dark:bg-card dark:border-gray-700">
                           <h4 className="font-medium">Stem Cells (check all applicable boxes)</h4>
                           <FormField
                             control={form.control}
@@ -4884,7 +4884,7 @@ export default function IbcApplicationEdit() {
                                               }
                                             }
                                           }}
-                                          className="w-4 h-4 text-blue-600"
+                                          className="w-4 h-4 text-blue-600 dark:text-blue-400"
                                           data-testid={`checkbox-stemcell-${stemCell.toLowerCase().replace(/[^a-z0-9]/g, '-')}`}
                                         />
                                         <label htmlFor={`stemcell-${stemCell}`} className="text-sm cursor-pointer">{stemCell}</label>
@@ -4904,7 +4904,7 @@ export default function IbcApplicationEdit() {
                               control={form.control}
                               name="stemCellsNihRegistry"
                               render={({ field }) => (
-                                <FormItem className="bg-gray-50 p-4 rounded-lg border border-gray-200 mt-4">
+                                <FormItem className="bg-gray-50 p-4 rounded-lg border border-gray-200 mt-4 dark:bg-gray-900 dark:border-gray-700">
                                   <div className="space-y-3">
                                     <FormLabel className="text-base font-medium">
                                       Are stem cells listed in the NIH Human Embryonic Stem Cell Registry Line? <span className="text-red-500">*</span>
@@ -4917,7 +4917,7 @@ export default function IbcApplicationEdit() {
                                             checked={field.value === true}
                                             onChange={() => field.onChange(true)}
                                             disabled={isReadOnly}
-                                            className="w-4 h-4 text-blue-600"
+                                            className="w-4 h-4 text-blue-600 dark:text-blue-400"
                                             data-testid="radio-stem-cells-nih-registry-yes"
                                           />
                                           <span>Yes</span>
@@ -4928,7 +4928,7 @@ export default function IbcApplicationEdit() {
                                             checked={field.value === false}
                                             onChange={() => field.onChange(false)}
                                             disabled={isReadOnly}
-                                            className="w-4 h-4 text-blue-600"
+                                            className="w-4 h-4 text-blue-600 dark:text-blue-400"
                                             data-testid="radio-stem-cells-nih-registry-no"
                                           />
                                           <span>No</span>
@@ -5005,7 +5005,7 @@ export default function IbcApplicationEdit() {
                                     <DropdownMenuItem
                                       key={index}
                                       onClick={() => deleteCellLine(index)}
-                                      className="text-red-600"
+                                      className="text-red-600 dark:text-red-400"
                                       data-testid={`dropdown-remove-cell-line-${index}`}
                                     >
                                       {cellLine.name || `Cell Line ${index + 1}`}
@@ -5018,7 +5018,7 @@ export default function IbcApplicationEdit() {
                         </div>
 
                         {form.watch('cellLines')?.length === 0 ? (
-                          <div className="text-center py-8 text-gray-500">
+                          <div className="text-center py-8 text-gray-500 dark:text-gray-400">
                             No cell lines added yet. Click "Add Cell Line" to get started.
                           </div>
                         ) : (
@@ -5059,7 +5059,7 @@ export default function IbcApplicationEdit() {
                                             variant="ghost"
                                             size="sm"
                                             onClick={() => deleteCellLine(index)}
-                                            className="flex items-center gap-1 text-red-600 hover:text-red-700"
+                                            className="flex items-center gap-1 text-red-600 hover:text-red-700 dark:text-red-400 dark:hover:text-red-300"
                                             data-testid={`button-delete-cell-line-${index}`}
                                           >
                                             <Trash2 className="w-4 h-4" />
@@ -5175,7 +5175,7 @@ export default function IbcApplicationEdit() {
                                             });
                                           }
                                         }}
-                                        className="w-4 h-4 text-blue-600"
+                                        className="w-4 h-4 text-blue-600 dark:text-blue-400"
                                         data-testid={`checkbox-acquisition-${source.toLowerCase().replace(/[^a-z0-9]/g, '-')}`}
                                       />
                                       <label htmlFor={`acquisition-${source}`} className="text-sm cursor-pointer">{source}</label>
@@ -5259,7 +5259,7 @@ export default function IbcApplicationEdit() {
                                             });
                                           }
                                         }}
-                                        className="w-4 h-4 text-blue-600"
+                                        className="w-4 h-4 text-blue-600 dark:text-blue-400"
                                         data-testid={`checkbox-exposure-${exposure.toLowerCase().replace(/[^a-z0-9]/g, '-')}`}
                                       />
                                       <label htmlFor={`exposure-${exposure}`} className="text-sm cursor-pointer">{exposure}</label>
@@ -5280,7 +5280,7 @@ export default function IbcApplicationEdit() {
                                       name="willBeCultured"
                                       checked={cellLineFormData.willBeCultured === true}
                                       onChange={() => setCellLineFormData({...cellLineFormData, willBeCultured: true})}
-                                      className="w-4 h-4 text-blue-600"
+                                      className="w-4 h-4 text-blue-600 dark:text-blue-400"
                                       data-testid="radio-cultured-yes"
                                     />
                                     <span>Yes</span>
@@ -5291,7 +5291,7 @@ export default function IbcApplicationEdit() {
                                       name="willBeCultured"
                                       checked={cellLineFormData.willBeCultured === false}
                                       onChange={() => setCellLineFormData({...cellLineFormData, willBeCultured: false})}
-                                      className="w-4 h-4 text-blue-600"
+                                      className="w-4 h-4 text-blue-600 dark:text-blue-400"
                                       data-testid="radio-cultured-no"
                                     />
                                     <span>No</span>
@@ -5341,7 +5341,7 @@ export default function IbcApplicationEdit() {
                         </div>
 
                         {form.watch('hazardousProcedures')?.length === 0 ? (
-                          <div className="text-center py-8 text-gray-500">
+                          <div className="text-center py-8 text-gray-500 dark:text-gray-400">
                             No hazardous procedures added yet. Click "Add Hazardous Procedure" to get started.
                           </div>
                         ) : (
@@ -5382,7 +5382,7 @@ export default function IbcApplicationEdit() {
                                             variant="ghost"
                                             size="sm"
                                             onClick={() => deleteHazardousProcedure(index)}
-                                            className="flex items-center gap-1 text-red-600 hover:text-red-700"
+                                            className="flex items-center gap-1 text-red-600 hover:text-red-700 dark:text-red-400 dark:hover:text-red-300"
                                             data-testid={`button-delete-hazardous-procedure-${index}`}
                                           >
                                             <Trash2 className="w-4 h-4" />
@@ -5437,7 +5437,7 @@ export default function IbcApplicationEdit() {
                                   </SelectContent>
                                 </Select>
                                 {(form.getValues('cellLines') || []).length === 0 && (
-                                  <p className="text-sm text-amber-600">
+                                  <p className="text-sm text-amber-600 dark:text-amber-400">
                                     No cell lines available. Please add a cell line first in the Cell Lines tab.
                                   </p>
                                 )}
@@ -5517,7 +5517,7 @@ export default function IbcApplicationEdit() {
                                             });
                                           }
                                         }}
-                                        className="w-4 h-4 text-blue-600"
+                                        className="w-4 h-4 text-blue-600 dark:text-blue-400"
                                         data-testid={`checkbox-engineering-${control.toLowerCase().replace(/[^a-z0-9]/g, '-')}`}
                                       />
                                       <label htmlFor={`engineering-${control}`} className="text-sm cursor-pointer">{control}</label>
@@ -5565,7 +5565,7 @@ export default function IbcApplicationEdit() {
                                             });
                                           }
                                         }}
-                                        className="w-4 h-4 text-blue-600"
+                                        className="w-4 h-4 text-blue-600 dark:text-blue-400"
                                         data-testid={`checkbox-ppe-${ppe.toLowerCase().replace(/[^a-z0-9]/g, '-')}`}
                                       />
                                       <label htmlFor={`ppe-${ppe}`} className="text-sm cursor-pointer">{ppe}</label>
@@ -5619,7 +5619,7 @@ export default function IbcApplicationEdit() {
                           control={form.control}
                           name="exposureControlPlanCompliance"
                           render={({ field }) => (
-                            <FormItem className="bg-white p-4 rounded-lg border border-gray-200">
+                            <FormItem className="bg-white p-4 rounded-lg border border-gray-200 dark:bg-card dark:border-gray-700">
                               <div className="space-y-3">
                                 <FormLabel className="text-base font-medium">
                                   I have read and agree to comply with the practices and procedures described in my Institution's Exposure Control Plan <span className="text-red-500">*</span>
@@ -5632,7 +5632,7 @@ export default function IbcApplicationEdit() {
                                         checked={field.value === true}
                                         onChange={() => field.onChange(true)}
                                         disabled={isReadOnly}
-                                        className="w-4 h-4 text-blue-600"
+                                        className="w-4 h-4 text-blue-600 dark:text-blue-400"
                                         data-testid="radio-exposure-control-yes"
                                       />
                                       <span>Yes</span>
@@ -5643,7 +5643,7 @@ export default function IbcApplicationEdit() {
                                         checked={field.value === false}
                                         onChange={() => field.onChange(false)}
                                         disabled={isReadOnly}
-                                        className="w-4 h-4 text-blue-600"
+                                        className="w-4 h-4 text-blue-600 dark:text-blue-400"
                                         data-testid="radio-exposure-control-no"
                                       />
                                       <span>No</span>
@@ -5661,7 +5661,7 @@ export default function IbcApplicationEdit() {
                           control={form.control}
                           name="handWashingDevice"
                           render={({ field }) => (
-                            <FormItem className="bg-white p-4 rounded-lg border border-gray-200">
+                            <FormItem className="bg-white p-4 rounded-lg border border-gray-200 dark:bg-card dark:border-gray-700">
                               <div className="space-y-3">
                                 <FormLabel className="text-base font-medium">
                                   Is there a hand washing device available in the room(s)? <span className="text-red-500">*</span>
@@ -5674,7 +5674,7 @@ export default function IbcApplicationEdit() {
                                         checked={field.value === true}
                                         onChange={() => field.onChange(true)}
                                         disabled={isReadOnly}
-                                        className="w-4 h-4 text-blue-600"
+                                        className="w-4 h-4 text-blue-600 dark:text-blue-400"
                                         data-testid="radio-handwashing-yes"
                                       />
                                       <span>Yes</span>
@@ -5685,7 +5685,7 @@ export default function IbcApplicationEdit() {
                                         checked={field.value === false}
                                         onChange={() => field.onChange(false)}
                                         disabled={isReadOnly}
-                                        className="w-4 h-4 text-blue-600"
+                                        className="w-4 h-4 text-blue-600 dark:text-blue-400"
                                         data-testid="radio-handwashing-no"
                                       />
                                       <span>No</span>
@@ -5699,7 +5699,7 @@ export default function IbcApplicationEdit() {
                         />
 
                         {/* Laundry Method */}
-                        <div className="bg-white p-4 rounded-lg border border-gray-200 space-y-4">
+                        <div className="bg-white p-4 rounded-lg border border-gray-200 space-y-4 dark:bg-card dark:border-gray-700">
                           <h4 className="font-medium">Select how you plan to launder soiled lab coats or other contaminated, non-disposable clothing... <span className="text-red-500">*</span></h4>
                           <FormField
                             control={form.control}
@@ -5728,7 +5728,7 @@ export default function IbcApplicationEdit() {
                                               field.onChange(currentValues.filter((v: string) => v !== method));
                                             }
                                           }}
-                                          className="w-4 h-4 text-blue-600"
+                                          className="w-4 h-4 text-blue-600 dark:text-blue-400"
                                           data-testid={`checkbox-laundry-${method.toLowerCase().replace(/[^a-z0-9]/g, '-')}`}
                                         />
                                         <label htmlFor={`laundry-${method}`} className="text-sm cursor-pointer">{method}</label>
@@ -5776,7 +5776,7 @@ export default function IbcApplicationEdit() {
                           control={form.control}
                           name="materialsContainKnownPathogens"
                           render={({ field }) => (
-                            <FormItem className="bg-white p-4 rounded-lg border border-gray-200">
+                            <FormItem className="bg-white p-4 rounded-lg border border-gray-200 dark:bg-card dark:border-gray-700">
                               <div className="space-y-3">
                                 <FormLabel className="text-base font-medium">
                                   Do these materials contain known pathogens (i.e. Hepatitis B, HIV, Herpes B Virus)? <span className="text-red-500">*</span>
@@ -5789,7 +5789,7 @@ export default function IbcApplicationEdit() {
                                         checked={field.value === true}
                                         onChange={() => field.onChange(true)}
                                         disabled={isReadOnly}
-                                        className="w-4 h-4 text-blue-600"
+                                        className="w-4 h-4 text-blue-600 dark:text-blue-400"
                                         data-testid="radio-pathogens-yes"
                                       />
                                       <span>Yes</span>
@@ -5800,7 +5800,7 @@ export default function IbcApplicationEdit() {
                                         checked={field.value === false}
                                         onChange={() => field.onChange(false)}
                                         disabled={isReadOnly}
-                                        className="w-4 h-4 text-blue-600"
+                                        className="w-4 h-4 text-blue-600 dark:text-blue-400"
                                         data-testid="radio-pathogens-no"
                                       />
                                       <span>No</span>
@@ -5819,7 +5819,7 @@ export default function IbcApplicationEdit() {
                             control={form.control}
                             name="materialPathogenDetails"
                             render={({ field }) => (
-                              <FormItem className="bg-blue-50 p-4 rounded-lg border border-blue-200">
+                              <FormItem className="bg-blue-50 p-4 rounded-lg border border-blue-200 dark:bg-blue-950 dark:border-blue-800">
                                 <FormLabel className="text-base font-medium">
                                   List the material and the known pathogen <span className="text-red-500">*</span>
                                 </FormLabel>
@@ -5844,7 +5844,7 @@ export default function IbcApplicationEdit() {
                           control={form.control}
                           name="materialTreatmentDetails"
                           render={({ field }) => (
-                            <FormItem className="bg-white p-4 rounded-lg border border-gray-200">
+                            <FormItem className="bg-white p-4 rounded-lg border border-gray-200 dark:bg-card dark:border-gray-700">
                               <FormLabel className="text-base font-medium">
                                 Explain any type of treatment the material has undergone prior to receipt (i.e. formaldehyde fixation, testing for viruses)
                               </FormLabel>
@@ -5868,7 +5868,7 @@ export default function IbcApplicationEdit() {
                           control={form.control}
                           name="infectionSymptoms"
                           render={({ field }) => (
-                            <FormItem className="bg-white p-4 rounded-lg border border-gray-200">
+                            <FormItem className="bg-white p-4 rounded-lg border border-gray-200 dark:bg-card dark:border-gray-700">
                               <FormLabel className="text-base font-medium">
                                 What are the signs and symptoms of infection from exposure to these materials
                               </FormLabel>
@@ -6156,7 +6156,7 @@ export default function IbcApplicationEdit() {
                                     }
                                   }}
                                   disabled={isReadOnly}
-                                  className="rounded border-gray-300"
+                                  className="rounded border-gray-300 dark:border-gray-600"
                                 />
                               </FormControl>
                               <FormLabel className="text-sm font-normal">{agent}</FormLabel>
@@ -6267,7 +6267,7 @@ export default function IbcApplicationEdit() {
                                           }
                                         }}
                                         disabled={isReadOnly}
-                                        className="rounded border-gray-300"
+                                        className="rounded border-gray-300 dark:border-gray-600"
                                       />
                                     </FormControl>
                                     <FormLabel className="text-sm font-normal">{category}</FormLabel>
@@ -6358,12 +6358,12 @@ export default function IbcApplicationEdit() {
 
                     {/* Read-Only Mode notice */}
                     {isReadOnly && (
-                      <div className="bg-gray-50 border border-gray-200 rounded-lg p-4">
-                        <div className="flex items-center space-x-2 text-gray-600">
+                      <div className="bg-gray-50 border border-gray-200 rounded-lg p-4 dark:bg-gray-900 dark:border-gray-700">
+                        <div className="flex items-center space-x-2 text-gray-600 dark:text-gray-300">
                           <Eye className="h-4 w-4" />
                           <span className="text-sm font-medium">Read-Only Mode</span>
                         </div>
-                        <p className="text-xs text-gray-500 mt-1">
+                        <p className="text-xs text-gray-500 mt-1 dark:text-gray-400">
                           This application has been submitted and cannot be edited.
                         </p>
                       </div>
@@ -6375,9 +6375,9 @@ export default function IbcApplicationEdit() {
                 {!sidebarCollapsed && !isReadOnly && (
                   <div className="flex-shrink-0 space-y-2 border-t pt-3">
                     {isDirty && (
-                      <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 flex items-center gap-2">
+                      <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 flex items-center gap-2 dark:bg-amber-950 dark:border-amber-800">
                         <div className="h-2 w-2 rounded-full bg-amber-500 animate-pulse" />
-                        <span className="text-sm text-amber-700 font-medium">Unsaved changes</span>
+                        <span className="text-sm text-amber-700 font-medium dark:text-amber-300">Unsaved changes</span>
                       </div>
                     )}
                     <Button 
@@ -6450,7 +6450,7 @@ export default function IbcApplicationEdit() {
                     rows={4}
                     className="resize-none"
                   />
-                  <p className="text-xs text-gray-500 mt-2">
+                  <p className="text-xs text-gray-500 mt-2 dark:text-gray-400">
                     This comment will be recorded with your submission and visible to the IBC office and reviewers
                   </p>
                 </CardContent>
@@ -6459,9 +6459,9 @@ export default function IbcApplicationEdit() {
 
             {/* Mobile Unsaved Changes Indicator */}
             {isDirty && !isReadOnly && (
-              <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 flex items-center gap-2">
+              <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 flex items-center gap-2 dark:bg-amber-950 dark:border-amber-800">
                 <div className="h-2 w-2 rounded-full bg-amber-500 animate-pulse" />
-                <span className="text-sm text-amber-700 font-medium">Unsaved changes</span>
+                <span className="text-sm text-amber-700 font-medium dark:text-amber-300">Unsaved changes</span>
               </div>
             )}
 
@@ -6504,12 +6504,12 @@ export default function IbcApplicationEdit() {
             )}
             
             {isReadOnly && (
-              <div className="bg-gray-50 border border-gray-200 rounded-lg p-4">
-                <div className="flex items-center space-x-2 text-gray-600">
+              <div className="bg-gray-50 border border-gray-200 rounded-lg p-4 dark:bg-gray-900 dark:border-gray-700">
+                <div className="flex items-center space-x-2 text-gray-600 dark:text-gray-300">
                   <Eye className="h-4 w-4" />
                   <span className="text-sm font-medium">Read-Only Mode</span>
                 </div>
-                <p className="text-sm text-gray-500 mt-1">
+                <p className="text-sm text-gray-500 mt-1 dark:text-gray-400">
                   This application has been submitted and cannot be edited. Contact the IBC office if changes are needed.
                 </p>
               </div>

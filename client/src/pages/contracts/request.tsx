@@ -344,7 +344,7 @@ export default function ContractRequest() {
                           </Select>
                           <FormDescription>
                             {selectedScientist ? (
-                              <span className="text-green-600">
+                              <span className="text-green-600 dark:text-green-400">
                                 ✓ Auto-selected from research activity: {selectedScientist.honorificTitle} {selectedScientist.firstName} {selectedScientist.lastName}
                               </span>
                             ) : (

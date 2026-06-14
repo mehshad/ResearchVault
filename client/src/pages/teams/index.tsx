@@ -138,7 +138,7 @@ export default function Teams() {
                         <TableCell>
                           <Link
                             href={`/teams/${activity.id}`}
-                            className="font-medium text-blue-600 hover:underline"
+                            className="font-medium text-blue-600 hover:underline dark:text-blue-400"
                           >
                             {activity.title}
                           </Link>
@@ -173,17 +173,17 @@ export default function Teams() {
                                 {activity.teamMembers.slice(0, 3).map((member, index) => (
                                   <div
                                     key={index}
-                                    className="h-8 w-8 rounded-full bg-blue-100 border-2 border-white flex items-center justify-center"
+                                    className="h-8 w-8 rounded-full bg-blue-100 border-2 border-white flex items-center justify-center dark:bg-blue-950"
                                   >
-                                    <span className="text-xs font-medium text-blue-700">
+                                    <span className="text-xs font-medium text-blue-700 dark:text-blue-300">
                                       {member.scientist.firstName?.[0] || ''}
                                       {member.scientist.lastName?.[0] || ''}
                                     </span>
                                   </div>
                                 ))}
                                 {activity.teamMembers.length > 3 && (
-                                  <div className="h-8 w-8 rounded-full bg-gray-100 border-2 border-white flex items-center justify-center">
-                                    <span className="text-xs font-medium text-gray-700">
+                                  <div className="h-8 w-8 rounded-full bg-gray-100 border-2 border-white flex items-center justify-center dark:bg-gray-800">
+                                    <span className="text-xs font-medium text-gray-700 dark:text-gray-300">
                                       +{activity.teamMembers.length - 3}
                                     </span>
                                   </div>

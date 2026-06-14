@@ -19,19 +19,19 @@ import {
 import type { IbcApplication } from "@shared/schema";
 
 const IBC_WORKFLOW_STATUSES = [
-  { value: "submitted", label: "New Submission", color: "bg-blue-100 text-blue-800", icon: FileText },
-  { value: "vetted", label: "Vetted", color: "bg-purple-100 text-purple-800", icon: Eye },
-  { value: "under_review", label: "Under Review", color: "bg-yellow-100 text-yellow-800", icon: Eye },
+  { value: "submitted", label: "New Submission", color: "bg-blue-100 text-blue-800 dark:bg-blue-950 dark:text-blue-300", icon: FileText },
+  { value: "vetted", label: "Vetted", color: "bg-purple-100 text-purple-800 dark:bg-purple-950 dark:text-purple-300", icon: Eye },
+  { value: "under_review", label: "Under Review", color: "bg-yellow-100 text-yellow-800 dark:bg-yellow-950 dark:text-yellow-300", icon: Eye },
 ];
 
 const getBiosafetyLevelBadge = (level: string) => {
   const badges = {
-    "BSL-1": { color: "bg-green-100 text-green-800", description: "Minimal risk" },
-    "BSL-2": { color: "bg-yellow-100 text-yellow-800", description: "Moderate risk" },
-    "BSL-3": { color: "bg-orange-100 text-orange-800", description: "High risk" },
-    "BSL-4": { color: "bg-red-100 text-red-800", description: "Extreme danger" }
+    "BSL-1": { color: "bg-green-100 text-green-800 dark:bg-green-950 dark:text-green-300", description: "Minimal risk" },
+    "BSL-2": { color: "bg-yellow-100 text-yellow-800 dark:bg-yellow-950 dark:text-yellow-300", description: "Moderate risk" },
+    "BSL-3": { color: "bg-orange-100 text-orange-800 dark:bg-orange-950 dark:text-orange-300", description: "High risk" },
+    "BSL-4": { color: "bg-red-100 text-red-800 dark:bg-red-950 dark:text-red-300", description: "Extreme danger" }
   };
-  return badges[level as keyof typeof badges] || { color: "bg-gray-100 text-gray-800", description: "Unknown" };
+  return badges[level as keyof typeof badges] || { color: "bg-gray-100 text-gray-800 dark:bg-gray-800 dark:text-gray-200", description: "Unknown" };
 };
 
 export default function IbcReviewerPage() {
@@ -72,7 +72,7 @@ export default function IbcReviewerPage() {
         </div>
         <div className="space-y-4">
           {[1, 2, 3].map(i => (
-            <div key={i} className="h-32 bg-gray-100 rounded-lg animate-pulse" />
+            <div key={i} className="h-32 bg-gray-100 rounded-lg animate-pulse dark:bg-gray-800" />
           ))}
         </div>
       </div>
@@ -102,7 +102,7 @@ export default function IbcReviewerPage() {
             </CardHeader>
             <CardContent className="space-y-4">
               <div className="relative">
-                <Search className="absolute left-3 top-3 h-4 w-4 text-gray-400" />
+                <Search className="absolute left-3 top-3 h-4 w-4 text-gray-400 dark:text-gray-500" />
                 <Input
                   placeholder="Search by title or IBC number..."
                   value={searchTerm}
@@ -119,12 +119,12 @@ export default function IbcReviewerPage() {
 
                   return (
                     <Link key={app.id} href={`/ibc-reviewer/review/${app.id}`}>
-                      <div className="flex items-center justify-between p-4 border rounded-lg hover:bg-gray-50 cursor-pointer transition-colors">
+                      <div className="flex items-center justify-between p-4 border rounded-lg hover:bg-gray-50 cursor-pointer transition-colors dark:hover:bg-gray-900">
                         <div className="flex-1">
                           <div className="flex items-center space-x-3">
                             <div>
                               <h4 className="font-medium">{app.title}</h4>
-                              <div className="flex items-center space-x-4 text-sm text-gray-500 mt-1">
+                              <div className="flex items-center space-x-4 text-sm text-gray-500 mt-1 dark:text-gray-400">
                                 <span>{app.ibcNumber}</span>
                                 <span className="flex items-center space-x-1">
                                   <User className="h-3 w-3" />
@@ -149,7 +149,7 @@ export default function IbcReviewerPage() {
                             <StatusIcon className="h-3 w-3 mr-1" />
                             {statusConfig?.label}
                           </Badge>
-                          <Eye className="h-4 w-4 text-gray-400" />
+                          <Eye className="h-4 w-4 text-gray-400 dark:text-gray-500" />
                         </div>
                       </div>
                     </Link>
@@ -158,9 +158,9 @@ export default function IbcReviewerPage() {
 
                 {filteredApplications.length === 0 && (
                   <div className="text-center py-8">
-                    <FileText className="h-12 w-12 text-gray-400 mx-auto mb-4" />
-                    <h3 className="text-lg font-medium text-gray-900 mb-2">No applications to review</h3>
-                    <p className="text-gray-500">
+                    <FileText className="h-12 w-12 text-gray-400 mx-auto mb-4 dark:text-gray-500" />
+                    <h3 className="text-lg font-medium text-gray-900 mb-2 dark:text-gray-100">No applications to review</h3>
+                    <p className="text-gray-500 dark:text-gray-400">
                       {applications.length === 0 
                         ? "There are no IBC applications pending review at this time."
                         : "No applications match your search criteria."
@@ -183,9 +183,9 @@ export default function IbcReviewerPage() {
             </CardHeader>
             <CardContent>
               <div className="text-center py-8">
-                <CheckCircle className="h-12 w-12 text-gray-400 mx-auto mb-4" />
-                <h3 className="text-lg font-medium text-gray-900 mb-2">Review History</h3>
-                <p className="text-gray-500">Review history tracking will be available in a future update.</p>
+                <CheckCircle className="h-12 w-12 text-gray-400 mx-auto mb-4 dark:text-gray-500" />
+                <h3 className="text-lg font-medium text-gray-900 mb-2 dark:text-gray-100">Review History</h3>
+                <p className="text-gray-500 dark:text-gray-400">Review history tracking will be available in a future update.</p>
               </div>
             </CardContent>
           </Card>

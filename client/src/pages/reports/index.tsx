@@ -359,27 +359,27 @@ export default function ReportsPage() {
         <CardContent>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
             <div className="text-center p-6 bg-gradient-to-br from-blue-50 to-blue-100 rounded-lg">
-              <div className="text-3xl font-bold text-blue-600 mb-2">
+              <div className="text-3xl font-bold text-blue-600 mb-2 dark:text-blue-400">
                 {publications?.filter(p => p.status === 'Published').length || 0}
               </div>
-              <div className="text-sm font-medium text-blue-700">Published Research</div>
-              <div className="text-xs text-blue-600 mt-1">High-impact publications</div>
+              <div className="text-sm font-medium text-blue-700 dark:text-blue-300">Published Research</div>
+              <div className="text-xs text-blue-600 mt-1 dark:text-blue-400">High-impact publications</div>
             </div>
             
             <div className="text-center p-6 bg-gradient-to-br from-green-50 to-green-100 rounded-lg">
-              <div className="text-3xl font-bold text-green-600 mb-2">
+              <div className="text-3xl font-bold text-green-600 mb-2 dark:text-green-400">
                 {patents?.filter(p => p.status === 'Granted' || p.status === 'Filed').length || 0}
               </div>
-              <div className="text-sm font-medium text-green-700">IP Protection</div>
-              <div className="text-xs text-green-600 mt-1">Patents and innovations</div>
+              <div className="text-sm font-medium text-green-700 dark:text-green-300">IP Protection</div>
+              <div className="text-xs text-green-600 mt-1 dark:text-green-400">Patents and innovations</div>
             </div>
             
             <div className="text-center p-6 bg-gradient-to-br from-purple-50 to-purple-100 rounded-lg">
-              <div className="text-3xl font-bold text-purple-600 mb-2">
+              <div className="text-3xl font-bold text-purple-600 mb-2 dark:text-purple-400">
                 {contracts?.filter(c => c.status === 'Active').length || 0}
               </div>
-              <div className="text-sm font-medium text-purple-700">Active Collaborations</div>
-              <div className="text-xs text-purple-600 mt-1">External partnerships</div>
+              <div className="text-sm font-medium text-purple-700 dark:text-purple-300">Active Collaborations</div>
+              <div className="text-xs text-purple-600 mt-1 dark:text-purple-400">External partnerships</div>
             </div>
           </div>
         </CardContent>

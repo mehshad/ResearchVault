@@ -114,8 +114,8 @@ export default function CreateGrant() {
           <ArrowLeft className="h-4 w-4 mr-2" />
           Back to Grants
         </Button>
-        <h1 className="text-3xl font-bold text-gray-900">Create New Grant</h1>
-        <p className="text-gray-600 mt-1">Add a new research grant to the system</p>
+        <h1 className="text-3xl font-bold text-gray-900 dark:text-gray-100">Create New Grant</h1>
+        <p className="text-gray-600 mt-1 dark:text-gray-300">Add a new research grant to the system</p>
       </div>
 
       <div>
@@ -451,7 +451,7 @@ export default function CreateGrant() {
               </CardHeader>
               <CardContent>
                 <div>
-                  <label htmlFor="collaborators" className="text-sm font-medium text-gray-700 mb-2 block">
+                  <label htmlFor="collaborators" className="text-sm font-medium text-gray-700 mb-2 block dark:text-gray-300">
                     Collaborators (one per line)
                   </label>
                   <Textarea

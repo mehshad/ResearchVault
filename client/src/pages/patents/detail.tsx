@@ -146,15 +146,15 @@ export default function PatentDetail() {
                 <h2 className="text-xl font-semibold">{patent.title}</h2>
                 <div className="flex items-center gap-2 mt-1">
                   {researchActivity && (
-                    <Badge variant="outline" className="rounded-sm bg-blue-50 text-blue-700 border-blue-200">
+                    <Badge variant="outline" className="rounded-sm bg-blue-50 text-blue-700 border-blue-200 dark:bg-blue-950 dark:text-blue-300 dark:border-blue-800">
                       {researchActivity.sdrNumber}
                     </Badge>
                   )}
                   <Badge className={
-                    patent.status === 'granted' ? 'bg-green-100 text-green-800' :
-                    patent.status === 'pending' ? 'bg-yellow-100 text-yellow-800' :
-                    patent.status === 'filed' ? 'bg-blue-100 text-blue-800' :
-                    'bg-gray-100 text-gray-800'
+                    patent.status === 'granted' ? 'bg-green-100 text-green-800 dark:bg-green-950 dark:text-green-300' :
+                    patent.status === 'pending' ? 'bg-yellow-100 text-yellow-800 dark:bg-yellow-950 dark:text-yellow-300' :
+                    patent.status === 'filed' ? 'bg-blue-100 text-blue-800 dark:bg-blue-950 dark:text-blue-300' :
+                    'bg-gray-100 text-gray-800 dark:bg-gray-800 dark:text-gray-200'
                   }>
                     {patent.status}
                   </Badge>
@@ -250,7 +250,7 @@ export default function PatentDetail() {
                   <Layers className="h-4 w-4 mr-2" /> 
                   <span className="flex-1 text-left">Research Activity</span>
                   {researchActivity && (
-                    <Badge variant="outline" className="ml-2 rounded-sm bg-blue-50 text-blue-700 border-blue-200">
+                    <Badge variant="outline" className="ml-2 rounded-sm bg-blue-50 text-blue-700 border-blue-200 dark:bg-blue-950 dark:text-blue-300 dark:border-blue-800">
                       {researchActivity.sdrNumber}
                     </Badge>
                   )}
@@ -264,7 +264,7 @@ export default function PatentDetail() {
                   <FileText className="h-4 w-4 mr-2" /> 
                   <span className="flex-1 text-left">Publications</span>
                   {researchActivity && (
-                    <Badge variant="outline" className="ml-2 rounded-sm bg-green-50 text-green-700 border-green-200">
+                    <Badge variant="outline" className="ml-2 rounded-sm bg-green-50 text-green-700 border-green-200 dark:bg-green-950 dark:text-green-300 dark:border-green-800">
                       {publicationCount} {publicationCount === 1 ? 'publication' : 'publications'}
                     </Badge>
                   )}

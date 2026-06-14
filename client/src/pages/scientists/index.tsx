@@ -208,16 +208,16 @@ function StaffImportExportButtons() {
             {preview && (
               <div className="space-y-3">
                 <div className="grid grid-cols-4 gap-2 text-sm">
-                  <div className="rounded border bg-green-50 border-green-200 p-2" data-testid="preview-insert-count">
-                    <div className="font-semibold text-green-700">Insert</div>
+                  <div className="rounded border bg-green-50 border-green-200 p-2 dark:bg-green-950 dark:border-green-800" data-testid="preview-insert-count">
+                    <div className="font-semibold text-green-700 dark:text-green-300">Insert</div>
                     <div className="text-2xl">{preview.toInsert.length}</div>
                   </div>
-                  <div className="rounded border bg-blue-50 border-blue-200 p-2" data-testid="preview-update-count">
-                    <div className="font-semibold text-blue-700">Update</div>
+                  <div className="rounded border bg-blue-50 border-blue-200 p-2 dark:bg-blue-950 dark:border-blue-800" data-testid="preview-update-count">
+                    <div className="font-semibold text-blue-700 dark:text-blue-300">Update</div>
                     <div className="text-2xl">{preview.toUpdate.length}</div>
                   </div>
-                  <div className="rounded border bg-red-50 border-red-200 p-2" data-testid="preview-delete-count">
-                    <div className="font-semibold text-red-700">Delete</div>
+                  <div className="rounded border bg-red-50 border-red-200 p-2 dark:bg-red-950 dark:border-red-800" data-testid="preview-delete-count">
+                    <div className="font-semibold text-red-700 dark:text-red-300">Delete</div>
                     <div className="text-2xl">{preview.toDelete.length}</div>
                   </div>
                   <div className="rounded border bg-muted p-2" data-testid="preview-unchanged-count">
@@ -227,14 +227,14 @@ function StaffImportExportButtons() {
                 </div>
 
                 {preview.errors.length > 0 && (
-                  <div className="rounded border border-red-300 bg-red-50 p-3">
-                    <div className="flex items-center gap-2 font-semibold text-red-700 mb-2">
+                  <div className="rounded border border-red-300 bg-red-50 p-3 dark:border-red-700 dark:bg-red-950">
+                    <div className="flex items-center gap-2 font-semibold text-red-700 mb-2 dark:text-red-300">
                       <AlertCircle className="h-4 w-4" />
                       {preview.errors.length} row(s) have validation errors — fix the file and re-upload
                     </div>
                     <ul className="space-y-1 text-sm max-h-40 overflow-y-auto" data-testid="preview-errors">
                       {preview.errors.map((e, i) => (
-                        <li key={i} className="text-red-800">
+                        <li key={i} className="text-red-800 dark:text-red-300">
                           <span className="font-mono">Row {e.rowNumber}</span> ({e.identifier}): {e.errors.join("; ")}
                         </li>
                       ))}
@@ -243,11 +243,11 @@ function StaffImportExportButtons() {
                 )}
 
                 {preview.toInsert.length > 0 && (
-                  <details className="rounded border border-green-300 bg-green-50 p-3 text-sm">
-                    <summary className="font-semibold text-green-800 cursor-pointer">
+                  <details className="rounded border border-green-300 bg-green-50 p-3 text-sm dark:border-green-700 dark:bg-green-950">
+                    <summary className="font-semibold text-green-800 cursor-pointer dark:text-green-300">
                       {preview.toInsert.length} new staff member(s) to insert
                     </summary>
-                    <ul className="mt-2 max-h-40 overflow-y-auto space-y-1 text-green-900" data-testid="preview-insert-list">
+                    <ul className="mt-2 max-h-40 overflow-y-auto space-y-1 text-green-900 dark:text-green-200" data-testid="preview-insert-list">
                       {preview.toInsert.map((r, i) => (
                         <li key={i}>
                           <span className="font-medium">{r.firstName} {r.lastName}</span>{" "}
@@ -260,11 +260,11 @@ function StaffImportExportButtons() {
                 )}
 
                 {preview.toUpdate.length > 0 && (
-                  <details className="rounded border border-blue-300 bg-blue-50 p-3 text-sm">
-                    <summary className="font-semibold text-blue-800 cursor-pointer">
+                  <details className="rounded border border-blue-300 bg-blue-50 p-3 text-sm dark:border-blue-700 dark:bg-blue-950">
+                    <summary className="font-semibold text-blue-800 cursor-pointer dark:text-blue-300">
                       {preview.toUpdate.length} existing staff member(s) to update
                     </summary>
-                    <ul className="mt-2 max-h-40 overflow-y-auto space-y-1 text-blue-900" data-testid="preview-update-list">
+                    <ul className="mt-2 max-h-40 overflow-y-auto space-y-1 text-blue-900 dark:text-blue-200" data-testid="preview-update-list">
                       {preview.toUpdate.map((u, i) => (
                         <li key={i}>
                           <span className="font-medium">{u.row.firstName} {u.row.lastName}</span>{" "}
@@ -277,14 +277,14 @@ function StaffImportExportButtons() {
                 )}
 
                 {preview.toDelete.length > 0 && (
-                  <div className="rounded border border-amber-300 bg-amber-50 p-3 text-sm">
-                    <div className="font-semibold text-amber-800 mb-1">Staff missing from file (will be deleted):</div>
-                    <ul className="text-amber-900 max-h-40 overflow-y-auto space-y-1" data-testid="preview-delete-list">
+                  <div className="rounded border border-amber-300 bg-amber-50 p-3 text-sm dark:border-amber-700 dark:bg-amber-950">
+                    <div className="font-semibold text-amber-800 mb-1 dark:text-amber-300">Staff missing from file (will be deleted):</div>
+                    <ul className="text-amber-900 max-h-40 overflow-y-auto space-y-1 dark:text-amber-200" data-testid="preview-delete-list">
                       {preview.toDelete.map(d => (
                         <li key={d.id}>
                           <span className="font-medium">{d.name || d.email}</span>
                           {d.referencedBy && d.referencedBy.length > 0 && (
-                            <span className="text-red-700 ml-1">
+                            <span className="text-red-700 ml-1 dark:text-red-300">
                               — blocked: referenced by{" "}
                               {d.referencedBy
                                 .map(r => `${r.table}.${r.column} (${r.count} row${r.count === 1 ? "" : "s"}, ids: ${r.sampleIds.join(", ")}${r.count > r.sampleIds.length ? "…" : ""})`)
@@ -327,7 +327,7 @@ function StaffImportExportButtons() {
             <AlertDialogTitle>Apply staff import?</AlertDialogTitle>
             <AlertDialogDescription>
               This will insert {preview?.toInsert.length ?? 0}, update {preview?.toUpdate.length ?? 0}, and{" "}
-              <span className="font-semibold text-red-700">delete {preview?.toDelete.length ?? 0}</span> staff record(s).
+              <span className="font-semibold text-red-700 dark:text-red-300">delete {preview?.toDelete.length ?? 0}</span> staff record(s).
               This cannot be undone.
             </AlertDialogDescription>
           </AlertDialogHeader>
@@ -380,7 +380,8 @@ export default function StaffList() {
     const fullName = formatFullName(person).toLowerCase();
     const matchesSearch = fullName.includes(searchQuery.toLowerCase()) ||
                          (person.email?.toLowerCase().includes(searchQuery.toLowerCase())) ||
-                         (person.department?.toLowerCase().includes(searchQuery.toLowerCase()));
+                         (person.department?.toLowerCase().includes(searchQuery.toLowerCase())) ||
+                         (person.staffId?.toLowerCase().includes(searchQuery.toLowerCase()));
     
     if (activeTab === "all") return matchesSearch;
     
@@ -451,18 +452,6 @@ export default function StaffList() {
             <PermissionWrapper
               currentUserRole={currentUser.role}
               navigationItem="scientists"
-              requiredPermissions={['canEdit']}
-              fallback={null}
-            >
-              <Link href="/scientists/role-access-config">
-                <Button variant="outline" className="border-primary text-primary hover:bg-primary hover:text-primary-foreground" data-testid="button-configure-role-access">
-                  Configure Role Based Access
-                </Button>
-              </Link>
-            </PermissionWrapper>
-            <PermissionWrapper
-              currentUserRole={currentUser.role}
-              navigationItem="scientists"
               requiredPermissions={['canAdd']}
               fallback={null}
             >
@@ -516,7 +505,7 @@ export default function StaffList() {
             
               {/* Search Box */}
               <div className="relative w-64">
-                <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-gray-400" />
+                <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-gray-400 dark:text-gray-500" />
                 <Input
                   type="search"
                   placeholder="Search staff members..."
@@ -653,18 +642,18 @@ export default function StaffList() {
                               <div className="flex items-center gap-2">
                                 <span className="font-medium">{formatFullName(person)}</span>
                                 {person.staffId && (
-                                  <Badge variant="outline" className="rounded-sm bg-blue-50 text-blue-700 border-blue-200">
+                                  <Badge variant="outline" className="rounded-sm bg-blue-50 text-blue-700 border-blue-200 dark:bg-blue-950 dark:text-blue-300 dark:border-blue-800">
                                     ID: {person.staffId}
                                   </Badge>
                                 )}
                                 {irbMembers?.find((member: any) => member.scientistId === person.id && member.isActive) && (
-                                  <Badge variant="outline" className="rounded-sm bg-green-50 text-green-700 border-green-200">
+                                  <Badge variant="outline" className="rounded-sm bg-green-50 text-green-700 border-green-200 dark:bg-green-950 dark:text-green-300 dark:border-green-800">
                                     IRB {irbMembers.find((member: any) => member.scientistId === person.id)?.role === 'chair' ? 'Chair' : 
                                          irbMembers.find((member: any) => member.scientistId === person.id)?.role === 'deputy_chair' ? 'Deputy' : 'Member'}
                                   </Badge>
                                 )}
                                 {ibcMembers?.find((member: any) => member.scientistId === person.id && member.isActive) && (
-                                  <Badge variant="outline" className="rounded-sm bg-purple-50 text-purple-700 border-purple-200">
+                                  <Badge variant="outline" className="rounded-sm bg-purple-50 text-purple-700 border-purple-200 dark:bg-purple-950 dark:text-purple-300 dark:border-purple-800">
                                     IBC {ibcMembers.find((member: any) => member.scientistId === person.id)?.role === 'chair' ? 'Chair' : 'Member'}
                                   </Badge>
                                 )}
@@ -678,8 +667,8 @@ export default function StaffList() {
                           <Badge 
                             variant="outline" 
                             className={person.staffType === 'scientific' 
-                              ? "rounded-sm bg-green-50 text-green-700 border-green-200" 
-                              : "rounded-sm bg-blue-50 text-blue-700 border-blue-200"
+                              ? "rounded-sm bg-green-50 text-green-700 border-green-200 dark:bg-green-950 dark:text-green-300 dark:border-green-800" 
+                              : "rounded-sm bg-blue-50 text-blue-700 border-blue-200 dark:bg-blue-950 dark:text-blue-300 dark:border-blue-800"
                             }
                           >
                             {person.staffType === 'scientific' ? 'Scientific' : 'Administrative'}
@@ -699,7 +688,7 @@ export default function StaffList() {
                           </div>
                         </TableCell>
                         <TableCell className="text-center">
-                          <Badge variant="secondary" className="bg-blue-50 text-blue-700 border-blue-200">
+                          <Badge variant="secondary" className="bg-blue-50 text-blue-700 border-blue-200 dark:bg-blue-950 dark:text-blue-300 dark:border-blue-800">
                             {person.activeResearchActivities || 0}
                           </Badge>
                         </TableCell>

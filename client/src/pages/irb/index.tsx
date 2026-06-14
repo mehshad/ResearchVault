@@ -31,19 +31,19 @@ export default function IrbList() {
   };
 
   const statusColors = {
-    draft: "bg-gray-100 text-gray-700",
-    submitted: "bg-yellow-100 text-yellow-700",
-    under_review: "bg-purple-100 text-purple-600",
-    approved: "bg-green-100 text-green-700",
-    rejected: "bg-red-100 text-red-600",
-    pending: "bg-blue-100 text-blue-600",
-    expired: "bg-gray-100 text-gray-600"
+    draft: "bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-300",
+    submitted: "bg-yellow-100 text-yellow-700 dark:bg-yellow-950 dark:text-yellow-300",
+    under_review: "bg-purple-100 text-purple-600 dark:bg-purple-950 dark:text-purple-400",
+    approved: "bg-green-100 text-green-700 dark:bg-green-950 dark:text-green-300",
+    rejected: "bg-red-100 text-red-600 dark:bg-red-950 dark:text-red-400",
+    pending: "bg-blue-100 text-blue-600 dark:bg-blue-950 dark:text-blue-400",
+    expired: "bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-300"
   };
 
   const riskLevelColors = {
-    minimal: "bg-green-50 text-green-600",
-    "greater than minimal": "bg-yellow-50 text-yellow-600",
-    high: "bg-red-50 text-red-600"
+    minimal: "bg-green-50 text-green-600 dark:bg-green-950 dark:text-green-400",
+    "greater than minimal": "bg-yellow-50 text-yellow-600 dark:bg-yellow-950 dark:text-yellow-400",
+    high: "bg-red-50 text-red-600 dark:bg-red-950 dark:text-red-400"
   };
 
   const filteredApplications = applications?.filter(app => {
@@ -81,7 +81,7 @@ export default function IrbList() {
           <div className="flex items-center justify-between">
             <CardTitle>IRB Applications</CardTitle>
             <div className="relative w-64">
-              <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-gray-400" />
+              <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-gray-400 dark:text-gray-500" />
               <Input
                 type="search"
                 placeholder="Search applications..."

@@ -1,61 +1,22 @@
 import { useQuery } from "@tanstack/react-query";
-import { Link } from "wouter";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
-import { 
+import {
   FileText, CheckCircle, BookOpen, UserPlus,
-  Clock, Calendar, Bell, BriefcaseBusiness
+  FolderPlus, FlaskConical, ClipboardList, Bell
 } from "lucide-react";
-import { Activity } from "@/lib/types";
 
-// Mock activities since API isn't implemented for activities
-const mockActivities: Activity[] = [
-  {
-    id: 1,
-    type: 'irb_submission',
-    title: "IRB Application submitted",
-    description: "#IRB-2023-045",
-    date: new Date(Date.now() - 1000 * 60 * 60 * 2), // 2 hours ago
-    entity: { id: 1, type: 'irb_application', title: 'IRB-2023-045' },
-    user: { id: 2, name: 'Dr. Maria Rodriguez', profileImageInitials: 'MR' }
-  },
-  {
-    id: 2,
-    type: 'project_approval',
-    title: "Project approved",
-    description: "Novel Immunotherapy Approaches",
-    date: new Date(Date.now() - 1000 * 60 * 60 * 24), // 1 day ago
-    entity: { id: 2, type: 'project', title: 'Novel Immunotherapy Approaches' },
-    user: { id: 0, name: 'Research Committee' }
-  },
-  {
-    id: 3,
-    type: 'publication_added',
-    title: "New publication added",
-    description: "CRISPR-Cas9 Efficiency in Human Cell Lines",
-    date: new Date(Date.now() - 1000 * 60 * 60 * 24 * 2), // 2 days ago
-    entity: { id: 1, type: 'publication', title: 'CRISPR-Cas9 Efficiency in Human Cell Lines' },
-    user: { id: 1, name: 'Jane Doe, Ph.D.', profileImageInitials: 'JD' }
-  },
-  {
-    id: 4,
-    type: 'staff_added',
-    title: "New staff member added to team",
-    description: "Emily Wilson, Ph.D.",
-    date: new Date(Date.now() - 1000 * 60 * 60 * 24 * 3), // 3 days ago
-    entity: { id: 5, type: 'scientist', title: 'Emily Wilson, Ph.D.' },
-    user: { id: 0, name: 'System Admin' }
-  }
-];
+interface ActivityItem {
+  id: string;
+  type: string;
+  title: string;
+  description: string;
+  date: string;
+}
 
 export default function RecentActivity() {
-  // In a real implementation, this would fetch from an API
-  const { data: activities, isLoading } = useQuery<Activity[]>({
-    queryKey: ['/api/activities'],
-    queryFn: async () => {
-      // Simulating API call since the endpoint isn't implemented
-      return new Promise((resolve) => setTimeout(() => resolve(mockActivities), 500));
-    }
+  const { data: activities, isLoading } = useQuery<ActivityItem[]>({
+    queryKey: ['/api/dashboard/recent-activity'],
   });
 
   const getActivityIcon = (type: string) => {
@@ -65,20 +26,32 @@ export default function RecentActivity() {
         return <div className="h-10 w-10 rounded-full bg-primary-100 flex items-center justify-center text-primary-500">
           <FileText className="h-5 w-5" />
         </div>;
+      case 'pmo_submission':
+        return <div className="h-10 w-10 rounded-full bg-green-100 flex items-center justify-center text-green-500 dark:bg-green-950">
+          <ClipboardList className="h-5 w-5" />
+        </div>;
+      case 'project_added':
+        return <div className="h-10 w-10 rounded-full bg-emerald-100 flex items-center justify-center text-emerald-500 dark:bg-emerald-950">
+          <FolderPlus className="h-5 w-5" />
+        </div>;
+      case 'activity_added':
+        return <div className="h-10 w-10 rounded-full bg-cyan-100 flex items-center justify-center text-cyan-500 dark:bg-cyan-950">
+          <FlaskConical className="h-5 w-5" />
+        </div>;
       case 'project_approval':
-        return <div className="h-10 w-10 rounded-full bg-green-100 flex items-center justify-center text-green-500">
+        return <div className="h-10 w-10 rounded-full bg-green-100 flex items-center justify-center text-green-500 dark:bg-green-950">
           <CheckCircle className="h-5 w-5" />
         </div>;
       case 'publication_added':
-        return <div className="h-10 w-10 rounded-full bg-blue-100 flex items-center justify-center text-blue-500">
+        return <div className="h-10 w-10 rounded-full bg-blue-100 flex items-center justify-center text-blue-500 dark:bg-blue-950">
           <BookOpen className="h-5 w-5" />
         </div>;
       case 'staff_added':
-        return <div className="h-10 w-10 rounded-full bg-amber-100 flex items-center justify-center text-amber-500">
+        return <div className="h-10 w-10 rounded-full bg-amber-100 flex items-center justify-center text-amber-500 dark:bg-amber-950">
           <UserPlus className="h-5 w-5" />
         </div>;
       default:
-        return <div className="h-10 w-10 rounded-full bg-gray-100 flex items-center justify-center text-gray-500">
+        return <div className="h-10 w-10 rounded-full bg-gray-100 flex items-center justify-center text-gray-500 dark:bg-gray-800 dark:text-gray-400">
           <Bell className="h-5 w-5" />
         </div>;
     }
@@ -90,15 +63,14 @@ export default function RecentActivity() {
     const diffMs = now.getTime() - activityDate.getTime();
     const diffHrs = Math.floor(diffMs / (1000 * 60 * 60));
     const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
-    
-    // Format time
+
     const hours = activityDate.getHours();
     const minutes = activityDate.getMinutes();
     const ampm = hours >= 12 ? 'PM' : 'AM';
     const formattedHours = hours % 12 || 12;
     const formattedMinutes = minutes < 10 ? `0${minutes}` : minutes;
     const timeString = `${formattedHours}:${formattedMinutes} ${ampm}`;
-    
+
     if (diffHrs < 24) {
       return `Today, ${timeString}`;
     } else if (diffDays === 1) {
@@ -106,11 +78,11 @@ export default function RecentActivity() {
     } else if (diffDays < 7) {
       return `${diffDays} days ago`;
     } else {
-      const options: Intl.DateTimeFormatOptions = { 
-        month: 'short', 
-        day: 'numeric', 
-        hour: '2-digit', 
-        minute: '2-digit' 
+      const options: Intl.DateTimeFormatOptions = {
+        month: 'short',
+        day: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit'
       };
       return activityDate.toLocaleDateString('en-US', options);
     }
@@ -118,12 +90,9 @@ export default function RecentActivity() {
 
   if (isLoading) {
     return (
-      <div className="bg-white rounded-lg shadow-sm">
+      <div className="bg-white rounded-lg shadow-sm dark:bg-card">
         <div className="p-6 border-b border-neutral-100">
-          <div className="flex items-center justify-between">
-            <h2 className="font-medium text-lg">Recent Activity</h2>
-            <Button variant="link" className="text-primary-500 px-0">View All</Button>
-          </div>
+          <h2 className="font-medium text-lg">Recent Activity</h2>
         </div>
         <div className="p-6 space-y-6">
           {[1, 2, 3, 4].map((i) => (
@@ -142,35 +111,31 @@ export default function RecentActivity() {
   }
 
   return (
-    <div className="bg-white rounded-lg shadow-sm">
+    <div className="bg-white rounded-lg shadow-sm dark:bg-card">
       <div className="p-6 border-b border-neutral-100">
-        <div className="flex items-center justify-between">
-          <h2 className="font-medium text-lg">Recent Activity</h2>
-          <Button variant="link" className="text-primary-500 px-0">View All</Button>
-        </div>
+        <h2 className="font-medium text-lg">Recent Activity</h2>
       </div>
       <div className="p-6 divide-y divide-neutral-100">
-        {activities?.map((activity) => (
-          <div key={activity.id} className="py-4 flex">
-            <div className="mr-4 flex-shrink-0">
-              {getActivityIcon(activity.type)}
-            </div>
-            <div>
-              <p className="font-medium">
-                {activity.title}
-                {activity.description && (
-                  <span className="font-normal text-muted-foreground"> {activity.description}</span>
-                )}
-              </p>
-              <p className="text-sm text-muted-foreground">By {activity.user?.name}</p>
-              <p className="text-xs text-muted-foreground mt-1">{formatDate(activity.date)}</p>
-            </div>
+        {(!activities || activities.length === 0) ? (
+          <div className="py-8 text-center text-muted-foreground" data-testid="text-no-activity">
+            <Bell className="h-8 w-8 mx-auto mb-2" />
+            <p>No recent activity yet</p>
+            <p className="text-xs">New records across the portal will appear here</p>
           </div>
-        ))}
-        
-        <div className="pt-4 text-center">
-          <Button variant="link" className="text-primary-500">Load More</Button>
-        </div>
+        ) : (
+          activities.map((activity) => (
+            <div key={activity.id} className="py-4 flex" data-testid={`activity-${activity.id}`}>
+              <div className="mr-4 flex-shrink-0">
+                {getActivityIcon(activity.type)}
+              </div>
+              <div>
+                <p className="font-medium">{activity.description}</p>
+                <p className="text-sm text-muted-foreground">{activity.title}</p>
+                <p className="text-xs text-muted-foreground mt-1">{formatDate(activity.date)}</p>
+              </div>
+            </div>
+          ))
+        )}
       </div>
     </div>
   );

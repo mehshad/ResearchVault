@@ -14,19 +14,19 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { formatNameWithJobTitle, formatFullName } from "@/utils/nameUtils";
 
 const IBC_WORKFLOW_STATUSES = [
-  { value: "draft", label: "Draft", color: "bg-gray-100 text-gray-800", icon: FileText },
-  { value: "submitted", label: "Submitted", color: "bg-blue-100 text-blue-800", icon: FileText },
-  { value: "vetted", label: "Vetted", color: "bg-purple-100 text-purple-800", icon: Eye },
-  { value: "under_review", label: "Under Review", color: "bg-yellow-100 text-yellow-800", icon: AlertTriangle },
-  { value: "active", label: "Active", color: "bg-green-100 text-green-800", icon: Shield },
-  { value: "expired", label: "Expired", color: "bg-red-100 text-red-800", icon: AlertTriangle },
+  { value: "draft", label: "Draft", color: "bg-gray-100 text-gray-800 dark:bg-gray-800 dark:text-gray-200", icon: FileText },
+  { value: "submitted", label: "Submitted", color: "bg-blue-100 text-blue-800 dark:bg-blue-950 dark:text-blue-300", icon: FileText },
+  { value: "vetted", label: "Vetted", color: "bg-purple-100 text-purple-800 dark:bg-purple-950 dark:text-purple-300", icon: Eye },
+  { value: "under_review", label: "Under Review", color: "bg-yellow-100 text-yellow-800 dark:bg-yellow-950 dark:text-yellow-300", icon: AlertTriangle },
+  { value: "active", label: "Active", color: "bg-green-100 text-green-800 dark:bg-green-950 dark:text-green-300", icon: Shield },
+  { value: "expired", label: "Expired", color: "bg-red-100 text-red-800 dark:bg-red-950 dark:text-red-300", icon: AlertTriangle },
 ];
 
 const BIOSAFETY_LEVELS = [
-  { value: "BSL-1", label: "BSL-1", color: "bg-green-100 text-green-800", description: "Minimal risk" },
-  { value: "BSL-2", label: "BSL-2", color: "bg-yellow-100 text-yellow-800", description: "Moderate risk" },
-  { value: "BSL-3", label: "BSL-3", color: "bg-orange-100 text-orange-800", description: "High risk" },
-  { value: "BSL-4", label: "BSL-4", color: "bg-red-100 text-red-800", description: "Extreme danger" }
+  { value: "BSL-1", label: "BSL-1", color: "bg-green-100 text-green-800 dark:bg-green-950 dark:text-green-300", description: "Minimal risk" },
+  { value: "BSL-2", label: "BSL-2", color: "bg-yellow-100 text-yellow-800 dark:bg-yellow-950 dark:text-yellow-300", description: "Moderate risk" },
+  { value: "BSL-3", label: "BSL-3", color: "bg-orange-100 text-orange-800 dark:bg-orange-950 dark:text-orange-300", description: "High risk" },
+  { value: "BSL-4", label: "BSL-4", color: "bg-red-100 text-red-800 dark:bg-red-950 dark:text-red-300", description: "Extreme danger" }
 ];
 
 export default function IbcApplicationDetail() {
@@ -149,14 +149,14 @@ export default function IbcApplicationDetail() {
               </CardHeader>
               <CardContent className="space-y-4">
                 {[1, 2, 3, 4].map(i => (
-                  <div key={i} className="h-20 bg-gray-100 rounded animate-pulse" />
+                  <div key={i} className="h-20 bg-gray-100 rounded animate-pulse dark:bg-gray-800" />
                 ))}
               </CardContent>
             </Card>
           </div>
           <div className="space-y-6">
             {[1, 2, 3].map(i => (
-              <div key={i} className="h-32 bg-gray-100 rounded-lg animate-pulse" />
+              <div key={i} className="h-32 bg-gray-100 rounded-lg animate-pulse dark:bg-gray-800" />
             ))}
           </div>
         </div>
@@ -168,9 +168,9 @@ export default function IbcApplicationDetail() {
     return (
       <div className="p-6">
         <div className="text-center py-12">
-          <AlertTriangle className="h-12 w-12 text-gray-400 mx-auto mb-4" />
-          <h3 className="text-lg font-medium text-gray-900 mb-2">Application not found</h3>
-          <p className="text-gray-500 mb-4">The IBC application you're looking for doesn't exist.</p>
+          <AlertTriangle className="h-12 w-12 text-gray-400 mx-auto mb-4 dark:text-gray-500" />
+          <h3 className="text-lg font-medium text-gray-900 mb-2 dark:text-gray-100">Application not found</h3>
+          <p className="text-gray-500 mb-4 dark:text-gray-400">The IBC application you're looking for doesn't exist.</p>
           <Button onClick={() => navigate('/ibc')}>
             <ArrowLeft className="h-4 w-4 mr-2" />
             Back to Applications
@@ -229,7 +229,7 @@ export default function IbcApplicationDetail() {
           </Button>
           <div>
             <h1 className="text-2xl font-bold">{ibcApplication.title}</h1>
-            <p className="text-gray-500">{ibcApplication.ibcNumber}</p>
+            <p className="text-gray-500 dark:text-gray-400">{ibcApplication.ibcNumber}</p>
           </div>
         </div>
         
@@ -268,47 +268,47 @@ export default function IbcApplicationDetail() {
             <CardContent className="space-y-4">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
-                  <label className="text-sm font-medium text-gray-500">IBC Number</label>
+                  <label className="text-sm font-medium text-gray-500 dark:text-gray-400">IBC Number</label>
                   <p className="font-mono">{ibcApplication.ibcNumber}</p>
                 </div>
                 <div>
-                  <label className="text-sm font-medium text-gray-500">Submission Type</label>
+                  <label className="text-sm font-medium text-gray-500 dark:text-gray-400">Submission Type</label>
                   <Badge variant="outline" className="capitalize">
                     {ibcApplication.submissionType || 'Initial'}
                   </Badge>
                 </div>
                 <div>
-                  <label className="text-sm font-medium text-gray-500">Principal Investigator</label>
+                  <label className="text-sm font-medium text-gray-500 dark:text-gray-400">Principal Investigator</label>
                   <p className="flex items-center space-x-2">
                     <User className="h-4 w-4" />
                     <span>{scientist ? formatNameWithJobTitle(scientist) : 'Loading...'}</span>
                   </p>
                 </div>
                 <div>
-                  <label className="text-sm font-medium text-gray-500">Biosafety Level</label>
+                  <label className="text-sm font-medium text-gray-500 dark:text-gray-400">Biosafety Level</label>
                   <div>{getBiosafetyLevelBadge(ibcApplication.biosafetyLevel)}</div>
                 </div>
                 {ibcApplication.cayuseProtocolNumber && (
                   <div>
-                    <label className="text-sm font-medium text-gray-500">Cayuse Protocol Number</label>
+                    <label className="text-sm font-medium text-gray-500 dark:text-gray-400">Cayuse Protocol Number</label>
                     <p className="font-mono">{ibcApplication.cayuseProtocolNumber}</p>
                   </div>
                 )}
                 {ibcApplication.irbnetIbcNumber && (
                   <div>
-                    <label className="text-sm font-medium text-gray-500">IRBNet IBC Number</label>
+                    <label className="text-sm font-medium text-gray-500 dark:text-gray-400">IRBNet IBC Number</label>
                     <p className="font-mono">{ibcApplication.irbnetIbcNumber}</p>
                   </div>
                 )}
                 {ibcApplication.shortTitle && (
                   <div className="md:col-span-2">
-                    <label className="text-sm font-medium text-gray-500">Short Title</label>
+                    <label className="text-sm font-medium text-gray-500 dark:text-gray-400">Short Title</label>
                     <p>{ibcApplication.shortTitle}</p>
                   </div>
                 )}
                 {ibcApplication.additionalNotificationEmail && (
                   <div className="md:col-span-2">
-                    <label className="text-sm font-medium text-gray-500">Additional Notification Email</label>
+                    <label className="text-sm font-medium text-gray-500 dark:text-gray-400">Additional Notification Email</label>
                     <p className="text-sm">{ibcApplication.additionalNotificationEmail}</p>
                   </div>
                 )}
@@ -316,8 +316,8 @@ export default function IbcApplicationDetail() {
 
               {ibcApplication.description && (
                 <div>
-                  <label className="text-sm font-medium text-gray-500">Project Description</label>
-                  <p className="text-sm text-gray-700 whitespace-pre-wrap">{ibcApplication.description}</p>
+                  <label className="text-sm font-medium text-gray-500 dark:text-gray-400">Project Description</label>
+                  <p className="text-sm text-gray-700 whitespace-pre-wrap dark:text-gray-300">{ibcApplication.description}</p>
                 </div>
               )}
 
@@ -325,13 +325,13 @@ export default function IbcApplicationDetail() {
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-2 border-t">
                 {ibcApplication.submissionDate && (
                   <div>
-                    <label className="text-sm font-medium text-gray-500">Submission Date</label>
+                    <label className="text-sm font-medium text-gray-500 dark:text-gray-400">Submission Date</label>
                     <p className="text-sm">{format(new Date(ibcApplication.submissionDate), 'PPP')}</p>
                   </div>
                 )}
                 {ibcApplication.expirationDate && (
                   <div>
-                    <label className="text-sm font-medium text-gray-500">Expiration Date</label>
+                    <label className="text-sm font-medium text-gray-500 dark:text-gray-400">Expiration Date</label>
                     <p className="text-sm">{format(new Date(ibcApplication.expirationDate), 'PPP')}</p>
                   </div>
                 )}
@@ -352,35 +352,35 @@ export default function IbcApplicationDetail() {
               <CardContent>
                 <div className="space-y-3">
                   {researchActivities.map((activity: any) => (
-                    <div key={activity.id} className="p-4 border rounded-lg hover:bg-gray-50 transition-colors">
+                    <div key={activity.id} className="p-4 border rounded-lg hover:bg-gray-50 transition-colors dark:hover:bg-gray-900">
                       <div className="flex items-start justify-between">
                         <div className="flex items-start space-x-3 flex-1">
-                          <div className="w-8 h-8 bg-blue-100 rounded-full flex items-center justify-center flex-shrink-0">
-                            <Beaker className="h-4 w-4 text-blue-600" />
+                          <div className="w-8 h-8 bg-blue-100 rounded-full flex items-center justify-center flex-shrink-0 dark:bg-blue-950">
+                            <Beaker className="h-4 w-4 text-blue-600 dark:text-blue-400" />
                           </div>
                           <div className="flex-1 min-w-0">
                             <div className="flex items-center gap-2 mb-2">
-                              <p className="font-medium text-blue-900">{activity.title}</p>
+                              <p className="font-medium text-blue-900 dark:text-blue-200">{activity.title}</p>
                             </div>
                             <div className="flex items-center gap-2 mb-2">
-                              <Badge variant="outline" className="rounded-sm bg-blue-50 text-blue-700 border-blue-200">
+                              <Badge variant="outline" className="rounded-sm bg-blue-50 text-blue-700 border-blue-200 dark:bg-blue-950 dark:text-blue-300 dark:border-blue-800">
                                 {activity.sdrNumber}
                               </Badge>
                               <Badge className={
-                                activity.status === 'active' ? 'bg-green-100 text-green-800 border-green-200' :
-                                activity.status === 'planning' ? 'bg-blue-100 text-blue-800 border-blue-200' :
-                                activity.status === 'completed' ? 'bg-gray-100 text-gray-800 border-gray-200' :
-                                'bg-yellow-100 text-yellow-800 border-yellow-200'
+                                activity.status === 'active' ? 'bg-green-100 text-green-800 border-green-200 dark:bg-green-950 dark:text-green-300 dark:border-green-800' :
+                                activity.status === 'planning' ? 'bg-blue-100 text-blue-800 border-blue-200 dark:bg-blue-950 dark:text-blue-300 dark:border-blue-800' :
+                                activity.status === 'completed' ? 'bg-gray-100 text-gray-800 border-gray-200 dark:bg-gray-800 dark:text-gray-200 dark:border-gray-700' :
+                                'bg-yellow-100 text-yellow-800 border-yellow-200 dark:bg-yellow-950 dark:text-yellow-300 dark:border-yellow-800'
                               }>
                                 {activity.status?.charAt(0).toUpperCase() + activity.status?.slice(1)}
                               </Badge>
                             </div>
                             {activity.budgetSource && activity.budgetSource.length > 0 && (
                               <div className="mb-2">
-                                <span className="text-xs text-gray-500 mb-1 block">Funding Sources:</span>
+                                <span className="text-xs text-gray-500 mb-1 block dark:text-gray-400">Funding Sources:</span>
                                 <div className="flex flex-wrap gap-1">
                                   {activity.budgetSource.map((source: string, index: number) => (
-                                    <Badge key={index} variant="outline" className="text-xs rounded-sm bg-purple-50 text-purple-700 border-purple-200">
+                                    <Badge key={index} variant="outline" className="text-xs rounded-sm bg-purple-50 text-purple-700 border-purple-200 dark:bg-purple-950 dark:text-purple-300 dark:border-purple-800">
                                       {source}
                                     </Badge>
                                   ))}
@@ -413,18 +413,18 @@ export default function IbcApplicationDetail() {
             <CardContent className="space-y-4">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
-                  <label className="text-sm font-medium text-gray-500">Risk Level</label>
+                  <label className="text-sm font-medium text-gray-500 dark:text-gray-400">Risk Level</label>
                   <Badge variant="outline" className={
-                    ibcApplication.riskLevel === 'high' ? 'border-red-200 text-red-800' :
-                    ibcApplication.riskLevel === 'moderate' ? 'border-yellow-200 text-yellow-800' :
-                    'border-green-200 text-green-800'
+                    ibcApplication.riskLevel === 'high' ? 'border-red-200 text-red-800 dark:border-red-800 dark:text-red-300' :
+                    ibcApplication.riskLevel === 'moderate' ? 'border-yellow-200 text-yellow-800 dark:border-yellow-800 dark:text-yellow-300' :
+                    'border-green-200 text-green-800 dark:border-green-800 dark:text-green-300'
                   }>
                     {ibcApplication.riskLevel?.toUpperCase() || 'NOT SET'}
                   </Badge>
                 </div>
                 {ibcApplication.riskGroupClassification && (
                   <div>
-                    <label className="text-sm font-medium text-gray-500">Risk Group Classification</label>
+                    <label className="text-sm font-medium text-gray-500 dark:text-gray-400">Risk Group Classification</label>
                     <p>{ibcApplication.riskGroupClassification}</p>
                   </div>
                 )}
@@ -432,7 +432,7 @@ export default function IbcApplicationDetail() {
 
               {/* Biosafety Options */}
               <div>
-                <label className="text-sm font-medium text-gray-500 mb-2 block">Biosafety Options</label>
+                <label className="text-sm font-medium text-gray-500 mb-2 block dark:text-gray-400">Biosafety Options</label>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                   <div className="flex items-center space-x-2">
                     <div className={`w-3 h-3 rounded-full ${ibcApplication.recombinantSyntheticNucleicAcid ? 'bg-green-500' : 'bg-gray-300'}`} />
@@ -481,10 +481,10 @@ export default function IbcApplicationDetail() {
             </CardHeader>
             <CardContent>
               <div className="flex items-center justify-between">
-                <span className="text-sm text-gray-600">Status</span>
+                <span className="text-sm text-gray-600 dark:text-gray-300">Status</span>
                 {getStatusBadge(ibcApplication.status)}
               </div>
-              <p className="text-xs text-gray-500 mt-2">
+              <p className="text-xs text-gray-500 mt-2 dark:text-gray-400">
                 {getStatusDescription(ibcApplication.status)}
               </p>
             </CardContent>
@@ -512,9 +512,9 @@ export default function IbcApplicationDetail() {
                   }`}>
                     <div className="flex items-center gap-2">
                       {certificationStatus.complete ? (
-                        <CheckCircle className="h-5 w-5 text-green-600" />
+                        <CheckCircle className="h-5 w-5 text-green-600 dark:text-green-400" />
                       ) : (
-                        <AlertTriangle className="h-5 w-5 text-orange-600" />
+                        <AlertTriangle className="h-5 w-5 text-orange-600 dark:text-orange-400" />
                       )}
                       <div>
                         <p className="text-sm font-medium">
@@ -522,7 +522,7 @@ export default function IbcApplicationDetail() {
                             ? 'All Certifications Complete' 
                             : 'Certifications Incomplete'}
                         </p>
-                        <p className="text-xs text-gray-600">
+                        <p className="text-xs text-gray-600 dark:text-gray-300">
                           {certificationStatus.completeMembers} of {certificationStatus.totalMembers} members certified
                         </p>
                       </div>
@@ -532,22 +532,22 @@ export default function IbcApplicationDetail() {
                   {/* Team Member List */}
                   <div className="space-y-2">
                     {personnelData.map((member: any, index: number) => (
-                      <div key={index} className="flex items-center gap-2 p-2 bg-gray-50 rounded">
-                        <div className="w-8 h-8 bg-gray-200 rounded-full flex items-center justify-center flex-shrink-0">
-                          <User className="h-4 w-4 text-gray-600" />
+                      <div key={index} className="flex items-center gap-2 p-2 bg-gray-50 rounded dark:bg-gray-900">
+                        <div className="w-8 h-8 bg-gray-200 rounded-full flex items-center justify-center flex-shrink-0 dark:bg-gray-700">
+                          <User className="h-4 w-4 text-gray-600 dark:text-gray-300" />
                         </div>
                         <div className="flex-1 min-w-0">
                           <p className="text-sm font-medium truncate">
                             {member.scientist ? formatFullName(member.scientist) : 'Unknown'}
                           </p>
-                          <p className="text-xs text-gray-500 capitalize">{member.role?.replace('_', ' ')}</p>
+                          <p className="text-xs text-gray-500 capitalize dark:text-gray-400">{member.role?.replace('_', ' ')}</p>
                         </div>
                       </div>
                     ))}
                   </div>
                 </div>
               ) : (
-                <p className="text-sm text-gray-500 text-center py-4">
+                <p className="text-sm text-gray-500 text-center py-4 dark:text-gray-400">
                   No team members assigned
                 </p>
               )}
@@ -575,7 +575,7 @@ export default function IbcApplicationDetail() {
             <CardContent className="space-y-3">
               {ibcApplication.submissionDate && (
                 <div className="flex items-center justify-between">
-                  <span className="text-sm text-gray-600">Submitted</span>
+                  <span className="text-sm text-gray-600 dark:text-gray-300">Submitted</span>
                   <span className="text-sm font-medium">
                     {format(new Date(ibcApplication.submissionDate), 'MMM d, yyyy')}
                   </span>
@@ -584,7 +584,7 @@ export default function IbcApplicationDetail() {
               
               {ibcApplication.vettedDate && (
                 <div className="flex items-center justify-between">
-                  <span className="text-sm text-gray-600">Vetted</span>
+                  <span className="text-sm text-gray-600 dark:text-gray-300">Vetted</span>
                   <span className="text-sm font-medium">
                     {format(new Date(ibcApplication.vettedDate), 'MMM d, yyyy')}
                   </span>
@@ -593,7 +593,7 @@ export default function IbcApplicationDetail() {
               
               {ibcApplication.underReviewDate && (
                 <div className="flex items-center justify-between">
-                  <span className="text-sm text-gray-600">Under Review</span>
+                  <span className="text-sm text-gray-600 dark:text-gray-300">Under Review</span>
                   <span className="text-sm font-medium">
                     {format(new Date(ibcApplication.underReviewDate), 'MMM d, yyyy')}
                   </span>
@@ -602,7 +602,7 @@ export default function IbcApplicationDetail() {
               
               {ibcApplication.approvalDate && (
                 <div className="flex items-center justify-between">
-                  <span className="text-sm text-gray-600">Approved</span>
+                  <span className="text-sm text-gray-600 dark:text-gray-300">Approved</span>
                   <span className="text-sm font-medium">
                     {format(new Date(ibcApplication.approvalDate), 'MMM d, yyyy')}
                   </span>
@@ -611,7 +611,7 @@ export default function IbcApplicationDetail() {
               
               {ibcApplication.expirationDate && (
                 <div className="flex items-center justify-between">
-                  <span className="text-sm text-gray-600">Expires</span>
+                  <span className="text-sm text-gray-600 dark:text-gray-300">Expires</span>
                   <span className="text-sm font-medium">
                     {format(new Date(ibcApplication.expirationDate), 'MMM d, yyyy')}
                   </span>

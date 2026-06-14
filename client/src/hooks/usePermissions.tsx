@@ -15,6 +15,7 @@ interface PermissionsContextType {
   getAccessLevel: (jobTitle: string, navigationItem: string) => AccessLevel;
   canView: (jobTitle: string, navigationItem: string) => boolean;
   canEdit: (jobTitle: string, navigationItem: string) => boolean;
+  canCreate: (jobTitle: string, navigationItem: string) => boolean;
   isHidden: (jobTitle: string, navigationItem: string) => boolean;
   isReadOnly: (jobTitle: string, navigationItem: string) => boolean;
 }
@@ -219,6 +220,11 @@ export function PermissionsProvider({ children }: PermissionsProviderProps) {
     return accessLevel === "edit";
   };
 
+  const canCreate = (jobTitle: string, navigationItem: string): boolean => {
+    const accessLevel = getAccessLevel(jobTitle, navigationItem);
+    return accessLevel === "edit" || accessLevel === "create";
+  };
+
   const isHidden = (jobTitle: string, navigationItem: string): boolean => {
     const accessLevel = getAccessLevel(jobTitle, navigationItem);
     return accessLevel === "hide";
@@ -236,6 +242,7 @@ export function PermissionsProvider({ children }: PermissionsProviderProps) {
       getAccessLevel,
       canView,
       canEdit,
+      canCreate,
       isHidden,
       isReadOnly
     }}>
@@ -250,4 +257,53 @@ export function usePermissions() {
     throw new Error('usePermissions must be used within a PermissionsProvider');
   }
   return context;
+}
+
+// ── Record-level (ownership-based) access ─────────────────────────────────
+
+export interface RecordAccessResult {
+  roleAccess: AccessLevel;
+  ownershipAccess: AccessLevel | null;
+  effectiveAccess: AccessLevel;
+}
+
+/**
+ * Standalone async function — fetches effective access for a specific record.
+ * Does NOT require the PermissionsContext.
+ */
+export async function fetchRecordAccess(module: string, recordId: number): Promise<RecordAccessResult> {
+  const res = await fetch(`/api/access-check?module=${encodeURIComponent(module)}&recordId=${recordId}`);
+  if (!res.ok) throw new Error(`Failed to check access: ${res.status}`);
+  return res.json();
+}
+
+/**
+ * React hook — returns the effective access level for a specific record.
+ * Returns { effectiveAccess, isLoading }.
+ */
+export function useRecordAccess(module: string, recordId: number | null): { effectiveAccess: AccessLevel | null; isLoading: boolean } {
+  const [effectiveAccess, setEffectiveAccess] = useState<AccessLevel | null>(null);
+  const [isLoading, setIsLoading] = useState(false);
+
+  useEffect(() => {
+    if (recordId === null) {
+      setEffectiveAccess(null);
+      return;
+    }
+    let cancelled = false;
+    setIsLoading(true);
+    fetchRecordAccess(module, recordId)
+      .then((result) => {
+        if (!cancelled) setEffectiveAccess(result.effectiveAccess);
+      })
+      .catch(() => {
+        if (!cancelled) setEffectiveAccess(null);
+      })
+      .finally(() => {
+        if (!cancelled) setIsLoading(false);
+      });
+    return () => { cancelled = true; };
+  }, [module, recordId]);
+
+  return { effectiveAccess, isLoading };
 }

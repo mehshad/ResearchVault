@@ -127,7 +127,7 @@ export default function CreateContract() {
         </div>
 
         {/* Contract Officer Notice */}
-        <Card className="border-orange-200 bg-orange-50">
+        <Card className="border-orange-200 bg-orange-50 dark:border-orange-800 dark:bg-orange-950">
           <CardContent className="pt-6">
             <div className="flex items-start space-x-4">
               <div className="flex-shrink-0">
@@ -136,14 +136,14 @@ export default function CreateContract() {
                 </div>
               </div>
               <div className="flex-1">
-                <h3 className="text-lg font-semibold text-orange-800 mb-2">
+                <h3 className="text-lg font-semibold text-orange-800 mb-2 dark:text-orange-300">
                   Contract Officer Access Only
                 </h3>
-                <p className="text-orange-700 mb-3">
+                <p className="text-orange-700 mb-3 dark:text-orange-300">
                   This form is exclusively for Contract Officers and Management to create contracts directly in the system.
                   It bypasses the normal contract request and approval process.
                 </p>
-                <div className="text-sm text-orange-600">
+                <div className="text-sm text-orange-600 dark:text-orange-400">
                   <p><strong>Regular users should use:</strong> "Request New Contract" button to submit requests through proper channels.</p>
                   <p><strong>This form should only be used when:</strong> Creating pre-approved contracts or when authorized to bypass standard workflow.</p>
                 </div>

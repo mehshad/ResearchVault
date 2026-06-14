@@ -33,9 +33,9 @@ export function DatabaseStatus() {
 
   if (isLoading) {
     return (
-      <Alert className="mb-4 border-blue-200 bg-blue-50">
-        <Loader2 className="h-4 w-4 animate-spin text-blue-600" />
-        <AlertDescription className="text-blue-800">
+      <Alert className="mb-4 border-blue-200 bg-blue-50 dark:border-blue-800 dark:bg-blue-950">
+        <Loader2 className="h-4 w-4 animate-spin text-blue-600 dark:text-blue-400" />
+        <AlertDescription className="text-blue-800 dark:text-blue-300">
           Checking database connection...
         </AlertDescription>
       </Alert>
@@ -44,9 +44,9 @@ export function DatabaseStatus() {
 
   if (isOnline === false) {
     return (
-      <Alert className="mb-4 border-amber-200 bg-amber-50">
-        <AlertTriangle className="h-4 w-4 text-amber-600" />
-        <AlertDescription className="text-amber-800">
+      <Alert className="mb-4 border-amber-200 bg-amber-50 dark:border-amber-800 dark:bg-amber-950">
+        <AlertTriangle className="h-4 w-4 text-amber-600 dark:text-amber-400" />
+        <AlertDescription className="text-amber-800 dark:text-amber-300">
           <strong>Database Offline:</strong> The database connection is temporarily unavailable. 
           Data may not display correctly until the connection is restored. Please try refreshing the page in a few minutes.
         </AlertDescription>
@@ -56,9 +56,9 @@ export function DatabaseStatus() {
 
   if (isOnline === true && showSuccessMessage) {
     return (
-      <Alert className="mb-4 border-green-200 bg-green-50">
-        <CheckCircle className="h-4 w-4 text-green-600" />
-        <AlertDescription className="text-green-800">
+      <Alert className="mb-4 border-green-200 bg-green-50 dark:border-green-800 dark:bg-green-950">
+        <CheckCircle className="h-4 w-4 text-green-600 dark:text-green-400" />
+        <AlertDescription className="text-green-800 dark:text-green-300">
           Database connection restored. All features are now available.
         </AlertDescription>
       </Alert>

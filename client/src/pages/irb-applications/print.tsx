@@ -8,9 +8,9 @@ export default function IrbApplicationPrintPage() {
   const applicationId = parseInt(params.id);
 
   return (
-    <div className="print-shell min-h-screen bg-white">
-      <div className="no-print sticky top-0 z-50 flex items-center justify-between border-b bg-white px-6 py-3">
-        <p className="text-sm text-gray-600">
+    <div className="print-shell min-h-screen bg-white dark:bg-card">
+      <div className="no-print sticky top-0 z-50 flex items-center justify-between border-b bg-white px-6 py-3 dark:bg-card">
+        <p className="text-sm text-gray-600 dark:text-gray-300">
           Review the full application below, then print or save as PDF.
         </p>
         <div className="flex items-center gap-2">

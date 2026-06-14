@@ -684,40 +684,40 @@ export default function EditRa200() {
             </CardHeader>
             <CardContent className="space-y-4">
               <div className="space-y-3">
-                <div className="p-3 border rounded-lg bg-gray-50">
-                  <h4 className="font-medium text-sm text-blue-800">1. Draft</h4>
-                  <p className="text-xs text-gray-600 mt-1">Work in progress - can be edited</p>
-                  <p className="text-xs text-blue-600 mt-1">Required: Title, Lead Scientist</p>
+                <div className="p-3 border rounded-lg bg-gray-50 dark:bg-gray-900">
+                  <h4 className="font-medium text-sm text-blue-800 dark:text-blue-300">1. Draft</h4>
+                  <p className="text-xs text-gray-600 mt-1 dark:text-gray-300">Work in progress - can be edited</p>
+                  <p className="text-xs text-blue-600 mt-1 dark:text-blue-400">Required: Title, Lead Scientist</p>
                 </div>
                 
                 <div className="p-3 border rounded-lg">
                   <h4 className="font-medium text-sm">2. Submitted</h4>
-                  <p className="text-xs text-gray-600 mt-1">Under PMO office review</p>
-                  <p className="text-xs text-orange-600 mt-1">Required: All sections completed</p>
+                  <p className="text-xs text-gray-600 mt-1 dark:text-gray-300">Under PMO office review</p>
+                  <p className="text-xs text-orange-600 mt-1 dark:text-orange-400">Required: All sections completed</p>
                 </div>
                 
                 <div className="p-3 border rounded-lg">
                   <h4 className="font-medium text-sm">3. Under Review</h4>
-                  <p className="text-xs text-gray-600 mt-1">PMO staff reviewing application</p>
-                  <p className="text-xs text-gray-500 mt-1">Comments may be added</p>
+                  <p className="text-xs text-gray-600 mt-1 dark:text-gray-300">PMO staff reviewing application</p>
+                  <p className="text-xs text-gray-500 mt-1 dark:text-gray-400">Comments may be added</p>
                 </div>
                 
                 <div className="p-3 border rounded-lg">
                   <h4 className="font-medium text-sm">4. Revision Requested</h4>
-                  <p className="text-xs text-gray-600 mt-1">Changes needed - returned to PI</p>
-                  <p className="text-xs text-purple-600 mt-1">Review PMO comments and resubmit</p>
+                  <p className="text-xs text-gray-600 mt-1 dark:text-gray-300">Changes needed - returned to PI</p>
+                  <p className="text-xs text-purple-600 mt-1 dark:text-purple-400">Review PMO comments and resubmit</p>
                 </div>
                 
-                <div className="p-3 border rounded-lg bg-green-50">
-                  <h4 className="font-medium text-sm text-green-800">5. Approved</h4>
-                  <p className="text-xs text-gray-600 mt-1">Ready to proceed with research</p>
-                  <p className="text-xs text-green-600 mt-1">Automatically creates SDR entry</p>
+                <div className="p-3 border rounded-lg bg-green-50 dark:bg-green-950">
+                  <h4 className="font-medium text-sm text-green-800 dark:text-green-300">5. Approved</h4>
+                  <p className="text-xs text-gray-600 mt-1 dark:text-gray-300">Ready to proceed with research</p>
+                  <p className="text-xs text-green-600 mt-1 dark:text-green-400">Automatically creates SDR entry</p>
                 </div>
               </div>
               
-              <div className="mt-4 p-3 bg-blue-50 rounded-lg">
-                <h5 className="font-medium text-sm text-blue-800 mb-2">Quick Tips</h5>
-                <ul className="text-xs text-blue-700 space-y-1">
+              <div className="mt-4 p-3 bg-blue-50 rounded-lg dark:bg-blue-950">
+                <h5 className="font-medium text-sm text-blue-800 mb-2 dark:text-blue-300">Quick Tips</h5>
+                <ul className="text-xs text-blue-700 space-y-1 dark:text-blue-300">
                   <li>• Complete all required fields before submitting</li>
                   <li>• Abstract limited to 5000 characters</li>
                   <li>• Select all relevant core facilities</li>
@@ -726,9 +726,9 @@ export default function EditRa200() {
                 </ul>
               </div>
               
-              <div className="mt-4 p-3 bg-amber-50 rounded-lg">
-                <h5 className="font-medium text-sm text-amber-800 mb-2">Need Help?</h5>
-                <div className="text-xs text-amber-700 space-y-1">
+              <div className="mt-4 p-3 bg-amber-50 rounded-lg dark:bg-amber-950">
+                <h5 className="font-medium text-sm text-amber-800 mb-2 dark:text-amber-300">Need Help?</h5>
+                <div className="text-xs text-amber-700 space-y-1 dark:text-amber-300">
                   <div>• PMO Office: <strong>researchpmo@sidra.org</strong></div>
                   <div>• Consult your line manager</div>
                   <div>• Review institutional guidelines</div>

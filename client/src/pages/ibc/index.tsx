@@ -35,19 +35,19 @@ export default function IbcList() {
   };
 
   const statusColors = {
-    draft: "bg-gray-100 text-gray-800",
-    submitted: "bg-blue-100 text-blue-800",
-    vetted: "bg-purple-100 text-purple-800",
-    under_review: "bg-yellow-100 text-yellow-800",
-    active: "bg-green-100 text-green-800",
-    expired: "bg-red-100 text-red-800"
+    draft: "bg-gray-100 text-gray-800 dark:bg-gray-800 dark:text-gray-200",
+    submitted: "bg-blue-100 text-blue-800 dark:bg-blue-950 dark:text-blue-300",
+    vetted: "bg-purple-100 text-purple-800 dark:bg-purple-950 dark:text-purple-300",
+    under_review: "bg-yellow-100 text-yellow-800 dark:bg-yellow-950 dark:text-yellow-300",
+    active: "bg-green-100 text-green-800 dark:bg-green-950 dark:text-green-300",
+    expired: "bg-red-100 text-red-800 dark:bg-red-950 dark:text-red-300"
   };
 
   const biosafetyLevelColors = {
-    "bsl-1": "bg-green-50 text-green-600",
-    "bsl-2": "bg-yellow-50 text-yellow-600",
-    "bsl-3": "bg-orange-50 text-orange-600",
-    "bsl-4": "bg-red-50 text-red-600"
+    "bsl-1": "bg-green-50 text-green-600 dark:bg-green-950 dark:text-green-400",
+    "bsl-2": "bg-yellow-50 text-yellow-600 dark:bg-yellow-950 dark:text-yellow-400",
+    "bsl-3": "bg-orange-50 text-orange-600 dark:bg-orange-950 dark:text-orange-400",
+    "bsl-4": "bg-red-50 text-red-600 dark:bg-red-950 dark:text-red-400"
   };
 
   const filteredApplications = applications?.filter(app => {
@@ -74,7 +74,7 @@ export default function IbcList() {
           <div className="flex items-center justify-between">
             <CardTitle>Institutional Biosafety Committee Applications</CardTitle>
             <div className="relative w-64">
-              <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-gray-400" />
+              <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-gray-400 dark:text-gray-500" />
               <Input
                 type="search"
                 placeholder="Search applications..."
@@ -118,7 +118,7 @@ export default function IbcList() {
                 {filteredApplications?.map((application) => (
                   <TableRow 
                     key={application.id}
-                    className="cursor-pointer hover:bg-gray-50 transition-colors"
+                    className="cursor-pointer hover:bg-gray-50 transition-colors dark:hover:bg-gray-900"
                     onClick={() => navigate(`/ibc-applications/${application.id}`)}
                   >
                     <TableCell>
@@ -146,7 +146,7 @@ export default function IbcList() {
                           <span>{formatNameWithJobTitle(application.principalInvestigator)}</span>
                         </div>
                       ) : (
-                        <span className="text-gray-400">Unassigned</span>
+                        <span className="text-gray-400 dark:text-gray-500">Unassigned</span>
                       )}
                     </TableCell>
                     <TableCell>

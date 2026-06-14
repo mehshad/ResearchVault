@@ -17,7 +17,6 @@ import Dashboard from "@/pages/dashboard";
 import ScientistsList from "@/pages/scientists";
 import CreateScientist from "@/pages/scientists/create";
 import EditScientist from "@/pages/scientists/edit";
-import RoleAccessConfig from "@/pages/scientists/role-access-config";
 import ScientistDetail from "@/pages/scientists/detail";
 
 // Facilities
@@ -29,6 +28,7 @@ import EditRoom from "@/pages/facilities/rooms/edit";
 
 // Programs (PRM)
 import ProgramsList from "@/pages/programs";
+import CreateProgram from "@/pages/programs/create";
 import ProgramDetail from "@/pages/programs/detail";
 import EditProgram from "@/pages/programs/edit";
 
@@ -165,19 +165,18 @@ function AuthGate({ children }: { children: React.ReactNode }) {
 
 function AppRouter() {
   return (
-    <Switch>
-      {/* /login redirects to landing — login is a modal on the landing page now */}
-      <Route path="/login">{() => { window.location.replace('/'); return null; }}</Route>
-      <RequireAuth>
-      <Layout>
+    <Layout>
       <Switch>
+        {/* /login redirects to landing — login is a modal on the landing page now */}
+        <Route path="/login">{() => { window.location.replace('/'); return null; }}</Route>
+
         {/* Dashboard */}
         <Route path="/app" component={Dashboard} />
         
         {/* Scientists & Staff */}
         <Route path="/scientists" component={ScientistsList} />
         <Route path="/scientists/create" component={CreateScientist} />
-        <Route path="/scientists/role-access-config" component={RoleAccessConfig} />
+        <Route path="/scientists/role-access-config">{() => { window.location.replace('/settings#access-control'); return null; }}</Route>
         <Route path="/scientists/:id/edit" component={EditScientist} />
         <Route path="/scientists/:id" component={ScientistDetail} />
 
@@ -220,6 +219,7 @@ function AppRouter() {
         
         {/* Legacy routes - redirect to PMO paths */}
         <Route path="/programs" component={ProgramsList} />
+        <Route path="/programs/create" component={CreateProgram} />
         <Route path="/programs/:id/edit" component={EditProgram} />
         <Route path="/programs/:id" component={ProgramDetail} />
         <Route path="/projects" component={ProjectList} />
@@ -323,9 +323,7 @@ function AppRouter() {
         {/* Fallback to 404 */}
         <Route component={NotFound} />
       </Switch>
-      </Layout>
-      </RequireAuth>
-    </Switch>
+    </Layout>
   );
 }
 

@@ -11,7 +11,7 @@ import { useAuth } from '@/hooks/useAuth';
 
 interface AuthConfig {
   mode: 'demo' | 'local' | 'ldap' | 'oidc';
-  oidcProviderName: string | null;
+  providerName: string | null;
 }
 
 const loginSchema = z.object({
@@ -30,7 +30,7 @@ export default function LoginPage() {
     fetch('/api/auth/config')
       .then(r => r.json())
       .then(setAuthConfig)
-      .catch(() => setAuthConfig({ mode: 'local', oidcProviderName: null }));
+      .catch(() => setAuthConfig({ mode: 'local', providerName: null }));
   }, []);
 
   // Parse any error from the OIDC callback redirect
@@ -67,17 +67,17 @@ export default function LoginPage() {
 
   if (!authConfig || authConfig.mode === 'demo') {
     return (
-      <div className="flex items-center justify-center min-h-screen bg-slate-50">
+      <div className="flex items-center justify-center min-h-screen bg-slate-50 dark:bg-slate-900">
         <p className="text-muted-foreground">Redirecting…</p>
       </div>
     );
   }
 
   const isFormMode = authConfig.mode === 'local' || authConfig.mode === 'ldap';
-  const providerName = authConfig.oidcProviderName ?? 'SSO';
+  const providerName = authConfig.providerName ?? 'SSO';
 
   return (
-    <div className="flex items-center justify-center min-h-screen bg-slate-50">
+    <div className="flex items-center justify-center min-h-screen bg-slate-50 dark:bg-slate-900">
       <Card className="w-full max-w-md shadow-lg">
         <CardHeader className="space-y-1">
           <CardTitle className="text-2xl font-bold text-center">

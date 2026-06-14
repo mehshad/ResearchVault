@@ -9,7 +9,21 @@ import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Search, Download, Settings, Upload, FileText, Check, X, AlertTriangle, Plus, History, Filter } from "lucide-react";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
+import { Textarea } from "@/components/ui/textarea";
+import { Label } from "@/components/ui/label";
+import { Checkbox } from "@/components/ui/checkbox";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import { Search, Download, Settings, Upload, FileText, Check, X, AlertTriangle, Plus, History, Filter, Pencil, Trash2 } from "lucide-react";
 import { format, differenceInDays, parseISO } from "date-fns";
 import { ObjectUploader } from "@/components/ObjectUploader";
 import { useToast } from "@/hooks/use-toast";
@@ -41,7 +55,7 @@ interface DetectedCertificate {
   fileName: string;
   filePath: string;
   originalUrl: string;
-  status: 'detected' | 'unrecognized' | 'error' | 'unknown' | 'processing' | 'ocr_failed';
+  status: 'detected' | 'unrecognized' | 'error' | 'unknown' | 'processing' | 'ocr_failed' | 'save_failed';
   extractedText?: string;
   errorDetails?: string;
   name?: string;
@@ -52,6 +66,9 @@ interface DetectedCertificate {
   recordId?: string;
   institution?: string;
   isNewModule?: boolean;
+  suggestedModuleName?: string;
+  suggestedAbbreviation?: string;
+  suggestedExpirationMonths?: number;
   error?: string;
 }
 
@@ -60,6 +77,10 @@ interface PendingCertification extends DetectedCertificate {
   startDate?: string;
   endDate?: string;
   notes?: string;
+  createNewModule?: boolean;
+  newModuleName?: string;
+  newModuleAbbreviation?: string;
+  newModuleExpirationMonths?: number;
 }
 
 interface PdfImportHistoryEntry {
@@ -95,7 +116,7 @@ function getCertificationStatus(endDate: string | null): {
   text: string;
 } {
   if (!endDate) {
-    return { status: 'never', color: 'bg-gray-100 text-gray-600', text: 'Never' };
+    return { status: 'never', color: 'bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-300', text: 'Never' };
   }
 
   const end = parseISO(endDate);
@@ -103,12 +124,23 @@ function getCertificationStatus(endDate: string | null): {
   const daysUntilExpiry = differenceInDays(end, today);
 
   if (daysUntilExpiry < 0) {
-    return { status: 'expired', color: 'bg-red-100 text-red-800', text: 'Expired' };
+    return { status: 'expired', color: 'bg-red-100 text-red-800 dark:bg-red-950 dark:text-red-300', text: 'Expired' };
   } else if (daysUntilExpiry <= 30) {
-    return { status: 'expiring', color: 'bg-orange-100 text-orange-800', text: 'Expiring' };
+    return { status: 'expiring', color: 'bg-orange-100 text-orange-800 dark:bg-orange-950 dark:text-orange-300', text: 'Expiring' };
   } else {
-    return { status: 'valid', color: 'bg-green-100 text-green-800', text: 'Valid' };
+    return { status: 'valid', color: 'bg-green-100 text-green-800 dark:bg-green-950 dark:text-green-300', text: 'Valid' };
   }
+}
+
+// Combine a module name with its abbreviation, e.g. ("Biosafety Series", "BCT")
+// -> "Biosafety Series (BCT)". Leaves an existing parenthetical untouched.
+function composeModuleName(name: string, abbr?: string): string {
+  const n = (name || '').trim().replace(/\s+/g, ' ');
+  const a = (abbr || '').trim();
+  if (!n) return n;
+  if (!a) return n;
+  if (/\([^)]+\)\s*$/.test(n)) return n;
+  return `${n} (${a})`;
 }
 
 export default function CertificationsPage() {
@@ -116,6 +148,7 @@ export default function CertificationsPage() {
   const [activeTab, setActiveTab] = useState("matrix");
   const [detectedFiles, setDetectedFiles] = useState<PendingCertification[]>([]);
   const [isProcessing, setIsProcessing] = useState(false);
+  const [uploaderResetSignal, setUploaderResetSignal] = useState(0);
   
   // PDF import history state
   const [historySearchTerm, setHistorySearchTerm] = useState("");
@@ -125,6 +158,72 @@ export default function CertificationsPage() {
   
   const { toast } = useToast();
   const queryClient = useQueryClient();
+
+  // Certification module management (Modules tab)
+  const emptyModuleForm = { name: '', description: '', isCore: false, expirationMonths: 36, isActive: true };
+  const [moduleDialogOpen, setModuleDialogOpen] = useState(false);
+  const [editingModuleId, setEditingModuleId] = useState<number | null>(null);
+  const [moduleForm, setModuleForm] = useState<{ name: string; description: string; isCore: boolean; expirationMonths: number; isActive: boolean }>(emptyModuleForm);
+  const [moduleToDelete, setModuleToDelete] = useState<CertificationModule | null>(null);
+
+  const openAddModule = () => {
+    setEditingModuleId(null);
+    setModuleForm(emptyModuleForm);
+    setModuleDialogOpen(true);
+  };
+
+  const openEditModule = (module: CertificationModule) => {
+    setEditingModuleId(module.id);
+    setModuleForm({
+      name: module.name || '',
+      description: module.description || '',
+      isCore: !!module.isCore,
+      expirationMonths: module.expirationMonths ?? 36,
+      isActive: module.isActive ?? true,
+    });
+    setModuleDialogOpen(true);
+  };
+
+  const saveModuleMutation = useMutation({
+    mutationFn: async () => {
+      const payload = {
+        name: moduleForm.name.trim(),
+        description: moduleForm.description.trim() || null,
+        isCore: moduleForm.isCore,
+        expirationMonths: Number(moduleForm.expirationMonths) || 36,
+        isActive: moduleForm.isActive,
+      };
+      if (editingModuleId != null) {
+        return apiRequest('PUT', `/api/certification-modules/${editingModuleId}`, payload);
+      }
+      return apiRequest('POST', '/api/certification-modules', payload);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['/api/certification-modules'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/certifications/matrix'] });
+      setModuleDialogOpen(false);
+      toast({
+        title: editingModuleId != null ? 'Module updated' : 'Module added',
+        description: `"${moduleForm.name.trim()}" has been saved.`,
+      });
+    },
+    onError: (error: Error) => {
+      toast({ title: 'Could not save module', description: error.message, variant: 'destructive' });
+    },
+  });
+
+  const deleteModuleMutation = useMutation({
+    mutationFn: async (id: number) => apiRequest('DELETE', `/api/certification-modules/${id}`),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['/api/certification-modules'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/certifications/matrix'] });
+      setModuleToDelete(null);
+      toast({ title: 'Module deleted' });
+    },
+    onError: (error: Error) => {
+      toast({ title: 'Could not delete module', description: error.message, variant: 'destructive' });
+    },
+  });
 
   const { data: matrixData = [], isLoading: matrixLoading } = useQuery({
     queryKey: ['/api/certifications/matrix'],
@@ -154,8 +253,10 @@ export default function CertificationsPage() {
   });
 
   const processCertificatesMutation = useMutation({
-    mutationFn: async (fileUrls: string[]) => {
-      const response = await apiRequest('POST', '/api/certificates/process-batch', { fileUrls });
+    mutationFn: async (files: Array<{ url: string; fileName: string }>) => {
+      const fileUrls = files.map((f) => f.url);
+      const fileNames = files.map((f) => f.fileName);
+      const response = await apiRequest('POST', '/api/certificates/process-batch', { fileUrls, fileNames });
       return response.json();
     },
     onSuccess: (data) => {
@@ -193,6 +294,7 @@ export default function CertificationsPage() {
         }
         
         // Valid certificate data
+        const isNew = !result.module && !!result.courseName;
         return {
           fileName: result.fileName || 'certificate.pdf',
           name: result.name || '',
@@ -207,11 +309,22 @@ export default function CertificationsPage() {
           filePath: result.filePath || '',
           originalUrl: result.originalUrl || '',
           startDate: result.completionDate || '',
-          endDate: result.expirationDate || ''
+          endDate: result.expirationDate || '',
+          isNewModule: isNew,
+          suggestedModuleName: result.suggestedModuleName || result.courseName || '',
+          suggestedAbbreviation: result.suggestedAbbreviation || '',
+          suggestedExpirationMonths: result.suggestedExpirationMonths || 36,
+          // For unrecognized courses, pre-arm "create new module" (confirmable in UI)
+          createNewModule: isNew,
+          newModuleName: result.suggestedModuleName || result.courseName || '',
+          newModuleAbbreviation: result.suggestedAbbreviation || '',
+          newModuleExpirationMonths: result.suggestedExpirationMonths || 36,
         };
       });
       
-      setDetectedFiles(processedFiles);
+      // Append so a follow-up upload adds to the review list instead of
+      // wiping rows the user is still working through.
+      setDetectedFiles(prev => [...prev, ...processedFiles]);
       
       // Show appropriate message based on results
       const successCount = processedFiles.filter(f => f.status === 'detected').length;
@@ -273,23 +386,53 @@ export default function CertificationsPage() {
     onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ['/api/certifications/matrix'] });
       queryClient.invalidateQueries({ queryKey: ['/api/pdf-import-history'] }); // Refresh history
-      setDetectedFiles([]);
-      
-      // Show detailed success message
-      toast({
-        title: "✅ Certifications Saved Successfully!",
-        description: `${data.summary.successful} certification${data.summary.successful === 1 ? '' : 's'} added to the system`,
-        duration: 5000,
-      });
-      
-      if (data.summary.failed > 0) {
+
+      const results: any[] = Array.isArray(data?.results) ? data.results : [];
+      const failedResults = results.filter((r) => r.status === 'error');
+      const savedFileNames = new Set(
+        results.filter((r) => r.status === 'success').map((r) => r.fileName)
+      );
+
+      // Keep the rows that did NOT save so the user can see why and fix them,
+      // annotating each failed row with the specific server-side reason.
+      setDetectedFiles((prev) =>
+        prev
+          .filter((f) => !savedFileNames.has(f.fileName || 'certificate.pdf'))
+          .map((f) => {
+            const failure = failedResults.find(
+              (r) => r.fileName === (f.fileName || 'certificate.pdf')
+            );
+            return failure
+              ? { ...f, status: 'save_failed' as const, error: failure.error, errorDetails: failure.error }
+              : f;
+          })
+      );
+
+      // Only celebrate if something actually persisted.
+      if (data.summary.successful > 0) {
         toast({
-          title: "⚠️ Some Certifications Failed",
-          description: `${data.summary.failed} certification${data.summary.failed === 1 ? '' : 's'} could not be processed. Check the details above.`,
-          variant: "destructive",
-          duration: 8000,
+          title: "✅ Certifications Saved Successfully!",
+          description: `${data.summary.successful} certification${data.summary.successful === 1 ? '' : 's'} added to the system`,
+          duration: 5000,
         });
       }
+
+      if (data.summary.failed > 0) {
+        const reasons = Array.from(
+          new Set(failedResults.map((r) => r.error).filter(Boolean))
+        );
+        toast({
+          title: `⚠️ ${data.summary.failed} certification${data.summary.failed === 1 ? '' : 's'} could not be saved`,
+          description: reasons.length
+            ? reasons.join(' ')
+            : 'Please review the highlighted rows and try again.',
+          variant: "destructive",
+          duration: 10000,
+        });
+      }
+
+      // Save attempt has settled — now clear the uploader's file list.
+      setUploaderResetSignal((n) => n + 1);
     },
     onError: (error: Error) => {
       toast({
@@ -297,6 +440,8 @@ export default function CertificationsPage() {
         description: error.message,
         variant: "destructive",
       });
+      // Save attempt has settled (failed) — clear the uploader's file list.
+      setUploaderResetSignal((n) => n + 1);
     }
   });
 
@@ -326,9 +471,11 @@ export default function CertificationsPage() {
       scientistMap.get(item.scientistId).certifications.set(item.moduleId, item);
     });
 
-    // Get unique modules
+    // Get unique modules for the CITI matrix. Lab Safety is not a CITI program
+    // certification — it has its own dedicated matrix tab — so exclude it here.
     const moduleMap = new Map();
     matrixData.forEach((item: CertificationMatrixItem) => {
+      if (item.moduleName === 'Lab Safety') return;
       if (!moduleMap.has(item.moduleId)) {
         moduleMap.set(item.moduleId, {
           id: item.moduleId,
@@ -390,8 +537,8 @@ export default function CertificationsPage() {
   if (matrixLoading || modulesLoading) {
     return (
       <div className="space-y-6">
-        <div className="h-8 bg-gray-200 rounded animate-pulse"></div>
-        <div className="h-64 bg-gray-200 rounded animate-pulse"></div>
+        <div className="h-8 bg-gray-200 dark:bg-gray-700 rounded animate-pulse"></div>
+        <div className="h-64 bg-gray-200 dark:bg-gray-700 rounded animate-pulse"></div>
       </div>
     );
   }
@@ -468,19 +615,19 @@ export default function CertificationsPage() {
               </div>
               <div className="flex items-center gap-4 text-sm">
                 <div className="flex items-center gap-2">
-                  <div className="w-3 h-3 bg-green-100 border border-green-300 rounded"></div>
+                  <div className="w-3 h-3 bg-green-100 border border-green-300 dark:bg-green-900 dark:border-green-700 rounded"></div>
                   <span>Valid</span>
                 </div>
                 <div className="flex items-center gap-2">
-                  <div className="w-3 h-3 bg-orange-100 border border-orange-300 rounded"></div>
+                  <div className="w-3 h-3 bg-orange-100 border border-orange-300 dark:bg-orange-900 dark:border-orange-700 rounded"></div>
                   <span>Expiring (≤30 days)</span>
                 </div>
                 <div className="flex items-center gap-2">
-                  <div className="w-3 h-3 bg-red-100 border border-red-300 rounded"></div>
+                  <div className="w-3 h-3 bg-red-100 border border-red-300 dark:bg-red-900 dark:border-red-700 rounded"></div>
                   <span>Expired</span>
                 </div>
                 <div className="flex items-center gap-2">
-                  <div className="w-3 h-3 bg-gray-100 border border-gray-300 rounded"></div>
+                  <div className="w-3 h-3 bg-gray-100 border border-gray-300 dark:bg-gray-700 dark:border-gray-600 rounded"></div>
                   <span>Never Completed</span>
                 </div>
               </div>
@@ -490,7 +637,7 @@ export default function CertificationsPage() {
                 <Table>
                   <TableHeader>
                     <TableRow>
-                      <TableHead className="sticky left-0 bg-white min-w-48">Scientist</TableHead>
+                      <TableHead className="sticky left-0 bg-white dark:bg-card min-w-48">Scientist</TableHead>
                       {moduleHeaders.map((module: any) => (
                         <TableHead key={module.id} className="text-center min-w-32">
                           {module.name}
@@ -501,11 +648,11 @@ export default function CertificationsPage() {
                   <TableBody>
                     {filteredScientists.map((scientist: any) => (
                       <TableRow key={scientist.id}>
-                        <TableCell className="sticky left-0 bg-white font-medium">
+                        <TableCell className="sticky left-0 bg-white dark:bg-card font-medium">
                           <div>
                             <div>{scientist.name}</div>
                             {scientist.jobTitle && (
-                              <div className="text-xs text-gray-500 mt-1">{scientist.jobTitle}</div>
+                              <div className="text-xs text-gray-500 dark:text-gray-400 mt-1">{scientist.jobTitle}</div>
                             )}
                           </div>
                         </TableCell>
@@ -545,7 +692,7 @@ export default function CertificationsPage() {
           <Card>
             <CardHeader>
               <div className="flex items-center justify-between">
-                <CardTitle>Lab Safety Training Matrix</CardTitle>
+                <CardTitle>Lab Safety Training</CardTitle>
                 <div className="flex items-center gap-2">
                   <div className="relative">
                     <Search className="absolute left-2 top-2.5 h-4 w-4 text-muted-foreground" />
@@ -564,19 +711,19 @@ export default function CertificationsPage() {
               </div>
               <div className="flex items-center gap-4 text-sm">
                 <div className="flex items-center gap-2">
-                  <div className="w-3 h-3 bg-green-100 border border-green-300 rounded"></div>
+                  <div className="w-3 h-3 bg-green-100 border border-green-300 dark:bg-green-900 dark:border-green-700 rounded"></div>
                   <span>Valid</span>
                 </div>
                 <div className="flex items-center gap-2">
-                  <div className="w-3 h-3 bg-orange-100 border border-orange-300 rounded"></div>
+                  <div className="w-3 h-3 bg-orange-100 border border-orange-300 dark:bg-orange-900 dark:border-orange-700 rounded"></div>
                   <span>Expiring (≤30 days)</span>
                 </div>
                 <div className="flex items-center gap-2">
-                  <div className="w-3 h-3 bg-red-100 border border-red-300 rounded"></div>
+                  <div className="w-3 h-3 bg-red-100 border border-red-300 dark:bg-red-900 dark:border-red-700 rounded"></div>
                   <span>Expired</span>
                 </div>
                 <div className="flex items-center gap-2">
-                  <div className="w-3 h-3 bg-gray-100 border border-gray-300 rounded"></div>
+                  <div className="w-3 h-3 bg-gray-100 border border-gray-300 dark:bg-gray-700 dark:border-gray-600 rounded"></div>
                   <span>Never Completed</span>
                 </div>
               </div>
@@ -586,7 +733,7 @@ export default function CertificationsPage() {
                 <Table>
                   <TableHeader>
                     <TableRow>
-                      <TableHead className="sticky left-0 bg-white min-w-48">Staff Member</TableHead>
+                      <TableHead className="sticky left-0 bg-white dark:bg-card min-w-48">Staff Member</TableHead>
                       <TableHead className="text-center min-w-40">Last Training Date</TableHead>
                       <TableHead className="text-center min-w-40">Expiration Date</TableHead>
                       <TableHead className="text-center min-w-32">Status</TableHead>
@@ -613,11 +760,11 @@ export default function CertificationsPage() {
                       
                       return (
                         <TableRow key={scientist.id}>
-                          <TableCell className="sticky left-0 bg-white font-medium">
+                          <TableCell className="sticky left-0 bg-white dark:bg-card font-medium">
                             <div>
                               <div>{scientist.name}</div>
                               {scientist.jobTitle && (
-                                <div className="text-xs text-gray-500 mt-1">{scientist.jobTitle}</div>
+                                <div className="text-xs text-gray-500 dark:text-gray-400 mt-1">{scientist.jobTitle}</div>
                               )}
                             </div>
                           </TableCell>
@@ -658,6 +805,7 @@ export default function CertificationsPage() {
             </CardHeader>
             <CardContent>
               <ObjectUploader
+                resetSignal={uploaderResetSignal}
                 maxNumberOfFiles={10}
                 maxFileSize={10485760} // 10MB
                 acceptedFileTypes={
@@ -676,11 +824,13 @@ export default function CertificationsPage() {
                       return;
                     }
                     
-                    const fileUrls = uploadedFiles.map(file => file.url);
+                    const files = uploadedFiles
+                      .filter(file => file.url)
+                      .map(file => ({ url: file.url, fileName: file.fileName }));
                     
-                    if (fileUrls.length > 0) {
+                    if (files.length > 0) {
                       setIsProcessing(true);
-                      processCertificatesMutation.mutate(fileUrls);
+                      processCertificatesMutation.mutate(files);
                       setIsProcessing(false);
                     } else {
                       toast({
@@ -701,9 +851,9 @@ export default function CertificationsPage() {
                 showDropzone={true}
               />
               
-              <div className="mt-6 p-4 bg-blue-50 rounded-lg border border-blue-200">
-                <h4 className="font-medium text-blue-900 mb-2">Free OCR-Powered Upload</h4>
-                <ul className="text-sm text-blue-800 space-y-1">
+              <div className="mt-6 p-4 bg-blue-50 dark:bg-blue-950/40 rounded-lg border border-blue-200 dark:border-blue-900">
+                <h4 className="font-medium text-blue-900 dark:text-blue-200 mb-2">Free OCR-Powered Upload</h4>
+                <ul className="text-sm text-blue-800 dark:text-blue-300 space-y-1">
                   <li>• Upload CITI certificates or completion reports (PDF format)</li>
                   <li>• Open-source OCR automatically extracts names, dates, courses, and record IDs</li>
                   <li>• Completely free - no API limits or external service dependencies</li>
@@ -713,6 +863,22 @@ export default function CertificationsPage() {
               </div>
             </CardContent>
           </Card>
+
+          {processCertificatesMutation.isPending && (
+            <Card data-testid="status-ocr-processing">
+              <CardContent className="py-6">
+                <div className="flex items-center gap-3">
+                  <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-sidra-primary"></div>
+                  <div>
+                    <p className="font-medium text-foreground">Reading your certificates…</p>
+                    <p className="text-sm text-muted-foreground">
+                      Upload complete. OCR is extracting the details — this may take a few moments.
+                    </p>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          )}
 
           {detectedFiles.length > 0 && (
             <Card>
@@ -729,27 +895,45 @@ export default function CertificationsPage() {
                     </Button>
                     <Button 
                       onClick={() => {
-                        const validCerts = detectedFiles.filter(f => 
-                          f.status === 'detected' && f.name && f.scientistId && f.completionDate && f.expirationDate && f.module
+                        // A row is saveable when the core fields are present AND it
+                        // either maps to an existing module OR is set to create a new one.
+                        const hasModuleTarget = (f: PendingCertification) =>
+                          !!f.module || (f.createNewModule && !!(f.newModuleName || '').trim());
+                        const validCerts = detectedFiles.filter(f =>
+                          f.status === 'detected' && f.name && f.scientistId &&
+                          f.completionDate && f.expirationDate && hasModuleTarget(f)
                         );
-                        
+
                         if (validCerts.length === 0) {
                           toast({
                             title: "No valid certifications",
-                            description: "Please complete all required fields for at least one certification",
+                            description: "Please complete all required fields (including a module — pick an existing one or confirm a new one) for at least one certification",
                             variant: "destructive",
                           });
                           return;
                         }
-                        confirmCertificationsMutation.mutate(validCerts.map(cert => ({
-                          fileName: cert.fileName || 'certificate.pdf',
-                          scientistId: cert.scientistId,
-                          moduleId: cert.module!.id,
-                          startDate: cert.completionDate,
-                          endDate: cert.expirationDate,
-                          certificateFilePath: cert.filePath || cert.originalUrl || 'certificate.pdf',
-                          notes: cert.notes || ''
-                        })));
+                        confirmCertificationsMutation.mutate(validCerts.map(cert => {
+                          const base = {
+                            fileName: cert.fileName || 'certificate.pdf',
+                            scientistId: cert.scientistId,
+                            startDate: cert.completionDate,
+                            endDate: cert.expirationDate,
+                            certificateFilePath: cert.filePath || cert.originalUrl || 'certificate.pdf',
+                            notes: cert.notes || ''
+                          };
+                          if (cert.module) {
+                            return { ...base, moduleId: cert.module.id };
+                          }
+                          // New module: server creates (or reuses) it, then links the cert.
+                          return {
+                            ...base,
+                            newModule: {
+                              name: composeModuleName(cert.newModuleName || cert.courseName || '', cert.newModuleAbbreviation),
+                              expirationMonths: cert.newModuleExpirationMonths || 36,
+                              isCore: false,
+                            }
+                          };
+                        }));
                       }}
                       disabled={confirmCertificationsMutation.isPending}
                       size="sm"
@@ -762,7 +946,7 @@ export default function CertificationsPage() {
               <CardContent className="p-2 sm:p-6">
                 <div className="overflow-auto h-96 md:h-auto md:max-h-none border rounded-md">
                   <Table className="min-w-full">
-                    <TableHeader className="sticky top-0 bg-white z-10 shadow-sm border-b">
+                    <TableHeader className="sticky top-0 bg-white dark:bg-card z-10 shadow-sm border-b">
                       <TableRow>
                         <TableHead className="min-w-24">Status</TableHead>
                         <TableHead className="min-w-32">File Name</TableHead>
@@ -781,14 +965,14 @@ export default function CertificationsPage() {
                         <TableRow key={index}>
                           <TableCell>
                             {file.status === 'detected' ? (
-                              <Badge variant="secondary" className="bg-green-100 text-green-800">
+                              <Badge variant="secondary" className="bg-green-100 text-green-800 dark:bg-green-950 dark:text-green-300">
                                 <Check className="h-3 w-3 mr-1" />
                                 OCR Success
                               </Badge>
                             ) : file.status === 'ocr_failed' ? (
                               <Badge 
                                 variant="secondary" 
-                                className="bg-red-100 text-red-800 cursor-pointer hover:bg-red-200 transition-colors"
+                                className="bg-red-100 text-red-800 cursor-pointer hover:bg-red-200 dark:bg-red-950 dark:text-red-300 dark:hover:bg-red-900 transition-colors"
                                 onClick={() => {
                                   const errorMessage = file.error || file.errorDetails || 'OCR processing failed - no details available';
                                   const fullErrorText = `OCR Processing Error\n\nFile: ${file.fileName}\n\nError Details:\n${errorMessage}`;
@@ -819,12 +1003,38 @@ export default function CertificationsPage() {
                                 <X className="h-3 w-3 mr-1" />
                                 OCR Failed
                               </Badge>
+                            ) : file.status === 'save_failed' ? (
+                              <Badge
+                                variant="secondary"
+                                className="bg-red-100 text-red-800 cursor-pointer hover:bg-red-200 dark:bg-red-950 dark:text-red-300 dark:hover:bg-red-900 transition-colors"
+                                title={file.error || file.errorDetails || 'Could not save this certificate.'}
+                                onClick={() => {
+                                  const errorMessage = file.error || file.errorDetails || 'Could not save this certificate.';
+                                  alert(`Could Not Save\n\nFile: ${file.fileName}\n\nReason:\n${errorMessage}`);
+                                }}
+                              >
+                                <X className="h-3 w-3 mr-1" />
+                                Save Failed
+                              </Badge>
+                            ) : file.status === 'error' ? (
+                              <Badge
+                                variant="secondary"
+                                className="bg-red-100 text-red-800 cursor-pointer hover:bg-red-200 dark:bg-red-950 dark:text-red-300 dark:hover:bg-red-900 transition-colors"
+                                title={file.error || file.errorDetails || file.notes || 'OCR could not process this file.'}
+                                onClick={() => {
+                                  const errorMessage = file.error || file.errorDetails || file.notes || 'OCR could not process this file.';
+                                  alert(`Could Not Process\n\nFile: ${file.fileName}\n\nReason:\n${errorMessage}`);
+                                }}
+                              >
+                                <X className="h-3 w-3 mr-1" />
+                                Processing Error
+                              </Badge>
                             ) : file.status === 'processing' ? (
-                              <Badge variant="secondary" className="bg-blue-100 text-blue-800">
+                              <Badge variant="secondary" className="bg-blue-100 text-blue-800 dark:bg-blue-950 dark:text-blue-300">
                                 Processing...
                               </Badge>
                             ) : (
-                              <Badge variant="secondary" className="bg-yellow-100 text-yellow-800">
+                              <Badge variant="secondary" className="bg-yellow-100 text-yellow-800 dark:bg-yellow-950 dark:text-yellow-300">
                                 <AlertTriangle className="h-3 w-3 mr-1" />
                                 Unknown
                               </Badge>
@@ -845,17 +1055,22 @@ export default function CertificationsPage() {
                               placeholder="Person name"
                             />
                           </TableCell>
-                          <TableCell className="max-w-40">
+                          <TableCell className="max-w-64 align-top">
                             <Select
                               value={file.module?.id?.toString() || ""}
                               onValueChange={(value) => {
                                 const updated = [...detectedFiles];
                                 const selectedModule = modules.find(m => m.id.toString() === value);
-                                updated[index] = { ...updated[index], module: selectedModule || null };
+                                // Choosing an existing module turns off new-module creation.
+                                updated[index] = {
+                                  ...updated[index],
+                                  module: selectedModule || null,
+                                  createNewModule: false,
+                                };
                                 setDetectedFiles(updated);
                               }}
                             >
-                              <SelectTrigger className="w-48">
+                              <SelectTrigger className="w-56" data-testid={`select-module-${index}`}>
                                 <SelectValue placeholder="Select module" />
                               </SelectTrigger>
                               <SelectContent>
@@ -866,8 +1081,88 @@ export default function CertificationsPage() {
                                 ))}
                               </SelectContent>
                             </Select>
-                            {file.courseName && !file.module && (
-                              <div className="text-xs text-amber-600 mt-1" title={file.courseName}>
+
+                            {file.isNewModule && !file.module && (
+                              <div
+                                className="mt-2 rounded-md border border-amber-300 bg-amber-50 dark:border-amber-800 dark:bg-amber-950/40 p-2 space-y-2 w-56"
+                                data-testid={`new-module-panel-${index}`}
+                              >
+                                <div className="flex items-start gap-2">
+                                  <AlertTriangle className="h-4 w-4 text-amber-600 dark:text-amber-400 mt-0.5 shrink-0" />
+                                  <div className="text-xs text-amber-800 dark:text-amber-300">
+                                    New course — not in your modules list.
+                                    {file.courseName && (
+                                      <div className="font-medium mt-0.5" title={file.courseName}>
+                                        "{file.courseName}"
+                                      </div>
+                                    )}
+                                  </div>
+                                </div>
+                                <label className="flex items-center gap-2 text-xs font-medium text-amber-900 dark:text-amber-200 cursor-pointer">
+                                  <Checkbox
+                                    checked={!!file.createNewModule}
+                                    onCheckedChange={(checked) => {
+                                      const updated = [...detectedFiles];
+                                      updated[index] = { ...updated[index], createNewModule: checked === true };
+                                      setDetectedFiles(updated);
+                                    }}
+                                    data-testid={`checkbox-create-module-${index}`}
+                                  />
+                                  Add as new module
+                                </label>
+                                {file.createNewModule && (
+                                  <div className="space-y-1.5">
+                                    <div>
+                                      <Label className="text-[11px] text-muted-foreground">Module name</Label>
+                                      <Input
+                                        value={file.newModuleName || ""}
+                                        onChange={(e) => {
+                                          const updated = [...detectedFiles];
+                                          updated[index] = { ...updated[index], newModuleName: e.target.value };
+                                          setDetectedFiles(updated);
+                                        }}
+                                        className="h-7 text-xs"
+                                        data-testid={`input-new-module-name-${index}`}
+                                      />
+                                    </div>
+                                    <div className="flex gap-2">
+                                      <div className="flex-1">
+                                        <Label className="text-[11px] text-muted-foreground">Abbrev.</Label>
+                                        <Input
+                                          value={file.newModuleAbbreviation || ""}
+                                          onChange={(e) => {
+                                            const updated = [...detectedFiles];
+                                            updated[index] = { ...updated[index], newModuleAbbreviation: e.target.value };
+                                            setDetectedFiles(updated);
+                                          }}
+                                          className="h-7 text-xs"
+                                          placeholder="e.g. BCT"
+                                          data-testid={`input-new-module-abbrev-${index}`}
+                                        />
+                                      </div>
+                                      <div className="w-20">
+                                        <Label className="text-[11px] text-muted-foreground">Expiry (mo)</Label>
+                                        <Input
+                                          type="number"
+                                          min={1}
+                                          value={file.newModuleExpirationMonths ?? 36}
+                                          onChange={(e) => {
+                                            const updated = [...detectedFiles];
+                                            updated[index] = { ...updated[index], newModuleExpirationMonths: parseInt(e.target.value) || 0 };
+                                            setDetectedFiles(updated);
+                                          }}
+                                          className="h-7 text-xs"
+                                          data-testid={`input-new-module-expiry-${index}`}
+                                        />
+                                      </div>
+                                    </div>
+                                  </div>
+                                )}
+                              </div>
+                            )}
+
+                            {file.courseName && !file.module && !file.isNewModule && (
+                              <div className="text-xs text-amber-600 dark:text-amber-400 mt-1" title={file.courseName}>
                                 Detected: {file.courseName.length > 20 ? `${file.courseName.substring(0, 20)}...` : file.courseName}
                               </div>
                             )}
@@ -1000,7 +1295,7 @@ export default function CertificationsPage() {
               </p>
             </CardHeader>
             <CardContent>
-              <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6 p-4 bg-gray-50 rounded-lg">
+              <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6 p-4 bg-gray-50 dark:bg-gray-800/50 rounded-lg">
                 <div className="space-y-2">
                   <label className="text-sm font-medium">Search Staff/Course</label>
                   <div className="relative">
@@ -1056,7 +1351,7 @@ export default function CertificationsPage() {
               ) : (
                 <div className="overflow-auto h-96 md:h-auto md:max-h-none border rounded-md">
                   <Table className="min-w-full">
-                    <TableHeader className="sticky top-0 bg-white z-10 shadow-sm border-b">
+                    <TableHeader className="sticky top-0 bg-white dark:bg-card z-10 shadow-sm border-b">
                       <TableRow>
                         <TableHead>File Name</TableHead>
                         <TableHead>Status</TableHead>
@@ -1104,12 +1399,12 @@ export default function CertificationsPage() {
                                   variant="secondary"
                                   className={
                                     actualStatus === 'detected'
-                                      ? 'bg-green-100 text-green-800'
+                                      ? 'bg-green-100 text-green-800 dark:bg-green-950 dark:text-green-300'
                                       : actualStatus === 'ocr_failed'
-                                      ? 'bg-red-100 text-red-800 cursor-pointer hover:bg-red-200 transition-colors'
+                                      ? 'bg-red-100 text-red-800 cursor-pointer hover:bg-red-200 dark:bg-red-950 dark:text-red-300 dark:hover:bg-red-900 transition-colors'
                                       : actualStatus === 'unrecognized'
-                                      ? 'bg-yellow-100 text-yellow-800'
-                                      : 'bg-blue-100 text-blue-800'
+                                      ? 'bg-yellow-100 text-yellow-800 dark:bg-yellow-950 dark:text-yellow-300'
+                                      : 'bg-blue-100 text-blue-800 dark:bg-blue-950 dark:text-blue-300'
                                   }
                                   onClick={actualStatus === 'ocr_failed' ? () => {
                                     const errorMessage = entry.errorMessage || 'OCR processing failed - no details available';
@@ -1153,10 +1448,10 @@ export default function CertificationsPage() {
                                   variant="outline" 
                                   className={
                                     entry.documentType === 'certificate'
-                                      ? 'bg-blue-50 text-blue-700 border-blue-200'
+                                      ? 'bg-blue-50 text-blue-700 border-blue-200 dark:bg-blue-950 dark:text-blue-300 dark:border-blue-800'
                                       : entry.documentType === 'report'
-                                      ? 'bg-purple-50 text-purple-700 border-purple-200'
-                                      : 'bg-gray-50 text-gray-600 border-gray-200'
+                                      ? 'bg-purple-50 text-purple-700 border-purple-200 dark:bg-purple-950 dark:text-purple-300 dark:border-purple-800'
+                                      : 'bg-gray-50 text-gray-600 border-gray-200 dark:bg-gray-800 dark:text-gray-300 dark:border-gray-700'
                                   }
                                 >
                                   {entry.documentType === 'certificate' ? '📜 Certificate' : 
@@ -1169,12 +1464,12 @@ export default function CertificationsPage() {
                                   variant="outline" 
                                   className={
                                     entry.saveStatus === 'saved'
-                                      ? 'bg-green-50 text-green-700 border-green-200'
+                                      ? 'bg-green-50 text-green-700 border-green-200 dark:bg-green-950 dark:text-green-300 dark:border-green-800'
                                       : entry.saveStatus === 'duplicate'
-                                      ? 'bg-yellow-50 text-yellow-700 border-yellow-200'
+                                      ? 'bg-yellow-50 text-yellow-700 border-yellow-200 dark:bg-yellow-950 dark:text-yellow-300 dark:border-yellow-800'
                                       : entry.saveStatus === 'not_saved'
-                                      ? 'bg-red-50 text-red-700 border-red-200'
-                                      : 'bg-gray-50 text-gray-600 border-gray-200'
+                                      ? 'bg-red-50 text-red-700 border-red-200 dark:bg-red-950 dark:text-red-300 dark:border-red-800'
+                                      : 'bg-gray-50 text-gray-600 border-gray-200 dark:bg-gray-800 dark:text-gray-300 dark:border-gray-700'
                                   }
                                 >
                                   {entry.saveStatus === 'saved' ? '✅ Saved' : 
@@ -1187,17 +1482,17 @@ export default function CertificationsPage() {
                                 {hasDetectedData ? (
                                   <div className="text-sm space-y-1">
                                     {parsedData.name && (
-                                      <div className="font-medium text-green-700 truncate" title={parsedData.name}>
+                                      <div className="font-medium text-green-700 dark:text-green-400 truncate" title={parsedData.name}>
                                         👤 {parsedData.name}
                                       </div>
                                     )}
                                     {parsedData.courseName && (
-                                      <div className="text-blue-600 truncate" title={parsedData.courseName}>
+                                      <div className="text-blue-600 dark:text-blue-400 truncate" title={parsedData.courseName}>
                                         📚 {parsedData.courseName}
                                       </div>
                                     )}
                                     {(parsedData.completionDate || parsedData.expirationDate) && (
-                                      <div className="text-gray-600 truncate">
+                                      <div className="text-gray-600 dark:text-gray-400 truncate">
                                         📅 {parsedData.completionDate && format(new Date(parsedData.completionDate), 'MMM dd, yyyy')} 
                                         {parsedData.completionDate && parsedData.expirationDate && ' - '}
                                         {parsedData.expirationDate && format(new Date(parsedData.expirationDate), 'MMM dd, yyyy')}
@@ -1205,7 +1500,7 @@ export default function CertificationsPage() {
                                     )}
                                   </div>
                                 ) : (
-                                  <span className="text-gray-400 text-sm">No data detected</span>
+                                  <span className="text-gray-400 dark:text-gray-500 text-sm">No data detected</span>
                                 )}
                               </TableCell>
                               <TableCell>
@@ -1253,9 +1548,9 @@ export default function CertificationsPage() {
                 </div>
               )}
 
-              <div className="mt-6 p-4 bg-blue-50 rounded-lg border border-blue-200">
-                <h4 className="font-medium text-blue-900 mb-2">PDF Import History</h4>
-                <ul className="text-sm text-blue-800 space-y-1">
+              <div className="mt-6 p-4 bg-blue-50 dark:bg-blue-950/40 rounded-lg border border-blue-200 dark:border-blue-900">
+                <h4 className="font-medium text-blue-900 dark:text-blue-200 mb-2">PDF Import History</h4>
+                <ul className="text-sm text-blue-800 dark:text-blue-300 space-y-1">
                   <li>• Track all PDF uploads and OCR processing results</li>
                   <li>• Search by staff names, course names, or date ranges</li>
                   <li>• View processing status and performance metrics</li>
@@ -1270,32 +1565,78 @@ export default function CertificationsPage() {
         <TabsContent value="modules" className="space-y-6">
           <Card>
             <CardHeader>
-              <CardTitle>Certification Modules</CardTitle>
+              <div className="flex items-center justify-between gap-4">
+                <div>
+                  <CardTitle>Certification Modules</CardTitle>
+                  <p className="text-sm text-muted-foreground mt-1">
+                    These are the training courses certificates are matched to. Add a module here when a new course
+                    (like "Biosafety Complete Training Series") isn't in the list yet.
+                  </p>
+                </div>
+                <Button onClick={openAddModule} data-testid="button-add-module">
+                  <Plus className="h-4 w-4 mr-2" />
+                  Add Module
+                </Button>
+              </div>
             </CardHeader>
             <CardContent>
-              <div className="space-y-4">
-                {modules.map((module: CertificationModule) => (
-                  <div key={module.id} className="flex items-center justify-between p-4 border rounded">
-                    <div>
-                      <div className="flex items-center gap-2">
-                        <h3 className="font-medium">{module.name}</h3>
-                        {module.isCore && (
-                          <Badge variant="default" className="bg-sidra-primary text-white">
-                            Core
-                          </Badge>
+              {modulesLoading ? (
+                <p className="text-sm text-muted-foreground">Loading modules...</p>
+              ) : modules.length === 0 ? (
+                <p className="text-sm text-muted-foreground" data-testid="text-no-modules">
+                  No modules yet. Click "Add Module" to create one.
+                </p>
+              ) : (
+                <div className="space-y-4">
+                  {modules.map((module: CertificationModule) => (
+                    <div
+                      key={module.id}
+                      className="flex items-center justify-between p-4 border rounded"
+                      data-testid={`row-module-${module.id}`}
+                    >
+                      <div>
+                        <div className="flex items-center gap-2">
+                          <h3 className="font-medium" data-testid={`text-module-name-${module.id}`}>{module.name}</h3>
+                          {module.isCore && (
+                            <Badge variant="default" className="bg-sidra-primary text-white">
+                              Core
+                            </Badge>
+                          )}
+                          {module.isActive === false && (
+                            <Badge variant="secondary">Inactive</Badge>
+                          )}
+                        </div>
+                        {module.description && (
+                          <p className="text-sm text-muted-foreground">{module.description}</p>
                         )}
+                        <p className="text-xs text-muted-foreground">
+                          Expires every {module.expirationMonths} months
+                        </p>
                       </div>
-                      <p className="text-sm text-muted-foreground">{module.description}</p>
-                      <p className="text-xs text-muted-foreground">
-                        Expires every {module.expirationMonths} months
-                      </p>
+                      <div className="flex items-center gap-2">
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => openEditModule(module)}
+                          data-testid={`button-edit-module-${module.id}`}
+                        >
+                          <Pencil className="h-4 w-4 mr-1" />
+                          Edit
+                        </Button>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="text-red-600 hover:text-red-700 hover:bg-red-50 dark:hover:bg-red-950"
+                          onClick={() => setModuleToDelete(module)}
+                          data-testid={`button-delete-module-${module.id}`}
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
+                      </div>
                     </div>
-                    <Button variant="outline" size="sm">
-                      Edit
-                    </Button>
-                  </div>
-                ))}
-              </div>
+                  ))}
+                </div>
+              )}
             </CardContent>
           </Card>
         </TabsContent>
@@ -1378,13 +1719,13 @@ export default function CertificationsPage() {
                       }}
                       className={`w-full p-3 text-left rounded-lg border transition-colors ${
                         (ocrConfig?.value?.provider || 'ocr_space') === 'ocr_space'
-                          ? 'border-blue-500 bg-blue-50 text-blue-900'
-                          : 'border-gray-200 hover:border-gray-300'
+                          ? 'border-blue-500 bg-blue-50 text-blue-900 dark:bg-blue-950/50 dark:text-blue-200 dark:border-blue-500'
+                          : 'border-gray-200 hover:border-gray-300 dark:border-gray-700 dark:hover:border-gray-600'
                       }`}
                     >
                       <div className="font-medium">OCR.space (Recommended for PDFs)</div>
-                      <div className="text-sm text-gray-600">External API service with high PDF accuracy</div>
-                      <div className="text-xs text-blue-700 mt-1">
+                      <div className="text-sm text-gray-600 dark:text-gray-400">External API service with high PDF accuracy</div>
+                      <div className="text-xs text-blue-700 dark:text-blue-400 mt-1">
                         ✓ Best for CITI certificates • ✓ High accuracy • ⚠ Usage limits (180/hour) • PDF only
                       </div>
                     </button>
@@ -1413,21 +1754,21 @@ export default function CertificationsPage() {
                       }}
                       className={`w-full p-3 text-left rounded-lg border transition-colors ${
                         (ocrConfig?.value?.provider || 'ocr_space') === 'tesseract'
-                          ? 'border-blue-500 bg-blue-50 text-blue-900'
-                          : 'border-gray-200 hover:border-gray-300'
+                          ? 'border-blue-500 bg-blue-50 text-blue-900 dark:bg-blue-950/50 dark:text-blue-200 dark:border-blue-500'
+                          : 'border-gray-200 hover:border-gray-300 dark:border-gray-700 dark:hover:border-gray-600'
                       }`}
                     >
                       <div className="font-medium">Tesseract.js (Local Processing)</div>
-                      <div className="text-sm text-gray-600">Free local OCR, no API limits</div>
-                      <div className="text-xs text-gray-600 mt-1">
+                      <div className="text-sm text-gray-600 dark:text-gray-400">Free local OCR, no API limits</div>
+                      <div className="text-xs text-gray-600 dark:text-gray-400 mt-1">
                         ✓ Completely free • ✓ No limits • ✓ Supports images (PNG, JPG) • ⚠ Lower accuracy
                       </div>
                     </button>
                   </div>
                   
-                  <div className="p-3 bg-blue-50 rounded-lg border border-blue-200">
-                    <div className="text-sm font-medium text-blue-900 mb-1">How This Affects Certificate Processing:</div>
-                    <ul className="text-xs text-blue-800 space-y-1">
+                  <div className="p-3 bg-blue-50 dark:bg-blue-950/40 rounded-lg border border-blue-200 dark:border-blue-900">
+                    <div className="text-sm font-medium text-blue-900 dark:text-blue-200 mb-1">How This Affects Certificate Processing:</div>
+                    <ul className="text-xs text-blue-800 dark:text-blue-300 space-y-1">
                       <li>• <strong>Upload Impact:</strong> Selected service processes every file you upload</li>
                       <li>• <strong>Data Extraction:</strong> Determines accuracy of name, date, and course detection</li>
                       <li>• <strong>Default:</strong> OCR.space is pre-configured and ready to use</li>
@@ -1444,7 +1785,7 @@ export default function CertificationsPage() {
                     defaultValue="••••••••••••••••"
                   />
                   <p className="text-xs text-muted-foreground">
-                    Get your free API key from <a href="https://ocr.space/ocrapi" target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline">ocr.space/ocrapi</a> (25,000 requests/month free)
+                    Get your free API key from <a href="https://ocr.space/ocrapi" target="_blank" rel="noopener noreferrer" className="text-blue-600 dark:text-blue-400 hover:underline">ocr.space/ocrapi</a> (25,000 requests/month free)
                   </p>
                 </div>
                 <div className="flex items-center gap-2">
@@ -1453,10 +1794,10 @@ export default function CertificationsPage() {
                     Automatic PDF processing enabled
                   </label>
                 </div>
-                <div className="p-3 bg-green-50 rounded-md border border-green-200">
+                <div className="p-3 bg-green-50 dark:bg-green-950/40 rounded-md border border-green-200 dark:border-green-900">
                   <div className="flex items-center gap-2">
                     <div className="w-2 h-2 bg-green-500 rounded-full"></div>
-                    <span className="text-sm text-green-800">
+                    <span className="text-sm text-green-800 dark:text-green-300">
                       API key configured via environment variable
                     </span>
                   </div>
@@ -1525,6 +1866,113 @@ export default function CertificationsPage() {
         </TabsContent>
         </Tabs>
       </div>
+
+      <Dialog
+        open={moduleDialogOpen}
+        onOpenChange={(open) => {
+          setModuleDialogOpen(open);
+          if (!open) {
+            setEditingModuleId(null);
+            setModuleForm(emptyModuleForm);
+          }
+        }}
+      >
+        <DialogContent className="sm:max-w-lg">
+          <DialogHeader>
+            <DialogTitle>{editingModuleId != null ? 'Edit Module' : 'Add Module'}</DialogTitle>
+            <DialogDescription>
+              Set the course name (include its abbreviation in parentheses, e.g. "Biosafety Complete Training Series (BCT)").
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-2">
+            <div className="space-y-2">
+              <Label htmlFor="module-name">Module name</Label>
+              <Input
+                id="module-name"
+                value={moduleForm.name}
+                onChange={(e) => setModuleForm({ ...moduleForm, name: e.target.value })}
+                placeholder="e.g. Biosafety Complete Training Series (BCT)"
+                data-testid="input-module-name"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="module-description">Description</Label>
+              <Textarea
+                id="module-description"
+                value={moduleForm.description}
+                onChange={(e) => setModuleForm({ ...moduleForm, description: e.target.value })}
+                placeholder="Optional description"
+                rows={2}
+                data-testid="input-module-description"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="module-expiration">Expires every (months)</Label>
+              <Input
+                id="module-expiration"
+                type="number"
+                min={1}
+                value={moduleForm.expirationMonths}
+                onChange={(e) => setModuleForm({ ...moduleForm, expirationMonths: parseInt(e.target.value) || 0 })}
+                className="w-32"
+                data-testid="input-module-expiration"
+              />
+            </div>
+            <div className="flex items-center gap-2">
+              <Checkbox
+                id="module-core"
+                checked={moduleForm.isCore}
+                onCheckedChange={(checked) => setModuleForm({ ...moduleForm, isCore: checked === true })}
+                data-testid="checkbox-module-core"
+              />
+              <Label htmlFor="module-core" className="font-normal">Core (mandatory) module</Label>
+            </div>
+            <div className="flex items-center gap-2">
+              <Checkbox
+                id="module-active"
+                checked={moduleForm.isActive}
+                onCheckedChange={(checked) => setModuleForm({ ...moduleForm, isActive: checked === true })}
+                data-testid="checkbox-module-active"
+              />
+              <Label htmlFor="module-active" className="font-normal">Active</Label>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setModuleDialogOpen(false)} data-testid="button-cancel-module">
+              Cancel
+            </Button>
+            <Button
+              onClick={() => saveModuleMutation.mutate()}
+              disabled={!moduleForm.name.trim() || saveModuleMutation.isPending}
+              data-testid="button-save-module"
+            >
+              {saveModuleMutation.isPending ? 'Saving...' : 'Save'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <AlertDialog open={!!moduleToDelete} onOpenChange={(open) => !open && setModuleToDelete(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete module?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This removes "{moduleToDelete?.name}" from the list of courses. Existing certificates already
+              saved against it are not deleted.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel data-testid="button-cancel-delete-module">Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-red-600 hover:bg-red-700"
+              onClick={() => moduleToDelete && deleteModuleMutation.mutate(moduleToDelete.id)}
+              data-testid="button-confirm-delete-module"
+            >
+              Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

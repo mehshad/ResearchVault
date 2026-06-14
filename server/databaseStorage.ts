@@ -35,6 +35,7 @@ import {
   ibcBackboneSourceRooms, IbcBackboneSourceRoom, InsertIbcBackboneSourceRoom,
   ibcApplicationPpe, IbcApplicationPpe, InsertIbcApplicationPpe,
   rolePermissions, RolePermission, InsertRolePermission,
+  roleGroups,
   journals, Journal, InsertJournal,
   journalImpactFactorMetrics, JournalImpactFactorMetric, InsertJournalImpactFactorMetric,
   JournalImpactFactor, InsertJournalImpactFactor,
@@ -49,8 +50,29 @@ import {
   featureRequests, FeatureRequest, InsertFeatureRequest,
   ra200Applications, Ra200Application, InsertRa200Application,
   ra205aApplications, Ra205aApplication, InsertRa205aApplication,
-  teamMembers, TeamMember, InsertTeamMember
+  teamMembers, TeamMember, InsertTeamMember,
+  ownershipOverrides, OwnershipOverride, InsertOwnershipOverride
 } from "@shared/schema";
+import { isPreprintRecord, preprintServerName, preprintLink } from "@shared/publicationDeduplication";
+
+/**
+ * Normalize a journal name for tolerant matching across the slightly different
+ * spellings used by publication sources vs. the impact-factor dataset.
+ * Lowercases, drops a leading "The ", and collapses all punctuation/whitespace
+ * to single spaces. e.g. "The Lancet. Oncology" -> "lancet oncology" which then
+ * matches the dataset's "LANCET ONCOLOGY".
+ */
+export function normalizeJournalName(name: string | null | undefined): string {
+  return (name ?? "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, " ")
+    .replace(/^the\s+/, "")
+    .trim();
+}
+
+// SQL expression mirroring normalizeJournalName for a given column.
+const normalizedJournalSql = (col: any) =>
+  sql`btrim(regexp_replace(regexp_replace(lower(${col}), '[^a-z0-9]+', ' ', 'g'), '^the\\s+', ''))`;
 
 export class DatabaseStorage implements IStorage {
   
@@ -529,6 +551,163 @@ export class DatabaseStorage implements IStorage {
     return (result.rowCount ?? 0) > 0;
   }
 
+  // Atomically merge a set of duplicate publications into a surviving record.
+  // Author links, manuscript history, and research-activity association are
+  // moved onto the survivor; the merged-away records are deleted. Field values
+  // come from `overrides` (the officer's per-field choices). The whole operation
+  // runs in a single transaction so a partial failure leaves everything intact.
+  async mergePublications(
+    survivorId: number,
+    mergeIds: number[],
+    overrides: Partial<InsertPublication>,
+    changedBy: number,
+  ): Promise<Publication | undefined> {
+    const ids = Array.from(new Set(mergeIds)).filter((id) => id !== survivorId);
+
+    return await db.transaction(async (tx) => {
+      const [survivor] = await tx
+        .select()
+        .from(publications)
+        .where(eq(publications.id, survivorId));
+      if (!survivor) {
+        throw new Error("Surviving publication not found");
+      }
+
+      // Verify every merge target exists before mutating anything.
+      const targets = ids.length
+        ? await tx.select().from(publications).where(inArray(publications.id, ids))
+        : [];
+      if (targets.length !== ids.length) {
+        throw new Error("One or more publications to merge were not found");
+      }
+
+      // Track which scientists are already linked to the survivor so we never
+      // violate the (publicationId, scientistId) unique index.
+      const survivorAuthors = await tx
+        .select()
+        .from(publicationAuthors)
+        .where(eq(publicationAuthors.publicationId, survivorId));
+      const survivorAuthorByScientist = new Map<number, typeof survivorAuthors[number]>();
+      for (const a of survivorAuthors) survivorAuthorByScientist.set(a.scientistId, a);
+
+      for (const mid of ids) {
+        const mergedAuthors = await tx
+          .select()
+          .from(publicationAuthors)
+          .where(eq(publicationAuthors.publicationId, mid));
+
+        for (const a of mergedAuthors) {
+          const existing = survivorAuthorByScientist.get(a.scientistId);
+          if (existing) {
+            // De-dup: combine authorship types, keep the more specific position,
+            // then drop the duplicate row.
+            const combined = Array.from(
+              new Set(
+                [
+                  ...existing.authorshipType.split(",").map((t) => t.trim()),
+                  ...a.authorshipType.split(",").map((t) => t.trim()),
+                ].filter(Boolean),
+              ),
+            ).join(", ");
+            await tx
+              .update(publicationAuthors)
+              .set({
+                authorshipType: combined,
+                authorPosition: existing.authorPosition ?? a.authorPosition,
+              })
+              .where(eq(publicationAuthors.id, existing.id));
+            existing.authorshipType = combined;
+            await tx
+              .delete(publicationAuthors)
+              .where(eq(publicationAuthors.id, a.id));
+          } else {
+            // Re-point the author link onto the survivor.
+            await tx
+              .update(publicationAuthors)
+              .set({ publicationId: survivorId })
+              .where(eq(publicationAuthors.id, a.id));
+            survivorAuthorByScientist.set(a.scientistId, {
+              ...a,
+              publicationId: survivorId,
+            });
+          }
+        }
+
+        // Re-point manuscript history so the timeline is preserved.
+        await tx
+          .update(manuscriptHistory)
+          .set({ publicationId: survivorId })
+          .where(eq(manuscriptHistory.publicationId, mid));
+      }
+
+      // Apply the officer's chosen field values to the survivor.
+      const updateData: Record<string, any> = { ...overrides, updatedAt: new Date() };
+      if (updateData.publicationDate && typeof updateData.publicationDate === "string") {
+        updateData.publicationDate = new Date(updateData.publicationDate);
+      }
+
+      // Preserve preprint linkage: when a preprint is merged into its published
+      // version, the published DOI correctly wins, but the preprint's own
+      // identity (its 10.1101/... DOI and originating server) would otherwise be
+      // deleted along with its record. If the survivor ends up as the published
+      // article and has no prepublication link yet, carry the preprint's link
+      // and server name onto it so that data is merged, not lost.
+      // Only auto-fill a prepublication field when the officer did NOT make an
+      // explicit choice for it (key absent from overrides). A deliberate clear
+      // (override present but empty/null) must be respected, not overwritten.
+      const urlOverridden = Object.prototype.hasOwnProperty.call(overrides, "prepublicationUrl");
+      const siteOverridden = Object.prototype.hasOwnProperty.call(overrides, "prepublicationSite");
+      const effectiveSurvivor = { ...survivor, ...overrides };
+      if ((!urlOverridden || !siteOverridden) && !isPreprintRecord(effectiveSurvivor as any)) {
+        let prepubUrl = effectiveSurvivor.prepublicationUrl;
+        let prepubSite = effectiveSurvivor.prepublicationSite;
+        for (const t of targets) {
+          if (!isPreprintRecord(t as any)) continue;
+          if (!prepubUrl || !String(prepubUrl).trim()) {
+            prepubUrl = preprintLink(t as any) ?? prepubUrl;
+          }
+          if (!prepubSite || !String(prepubSite).trim()) {
+            prepubSite = preprintServerName(t as any) ?? prepubSite;
+          }
+          if (prepubUrl && prepubSite) break;
+        }
+        if (!urlOverridden && prepubUrl && !updateData.prepublicationUrl) {
+          updateData.prepublicationUrl = prepubUrl;
+        }
+        if (!siteOverridden && prepubSite && !updateData.prepublicationSite) {
+          updateData.prepublicationSite = prepubSite;
+        }
+      }
+      if (Object.keys(updateData).length > 0) {
+        await tx
+          .update(publications)
+          .set(updateData)
+          .where(eq(publications.id, survivorId));
+      }
+
+      // Delete the merged-away records (their dependent rows are already moved).
+      if (ids.length) {
+        await tx.delete(publications).where(inArray(publications.id, ids));
+      }
+
+      // Record the merge in the survivor's manuscript history.
+      const finalStatus = (updateData.status ?? survivor.status) || "Concept";
+      await tx.insert(manuscriptHistory).values({
+        publicationId: survivorId,
+        fromStatus: survivor.status || "",
+        toStatus: finalStatus,
+        changedBy,
+        changeReason: `Merged ${ids.length} duplicate publication record(s) (ids: ${ids.join(", ")}) into this record.`,
+      });
+
+      const [updated] = await tx
+        .select()
+        .from(publications)
+        .where(eq(publications.id, survivorId));
+      return updated;
+    });
+  }
+
   // Manuscript History operations
   async getManuscriptHistory(publicationId: number): Promise<ManuscriptHistory[]> {
     return await db
@@ -613,9 +792,8 @@ export class DatabaseStorage implements IStorage {
         and(
           eq(publicationAuthors.scientistId, scientistId),
           or(
-            eq(publications.status, 'Published'),
-            eq(publications.status, 'Published *'),
-            eq(publications.status, 'Accepted/In Press')
+            sql`LOWER(${publications.status}) IN ('published', 'published *')`,
+            sql`LOWER(${publications.status}) IN ('in press', 'accepted/in press')`
           )
         )
       )
@@ -660,8 +838,8 @@ export class DatabaseStorage implements IStorage {
         and(
           eq(publicationAuthors.scientistId, scientistId),
           or(
-            sql`LOWER(${publications.status}) = 'published'`,
-            sql`LOWER(${publications.status}) = 'in press'`
+            sql`LOWER(${publications.status}) IN ('published', 'published *')`,
+            sql`LOWER(${publications.status}) IN ('in press', 'accepted/in press')`
           ),
           sql`${publications.publicationDate} >= ${cutoffDate.toISOString()}`
         )
@@ -670,6 +848,22 @@ export class DatabaseStorage implements IStorage {
       .orderBy(sql`EXTRACT(YEAR FROM ${publications.publicationDate}) DESC`);
     
     return results;
+  }
+
+  async getAllPublicationAuthors(): Promise<(PublicationAuthor & { scientist: Scientist })[]> {
+    const results = await db
+      .select({
+        id: publicationAuthors.id,
+        publicationId: publicationAuthors.publicationId,
+        scientistId: publicationAuthors.scientistId,
+        authorshipType: publicationAuthors.authorshipType,
+        authorPosition: publicationAuthors.authorPosition,
+        scientist: scientists
+      })
+      .from(publicationAuthors)
+      .innerJoin(scientists, eq(publicationAuthors.scientistId, scientists.id));
+
+    return results as (PublicationAuthor & { scientist: Scientist })[];
   }
 
   async getPublicationAuthors(publicationId: number): Promise<(PublicationAuthor & { scientist: Scientist })[]> {
@@ -1709,8 +1903,21 @@ export class DatabaseStorage implements IStorage {
   }
 
   // Role Permissions operations
-  async getRolePermissions(): Promise<RolePermission[]> {
-    return await db.select().from(rolePermissions);
+  async getRolePermissions(): Promise<(RolePermission & { jobTitle: string })[]> {
+    const rows = await db
+      .select({
+        id: rolePermissions.id,
+        roleGroupId: rolePermissions.roleGroupId,
+        navigationItem: rolePermissions.navigationItem,
+        accessLevel: rolePermissions.accessLevel,
+        updatedBy: rolePermissions.updatedBy,
+        createdAt: rolePermissions.createdAt,
+        updatedAt: rolePermissions.updatedAt,
+        jobTitle: roleGroups.name,
+      })
+      .from(rolePermissions)
+      .innerJoin(roleGroups, eq(rolePermissions.roleGroupId, roleGroups.id));
+    return rows;
   }
 
   async createRolePermission(permission: InsertRolePermission): Promise<RolePermission> {
@@ -1718,32 +1925,37 @@ export class DatabaseStorage implements IStorage {
     return newPermission;
   }
 
-  async updateRolePermission(jobTitle: string, navigationItem: string, accessLevel: string): Promise<RolePermission | undefined> {
+  async updateRolePermission(jobTitle: string, navigationItem: string, accessLevel: string): Promise<(RolePermission & { jobTitle: string }) | undefined> {
+    // Resolve role group id from name
+    const [group] = await db.select().from(roleGroups).where(eq(roleGroups.name, jobTitle));
+    if (!group) return undefined;
+
     const [updatedPermission] = await db
       .update(rolePermissions)
       .set({ accessLevel, updatedAt: sql`now()` })
       .where(and(
-        eq(rolePermissions.jobTitle, jobTitle),
+        eq(rolePermissions.roleGroupId, group.id),
         eq(rolePermissions.navigationItem, navigationItem)
       ))
       .returning();
-    return updatedPermission;
+    if (!updatedPermission) return undefined;
+    return { ...updatedPermission, jobTitle };
   }
 
-  async updateRolePermissionsBulk(permissions: Array<{jobTitle: string, navigationItem: string, accessLevel: string}>): Promise<RolePermission[]> {
-    const results: RolePermission[] = [];
-    
+  async updateRolePermissionsBulk(permissions: Array<{jobTitle: string, navigationItem: string, accessLevel: string}>): Promise<(RolePermission & { jobTitle: string })[]> {
+    const results: (RolePermission & { jobTitle: string })[] = [];
+
     for (const permission of permissions) {
       const result = await this.updateRolePermission(
-        permission.jobTitle, 
-        permission.navigationItem, 
+        permission.jobTitle,
+        permission.navigationItem,
         permission.accessLevel
       );
       if (result) {
         results.push(result);
       }
     }
-    
+
     return results;
   }
 
@@ -1910,9 +2122,36 @@ export class DatabaseStorage implements IStorage {
     return this.mergeJournalAndMetric(journal, metric ?? null);
   }
 
+  /**
+   * Find a journal by name, tolerating spelling differences between sources.
+   * Tries, in order: exact (case-insensitive) journal name, exact abbreviated
+   * name, then a normalized match (see normalizeJournalName) against either the
+   * full or abbreviated name.
+   */
+  private async findJournalByName(journalName: string): Promise<Journal | undefined> {
+    const name = (journalName ?? "").trim();
+    if (!name) return undefined;
+
+    let [journal] = await db.select().from(journals)
+      .where(ilike(journals.journalName, name));
+    if (journal) return journal;
+
+    [journal] = await db.select().from(journals)
+      .where(ilike(journals.abbreviatedJournal, name));
+    if (journal) return journal;
+
+    const normalized = normalizeJournalName(name);
+    if (!normalized) return undefined;
+    [journal] = await db.select().from(journals)
+      .where(or(
+        eq(normalizedJournalSql(journals.journalName), normalized),
+        eq(normalizedJournalSql(journals.abbreviatedJournal), normalized),
+      ));
+    return journal;
+  }
+
   async getImpactFactorByJournalAndYear(journalName: string, year: number): Promise<JournalImpactFactor | undefined> {
-    const [journal] = await db.select().from(journals)
-      .where(ilike(journals.journalName, journalName));
+    const journal = await this.findJournalByName(journalName);
     if (!journal) return undefined;
     const [metric] = await db.select().from(journalImpactFactorMetrics)
       .where(and(
@@ -1924,8 +2163,7 @@ export class DatabaseStorage implements IStorage {
   }
 
   async getHistoricalImpactFactors(journalName: string): Promise<JournalImpactFactor[]> {
-    const [journal] = await db.select().from(journals)
-      .where(ilike(journals.journalName, journalName));
+    const journal = await this.findJournalByName(journalName);
     if (!journal) return [];
     return this.getHistoricalImpactFactorsByJournalId(journal.id);
   }
@@ -2405,41 +2643,19 @@ export class DatabaseStorage implements IStorage {
         const certification = certificationsList.find(
           c => c.scientistId === scientist.id && c.moduleId === module.id
         );
-        
-        // Use real certification data if it exists, otherwise generate dummy data
-        let displayData: { startDate: string | null; endDate: string | null; certificationId: number | null };
-        
-        if (certification) {
-          // Use real certification from database
-          displayData = {
-            startDate: certification.startDate,
-            endDate: certification.endDate,
-            certificationId: certification.id
-          };
-        } else {
-          // Generate dummy data for missing certifications (primarily for CITI modules)
-          const combo = scientist.id + module.id;
-          const dummyStatuses = [
-            { startDate: '2024-03-15', endDate: '2026-03-15', certificationId: 999000 + scientist.id * 100 + module.id }, // Valid
-            { startDate: '2024-09-25', endDate: '2025-09-25', certificationId: 999000 + scientist.id * 100 + module.id }, // Expiring
-            { startDate: '2023-10-05', endDate: '2024-10-05', certificationId: 999000 + scientist.id * 100 + module.id }, // Expired
-            { startDate: null, endDate: null, certificationId: null } // No certification
-          ];
-          
-          const statusIndex = combo % 4;
-          displayData = dummyStatuses[statusIndex];
-        }
-        
+
+        // Only surface real certifications from the database. Missing records
+        // produce a null/empty entry rather than fabricated dates and IDs.
         matrixData.push({
           scientistId: scientist.id,
           scientistName: scientist.name,
           moduleId: module.id,
           moduleName: module.name,
-          certificationId: displayData.certificationId,
-          startDate: displayData.startDate,
-          endDate: displayData.endDate,
-          certificateFilePath: certification?.certificateFilePath || null,
-          reportFilePath: certification?.reportFilePath || null,
+          certificationId: certification?.id ?? null,
+          startDate: certification?.startDate ?? null,
+          endDate: certification?.endDate ?? null,
+          certificateFilePath: certification?.certificateFilePath ?? null,
+          reportFilePath: certification?.reportFilePath ?? null,
         });
       }
     }
@@ -2721,6 +2937,37 @@ export class DatabaseStorage implements IStorage {
     );
   }
 
+  // Recent activity feed — aggregated from real records across the app
+  async getRecentActivity(limit: number = 8): Promise<Array<{ id: string; type: string; title: string; description: string; date: Date | null }>> {
+    const perTable = Math.max(limit, 5);
+    const [proj, pubs, irbs, ibcs, sdrs, sci, ra200, ra205a] = await Promise.all([
+      db.select({ id: projects.id, title: projects.name, date: projects.createdAt }).from(projects).orderBy(desc(projects.createdAt)).limit(perTable),
+      db.select({ id: publications.id, title: publications.title, date: publications.createdAt }).from(publications).orderBy(desc(publications.createdAt)).limit(perTable),
+      db.select({ id: irbApplications.id, title: irbApplications.title, date: irbApplications.createdAt }).from(irbApplications).orderBy(desc(irbApplications.createdAt)).limit(perTable),
+      db.select({ id: ibcApplications.id, title: ibcApplications.title, date: ibcApplications.createdAt }).from(ibcApplications).orderBy(desc(ibcApplications.createdAt)).limit(perTable),
+      db.select({ id: researchActivities.id, title: researchActivities.title, date: researchActivities.createdAt }).from(researchActivities).orderBy(desc(researchActivities.createdAt)).limit(perTable),
+      db.select({ id: scientists.id, first: scientists.firstName, last: scientists.lastName, date: scientists.createdAt }).from(scientists).orderBy(desc(scientists.createdAt)).limit(perTable),
+      db.select({ id: ra200Applications.id, title: ra200Applications.title, date: ra200Applications.createdAt }).from(ra200Applications).orderBy(desc(ra200Applications.createdAt)).limit(perTable),
+      db.select({ id: ra205aApplications.id, title: ra205aApplications.title, date: ra205aApplications.createdAt }).from(ra205aApplications).orderBy(desc(ra205aApplications.createdAt)).limit(perTable),
+    ]);
+
+    const items = [
+      ...proj.map(r => ({ id: `project-${r.id}`, type: 'project_added', title: r.title, description: 'New project added', date: r.date })),
+      ...pubs.map(r => ({ id: `publication-${r.id}`, type: 'publication_added', title: r.title, description: 'New publication added', date: r.date })),
+      ...irbs.map(r => ({ id: `irb-${r.id}`, type: 'irb_submission', title: r.title, description: 'IRB application created', date: r.date })),
+      ...ibcs.map(r => ({ id: `ibc-${r.id}`, type: 'ibc_submission', title: r.title, description: 'IBC application created', date: r.date })),
+      ...sdrs.map(r => ({ id: `sdr-${r.id}`, type: 'activity_added', title: r.title, description: 'New research activity', date: r.date })),
+      ...sci.map(r => ({ id: `scientist-${r.id}`, type: 'staff_added', title: `${r.first} ${r.last}`, description: 'New staff member added', date: r.date })),
+      ...ra200.map(r => ({ id: `ra200-${r.id}`, type: 'pmo_submission', title: r.title, description: 'RA-200 application created', date: r.date })),
+      ...ra205a.map(r => ({ id: `ra205a-${r.id}`, type: 'pmo_submission', title: r.title, description: 'RA-205A application created', date: r.date })),
+    ];
+
+    return items
+      .filter(i => i.date)
+      .sort((a, b) => new Date(b.date as Date).getTime() - new Date(a.date as Date).getTime())
+      .slice(0, limit);
+  }
+
   // Team Member operations
   async getTeamMembers(): Promise<TeamMember[]> {
     return await db.select().from(teamMembers).orderBy(asc(teamMembers.displayOrder), asc(teamMembers.lastName));
@@ -2753,6 +3000,33 @@ export class DatabaseStorage implements IStorage {
 
   async deleteTeamMember(id: number): Promise<boolean> {
     const result = await db.delete(teamMembers).where(eq(teamMembers.id, id));
+    return result.rowCount !== null && result.rowCount > 0;
+  }
+
+  // ── Ownership overrides ────────────────────────────────────────────────────
+
+  async getOwnershipOverrides(): Promise<OwnershipOverride[]> {
+    return await db.select().from(ownershipOverrides).orderBy(asc(ownershipOverrides.module), asc(ownershipOverrides.relationship));
+  }
+
+  async getOwnershipOverridesForModule(module: string): Promise<OwnershipOverride[]> {
+    return await db.select().from(ownershipOverrides).where(eq(ownershipOverrides.module, module));
+  }
+
+  async upsertOwnershipOverride(module: string, relationship: string, grantedAccess: string, description?: string): Promise<OwnershipOverride> {
+    const [result] = await db
+      .insert(ownershipOverrides)
+      .values({ module, relationship, grantedAccess, description: description ?? null })
+      .onConflictDoUpdate({
+        target: [ownershipOverrides.module, ownershipOverrides.relationship],
+        set: { grantedAccess, description: description ?? null, updatedAt: sql`now()` },
+      })
+      .returning();
+    return result;
+  }
+
+  async deleteOwnershipOverride(id: number): Promise<boolean> {
+    const result = await db.delete(ownershipOverrides).where(eq(ownershipOverrides.id, id));
     return result.rowCount !== null && result.rowCount > 0;
   }
 }

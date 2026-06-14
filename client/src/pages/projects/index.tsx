@@ -127,7 +127,7 @@ export default function ProjectsList() {
           <div className="flex items-center justify-between flex-wrap gap-2">
             <CardTitle>All Projects</CardTitle>
             <div className="relative w-64">
-              <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-gray-400" />
+              <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-gray-400 dark:text-gray-500" />
               <Input
                 type="search"
                 placeholder="Search projects..."
@@ -191,7 +191,7 @@ export default function ProjectsList() {
                     <TableCell>
                       <div className="font-medium">{project.name}</div>
                       {project.description && (
-                        <div className="text-sm text-gray-600 mt-1 line-clamp-1">
+                        <div className="text-sm text-gray-600 mt-1 line-clamp-1 dark:text-gray-300">
                           {project.description}
                         </div>
                       )}
@@ -208,19 +208,19 @@ export default function ProjectsList() {
                           {project.program.name}
                         </span>
                       ) : (
-                        <span className="text-sm text-gray-600">Not assigned</span>
+                        <span className="text-sm text-gray-600 dark:text-gray-300">Not assigned</span>
                       )}
                     </TableCell>
                     <TableCell>
                       {project.principalInvestigator ? (
                         <div className="flex items-center">
-                          <span className="text-xs font-medium text-gray-700 mr-2">
+                          <span className="text-xs font-medium text-gray-700 mr-2 dark:text-gray-300">
                             {project.principalInvestigator.profileImageInitials || getInitials(project.principalInvestigator)}
                           </span>
                           <span>{formatFullName(project.principalInvestigator)}</span>
                         </div>
                       ) : (
-                        <span className="text-gray-600">Unassigned</span>
+                        <span className="text-gray-600 dark:text-gray-300">Unassigned</span>
                       )}
                     </TableCell>
                     <TableCell>
@@ -259,7 +259,7 @@ export default function ProjectsList() {
                 ))}
                 {!isLoadingProjects && (!filteredProjects || filteredProjects.length === 0) && (
                   <TableRow>
-                    <TableCell colSpan={5} className="text-center py-8 text-gray-600">
+                    <TableCell colSpan={5} className="text-center py-8 text-gray-600 dark:text-gray-300">
                       {projects && projects.length > 0 
                         ? "No projects matching your search criteria."
                         : "No projects yet. Create your first project!"}

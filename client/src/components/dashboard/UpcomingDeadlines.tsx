@@ -58,24 +58,24 @@ export default function UpcomingDeadlines() {
     const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
     
     if (diffDays <= 3) {
-      return "bg-red-50 text-red-500"; // Urgent
+      return "bg-red-50 text-red-500 dark:bg-red-950"; // Urgent
     } else if (diffDays <= 10) {
-      return "bg-yellow-50 text-yellow-500"; // Warning
+      return "bg-yellow-50 text-yellow-500 dark:bg-yellow-950"; // Warning
     } else {
-      return "bg-blue-50 text-blue-500"; // Info
+      return "bg-blue-50 text-blue-500 dark:bg-blue-950"; // Info
     }
   };
 
   if (error) {
     return (
-      <div className="bg-white rounded-lg shadow-sm p-6">
+      <div className="bg-white rounded-lg shadow-sm p-6 dark:bg-card">
         <p className="text-red-500">Error loading upcoming deadlines</p>
       </div>
     );
   }
 
   return (
-    <div className="bg-white rounded-lg shadow-sm">
+    <div className="bg-white rounded-lg shadow-sm dark:bg-card">
       <div className="p-6 border-b border-neutral-100">
         <div className="flex items-center justify-between">
           <h2 className="font-medium text-lg">Upcoming Deadlines</h2>

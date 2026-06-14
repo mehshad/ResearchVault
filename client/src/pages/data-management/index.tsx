@@ -68,7 +68,7 @@ export default function DataManagementList() {
           <div className="flex items-center justify-between">
             <CardTitle>Data Management Plans</CardTitle>
             <div className="relative w-64">
-              <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-gray-400" />
+              <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-gray-400 dark:text-gray-500" />
               <Input
                 type="search"
                 placeholder="Search plans..."

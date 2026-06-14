@@ -195,7 +195,7 @@ export default function IrbApplicationEdit() {
                         placeholder="e.g., IRB-001" 
                         {...field} 
                         disabled 
-                        className="bg-gray-50" 
+                        className="bg-gray-50 dark:bg-gray-900" 
                       />
                     </FormControl>
                     <FormDescription>

@@ -144,12 +144,12 @@ export default function CreateIrb() {
         <CardContent>
           <Form {...form}>
             <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
-              <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-6">
+              <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-6 dark:bg-blue-950 dark:border-blue-800">
                 <div className="flex items-start gap-3">
-                  <FileText className="h-5 w-5 text-blue-600 mt-0.5" />
+                  <FileText className="h-5 w-5 text-blue-600 mt-0.5 dark:text-blue-400" />
                   <div>
-                    <h3 className="font-medium text-blue-900">IRB Application Process</h3>
-                    <p className="text-sm text-blue-800 mt-1">
+                    <h3 className="font-medium text-blue-900 dark:text-blue-200">IRB Application Process</h3>
+                    <p className="text-sm text-blue-800 mt-1 dark:text-blue-300">
                       Start by selecting the Principal Investigator first, then choose from their active research activities (SDRs). 
                       The research activities list will be filtered based on your PI selection.
                     </p>

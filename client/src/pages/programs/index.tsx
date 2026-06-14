@@ -106,7 +106,7 @@ export default function ProgramsList() {
             <CardTitle>All Programs</CardTitle>
             <div className="flex items-center space-x-2">
               <div className="relative w-64">
-                <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-gray-400" />
+                <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-gray-400 dark:text-gray-500" />
                 <Input
                   type="search"
                   placeholder="Search programs..."
@@ -164,43 +164,43 @@ export default function ProgramsList() {
                     <TableCell>
                       {program.programDirector ? (
                         <div className="flex items-center">
-                          <span className="text-xs font-medium text-gray-700 mr-2">
+                          <span className="text-xs font-medium text-gray-700 mr-2 dark:text-gray-300">
                             {program.programDirector.profileImageInitials || program.programDirector.name.substring(0, 2)}
                           </span>
                           <span className="text-sm">{program.programDirector.name}</span>
                         </div>
                       ) : (
-                        <span className="text-gray-600 text-sm">Unassigned</span>
+                        <span className="text-gray-600 text-sm dark:text-gray-300">Unassigned</span>
                       )}
                     </TableCell>
                     <TableCell>
                       <div className="space-y-1">
                         {program.researchCoLead && (
                           <div className="flex items-center">
-                            <span className="text-xs font-medium text-gray-700 mr-2">
+                            <span className="text-xs font-medium text-gray-700 mr-2 dark:text-gray-300">
                               {program.researchCoLead.profileImageInitials || program.researchCoLead.name.substring(0, 2)}
                             </span>
-                            <span className="text-xs text-gray-700">Research: {program.researchCoLead.name}</span>
+                            <span className="text-xs text-gray-700 dark:text-gray-300">Research: {program.researchCoLead.name}</span>
                           </div>
                         )}
                         {program.clinicalCoLead1 && (
                           <div className="flex items-center">
-                            <span className="text-xs font-medium text-gray-700 mr-2">
+                            <span className="text-xs font-medium text-gray-700 mr-2 dark:text-gray-300">
                               {program.clinicalCoLead1.profileImageInitials || program.clinicalCoLead1.name.substring(0, 2)}
                             </span>
-                            <span className="text-xs text-gray-700">Clinical 1: {program.clinicalCoLead1.name}</span>
+                            <span className="text-xs text-gray-700 dark:text-gray-300">Clinical 1: {program.clinicalCoLead1.name}</span>
                           </div>
                         )}
                         {program.clinicalCoLead2 && (
                           <div className="flex items-center">
-                            <span className="text-xs font-medium text-gray-700 mr-2">
+                            <span className="text-xs font-medium text-gray-700 mr-2 dark:text-gray-300">
                               {program.clinicalCoLead2.profileImageInitials || program.clinicalCoLead2.name.substring(0, 2)}
                             </span>
-                            <span className="text-xs text-gray-700">Clinical 2: {program.clinicalCoLead2.name}</span>
+                            <span className="text-xs text-gray-700 dark:text-gray-300">Clinical 2: {program.clinicalCoLead2.name}</span>
                           </div>
                         )}
                         {!program.researchCoLead && !program.clinicalCoLead1 && !program.clinicalCoLead2 && (
-                          <span className="text-gray-600 text-sm">No co-leads assigned</span>
+                          <span className="text-gray-600 text-sm dark:text-gray-300">No co-leads assigned</span>
                         )}
                       </div>
                     </TableCell>
@@ -235,7 +235,7 @@ export default function ProgramsList() {
                 ))}
                 {filteredPrograms?.length === 0 && (
                   <TableRow>
-                    <TableCell colSpan={5} className="text-center py-8 text-gray-600">
+                    <TableCell colSpan={5} className="text-center py-8 text-gray-600 dark:text-gray-300">
                       No programs found matching your search.
                     </TableCell>
                   </TableRow>

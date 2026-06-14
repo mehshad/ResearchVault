@@ -221,7 +221,7 @@ export default function ResearchActivitiesList() {
           <div className="flex items-center justify-between flex-wrap gap-2">
             <CardTitle>All Research Activities</CardTitle>
             <div className="relative w-64">
-              <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-gray-400" />
+              <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-gray-400 dark:text-gray-500" />
               <Input
                 type="search"
                 placeholder="Search research activities..."
@@ -302,7 +302,7 @@ export default function ResearchActivitiesList() {
                     </TableCell>
                     <TableCell>
                       <div className="font-medium">{activity.title}</div>
-                      <div className="text-sm text-gray-600 mt-1">
+                      <div className="text-sm text-gray-600 mt-1 dark:text-gray-300">
                         {activity.project ? (
                           <span>
                             PRJ: {activity.project.projectId} - {activity.project.name} • PRG: {activity.project.program?.name || 'No program'}
@@ -318,27 +318,27 @@ export default function ResearchActivitiesList() {
                           <div>
                             <div className="font-medium">{activity.budgetSource.join(', ')}</div>
                             {activity.grantCodes && activity.grantCodes.length > 0 && (
-                              <div className="text-xs text-gray-600 mt-1">
+                              <div className="text-xs text-gray-600 mt-1 dark:text-gray-300">
                                 Grant: {activity.grantCodes.join(', ')}
                               </div>
                             )}
                           </div>
                         ) : (
-                          <span className="text-gray-600">No funding source</span>
+                          <span className="text-gray-600 dark:text-gray-300">No funding source</span>
                         )}
                         
                         {/* Linked Grants */}
                         {activityGrantCounts[activity.id] && activityGrantCounts[activity.id].length > 0 && (
                           <div className="mt-2 pt-2 border-t">
-                            <div className="flex items-center gap-1 text-xs text-blue-600">
+                            <div className="flex items-center gap-1 text-xs text-blue-600 dark:text-blue-400">
                               <LinkIcon className="h-3 w-3" />
                               <span className="font-medium">Linked Grants:</span>
                             </div>
                             <div className="mt-1 space-y-1">
                               {activityGrantCounts[activity.id].map((grant: any) => (
                                 <div key={grant.id} className="text-xs">
-                                  <span className="font-mono text-blue-600">{grant.projectNumber}</span>
-                                  <span className="text-gray-600"> - {grant.status}</span>
+                                  <span className="font-mono text-blue-600 dark:text-blue-400">{grant.projectNumber}</span>
+                                  <span className="text-gray-600 dark:text-gray-300"> - {grant.status}</span>
                                 </div>
                               ))}
                             </div>
@@ -349,35 +349,35 @@ export default function ResearchActivitiesList() {
                     <TableCell>
                       {activity.leadScientist ? (
                         <div className="flex items-center">
-                          <span className="text-xs font-medium text-gray-700 mr-2">
+                          <span className="text-xs font-medium text-gray-700 mr-2 dark:text-gray-300">
                             {activity.leadScientist.profileImageInitials || getInitials(activity.leadScientist)}
                           </span>
                           <div>
                             <div className="font-medium">{formatFullName(activity.leadScientist)}</div>
                             {activity.leadScientist.jobTitle && (
-                              <div className="text-xs text-gray-600">{activity.leadScientist.jobTitle}</div>
+                              <div className="text-xs text-gray-600 dark:text-gray-300">{activity.leadScientist.jobTitle}</div>
                             )}
                           </div>
                         </div>
                       ) : (
-                        <span className="text-gray-600">Unassigned</span>
+                        <span className="text-gray-600 dark:text-gray-300">Unassigned</span>
                       )}
                     </TableCell>
                     <TableCell>
                       {activity.budgetHolder ? (
                         <div className="flex items-center">
-                          <span className="text-xs font-medium text-gray-700 mr-2">
+                          <span className="text-xs font-medium text-gray-700 mr-2 dark:text-gray-300">
                             {activity.budgetHolder.profileImageInitials || getInitials(activity.budgetHolder)}
                           </span>
                           <div>
                             <div className="font-medium">{formatFullName(activity.budgetHolder)}</div>
                             {activity.budgetHolder.jobTitle && (
-                              <div className="text-xs text-gray-600">{activity.budgetHolder.jobTitle}</div>
+                              <div className="text-xs text-gray-600 dark:text-gray-300">{activity.budgetHolder.jobTitle}</div>
                             )}
                           </div>
                         </div>
                       ) : (
-                        <span className="text-gray-600">Unassigned</span>
+                        <span className="text-gray-600 dark:text-gray-300">Unassigned</span>
                       )}
                     </TableCell>
                     <TableCell>
@@ -422,7 +422,7 @@ export default function ResearchActivitiesList() {
                 ))}
                 {!isLoadingActivities && (!filteredActivities || filteredActivities.length === 0) && (
                   <TableRow>
-                    <TableCell colSpan={6} className="text-center py-8 text-gray-600">
+                    <TableCell colSpan={6} className="text-center py-8 text-gray-600 dark:text-gray-300">
                       {researchActivities && researchActivities.length > 0 
                         ? "No research activities matching your search criteria."
                         : "No research activities yet. Create your first research activity!"}

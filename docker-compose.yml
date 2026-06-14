@@ -4,8 +4,10 @@ networks:
 
 volumes:
   pg-data:
+  pg-demo-data:
 
 services:
+  # ── Production database ────────────────────────────────────────────────────
   postgres:
     image: postgres:16-alpine
     restart: unless-stopped
@@ -23,18 +25,47 @@ services:
     networks:
       - rv-net
 
+  # ── Demo database (separate volume — demo data never touches production) ──
+  postgres-demo:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: researchvault_demo
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+    volumes:
+      - pg-demo-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    networks:
+      - rv-net
+
+  # ── Nginx reverse proxy ────────────────────────────────────────────────────
+  # Port 80  → production app  (always)
+  # Port 8080 → demo app       (internal; host port controlled by DEMO_PORT)
+  # Visiting http://host/demo on port 80 redirects to http://host:DEMO_PORT/
   nginx:
     image: nginx:alpine
     restart: unless-stopped
     ports:
       - "80:80"
+      - "${DEMO_PORT:-8080}:8080"
+    environment:
+      DEMO_PORT: ${DEMO_PORT:-8080}
     volumes:
-      - ./nginx.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./nginx.conf.template:/etc/nginx/nginx.conf.template:ro
+      - ./docker/nginx-entrypoint.sh:/docker-entrypoint.sh:ro
+    entrypoint: ["/bin/sh", "/docker-entrypoint.sh"]
     depends_on:
       - app
+      - app-demo
     networks:
       - rv-net
 
+  # ── Production app (LDAP / OIDC auth, real data) ──────────────────────────
   app:
     build: .
     restart: unless-stopped
@@ -44,15 +75,10 @@ services:
       SESSION_SECRET: ${SESSION_SECRET:-change-me-in-production-use-a-long-random-string}
       STORAGE_TYPE: local
       UPLOADS_DIR: /data/uploads
-      APP_URL: ${APP_URL:-http://localhost:5000}
-      # Super admin (user whose email matches is always promoted to superadmin)
+      APP_URL: ${APP_URL:-http://localhost}
       SUPER_ADMIN_EMAIL: ${SUPER_ADMIN_EMAIL:-}
-      # Authentication
       AUTH_MODE: ${AUTH_MODE:-local}
-      DEMO_USERNAME: ${DEMO_USERNAME:-}
-      DEMO_NAME: ${DEMO_NAME:-}
-      DEMO_EMAIL: ${DEMO_EMAIL:-}
-      DEMO_ROLE: ${DEMO_ROLE:-}
+      DEMO_PORT: ${DEMO_PORT:-8080}
       # LDAP (only used when AUTH_MODE=ldap)
       LDAP_URL: ${LDAP_URL:-}
       LDAP_BIND_DN: ${LDAP_BIND_DN:-}
@@ -78,6 +104,30 @@ services:
       - ${UPLOADS_DATA_DIR:-./data/uploads}:/data/uploads
     depends_on:
       postgres:
+        condition: service_healthy
+    networks:
+      - rv-net
+
+  # ── Demo app (no login required, seeded sample data) ──────────────────────
+  app-demo:
+    build: .
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      DATABASE_URL: postgresql://postgres:${POSTGRES_PASSWORD:-postgres}@postgres-demo:5432/researchvault_demo
+      SESSION_SECRET: demo-session-secret-not-sensitive
+      STORAGE_TYPE: local
+      UPLOADS_DIR: /data/uploads
+      APP_URL: ${DEMO_APP_URL:-http://localhost:8080}
+      AUTH_MODE: demo
+      DEMO_USERNAME: demo.user
+      DEMO_NAME: Demo User
+      DEMO_EMAIL: demo@researchvault.local
+      DEMO_ROLE: Management
+    volumes:
+      - ${UPLOADS_DATA_DIR:-./data/uploads}:/data/uploads
+    depends_on:
+      postgres-demo:
         condition: service_healthy
     networks:
       - rv-net

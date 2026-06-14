@@ -436,7 +436,7 @@ export default function EditGrant() {
             {/* First Row: Project Number, Status, Grant Type, Funding Agency */}
             <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
               <div>
-                <label className="text-sm font-medium text-gray-700 mb-2 block">
+                <label className="text-sm font-medium text-gray-700 mb-2 block dark:text-gray-300">
                   Project Number
                 </label>
                 <Input
@@ -448,7 +448,7 @@ export default function EditGrant() {
               </div>
 
               <div>
-                <label className="text-sm font-medium text-gray-700 mb-2 block">
+                <label className="text-sm font-medium text-gray-700 mb-2 block dark:text-gray-300">
                   Project Status
                 </label>
                 <Select
@@ -470,7 +470,7 @@ export default function EditGrant() {
               </div>
 
               <div>
-                <label className="text-sm font-medium text-gray-700 mb-2 block">
+                <label className="text-sm font-medium text-gray-700 mb-2 block dark:text-gray-300">
                   Grant Type
                 </label>
                 <Select
@@ -488,7 +488,7 @@ export default function EditGrant() {
               </div>
 
               <div>
-                <label className="text-sm font-medium text-gray-700 mb-2 block">
+                <label className="text-sm font-medium text-gray-700 mb-2 block dark:text-gray-300">
                   Funding Agency
                 </label>
                 <Input
@@ -501,7 +501,7 @@ export default function EditGrant() {
 
             {/* Project Title - Full Width */}
             <div className="mt-4">
-              <label className="text-sm font-medium text-gray-700 mb-2 block">
+              <label className="text-sm font-medium text-gray-700 mb-2 block dark:text-gray-300">
                 Project Title
               </label>
               <Input
@@ -515,7 +515,7 @@ export default function EditGrant() {
             {/* Third Row: Lead Investigator, Investigator Type, Running Time, Current Year */}
             <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mt-4">
               <div>
-                <label className="text-sm font-medium text-gray-700 mb-2 block">
+                <label className="text-sm font-medium text-gray-700 mb-2 block dark:text-gray-300">
                   Lead Investigator
                 </label>
                 <Select
@@ -536,7 +536,7 @@ export default function EditGrant() {
               </div>
 
               <div>
-                <label className="text-sm font-medium text-gray-700 mb-2 block">
+                <label className="text-sm font-medium text-gray-700 mb-2 block dark:text-gray-300">
                   Investigator Type
                 </label>
                 <Select
@@ -554,7 +554,7 @@ export default function EditGrant() {
               </div>
 
               <div>
-                <label className="text-sm font-medium text-gray-700 mb-2 block">
+                <label className="text-sm font-medium text-gray-700 mb-2 block dark:text-gray-300">
                   Running Time (Years)
                 </label>
                 <Input
@@ -566,7 +566,7 @@ export default function EditGrant() {
               </div>
 
               <div>
-                <label className="text-sm font-medium text-gray-700 mb-2 block">
+                <label className="text-sm font-medium text-gray-700 mb-2 block dark:text-gray-300">
                   Current Year
                 </label>
                 <Input
@@ -580,7 +580,7 @@ export default function EditGrant() {
             {/* Fourth Row: Awarded Amount, Start Date, End Date, Cycle */}
             <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mt-4">
               <div>
-                <label className="text-sm font-medium text-gray-700 mb-2 block">
+                <label className="text-sm font-medium text-gray-700 mb-2 block dark:text-gray-300">
                   Awarded Amount
                 </label>
                 <Input
@@ -591,7 +591,7 @@ export default function EditGrant() {
               </div>
 
               <div>
-                <label className="text-sm font-medium text-gray-700 mb-2 block">
+                <label className="text-sm font-medium text-gray-700 mb-2 block dark:text-gray-300">
                   Start Date
                 </label>
                 <Input
@@ -602,7 +602,7 @@ export default function EditGrant() {
               </div>
 
               <div>
-                <label className="text-sm font-medium text-gray-700 mb-2 block">
+                <label className="text-sm font-medium text-gray-700 mb-2 block dark:text-gray-300">
                   End Date
                 </label>
                 <Input
@@ -613,7 +613,7 @@ export default function EditGrant() {
               </div>
 
               <div>
-                <label className="text-sm font-medium text-gray-700 mb-2 block">
+                <label className="text-sm font-medium text-gray-700 mb-2 block dark:text-gray-300">
                   Cycle
                 </label>
                 <Input
@@ -627,7 +627,7 @@ export default function EditGrant() {
 
             {/* Description */}
             <div className="mt-4">
-              <label className="text-sm font-medium text-gray-700 mb-2 block">
+              <label className="text-sm font-medium text-gray-700 mb-2 block dark:text-gray-300">
                 Description
               </label>
               <Textarea
@@ -648,7 +648,7 @@ export default function EditGrant() {
           <CardContent>
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
               <div>
-                <label className="text-sm font-medium text-gray-700 mb-2 block">
+                <label className="text-sm font-medium text-gray-700 mb-2 block dark:text-gray-300">
                   Requested Amount
                 </label>
                 <Input
@@ -659,7 +659,7 @@ export default function EditGrant() {
               </div>
 
               <div>
-                <label className="text-sm font-medium text-gray-700 mb-2 block">
+                <label className="text-sm font-medium text-gray-700 mb-2 block dark:text-gray-300">
                   Submitted Year
                 </label>
                 <Input
@@ -671,7 +671,7 @@ export default function EditGrant() {
               </div>
 
               <div>
-                <label className="text-sm font-medium text-gray-700 mb-2 block">
+                <label className="text-sm font-medium text-gray-700 mb-2 block dark:text-gray-300">
                   Awarded Year
                 </label>
                 <Input
@@ -702,23 +702,23 @@ export default function EditGrant() {
                     researchActivities.map((sdr: any) => {
                       const isLinked = linkedSdrs.includes(sdr.id);
                       return (
-                        <div key={sdr.id} className="flex items-center space-x-3 p-2 border rounded-lg hover:bg-gray-50">
+                        <div key={sdr.id} className="flex items-center space-x-3 p-2 border rounded-lg hover:bg-gray-50 dark:hover:bg-gray-900">
                           <input
                             type="checkbox"
                             checked={isLinked}
                             onChange={(e) => handleSdrToggle(sdr.id, e.target.checked)}
-                            className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
+                            className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded dark:text-blue-400 dark:border-gray-600"
                           />
                           <div className="flex-1">
                             <div className="font-medium text-sm">{sdr.sdrNumber}</div>
-                            <div className="text-sm text-gray-500 truncate">{sdr.title}</div>
-                            <div className="text-xs text-gray-400">{sdr.status}</div>
+                            <div className="text-sm text-gray-500 truncate dark:text-gray-400">{sdr.title}</div>
+                            <div className="text-xs text-gray-400 dark:text-gray-500">{sdr.status}</div>
                           </div>
                         </div>
                       );
                     })
                   ) : (
-                    <p className="text-gray-500 text-sm">No research activities available to link.</p>
+                    <p className="text-gray-500 text-sm dark:text-gray-400">No research activities available to link.</p>
                   )}
                 </div>
               </div>
@@ -734,7 +734,7 @@ export default function EditGrant() {
           <CardContent>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
               <div>
-                <label className="text-sm font-medium text-gray-700 mb-2 block">
+                <label className="text-sm font-medium text-gray-700 mb-2 block dark:text-gray-300">
                   Reporting Interval (months)
                 </label>
                 <Input
@@ -749,7 +749,7 @@ export default function EditGrant() {
             </div>
 
             <div>
-              <label className="text-sm font-medium text-gray-700 mb-2 block">
+              <label className="text-sm font-medium text-gray-700 mb-2 block dark:text-gray-300">
                 Collaborators (one per line)
               </label>
               <Textarea
@@ -785,10 +785,10 @@ export default function EditGrant() {
                   <div key={report.id} className="flex items-center justify-between p-4 border rounded-lg">
                     <div className="flex-1">
                       <div className="flex items-center gap-4 mb-2">
-                        <h4 className="font-medium text-gray-900">{report.reportTitle}</h4>
-                        <span className="text-sm text-gray-500">{report.reportPeriod}</span>
+                        <h4 className="font-medium text-gray-900 dark:text-gray-100">{report.reportTitle}</h4>
+                        <span className="text-sm text-gray-500 dark:text-gray-400">{report.reportPeriod}</span>
                       </div>
-                      <div className="flex gap-6 text-sm text-gray-600">
+                      <div className="flex gap-6 text-sm text-gray-600 dark:text-gray-300">
                         <div>
                           <span className="font-medium">Submitted: </span>
                           {report.submissionDate ? new Date(report.submissionDate).toLocaleDateString() : 'N/A'}
@@ -799,7 +799,7 @@ export default function EditGrant() {
                         </div>
                       </div>
                       {report.notes && (
-                        <div className="text-sm text-gray-500 mt-1">{report.notes}</div>
+                        <div className="text-sm text-gray-500 mt-1 dark:text-gray-400">{report.notes}</div>
                       )}
                     </div>
                     <div className="flex items-center gap-2">
@@ -825,7 +825,7 @@ export default function EditGrant() {
                 ))}
               </div>
             ) : (
-              <p className="text-gray-500 text-center py-8">
+              <p className="text-gray-500 text-center py-8 dark:text-gray-400">
                 No progress reports uploaded yet. Add your first report to get started.
               </p>
             )}
@@ -910,20 +910,20 @@ export default function EditGrant() {
                   className="cursor-pointer"
                 />
                 {uploadedFile && (
-                  <div className="flex items-center gap-2 text-sm text-gray-600">
+                  <div className="flex items-center gap-2 text-sm text-gray-600 dark:text-gray-300">
                     <FileText className="h-4 w-4" />
                     <span>{uploadedFile.name}</span>
                     <span>({(uploadedFile.size / 1024 / 1024).toFixed(2)} MB)</span>
                     <button
                       type="button"
                       onClick={() => setUploadedFile(null)}
-                      className="text-red-500 hover:text-red-700"
+                      className="text-red-500 hover:text-red-700 dark:hover:text-red-300"
                     >
                       <X className="h-4 w-4" />
                     </button>
                   </div>
                 )}
-                <p className="text-xs text-gray-500">Only PDF files up to 10MB are allowed</p>
+                <p className="text-xs text-gray-500 dark:text-gray-400">Only PDF files up to 10MB are allowed</p>
               </div>
             </div>
 

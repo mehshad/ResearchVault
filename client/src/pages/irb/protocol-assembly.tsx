@@ -473,7 +473,7 @@ export default function ProtocolAssembly() {
                     <span className="font-medium">Research Activity:</span>{' '}
                     <button
                       onClick={() => navigate(`/research-activities/${researchActivity.id}`)}
-                      className="text-blue-600 hover:text-blue-800 hover:underline"
+                      className="text-blue-600 hover:text-blue-800 hover:underline dark:text-blue-400 dark:hover:text-blue-300"
                     >
                       {researchActivity.sdrNumber} - {researchActivity.title}
                     </button>
@@ -502,14 +502,14 @@ export default function ProtocolAssembly() {
                           <Badge variant="outline" className="text-xs">Required</Badge>
                         )}
                         {document.signatureRequired && (
-                          <Badge variant="outline" className="text-xs bg-purple-50 text-purple-700">
+                          <Badge variant="outline" className="text-xs bg-purple-50 text-purple-700 dark:bg-purple-950 dark:text-purple-300">
                             Signature Required
                           </Badge>
                         )}
                       </div>
                       <div className="flex items-center gap-2">
                         {document.uploaded ? (
-                          <CheckCircle className="h-5 w-5 text-green-600" />
+                          <CheckCircle className="h-5 w-5 text-green-600 dark:text-green-400" />
                         ) : (
                           <AlertCircle className="h-5 w-5 text-orange-500" />
                         )}
@@ -542,8 +542,8 @@ export default function ProtocolAssembly() {
                         </div>
                       ) : (
                         <div className="space-y-2">
-                          <div className="flex items-center gap-2 text-sm text-gray-600">
-                            <CheckCircle className="h-4 w-4 text-green-600" />
+                          <div className="flex items-center gap-2 text-sm text-gray-600 dark:text-gray-300">
+                            <CheckCircle className="h-4 w-4 text-green-600 dark:text-green-400" />
                             <span>Uploaded: {document.uploadedFile?.name || 'Document uploaded'}</span>
                           </div>
                           <div className="flex items-center gap-2">
@@ -587,7 +587,7 @@ export default function ProtocolAssembly() {
                     </div>
 
                     {document.signatures.length > 0 && (
-                      <div className="text-sm text-green-600">
+                      <div className="text-sm text-green-600 dark:text-green-400">
                         <div className="flex items-center gap-1">
                           <CheckCircle className="h-4 w-4" />
                           Signed by {document.signatures[0].signedBy} on{' '}
@@ -621,7 +621,7 @@ export default function ProtocolAssembly() {
             </CardHeader>
             <CardContent>
               {showAddMember && (
-                <div className="border rounded-lg p-4 mb-4 bg-gray-50">
+                <div className="border rounded-lg p-4 mb-4 bg-gray-50 dark:bg-gray-900">
                   <h4 className="font-medium mb-3">Add Protocol Team Member</h4>
                   
                   <div className="space-y-4">
@@ -640,7 +640,7 @@ export default function ProtocolAssembly() {
                         ))}
                       </select>
                       {availableScientists.length === 0 && (
-                        <p className="text-sm text-gray-500 mt-1">
+                        <p className="text-sm text-gray-500 mt-1 dark:text-gray-400">
                           All SDR team members have already been added to the protocol team.
                         </p>
                       )}
@@ -705,7 +705,7 @@ export default function ProtocolAssembly() {
                   <div key={member.id} className="flex items-center justify-between p-3 border rounded-lg">
                     <div className="flex-1">
                       <div className="font-medium">{member.name}</div>
-                      <div className="text-sm text-gray-500">{member.email}</div>
+                      <div className="text-sm text-gray-500 dark:text-gray-400">{member.email}</div>
                       <div className="flex flex-wrap gap-1 mt-1">
                         {member.roles.map((role) => (
                           <Badge key={role} variant="secondary" className="text-xs">
@@ -715,15 +715,15 @@ export default function ProtocolAssembly() {
                       </div>
                     </div>
                     <div className="flex items-center gap-2">
-                      <Badge variant="outline" className="bg-green-50 text-green-700">
+                      <Badge variant="outline" className="bg-green-50 text-green-700 dark:bg-green-950 dark:text-green-300">
                         {member.hasAccess ? 'Access Granted' : 'No Access'}
                       </Badge>
                       {member.hasSigned ? (
-                        <Badge variant="outline" className="bg-blue-50 text-blue-700">
+                        <Badge variant="outline" className="bg-blue-50 text-blue-700 dark:bg-blue-950 dark:text-blue-300">
                           Signed
                         </Badge>
                       ) : (
-                        <Badge variant="outline" className="bg-orange-50 text-orange-700">
+                        <Badge variant="outline" className="bg-orange-50 text-orange-700 dark:bg-orange-950 dark:text-orange-300">
                           Pending Signature
                         </Badge>
                       )}
@@ -739,7 +739,7 @@ export default function ProtocolAssembly() {
                 ))}
                 
                 {protocolMembers.length === 0 && (
-                  <div className="text-center py-4 text-gray-500">
+                  <div className="text-center py-4 text-gray-500 dark:text-gray-400">
                     No protocol team members assigned yet. Add SDR team members to grant access and assign protocol-specific roles.
                   </div>
                 )}
@@ -752,9 +752,9 @@ export default function ProtocolAssembly() {
         <div className="space-y-6">
           {/* IRB Review Comments */}
           {application?.workflowStatus === 'revisions_requested' && application?.reviewComments && (
-            <Card className="border-orange-200 bg-orange-50">
+            <Card className="border-orange-200 bg-orange-50 dark:border-orange-800 dark:bg-orange-950">
               <CardHeader>
-                <CardTitle className="text-lg text-orange-800 flex items-center gap-2">
+                <CardTitle className="text-lg text-orange-800 flex items-center gap-2 dark:text-orange-300">
                   <AlertTriangle className="h-5 w-5" />
                   IRB Review Comments
                 </CardTitle>
@@ -788,17 +788,17 @@ export default function ProtocolAssembly() {
                         dateText = isNaN(date.getTime()) ? 'Recent' : date.toLocaleDateString();
                         
                         return (
-                          <div key={key} className="bg-white p-3 rounded border">
+                          <div key={key} className="bg-white p-3 rounded border dark:bg-card">
                             <div className="flex justify-between items-start mb-2">
-                              <span className="text-sm font-medium text-orange-800">
+                              <span className="text-sm font-medium text-orange-800 dark:text-orange-300">
                                 {actionText}
                               </span>
-                              <span className="text-xs text-gray-500">
+                              <span className="text-xs text-gray-500 dark:text-gray-400">
                                 {dateText}
                               </span>
                             </div>
-                            <p className="text-sm text-gray-700">{displayText}</p>
-                            <div className="mt-2 text-xs text-gray-500 italic">
+                            <p className="text-sm text-gray-700 dark:text-gray-300">{displayText}</p>
+                            <div className="mt-2 text-xs text-gray-500 italic dark:text-gray-400">
                               Protocol is currently in triage stage - formal review has not yet begun
                             </div>
                           </div>
@@ -806,8 +806,8 @@ export default function ProtocolAssembly() {
                       });
                     } catch (error) {
                       return (
-                        <div className="bg-white p-3 rounded border">
-                          <p className="text-sm text-orange-800">Error loading review comments</p>
+                        <div className="bg-white p-3 rounded border dark:bg-card">
+                          <p className="text-sm text-orange-800 dark:text-orange-300">Error loading review comments</p>
                         </div>
                       );
                     }
@@ -865,7 +865,7 @@ export default function ProtocolAssembly() {
                 {documents.filter(doc => doc.required).map((document) => (
                   <div key={document.id} className="flex items-center gap-2">
                     {document.uploaded ? (
-                      <CheckCircle className="h-4 w-4 text-green-600" />
+                      <CheckCircle className="h-4 w-4 text-green-600 dark:text-green-400" />
                     ) : (
                       <AlertCircle className="h-4 w-4 text-orange-500" />
                     )}
@@ -877,7 +877,7 @@ export default function ProtocolAssembly() {
                 
                 <div className="flex items-center gap-2">
                   {isReadyForSubmission() ? (
-                    <CheckCircle className="h-4 w-4 text-green-600" />
+                    <CheckCircle className="h-4 w-4 text-green-600 dark:text-green-400" />
                   ) : (
                     <Clock className="h-4 w-4 text-orange-500" />
                   )}
@@ -902,7 +902,7 @@ export default function ProtocolAssembly() {
                   onChange={(e) => setSubmissionComment(e.target.value)}
                   rows={4}
                 />
-                <p className="text-xs text-gray-500">
+                <p className="text-xs text-gray-500 dark:text-gray-400">
                   This comment will be included with your resubmission to help the IRB office understand your changes.
                 </p>
               </CardContent>

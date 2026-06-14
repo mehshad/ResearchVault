@@ -229,12 +229,12 @@ export default function ResearchActivityDetail() {
               <div>
                 <h2 className="text-xl font-semibold">{activity.title}</h2>
                 <div className="flex items-center gap-2 mt-1">
-                  <Badge variant="outline" className="rounded-sm bg-blue-50 text-blue-700 border-blue-200">{activity.sdrNumber}</Badge>
+                  <Badge variant="outline" className="rounded-sm bg-blue-50 text-blue-700 border-blue-200 dark:bg-blue-950 dark:text-blue-300 dark:border-blue-800">{activity.sdrNumber}</Badge>
                   <Badge className={
-                    activity.status === 'active' ? 'bg-green-100 text-green-800 border-green-200' :
-                    activity.status === 'planning' ? 'bg-blue-100 text-blue-800 border-blue-200' :
-                    activity.status === 'completed' ? 'bg-gray-100 text-gray-800 border-gray-200' :
-                    'bg-yellow-100 text-yellow-800 border-yellow-200'
+                    activity.status === 'active' ? 'bg-green-100 text-green-800 border-green-200 dark:bg-green-950 dark:text-green-300 dark:border-green-800' :
+                    activity.status === 'planning' ? 'bg-blue-100 text-blue-800 border-blue-200 dark:bg-blue-950 dark:text-blue-300 dark:border-blue-800' :
+                    activity.status === 'completed' ? 'bg-gray-100 text-gray-800 border-gray-200 dark:bg-gray-800 dark:text-gray-200 dark:border-gray-700' :
+                    'bg-yellow-100 text-yellow-800 border-yellow-200 dark:bg-yellow-950 dark:text-yellow-300 dark:border-yellow-800'
                   }>
                     {activity.status.charAt(0).toUpperCase() + activity.status.slice(1)}
                   </Badge>
@@ -279,7 +279,7 @@ export default function ResearchActivityDetail() {
                       ) : budgetHolder ? (
                         <span className="text-sm">{formatFullName(budgetHolder)} ({budgetHolder.jobTitle || 'No title'})</span>
                       ) : (
-                        <span className="text-sm text-orange-600">Not assigned</span>
+                        <span className="text-sm text-orange-600 dark:text-orange-400">Not assigned</span>
                       )}
                     </div>
                   </div>
@@ -294,11 +294,11 @@ export default function ResearchActivityDetail() {
                     ) : leadScientist ? (
                       <span className="text-sm">{formatFullName(leadScientist)} ({leadScientist.jobTitle || 'No title'})</span>
                     ) : (
-                      <span className="text-sm text-orange-600 font-medium">
+                      <span className="text-sm text-orange-600 font-medium dark:text-orange-400">
                         Not assigned - 
                         <Button 
                           variant="link" 
-                          className="p-0 h-auto ml-1 text-orange-600 underline"
+                          className="p-0 h-auto ml-1 text-orange-600 underline dark:text-orange-400"
                           onClick={() => navigate(`/research-activities/${activity.id}/team`)}
                         >
                           Add Lead Scientist
@@ -313,7 +313,7 @@ export default function ResearchActivityDetail() {
                     <h3 className="text-sm font-medium text-foreground">Sidra Branch</h3>
                     <div className="flex items-center gap-1">
                       <Beaker className="h-3 w-3" />
-                      <Badge variant="outline" className="rounded-sm bg-purple-50 text-purple-700 border-purple-200">
+                      <Badge variant="outline" className="rounded-sm bg-purple-50 text-purple-700 border-purple-200 dark:bg-purple-950 dark:text-purple-300 dark:border-purple-800">
                         {activity.sidraBranch}
                       </Badge>
                     </div>
@@ -351,7 +351,7 @@ export default function ResearchActivityDetail() {
                     <h3 className="text-sm font-medium text-foreground">Budget Sources</h3>
                     <div className="flex flex-wrap gap-2 mt-1">
                       {activity.budgetSource.map((source, index) => (
-                        <Badge key={index} variant="outline" className="rounded-sm bg-blue-50 text-blue-700 border-blue-200">
+                        <Badge key={index} variant="outline" className="rounded-sm bg-blue-50 text-blue-700 border-blue-200 dark:bg-blue-950 dark:text-blue-300 dark:border-blue-800">
                           {source}
                         </Badge>
                       ))}
@@ -368,7 +368,7 @@ export default function ResearchActivityDetail() {
                         if (!grantCode) return null;
                         return (
                           <div key={index} className="flex items-center space-x-2">
-                            <Badge variant="outline" className="text-xs bg-gray-50">
+                            <Badge variant="outline" className="text-xs bg-gray-50 dark:bg-gray-900">
                               {source}
                             </Badge>
                             <span className="text-sm font-mono">{grantCode}</span>
@@ -412,7 +412,7 @@ export default function ResearchActivityDetail() {
                   >
                     <FileText className="h-4 w-4 mr-2" /> 
                     <span className="flex-1 text-left">Data Management Plan</span>
-                    <Badge variant="outline" className="ml-2 rounded-sm bg-purple-50 text-purple-700 border-purple-200">
+                    <Badge variant="outline" className="ml-2 rounded-sm bg-purple-50 text-purple-700 border-purple-200 dark:bg-purple-950 dark:text-purple-300 dark:border-purple-800">
                       {dmpData[0].dmpNumber}
                     </Badge>
                   </Button>
@@ -424,7 +424,7 @@ export default function ResearchActivityDetail() {
                   >
                     <FileText className="h-4 w-4 mr-2" /> 
                     <span className="flex-1 text-left">Data Management Plan</span>
-                    <Badge variant="outline" className="ml-2 rounded-sm bg-purple-50 text-purple-700 border-purple-200">
+                    <Badge variant="outline" className="ml-2 rounded-sm bg-purple-50 text-purple-700 border-purple-200 dark:bg-purple-950 dark:text-purple-300 dark:border-purple-800">
                       DMP
                     </Badge>
                   </Button>
@@ -432,55 +432,55 @@ export default function ResearchActivityDetail() {
 {teamMembers && teamMembers.length > 0 ? (
                   <Button 
                     variant="outline" 
-                    className="w-full justify-start bg-blue-50 hover:bg-blue-100 border-blue-200" 
+                    className="w-full justify-start bg-blue-50 hover:bg-blue-100 border-blue-200 dark:bg-blue-950 dark:hover:bg-blue-950 dark:border-blue-800" 
                     onClick={() => navigate(`/research-activities/${activity.id}/team`)}
                   >
-                    <Users className="h-4 w-4 mr-2 text-blue-600" /> 
+                    <Users className="h-4 w-4 mr-2 text-blue-600 dark:text-blue-400" /> 
                     <span className="flex-1 text-left font-medium">Project Team</span>
-                    <Badge variant="outline" className="ml-2 rounded-sm bg-blue-100 text-blue-700 border-blue-300">
+                    <Badge variant="outline" className="ml-2 rounded-sm bg-blue-100 text-blue-700 border-blue-300 dark:bg-blue-950 dark:text-blue-300 dark:border-blue-700">
                       {teamMembers.length} member{teamMembers.length !== 1 ? 's' : ''}
                     </Badge>
                   </Button>
                 ) : (
                   <Button 
                     variant="outline" 
-                    className="w-full justify-start bg-orange-50 hover:bg-orange-100 border-orange-200 border-2 border-dashed" 
+                    className="w-full justify-start bg-orange-50 hover:bg-orange-100 border-orange-200 border-2 border-dashed dark:bg-orange-950 dark:hover:bg-orange-950 dark:border-orange-800" 
                     onClick={() => navigate(`/research-activities/${activity.id}/team`)}
                   >
-                    <Users className="h-4 w-4 mr-2 text-orange-600" /> 
-                    <span className="flex-1 text-left font-medium text-orange-700">Project Team - No Members</span>
-                    <Badge variant="outline" className="ml-2 rounded-sm bg-orange-100 text-orange-700 border-orange-300">
+                    <Users className="h-4 w-4 mr-2 text-orange-600 dark:text-orange-400" /> 
+                    <span className="flex-1 text-left font-medium text-orange-700 dark:text-orange-300">Project Team - No Members</span>
+                    <Badge variant="outline" className="ml-2 rounded-sm bg-orange-100 text-orange-700 border-orange-300 dark:bg-orange-950 dark:text-orange-300 dark:border-orange-700">
                       Add Team
                     </Badge>
                   </Button>
                 )}
                 {/* Publications Section */}
                 {publicationsLoading ? (
-                  <div className="border border-gray-200 rounded-lg p-3">
+                  <div className="border border-gray-200 rounded-lg p-3 dark:border-gray-700">
                     <div className="flex items-center gap-2 mb-2">
-                      <FileText className="h-4 w-4 text-green-600" />
+                      <FileText className="h-4 w-4 text-green-600 dark:text-green-400" />
                       <span className="font-medium text-sm">Publications</span>
                       <Skeleton className="h-4 w-8" />
                     </div>
                     <Skeleton className="h-8 w-full" />
                   </div>
                 ) : publications && publications.length > 0 ? (
-                  <div className="border border-gray-200 rounded-lg p-3 space-y-2">
+                  <div className="border border-gray-200 rounded-lg p-3 space-y-2 dark:border-gray-700">
                     <div className="flex items-center gap-2">
-                      <FileText className="h-4 w-4 text-green-600" />
+                      <FileText className="h-4 w-4 text-green-600 dark:text-green-400" />
                       <span className="font-medium text-sm">Publications</span>
-                      <span className="text-xs text-gray-500">({publications.length})</span>
+                      <span className="text-xs text-gray-500 dark:text-gray-400">({publications.length})</span>
                     </div>
                     {publications.map((publication) => (
                       <Button
                         key={publication.id}
                         variant="ghost"
-                        className="w-full justify-start p-2 h-auto text-left hover:bg-green-50"
+                        className="w-full justify-start p-2 h-auto text-left hover:bg-green-50 dark:hover:bg-green-950"
                         onClick={() => navigate(`/publications/${publication.id}`)}
                       >
                         <div className="flex flex-col items-start w-full">
                           <div className="flex items-center justify-between w-full">
-                            <span className="font-medium text-sm text-green-600 truncate max-w-[200px]">
+                            <span className="font-medium text-sm text-green-600 truncate max-w-[200px] dark:text-green-400">
                               {publication.doi || 'No DOI'}
                             </span>
                             <Badge variant="outline" className={`text-xs ${
@@ -493,11 +493,11 @@ export default function ResearchActivityDetail() {
                               {publication.status?.replace('_', ' ') || 'unknown'}
                             </Badge>
                           </div>
-                          <span className="text-xs text-gray-600 truncate w-full">{publication.title}</span>
+                          <span className="text-xs text-gray-600 truncate w-full dark:text-gray-300">{publication.title}</span>
                           <div className="flex items-center gap-2 mt-1">
-                            <span className="text-xs text-gray-500">{publication.journal}</span>
+                            <span className="text-xs text-gray-500 dark:text-gray-400">{publication.journal}</span>
                             {publication.publicationYear && (
-                              <span className="text-xs text-blue-600 font-medium">
+                              <span className="text-xs text-blue-600 font-medium dark:text-blue-400">
                                 {publication.publicationYear}
                               </span>
                             )}
@@ -514,7 +514,7 @@ export default function ResearchActivityDetail() {
                   >
                     <FileText className="h-4 w-4 mr-2" /> 
                     <span className="flex-1 text-left">Publications</span>
-                    <Badge variant="outline" className="ml-2 rounded-sm bg-green-50 text-green-700 border-green-200">
+                    <Badge variant="outline" className="ml-2 rounded-sm bg-green-50 text-green-700 border-green-200 dark:bg-green-950 dark:text-green-300 dark:border-green-800">
                       0
                     </Badge>
                   </Button>
@@ -522,31 +522,31 @@ export default function ResearchActivityDetail() {
                 
                 {/* Linked Grants Section */}
                 {grantsLoading ? (
-                  <div className="border border-gray-200 rounded-lg p-3">
+                  <div className="border border-gray-200 rounded-lg p-3 dark:border-gray-700">
                     <div className="flex items-center gap-2 mb-2">
-                      <DollarSign className="h-4 w-4 text-blue-600" />
+                      <DollarSign className="h-4 w-4 text-blue-600 dark:text-blue-400" />
                       <span className="font-medium text-sm">Linked Grants</span>
                       <Skeleton className="h-4 w-8" />
                     </div>
                     <Skeleton className="h-8 w-full" />
                   </div>
                 ) : linkedGrants && linkedGrants.length > 0 ? (
-                  <div className="border border-gray-200 rounded-lg p-3 space-y-2">
+                  <div className="border border-gray-200 rounded-lg p-3 space-y-2 dark:border-gray-700">
                     <div className="flex items-center gap-2">
-                      <DollarSign className="h-4 w-4 text-blue-600" />
+                      <DollarSign className="h-4 w-4 text-blue-600 dark:text-blue-400" />
                       <span className="font-medium text-sm">Linked Grants</span>
-                      <span className="text-xs text-gray-500">({linkedGrants.length})</span>
+                      <span className="text-xs text-gray-500 dark:text-gray-400">({linkedGrants.length})</span>
                     </div>
                     {linkedGrants.map((grant) => (
                       <Button
                         key={grant.id}
                         variant="ghost"
-                        className="w-full justify-start p-2 h-auto text-left hover:bg-blue-50"
+                        className="w-full justify-start p-2 h-auto text-left hover:bg-blue-50 dark:hover:bg-blue-950"
                         onClick={() => navigate(`/grants/${grant.id}/edit`)}
                       >
                         <div className="flex flex-col items-start w-full">
                           <div className="flex items-center justify-between w-full">
-                            <span className="font-medium text-sm text-blue-600">{grant.projectNumber}</span>
+                            <span className="font-medium text-sm text-blue-600 dark:text-blue-400">{grant.projectNumber}</span>
                             <Badge variant="outline" className={`text-xs ${
                               grant.status === 'active' ? 'bg-green-50 text-green-700 border-green-200' :
                               grant.status === 'completed' ? 'bg-gray-50 text-gray-700 border-gray-200' :
@@ -555,11 +555,11 @@ export default function ResearchActivityDetail() {
                               {grant.status}
                             </Badge>
                           </div>
-                          <span className="text-xs text-gray-600 truncate w-full">{grant.title}</span>
+                          <span className="text-xs text-gray-600 truncate w-full dark:text-gray-300">{grant.title}</span>
                           <div className="flex items-center gap-2 mt-1">
-                            <span className="text-xs text-gray-500">{grant.fundingAgency}</span>
+                            <span className="text-xs text-gray-500 dark:text-gray-400">{grant.fundingAgency}</span>
                             {grant.awardedAmount && (
-                              <span className="text-xs text-green-600 font-medium">
+                              <span className="text-xs text-green-600 font-medium dark:text-green-400">
                                 ${parseFloat(grant.awardedAmount).toLocaleString()}
                               </span>
                             )}
@@ -571,18 +571,18 @@ export default function ResearchActivityDetail() {
                 ) : null}
 
                 {irbApplications && irbApplications.length > 0 && (
-                  <div className="border border-gray-200 rounded-lg p-3 space-y-3">
+                  <div className="border border-gray-200 rounded-lg p-3 space-y-3 dark:border-gray-700">
                     <div className="flex items-center gap-2">
-                      <FileCheck className="h-4 w-4 text-blue-600" />
+                      <FileCheck className="h-4 w-4 text-blue-600 dark:text-blue-400" />
                       <span className="font-medium text-sm">IRB Applications</span>
-                      <span className="text-xs text-gray-500">({irbApplications.length})</span>
+                      <span className="text-xs text-gray-500 dark:text-gray-400">({irbApplications.length})</span>
                     </div>
                     <div className="flex flex-wrap gap-2">
                       {irbApplications.map((irb) => (
                         <Badge 
                           key={irb.id}
                           variant="outline" 
-                          className="cursor-pointer rounded-sm bg-blue-50 text-blue-700 border-blue-200 hover:bg-blue-100 transition-colors"
+                          className="cursor-pointer rounded-sm bg-blue-50 text-blue-700 border-blue-200 hover:bg-blue-100 transition-colors dark:bg-blue-950 dark:text-blue-300 dark:border-blue-800 dark:hover:bg-blue-950"
                           onClick={() => navigate(`/irb-applications/${irb.id}`)}
                         >
                           {irb.irbNumber}
@@ -593,18 +593,18 @@ export default function ResearchActivityDetail() {
                 )}
 
                 {ibcApplications && ibcApplications.length > 0 && (
-                  <div className="border border-gray-200 rounded-lg p-3 space-y-3">
+                  <div className="border border-gray-200 rounded-lg p-3 space-y-3 dark:border-gray-700">
                     <div className="flex items-center gap-2">
-                      <Beaker className="h-4 w-4 text-purple-600" />
+                      <Beaker className="h-4 w-4 text-purple-600 dark:text-purple-400" />
                       <span className="font-medium text-sm">IBC Applications</span>
-                      <span className="text-xs text-gray-500">({ibcApplications.length})</span>
+                      <span className="text-xs text-gray-500 dark:text-gray-400">({ibcApplications.length})</span>
                     </div>
                     <div className="flex flex-wrap gap-2">
                       {ibcApplications.map((ibc) => (
                         <Badge 
                           key={ibc.id}
                           variant="outline" 
-                          className="cursor-pointer rounded-sm bg-purple-50 text-purple-700 border-purple-200 hover:bg-purple-100 transition-colors"
+                          className="cursor-pointer rounded-sm bg-purple-50 text-purple-700 border-purple-200 hover:bg-purple-100 transition-colors dark:bg-purple-950 dark:text-purple-300 dark:border-purple-800 dark:hover:bg-purple-950"
                           onClick={() => navigate(`/ibc-applications/${ibc.id}`)}
                         >
                           {ibc.ibcNumber}

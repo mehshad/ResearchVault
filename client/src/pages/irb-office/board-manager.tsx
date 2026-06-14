@@ -263,7 +263,7 @@ export default function IrbBoardManager() {
                   onChange={(e) => setTermEndDate(e.target.value)}
                   className="mt-1"
                 />
-                <p className="text-xs text-gray-500 mt-1">
+                <p className="text-xs text-gray-500 mt-1 dark:text-gray-400">
                   Default: 3 years from appointment date
                 </p>
               </div>
@@ -311,12 +311,12 @@ export default function IrbBoardManager() {
         <Card>
           <CardContent className="flex items-center p-4">
             <div className="flex items-center gap-3">
-              <div className="h-10 w-10 rounded-full bg-blue-100 flex items-center justify-center">
-                <Users className="h-5 w-5 text-blue-600" />
+              <div className="h-10 w-10 rounded-full bg-blue-100 flex items-center justify-center dark:bg-blue-950">
+                <Users className="h-5 w-5 text-blue-600 dark:text-blue-400" />
               </div>
               <div>
                 <div className="text-2xl font-bold">{boardMembers.filter(m => m.isActive).length}</div>
-                <div className="text-xs text-gray-500">Active Members</div>
+                <div className="text-xs text-gray-500 dark:text-gray-400">Active Members</div>
               </div>
             </div>
           </CardContent>
@@ -325,8 +325,8 @@ export default function IrbBoardManager() {
         <Card>
           <CardContent className="flex items-center p-4">
             <div className="flex items-center gap-3">
-              <div className="h-10 w-10 rounded-full bg-yellow-100 flex items-center justify-center">
-                <Crown className="h-5 w-5 text-yellow-600" />
+              <div className="h-10 w-10 rounded-full bg-yellow-100 flex items-center justify-center dark:bg-yellow-950">
+                <Crown className="h-5 w-5 text-yellow-600 dark:text-yellow-400" />
               </div>
               <div className="flex-1 min-w-0">
                 {(() => {
@@ -334,12 +334,12 @@ export default function IrbBoardManager() {
                   return chair ? (
                     <>
                       <div className="text-sm font-medium truncate">{formatFullName(chair.scientist)}</div>
-                      <div className="text-xs text-gray-500">Chair</div>
+                      <div className="text-xs text-gray-500 dark:text-gray-400">Chair</div>
                     </>
                   ) : (
                     <>
-                      <div className="text-sm font-medium text-gray-400">No Chair</div>
-                      <div className="text-xs text-gray-500">Vacant</div>
+                      <div className="text-sm font-medium text-gray-400 dark:text-gray-500">No Chair</div>
+                      <div className="text-xs text-gray-500 dark:text-gray-400">Vacant</div>
                     </>
                   );
                 })()}
@@ -351,8 +351,8 @@ export default function IrbBoardManager() {
         <Card>
           <CardContent className="flex items-center p-4">
             <div className="flex items-center gap-3">
-              <div className="h-10 w-10 rounded-full bg-purple-100 flex items-center justify-center">
-                <Shield className="h-5 w-5 text-purple-600" />
+              <div className="h-10 w-10 rounded-full bg-purple-100 flex items-center justify-center dark:bg-purple-950">
+                <Shield className="h-5 w-5 text-purple-600 dark:text-purple-400" />
               </div>
               <div className="flex-1 min-w-0">
                 {(() => {
@@ -360,12 +360,12 @@ export default function IrbBoardManager() {
                   return deputy ? (
                     <>
                       <div className="text-sm font-medium truncate">{formatFullName(deputy.scientist)}</div>
-                      <div className="text-xs text-gray-500">Deputy Chair</div>
+                      <div className="text-xs text-gray-500 dark:text-gray-400">Deputy Chair</div>
                     </>
                   ) : (
                     <>
-                      <div className="text-sm font-medium text-gray-400">No Deputy Chair</div>
-                      <div className="text-xs text-gray-500">Vacant</div>
+                      <div className="text-sm font-medium text-gray-400 dark:text-gray-500">No Deputy Chair</div>
+                      <div className="text-xs text-gray-500 dark:text-gray-400">Vacant</div>
                     </>
                   );
                 })()}
@@ -377,12 +377,12 @@ export default function IrbBoardManager() {
         <Card>
           <CardContent className="flex items-center p-4">
             <div className="flex items-center gap-3">
-              <div className="h-10 w-10 rounded-full bg-gray-100 flex items-center justify-center">
-                <UserX className="h-5 w-5 text-gray-600" />
+              <div className="h-10 w-10 rounded-full bg-gray-100 flex items-center justify-center dark:bg-gray-800">
+                <UserX className="h-5 w-5 text-gray-600 dark:text-gray-300" />
               </div>
               <div>
                 <div className="text-2xl font-bold">{boardMembers.filter(m => !m.isActive).length}</div>
-                <div className="text-xs text-gray-500">Inactive</div>
+                <div className="text-xs text-gray-500 dark:text-gray-400">Inactive</div>
               </div>
             </div>
           </CardContent>
@@ -395,7 +395,7 @@ export default function IrbBoardManager() {
           <div className="flex items-center justify-between">
             <CardTitle>IRB Board Members</CardTitle>
             <div className="relative w-64">
-              <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-gray-400" />
+              <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-gray-400 dark:text-gray-500" />
               <Input
                 type="search"
                 placeholder="Search members..."
@@ -423,12 +423,12 @@ export default function IrbBoardManager() {
                 <TableRow key={member.id}>
                   <TableCell>
                     <div className="flex items-center gap-3">
-                      <div className="h-8 w-8 rounded-full bg-blue-100 flex items-center justify-center text-sm font-medium">
+                      <div className="h-8 w-8 rounded-full bg-blue-100 flex items-center justify-center text-sm font-medium dark:bg-blue-950">
                         {member.scientist.profileImageInitials}
                       </div>
                       <div>
                         <div className="font-medium">{formatFullName(member.scientist)}</div>
-                        <div className="text-sm text-gray-500">{member.scientist.email}</div>
+                        <div className="text-sm text-gray-500 dark:text-gray-400">{member.scientist.email}</div>
                       </div>
                     </div>
                   </TableCell>
@@ -471,9 +471,9 @@ export default function IrbBoardManager() {
                       onClick={() => handleToggleActive(member.id, member.isActive)}
                     >
                       {member.isActive ? (
-                        <UserCheck className="h-4 w-4 text-green-600" />
+                        <UserCheck className="h-4 w-4 text-green-600 dark:text-green-400" />
                       ) : (
-                        <UserX className="h-4 w-4 text-gray-400" />
+                        <UserX className="h-4 w-4 text-gray-400 dark:text-gray-500" />
                       )}
                     </Button>
                   </TableCell>
@@ -484,7 +484,7 @@ export default function IrbBoardManager() {
                         size="sm"
                         onClick={() => removeBoardMemberMutation.mutate(member.id)}
                       >
-                        <Trash2 className="h-4 w-4 text-red-600" />
+                        <Trash2 className="h-4 w-4 text-red-600 dark:text-red-400" />
                       </Button>
                     </div>
                   </TableCell>

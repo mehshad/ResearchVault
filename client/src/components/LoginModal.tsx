@@ -90,7 +90,7 @@ export function LoginModal({ open, onOpenChange, onSuccess }: LoginModalProps) {
                     <FormLabel className="text-slate-300">Username</FormLabel>
                     <FormControl>
                       <Input
-                        className="bg-slate-800 border-slate-600 text-white placeholder:text-slate-500"
+                        className="bg-slate-800 border-slate-600 text-white placeholder:text-slate-500 dark:placeholder:text-slate-400"
                         placeholder="Enter your username"
                         autoComplete="username"
                         data-1p-ignore="true"
@@ -111,7 +111,7 @@ export function LoginModal({ open, onOpenChange, onSuccess }: LoginModalProps) {
                     <FormControl>
                       <Input
                         type="password"
-                        className="bg-slate-800 border-slate-600 text-white placeholder:text-slate-500"
+                        className="bg-slate-800 border-slate-600 text-white placeholder:text-slate-500 dark:placeholder:text-slate-400"
                         placeholder="Enter your password"
                         autoComplete="current-password"
                         data-1p-ignore="true"
@@ -136,7 +136,7 @@ export function LoginModal({ open, onOpenChange, onSuccess }: LoginModalProps) {
           </Button>
         )}
 
-        <p className="text-center text-xs text-slate-500">
+        <p className="text-center text-xs text-slate-500 dark:text-slate-400">
           Contact your administrator if you need access
         </p>
       </DialogContent>

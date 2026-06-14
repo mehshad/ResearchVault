@@ -78,8 +78,18 @@ export function serveStatic(app: Express) {
 
   app.use(express.static(distPath));
 
-  // fall through to index.html if the file doesn't exist
+  // Fall through to index.html, injecting runtime config into window globals.
+  const indexPath = path.resolve(distPath, "index.html");
   app.use("*", (_req, res) => {
-    res.sendFile(path.resolve(distPath, "index.html"));
+    const demoPort = process.env.DEMO_PORT || "8080";
+    fs.readFile(indexPath, "utf-8", (err, html) => {
+      if (err) return res.sendFile(indexPath);
+      const injected = html.replace(
+        "<head>",
+        `<head><script>window.__DEMO_PORT__="${demoPort}";</script>`
+      );
+      res.setHeader("Content-Type", "text/html");
+      res.send(injected);
+    });
   });
 }

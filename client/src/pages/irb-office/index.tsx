@@ -59,18 +59,18 @@ export default function IrbOfficePortal() {
 
   const getWorkflowStatusBadge = (status: string, daysSince: number = 0) => {
     const colors = {
-      submitted: daysSince > 14 ? "bg-red-100 text-red-700" : "bg-yellow-100 text-yellow-700",
-      resubmitted: "bg-blue-100 text-blue-700",
-      triage_complete: "bg-cyan-100 text-cyan-700",
-      under_review: daysSince > 21 ? "bg-red-100 text-red-700" : "bg-blue-100 text-blue-700",
-      revisions_requested: "bg-orange-100 text-orange-700",
-      ready_for_pi: "bg-purple-100 text-purple-700",
-      approved: "bg-green-100 text-green-700",
-      rejected: "bg-red-100 text-red-600",
-      closed: "bg-gray-100 text-gray-600"
+      submitted: daysSince > 14 ? "bg-red-100 text-red-700 dark:bg-red-950 dark:text-red-300" : "bg-yellow-100 text-yellow-700 dark:bg-yellow-950 dark:text-yellow-300",
+      resubmitted: "bg-blue-100 text-blue-700 dark:bg-blue-950 dark:text-blue-300",
+      triage_complete: "bg-cyan-100 text-cyan-700 dark:bg-cyan-950 dark:text-cyan-300",
+      under_review: daysSince > 21 ? "bg-red-100 text-red-700 dark:bg-red-950 dark:text-red-300" : "bg-blue-100 text-blue-700 dark:bg-blue-950 dark:text-blue-300",
+      revisions_requested: "bg-orange-100 text-orange-700 dark:bg-orange-950 dark:text-orange-300",
+      ready_for_pi: "bg-purple-100 text-purple-700 dark:bg-purple-950 dark:text-purple-300",
+      approved: "bg-green-100 text-green-700 dark:bg-green-950 dark:text-green-300",
+      rejected: "bg-red-100 text-red-600 dark:bg-red-950 dark:text-red-400",
+      closed: "bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-300"
     };
     
-    return colors[status as keyof typeof colors] || "bg-gray-100 text-gray-600";
+    return colors[status as keyof typeof colors] || "bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-300";
   };
 
   const getPriorityIcon = (daysSince: number, status: string) => {
@@ -177,20 +177,20 @@ export default function IrbOfficePortal() {
           {filteredApps.map((application) => {
             const daysSince = getDaysSince(application.submissionDate);
             return (
-              <TableRow key={application.id} className="hover:bg-gray-50">
+              <TableRow key={application.id} className="hover:bg-gray-50 dark:hover:bg-gray-900">
                 <TableCell>
-                  <Link to={`/irb-office/protocols/${application.id}`} className="font-medium text-blue-600 hover:text-blue-800 hover:underline">
+                  <Link to={`/irb-office/protocols/${application.id}`} className="font-medium text-blue-600 hover:text-blue-800 hover:underline dark:text-blue-400 dark:hover:text-blue-300">
                     {application.title}
                   </Link>
                   {application.researchActivity && (
-                    <div className="text-sm text-gray-500 mt-1">
+                    <div className="text-sm text-gray-500 mt-1 dark:text-gray-400">
                       SDR: {application.researchActivity.sdrNumber}
                     </div>
                   )}
                 </TableCell>
                 <TableCell>
                   <div className="flex items-center">
-                    <FileText className="h-4 w-4 mr-1 text-gray-400" />
+                    <FileText className="h-4 w-4 mr-1 text-gray-400 dark:text-gray-500" />
                     <span>{application.irbNumber || "Pending"}</span>
                   </div>
                 </TableCell>
@@ -203,12 +203,12 @@ export default function IrbOfficePortal() {
                       <span>{application.principalInvestigator.name}</span>
                     </div>
                   ) : (
-                    <span className="text-gray-400">Unassigned</span>
+                    <span className="text-gray-400 dark:text-gray-500">Unassigned</span>
                   )}
                 </TableCell>
                 <TableCell>
                   <div className="flex items-center">
-                    <Calendar className="h-4 w-4 mr-1 text-gray-400" />
+                    <Calendar className="h-4 w-4 mr-1 text-gray-400 dark:text-gray-500" />
                     <span>{formatDate(application.submissionDate)}</span>
                   </div>
                 </TableCell>
@@ -223,7 +223,7 @@ export default function IrbOfficePortal() {
                 <TableCell>
                   <div className="flex items-center gap-2">
                     {getPriorityIcon(daysSince, application.workflowStatus || 'draft')}
-                    <span className="text-sm text-gray-500">{daysSince}d</span>
+                    <span className="text-sm text-gray-500 dark:text-gray-400">{daysSince}d</span>
                   </div>
                 </TableCell>
                 <TableCell>
@@ -235,12 +235,12 @@ export default function IrbOfficePortal() {
                     </Button>
                     {status === 'submitted' && (
                       <Button variant="ghost" size="sm">
-                        <CheckCircle className="h-4 w-4 text-green-600" />
+                        <CheckCircle className="h-4 w-4 text-green-600 dark:text-green-400" />
                       </Button>
                     )}
                     {status === 'ready_for_pi' && (
                       <Button variant="ghost" size="sm">
-                        <Send className="h-4 w-4 text-blue-600" />
+                        <Send className="h-4 w-4 text-blue-600 dark:text-blue-400" />
                       </Button>
                     )}
                   </div>
@@ -250,7 +250,7 @@ export default function IrbOfficePortal() {
           })}
           {filteredApps.length === 0 && (
             <TableRow>
-              <TableCell colSpan={7} className="text-center py-8 text-gray-500">
+              <TableCell colSpan={7} className="text-center py-8 text-gray-500 dark:text-gray-400">
                 No protocols found in this category.
               </TableCell>
             </TableRow>
@@ -288,12 +288,12 @@ export default function IrbOfficePortal() {
         <Card>
           <CardContent className="flex items-center p-4">
             <div className="flex items-center gap-3">
-              <div className="h-10 w-10 rounded-full bg-yellow-100 flex items-center justify-center">
-                <Clock className="h-5 w-5 text-yellow-600" />
+              <div className="h-10 w-10 rounded-full bg-yellow-100 flex items-center justify-center dark:bg-yellow-950">
+                <Clock className="h-5 w-5 text-yellow-600 dark:text-yellow-400" />
               </div>
               <div>
                 <div className="text-2xl font-bold">{tabCounts.new_submissions}</div>
-                <div className="text-xs text-gray-500">New Submissions</div>
+                <div className="text-xs text-gray-500 dark:text-gray-400">New Submissions</div>
               </div>
             </div>
           </CardContent>
@@ -302,12 +302,12 @@ export default function IrbOfficePortal() {
         <Card>
           <CardContent className="flex items-center p-4">
             <div className="flex items-center gap-3">
-              <div className="h-10 w-10 rounded-full bg-blue-100 flex items-center justify-center">
-                <Eye className="h-5 w-5 text-blue-600" />
+              <div className="h-10 w-10 rounded-full bg-blue-100 flex items-center justify-center dark:bg-blue-950">
+                <Eye className="h-5 w-5 text-blue-600 dark:text-blue-400" />
               </div>
               <div>
                 <div className="text-2xl font-bold">{tabCounts.under_review}</div>
-                <div className="text-xs text-gray-500">Under Review</div>
+                <div className="text-xs text-gray-500 dark:text-gray-400">Under Review</div>
               </div>
             </div>
           </CardContent>
@@ -316,12 +316,12 @@ export default function IrbOfficePortal() {
         <Card>
           <CardContent className="flex items-center p-4">
             <div className="flex items-center gap-3">
-              <div className="h-10 w-10 rounded-full bg-purple-100 flex items-center justify-center">
-                <CheckCircle className="h-5 w-5 text-purple-600" />
+              <div className="h-10 w-10 rounded-full bg-purple-100 flex items-center justify-center dark:bg-purple-950">
+                <CheckCircle className="h-5 w-5 text-purple-600 dark:text-purple-400" />
               </div>
               <div>
                 <div className="text-2xl font-bold">{tabCounts.ready_for_decision}</div>
-                <div className="text-xs text-gray-500">Ready for Decision</div>
+                <div className="text-xs text-gray-500 dark:text-gray-400">Ready for Decision</div>
               </div>
             </div>
           </CardContent>
@@ -330,12 +330,12 @@ export default function IrbOfficePortal() {
         <Card>
           <CardContent className="flex items-center p-4">
             <div className="flex items-center gap-3">
-              <div className="h-10 w-10 rounded-full bg-orange-100 flex items-center justify-center">
-                <Send className="h-5 w-5 text-orange-600" />
+              <div className="h-10 w-10 rounded-full bg-orange-100 flex items-center justify-center dark:bg-orange-950">
+                <Send className="h-5 w-5 text-orange-600 dark:text-orange-400" />
               </div>
               <div>
                 <div className="text-2xl font-bold">{tabCounts.with_pi}</div>
-                <div className="text-xs text-gray-500">With PI</div>
+                <div className="text-xs text-gray-500 dark:text-gray-400">With PI</div>
               </div>
             </div>
           </CardContent>
@@ -344,12 +344,12 @@ export default function IrbOfficePortal() {
         <Card>
           <CardContent className="flex items-center p-4">
             <div className="flex items-center gap-3">
-              <div className="h-10 w-10 rounded-full bg-green-100 flex items-center justify-center">
-                <CheckCircle className="h-5 w-5 text-green-600" />
+              <div className="h-10 w-10 rounded-full bg-green-100 flex items-center justify-center dark:bg-green-950">
+                <CheckCircle className="h-5 w-5 text-green-600 dark:text-green-400" />
               </div>
               <div>
                 <div className="text-2xl font-bold">{tabCounts.review}</div>
-                <div className="text-xs text-gray-500">Under Review</div>
+                <div className="text-xs text-gray-500 dark:text-gray-400">Under Review</div>
               </div>
             </div>
           </CardContent>
@@ -358,12 +358,12 @@ export default function IrbOfficePortal() {
         <Card>
           <CardContent className="flex items-center p-4">
             <div className="flex items-center gap-3">
-              <div className="h-10 w-10 rounded-full bg-purple-100 flex items-center justify-center">
-                <Send className="h-5 w-5 text-purple-600" />
+              <div className="h-10 w-10 rounded-full bg-purple-100 flex items-center justify-center dark:bg-purple-950">
+                <Send className="h-5 w-5 text-purple-600 dark:text-purple-400" />
               </div>
               <div>
                 <div className="text-2xl font-bold">{tabCounts.ready_for_pi}</div>
-                <div className="text-xs text-gray-500">Ready for PI</div>
+                <div className="text-xs text-gray-500 dark:text-gray-400">Ready for PI</div>
               </div>
             </div>
           </CardContent>
@@ -372,12 +372,12 @@ export default function IrbOfficePortal() {
         <Card>
           <CardContent className="flex items-center p-4">
             <div className="flex items-center gap-3">
-              <div className="h-10 w-10 rounded-full bg-green-100 flex items-center justify-center">
-                <CheckCircle className="h-5 w-5 text-green-600" />
+              <div className="h-10 w-10 rounded-full bg-green-100 flex items-center justify-center dark:bg-green-950">
+                <CheckCircle className="h-5 w-5 text-green-600 dark:text-green-400" />
               </div>
               <div>
                 <div className="text-2xl font-bold">{tabCounts.approved}</div>
-                <div className="text-xs text-gray-500">Approved</div>
+                <div className="text-xs text-gray-500 dark:text-gray-400">Approved</div>
               </div>
             </div>
           </CardContent>
@@ -386,12 +386,12 @@ export default function IrbOfficePortal() {
         <Card>
           <CardContent className="flex items-center p-4">
             <div className="flex items-center gap-3">
-              <div className="h-10 w-10 rounded-full bg-gray-100 flex items-center justify-center">
-                <XCircle className="h-5 w-5 text-gray-600" />
+              <div className="h-10 w-10 rounded-full bg-gray-100 flex items-center justify-center dark:bg-gray-800">
+                <XCircle className="h-5 w-5 text-gray-600 dark:text-gray-300" />
               </div>
               <div>
                 <div className="text-2xl font-bold">{tabCounts.closed}</div>
-                <div className="text-xs text-gray-500">Closed</div>
+                <div className="text-xs text-gray-500 dark:text-gray-400">Closed</div>
               </div>
             </div>
           </CardContent>
@@ -404,7 +404,7 @@ export default function IrbOfficePortal() {
           <div className="flex items-center justify-between">
             <CardTitle>Protocol Management</CardTitle>
             <div className="relative w-64">
-              <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-gray-400" />
+              <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-gray-400 dark:text-gray-500" />
               <Input
                 type="search"
                 placeholder="Search protocols..."

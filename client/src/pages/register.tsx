@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useLocation } from "wouter";
 import { useMutation } from "@tanstack/react-query";
 import { useAuth } from "@/hooks/useAuth";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -78,10 +79,8 @@ export default function RegisterPage() {
     },
     onSuccess: async () => {
       toast({ title: "Profile created", description: "Welcome to the platform!" });
-      // Hard-navigate so the app re-initialises with the updated session
-      // (avoids a race where RequireAuth still sees needsRegistration:true
-      // before React has committed the refreshUser state update).
-      window.location.replace("/app");
+      await refreshUser();
+      navigate("/app");
     },
     onError: (err: any) => {
       toast({ title: "Registration failed", description: err.message || "Please try again.", variant: "destructive" });

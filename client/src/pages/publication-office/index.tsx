@@ -24,7 +24,8 @@ import { Checkbox } from "@/components/ui/checkbox";
 import * as SliderPrimitive from "@radix-ui/react-slider";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
-import { Pencil, Save, X, Upload, Search, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, ChevronDown, ArrowUpDown, ArrowUp, ArrowDown, Star, Shield, FileText, BarChart3, Download, Calendar, User, BookOpen, Award, TrendingUp } from "lucide-react";
+import { Pencil, Save, X, Upload, Search, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, ChevronDown, ArrowUpDown, ArrowUp, ArrowDown, Star, Shield, FileText, BarChart3, Download, Calendar, User, BookOpen, Award, TrendingUp, CopyCheck } from "lucide-react";
+import { PublicationDuplicates } from "@/components/PublicationDuplicates";
 import { useToast } from "@/hooks/use-toast";
 import { Link, useLocation } from "wouter";
 import { format } from "date-fns";
@@ -392,6 +393,11 @@ export default function PublicationOffice() {
       );
     },
     enabled: activeTab === "ip-vetting"
+  });
+
+  // Count of duplicate publication groups for the Duplicates tab badge.
+  const { data: duplicateCount = { count: 0 } } = useQuery<{ count: number }>({
+    queryKey: ['/api/publications/duplicates/count'],
   });
 
   const { data: newPublications = [], isLoading: newPublicationsLoading } = useQuery<Publication[]>({
@@ -831,7 +837,7 @@ export default function PublicationOffice() {
       </div>
 
       <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">
-        <TabsList className="grid w-full grid-cols-5">
+        <TabsList className="grid w-full grid-cols-6">
           <TabsTrigger value="ip-vetting" className="flex items-center gap-2">
             <Shield className="h-4 w-4" />
             IP Vetting ({publicationsForIP.length})
@@ -839,6 +845,15 @@ export default function PublicationOffice() {
           <TabsTrigger value="new-publications" className="flex items-center gap-2">
             <FileText className="h-4 w-4" />
             New Publications ({newPublications.length})
+          </TabsTrigger>
+          <TabsTrigger value="duplicates" className="flex items-center gap-2" data-testid="tab-duplicates">
+            <CopyCheck className="h-4 w-4" />
+            Duplicates
+            {duplicateCount.count > 0 && (
+              <Badge variant="destructive" className="ml-1" data-testid="badge-duplicate-count">
+                {duplicateCount.count}
+              </Badge>
+            )}
           </TabsTrigger>
           <TabsTrigger value="export" className="flex items-center gap-2">
             <Download className="h-4 w-4" />
@@ -877,12 +892,12 @@ export default function PublicationOffice() {
                       <div className="flex items-start justify-between">
                         <div className="flex-1">
                           <Link href={`/publications/${pub.id}`}>
-                            <h3 className="font-semibold text-blue-600 hover:text-blue-800 cursor-pointer">
+                            <h3 className="font-semibold text-blue-600 hover:text-blue-800 cursor-pointer dark:text-blue-400 dark:hover:text-blue-300">
                               {pub.title}
                             </h3>
                           </Link>
-                          <p className="text-sm text-gray-600 mt-1">{pub.authors}</p>
-                          <p className="text-sm text-gray-500">
+                          <p className="text-sm text-gray-600 mt-1 dark:text-gray-300">{pub.authors}</p>
+                          <p className="text-sm text-gray-500 dark:text-gray-400">
                             {pub.journal} • {pub.publicationDate ? format(new Date(pub.publicationDate), 'yyyy') : 'No date'}
                           </p>
                         </div>
@@ -928,12 +943,12 @@ export default function PublicationOffice() {
                       <div className="flex items-start justify-between">
                         <div className="flex-1">
                           <Link href={`/publications/${pub.id}`}>
-                            <h3 className="font-semibold text-blue-600 hover:text-blue-800 cursor-pointer">
+                            <h3 className="font-semibold text-blue-600 hover:text-blue-800 cursor-pointer dark:text-blue-400 dark:hover:text-blue-300">
                               {pub.title}
                             </h3>
                           </Link>
-                          <p className="text-sm text-gray-600 mt-1">{pub.authors}</p>
-                          <p className="text-sm text-gray-500">
+                          <p className="text-sm text-gray-600 mt-1 dark:text-gray-300">{pub.authors}</p>
+                          <p className="text-sm text-gray-500 dark:text-gray-400">
                             {pub.journal} • {pub.publicationDate ? format(new Date(pub.publicationDate), 'yyyy') : 'No date'}
                           </p>
                         </div>
@@ -971,6 +986,21 @@ export default function PublicationOffice() {
           </Card>
         </TabsContent>
 
+        {/* Duplicates Tab */}
+        <TabsContent value="duplicates" className="space-y-6">
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <CopyCheck className="h-5 w-5" />
+                Duplicate Publications
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <PublicationDuplicates />
+            </CardContent>
+          </Card>
+        </TabsContent>
+
         {/* Export Tab */}
         <TabsContent value="export" className="space-y-6">
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
@@ -988,7 +1018,7 @@ export default function PublicationOffice() {
                     <Label>Date Range</Label>
                     <div className="grid grid-cols-2 gap-2">
                       <div>
-                        <Label className="text-xs text-gray-500">Start Date</Label>
+                        <Label className="text-xs text-gray-500 dark:text-gray-400">Start Date</Label>
                         <Input
                           type="date"
                           value={exportStartDate}
@@ -996,7 +1026,7 @@ export default function PublicationOffice() {
                         />
                       </div>
                       <div>
-                        <Label className="text-xs text-gray-500">End Date</Label>
+                        <Label className="text-xs text-gray-500 dark:text-gray-400">End Date</Label>
                         <Input
                           type="date"
                           value={exportEndDate}
@@ -1117,16 +1147,16 @@ export default function PublicationOffice() {
                     </div>
                     
                     {exportResults && (
-                      <div className="bg-blue-50 p-3 rounded-lg">
-                        <p className="text-sm text-blue-800 font-medium">
+                      <div className="bg-blue-50 p-3 rounded-lg dark:bg-blue-950">
+                        <p className="text-sm text-blue-800 font-medium dark:text-blue-300">
                           Found {exportResults.count} publication{exportResults.count !== 1 ? 's' : ''}
                         </p>
                       </div>
                     )}
 
-                    <div className="border rounded-lg p-4 min-h-[400px] bg-gray-50">
+                    <div className="border rounded-lg p-4 min-h-[400px] bg-gray-50 dark:bg-gray-900">
                       <Textarea
-                        className="w-full h-96 font-mono text-sm bg-white"
+                        className="w-full h-96 font-mono text-sm bg-white dark:bg-card"
                         placeholder="Filtered publication results will appear here in copy-paste ready format..."
                         value={exportResults?.formattedText || ""}
                         readOnly
@@ -1178,7 +1208,7 @@ export default function PublicationOffice() {
                         <SelectItem value="latest">Latest available</SelectItem>
                       </SelectContent>
                     </Select>
-                    <p className="text-xs text-gray-500">
+                    <p className="text-xs text-gray-500 dark:text-gray-400">
                       {impactFactorYear === "prior" && "Uses impact factor from year before publication (what authors saw when selecting journal)"}
                       {impactFactorYear === "publication" && "Uses impact factor from the same year as publication"}
                       {impactFactorYear === "latest" && "Uses the most recent impact factor available for the journal"}
@@ -1189,7 +1219,7 @@ export default function PublicationOffice() {
                     <Label>Authorship Multipliers</Label>
                     
                     <div className="space-y-2">
-                      <Label className="text-sm text-gray-600">First Author</Label>
+                      <Label className="text-sm text-gray-600 dark:text-gray-300">First Author</Label>
                       <Input
                         type="number"
                         step="0.1"
@@ -1200,7 +1230,7 @@ export default function PublicationOffice() {
                     </div>
 
                     <div className="space-y-2">
-                      <Label className="text-sm text-gray-600">Last Author</Label>
+                      <Label className="text-sm text-gray-600 dark:text-gray-300">Last Author</Label>
                       <Input
                         type="number"
                         step="0.1"
@@ -1211,7 +1241,7 @@ export default function PublicationOffice() {
                     </div>
 
                     <div className="space-y-2">
-                      <Label className="text-sm text-gray-600">Senior Author</Label>
+                      <Label className="text-sm text-gray-600 dark:text-gray-300">Senior Author</Label>
                       <Input
                         type="number"
                         step="0.1"
@@ -1222,7 +1252,7 @@ export default function PublicationOffice() {
                     </div>
 
                     <div className="space-y-2">
-                      <Label className="text-sm text-gray-600">Corresponding Author</Label>
+                      <Label className="text-sm text-gray-600 dark:text-gray-300">Corresponding Author</Label>
                       <Input
                         type="number"
                         step="0.1"
@@ -1254,15 +1284,15 @@ export default function PublicationOffice() {
                     <TrendingUp className="h-5 w-5" />
                     Scientist Rankings
                   </CardTitle>
-                  <p className="text-sm text-gray-600">
+                  <p className="text-sm text-gray-600 dark:text-gray-300">
                     Based on publication impact factors from the last {sidraYears} years
                   </p>
                 </CardHeader>
                 <CardContent>
                   <div className="space-y-4">
-                    <div className="bg-blue-50 p-4 rounded-lg">
-                      <h4 className="font-medium text-blue-900 mb-2">Calculation Formula</h4>
-                      <p className="text-sm text-blue-800">
+                    <div className="bg-blue-50 p-4 rounded-lg dark:bg-blue-950">
+                      <h4 className="font-medium text-blue-900 mb-2 dark:text-blue-200">Calculation Formula</h4>
+                      <p className="text-sm text-blue-800 dark:text-blue-300">
                         Sum of journal impact factors for publications in the last {sidraYears} years, 
                         using {impactFactorYear === "prior" ? "year prior" : impactFactorYear === "publication" ? "publication year" : "latest available"} impact factors.
                         Multipliers: First Author (×{firstAuthorMultiplier}), 
@@ -1301,7 +1331,7 @@ export default function PublicationOffice() {
                             ))
                           ) : sidraRankings.length === 0 ? (
                             <TableRow>
-                              <TableCell colSpan={5} className="text-center py-8 text-gray-500" data-testid="text-sidra-rankings-empty">
+                              <TableCell colSpan={5} className="text-center py-8 text-gray-500 dark:text-gray-400" data-testid="text-sidra-rankings-empty">
                                 Click "Calculate Scores" to generate rankings
                               </TableCell>
                             </TableRow>
@@ -1309,24 +1339,24 @@ export default function PublicationOffice() {
                             sidraRankings.map((scientist, index) => (
                               <TableRow 
                                 key={scientist.id}
-                                className="cursor-pointer hover:bg-gray-50"
+                                className="cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-900"
                                 onClick={() => openCalculationDetails(scientist)}
                               >
                                 <TableCell className="font-medium">
                                   {index + 1}
-                                  {index === 0 && <Badge className="ml-2 bg-yellow-100 text-yellow-800">🥇</Badge>}
-                                  {index === 1 && <Badge className="ml-2 bg-gray-100 text-gray-800">🥈</Badge>}
-                                  {index === 2 && <Badge className="ml-2 bg-orange-100 text-orange-800">🥉</Badge>}
+                                  {index === 0 && <Badge className="ml-2 bg-yellow-100 text-yellow-800 dark:bg-yellow-950 dark:text-yellow-300">🥇</Badge>}
+                                  {index === 1 && <Badge className="ml-2 bg-gray-100 text-gray-800 dark:bg-gray-800 dark:text-gray-200">🥈</Badge>}
+                                  {index === 2 && <Badge className="ml-2 bg-orange-100 text-orange-800 dark:bg-orange-950 dark:text-orange-300">🥉</Badge>}
                                 </TableCell>
                                 <TableCell>
                                   <div>
                                     <div className="font-medium">
                                       {scientist.honorificTitle} {scientist.firstName} {scientist.lastName}
                                     </div>
-                                    <div className="text-sm text-gray-500">{scientist.jobTitle}</div>
+                                    <div className="text-sm text-gray-500 dark:text-gray-400">{scientist.jobTitle}</div>
                                   </div>
                                 </TableCell>
-                                <TableCell className="text-sm text-gray-600">
+                                <TableCell className="text-sm text-gray-600 dark:text-gray-300">
                                   {scientist.department}
                                 </TableCell>
                                 <TableCell className="text-right">
@@ -1337,7 +1367,7 @@ export default function PublicationOffice() {
                                     <TooltipProvider>
                                       <Tooltip>
                                         <TooltipTrigger asChild>
-                                          <div className="font-medium text-lg text-red-600 cursor-help">
+                                          <div className="font-medium text-lg text-red-600 cursor-help dark:text-red-400">
                                             {scientist.sidraScore.toFixed(2)}
                                           </div>
                                         </TooltipTrigger>
@@ -1752,7 +1782,7 @@ export default function PublicationOffice() {
                           className="w-24"
                         />
                       ) : (
-                        <span className="font-semibold text-blue-600">{factor.impactFactor}</span>
+                        <span className="font-semibold text-blue-600 dark:text-blue-400">{factor.impactFactor}</span>
                       )}
                     </TableCell>
                     <TableCell>{factor.fiveYearJif}</TableCell>
@@ -1931,19 +1961,19 @@ export default function PublicationOffice() {
                 <CardContent>
                   <div className="grid grid-cols-2 gap-4">
                     <div>
-                      <p className="text-sm text-gray-600">Total Publications</p>
+                      <p className="text-sm text-gray-600 dark:text-gray-300">Total Publications</p>
                       <p className="text-lg font-semibold">{selectedScientistDetails.publicationsCount}</p>
                     </div>
                     <div>
-                      <p className="text-sm text-gray-600">Total Sidra Score</p>
-                      <p className="text-lg font-semibold text-blue-600">{selectedScientistDetails.sidraScore.toFixed(2)}</p>
+                      <p className="text-sm text-gray-600 dark:text-gray-300">Total Sidra Score</p>
+                      <p className="text-lg font-semibold text-blue-600 dark:text-blue-400">{selectedScientistDetails.sidraScore.toFixed(2)}</p>
                     </div>
                     <div>
-                      <p className="text-sm text-gray-600">Department</p>
+                      <p className="text-sm text-gray-600 dark:text-gray-300">Department</p>
                       <p className="font-medium">{selectedScientistDetails.department}</p>
                     </div>
                     <div>
-                      <p className="text-sm text-gray-600">Job Title</p>
+                      <p className="text-sm text-gray-600 dark:text-gray-300">Job Title</p>
                       <p className="font-medium">{selectedScientistDetails.jobTitle}</p>
                     </div>
                   </div>
@@ -1961,35 +1991,35 @@ export default function PublicationOffice() {
                       <div key={index} className="border rounded-lg p-4">
                         <div className="mb-2">
                           <h4 className="font-medium text-sm">{pub.title}</h4>
-                          <p className="text-xs text-gray-600 mt-1">
+                          <p className="text-xs text-gray-600 mt-1 dark:text-gray-300">
                             {pub.journal} • {pub.publicationDate ? format(new Date(pub.publicationDate), 'yyyy') : 'Unknown Year'}
                           </p>
                         </div>
                         <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
                           <div>
-                            <span className="text-gray-600">Impact Factor:</span>
+                            <span className="text-gray-600 dark:text-gray-300">Impact Factor:</span>
                             <p className="font-medium">
                               {pub.impactFactor}{' '}
                               {pub.usedFallback ? (
-                                <span className="text-orange-600">
+                                <span className="text-orange-600 dark:text-orange-400">
                                   ({pub.actualYear} - fallback from {pub.targetYear})
                                 </span>
                               ) : (
-                                <span className="text-gray-500">({pub.actualYear})</span>
+                                <span className="text-gray-500 dark:text-gray-400">({pub.actualYear})</span>
                               )}
                             </p>
                           </div>
                           <div>
-                            <span className="text-gray-600">Authorship:</span>
+                            <span className="text-gray-600 dark:text-gray-300">Authorship:</span>
                             <p className="font-medium">{pub.authorshipTypes.join(', ')}</p>
                           </div>
                           <div>
-                            <span className="text-gray-600">Multiplier:</span>
+                            <span className="text-gray-600 dark:text-gray-300">Multiplier:</span>
                             <p className="font-medium">×{pub.multiplier} ({pub.appliedMultipliers.join(', ') || 'Base'})</p>
                           </div>
                           <div>
-                            <span className="text-gray-600">Contribution:</span>
-                            <p className="font-semibold text-blue-600">{pub.publicationScore.toFixed(2)}</p>
+                            <span className="text-gray-600 dark:text-gray-300">Contribution:</span>
+                            <p className="font-semibold text-blue-600 dark:text-blue-400">{pub.publicationScore.toFixed(2)}</p>
                           </div>
                         </div>
                       </div>
@@ -2002,15 +2032,15 @@ export default function PublicationOffice() {
               {selectedScientistDetails.missingImpactFactorPublications.length > 0 && (
                 <Card>
                   <CardHeader>
-                    <CardTitle className="text-lg text-red-600">Publications Without Impact Factor Data</CardTitle>
+                    <CardTitle className="text-lg text-red-600 dark:text-red-400">Publications Without Impact Factor Data</CardTitle>
                   </CardHeader>
                   <CardContent>
-                    <div className="text-sm text-gray-600 mb-2">
+                    <div className="text-sm text-gray-600 mb-2 dark:text-gray-300">
                       These publications were not included in the score calculation:
                     </div>
                     <ul className="space-y-2">
                       {selectedScientistDetails.missingImpactFactorPublications.map((title, index) => (
-                        <li key={index} className="text-sm p-2 bg-red-50 rounded border-l-4 border-red-200">
+                        <li key={index} className="text-sm p-2 bg-red-50 rounded border-l-4 border-red-200 dark:bg-red-950 dark:border-red-800">
                           {title}
                         </li>
                       ))}

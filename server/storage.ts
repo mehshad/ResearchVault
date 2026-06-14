@@ -2,6 +2,7 @@
 // Most errors here stem from untyped `useQuery` results (data inferred as `unknown`), drifted shared/schema field renames, and form values typed as `unknown`. They are not known runtime bugs but should be fixed file-by-file as each is next touched: remove this directive, run `npx tsc --noEmit`, and resolve what surfaces.
 import {
   users, User, InsertUser,
+  ownershipOverrides, OwnershipOverride, InsertOwnershipOverride,
   scientists, Scientist, InsertScientist,
   programs, Program, InsertProgram,
   projects, Project, InsertProject,
@@ -102,6 +103,7 @@ export interface IStorage {
   createPublication(publication: InsertPublication): Promise<Publication>;
   updatePublication(id: number, publication: Partial<InsertPublication>): Promise<Publication | undefined>;
   deletePublication(id: number): Promise<boolean>;
+  mergePublications(survivorId: number, mergeIds: number[], overrides: Partial<InsertPublication>, changedBy: number): Promise<Publication | undefined>;
   
   // Manuscript History
   getManuscriptHistory(publicationId: number): Promise<ManuscriptHistory[]>;
@@ -307,6 +309,12 @@ export interface IStorage {
   createTeamMember(member: InsertTeamMember): Promise<TeamMember>;
   updateTeamMember(id: number, member: Partial<InsertTeamMember>): Promise<TeamMember | undefined>;
   deleteTeamMember(id: number): Promise<boolean>;
+
+  // Ownership overrides
+  getOwnershipOverrides(): Promise<OwnershipOverride[]>;
+  getOwnershipOverridesForModule(module: string): Promise<OwnershipOverride[]>;
+  upsertOwnershipOverride(module: string, relationship: string, grantedAccess: string, description?: string): Promise<OwnershipOverride>;
+  deleteOwnershipOverride(id: number): Promise<boolean>;
 }
 
 export class MemStorage implements IStorage {

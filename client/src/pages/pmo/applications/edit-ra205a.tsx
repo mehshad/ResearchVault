@@ -302,7 +302,7 @@ export default function EditRA205AApplication() {
           </Button>
           
           <div className="flex items-center gap-3">
-            <FileText className="h-8 w-8 text-orange-600" />
+            <FileText className="h-8 w-8 text-orange-600 dark:text-orange-400" />
             <div>
               <h1 className="text-3xl font-bold">Edit RA-205A Application</h1>
               <p className="text-muted-foreground mt-1">Research Activity Change Request Form - {application.applicationId}</p>
@@ -365,7 +365,7 @@ export default function EditRA205AApplication() {
                             <FormItem>
                               <FormLabel className="text-sm">SDR Number</FormLabel>
                               <FormControl>
-                                <Input {...field} readOnly className="bg-gray-50 h-8 text-sm" />
+                                <Input {...field} readOnly className="bg-gray-50 h-8 text-sm dark:bg-gray-900" />
                               </FormControl>
                             </FormItem>
                           )}
@@ -377,7 +377,7 @@ export default function EditRA205AApplication() {
                             <FormItem>
                               <FormLabel className="text-sm">Type</FormLabel>
                               <FormControl>
-                                <Input {...field} readOnly className="bg-gray-50 h-8 text-sm" />
+                                <Input {...field} readOnly className="bg-gray-50 h-8 text-sm dark:bg-gray-900" />
                               </FormControl>
                             </FormItem>
                           )}
@@ -394,7 +394,7 @@ export default function EditRA205AApplication() {
                                   <Input 
                                     value={selectedProject ? `${selectedProject.projectId} - ${selectedProject.title}` : ''} 
                                     readOnly 
-                                    className="bg-gray-50 h-8 text-sm" 
+                                    className="bg-gray-50 h-8 text-sm dark:bg-gray-900" 
                                   />
                                 </FormControl>
                               </FormItem>
@@ -408,7 +408,7 @@ export default function EditRA205AApplication() {
                             <FormItem className="md:col-span-2">
                               <FormLabel className="text-sm">Current Title</FormLabel>
                               <FormControl>
-                                <Input {...field} readOnly className="bg-gray-50 h-8 text-sm" />
+                                <Input {...field} readOnly className="bg-gray-50 h-8 text-sm dark:bg-gray-900" />
                               </FormControl>
                             </FormItem>
                           )}
@@ -417,8 +417,8 @@ export default function EditRA205AApplication() {
                     )}
 
                     
-                    <div className="mt-4 p-4 bg-blue-50 rounded-lg">
-                      <p className="text-sm text-blue-800">
+                    <div className="mt-4 p-4 bg-blue-50 rounded-lg dark:bg-blue-950">
+                      <p className="text-sm text-blue-800 dark:text-blue-300">
                         <strong>Date:</strong> {new Date().toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: 'numeric' })}
                       </p>
                     </div>
@@ -876,17 +876,17 @@ export default function EditRA205AApplication() {
             <Card>
               <CardHeader>
                 <CardTitle className="flex items-center gap-2 text-lg">
-                  <CheckCircle2 className="h-5 w-5 text-green-600" />
+                  <CheckCircle2 className="h-5 w-5 text-green-600 dark:text-green-400" />
                   Certification Requirements
                 </CardTitle>
               </CardHeader>
               <CardContent className="space-y-4 max-h-[60vh] overflow-y-auto">
                 
                 {/* PI Certification Responsibilities */}
-                <div className="p-3 bg-blue-50 rounded-lg border border-blue-200">
-                  <h4 className="font-medium text-blue-900 mb-2">PI Certification Responsibilities</h4>
-                  <p className="text-xs text-blue-800 mb-2">In signing below, the new/transferred PI and/or current PI certifies to:</p>
-                  <ul className="space-y-1 text-xs text-blue-700">
+                <div className="p-3 bg-blue-50 rounded-lg border border-blue-200 dark:bg-blue-950 dark:border-blue-800">
+                  <h4 className="font-medium text-blue-900 mb-2 dark:text-blue-200">PI Certification Responsibilities</h4>
+                  <p className="text-xs text-blue-800 mb-2 dark:text-blue-300">In signing below, the new/transferred PI and/or current PI certifies to:</p>
+                  <ul className="space-y-1 text-xs text-blue-700 dark:text-blue-300">
                     <li>• Accept all responsibilities/know-how for the scientific conduct of the project</li>
                     <li>• Account for sound know-how of the project's updates/documents/papers/etc.</li>
                     <li>• Adhere to all biosafety requirements/responsibilities for research in the labs</li>
@@ -896,9 +896,9 @@ export default function EditRA205AApplication() {
                 </div>
 
                 {/* Research Labs Certification */}
-                <div className="p-3 bg-purple-50 rounded-lg border border-purple-200">
-                  <h4 className="font-medium text-purple-900 mb-2">Research Labs Manager</h4>
-                  <ul className="space-y-1 text-xs text-purple-700">
+                <div className="p-3 bg-purple-50 rounded-lg border border-purple-200 dark:bg-purple-950 dark:border-purple-800">
+                  <h4 className="font-medium text-purple-900 mb-2 dark:text-purple-200">Research Labs Manager</h4>
+                  <ul className="space-y-1 text-xs text-purple-700 dark:text-purple-300">
                     <li>• Leaving person has returned all lab notebooks</li>
                     <li>• Samples have been acknowledged by the receiver</li>
                     <li>• Fridges/freezers are emptied</li>
@@ -907,39 +907,39 @@ export default function EditRA205AApplication() {
 
                 {/* Other stakeholder certifications - condensed for space */}
                 <div className="space-y-2">
-                  <div className="p-2 bg-green-50 rounded border border-green-200">
-                    <h5 className="font-medium text-green-900 text-xs">Biosafety Officer</h5>
-                    <p className="text-xs text-green-700">New/transferred PI informed about biosafety responsibilities</p>
+                  <div className="p-2 bg-green-50 rounded border border-green-200 dark:bg-green-950 dark:border-green-800">
+                    <h5 className="font-medium text-green-900 text-xs dark:text-green-200">Biosafety Officer</h5>
+                    <p className="text-xs text-green-700 dark:text-green-300">New/transferred PI informed about biosafety responsibilities</p>
                   </div>
                   
-                  <div className="p-2 bg-orange-50 rounded border border-orange-200">
-                    <h5 className="font-medium text-orange-900 text-xs">Finance & Procurement</h5>
-                    <p className="text-xs text-orange-700">Stock identification and RA-206 acknowledgment</p>
+                  <div className="p-2 bg-orange-50 rounded border border-orange-200 dark:bg-orange-950 dark:border-orange-800">
+                    <h5 className="font-medium text-orange-900 text-xs dark:text-orange-200">Finance & Procurement</h5>
+                    <p className="text-xs text-orange-700 dark:text-orange-300">Stock identification and RA-206 acknowledgment</p>
                   </div>
                   
-                  <div className="p-2 bg-indigo-50 rounded border border-indigo-200">
-                    <h5 className="font-medium text-indigo-900 text-xs">Research Grants Manager</h5>
-                    <p className="text-xs text-indigo-700">Grant information transferred and acknowledged</p>
+                  <div className="p-2 bg-indigo-50 rounded border border-indigo-200 dark:bg-indigo-950 dark:border-indigo-800">
+                    <h5 className="font-medium text-indigo-900 text-xs dark:text-indigo-200">Research Grants Manager</h5>
+                    <p className="text-xs text-indigo-700 dark:text-indigo-300">Grant information transferred and acknowledged</p>
                   </div>
                   
-                  <div className="p-2 bg-red-50 rounded border border-red-200">
-                    <h5 className="font-medium text-red-900 text-xs">Research Contract Specialist</h5>
-                    <p className="text-xs text-red-700">Legal contracts and IP materials transferred</p>
+                  <div className="p-2 bg-red-50 rounded border border-red-200 dark:bg-red-950 dark:border-red-800">
+                    <h5 className="font-medium text-red-900 text-xs dark:text-red-200">Research Contract Specialist</h5>
+                    <p className="text-xs text-red-700 dark:text-red-300">Legal contracts and IP materials transferred</p>
                   </div>
                   
-                  <div className="p-2 bg-yellow-50 rounded border border-yellow-200">
-                    <h5 className="font-medium text-yellow-900 text-xs">Research Governance Manager</h5>
-                    <p className="text-xs text-yellow-700">Timely transfer and record retention compliance</p>
+                  <div className="p-2 bg-yellow-50 rounded border border-yellow-200 dark:bg-yellow-950 dark:border-yellow-800">
+                    <h5 className="font-medium text-yellow-900 text-xs dark:text-yellow-200">Research Governance Manager</h5>
+                    <p className="text-xs text-yellow-700 dark:text-yellow-300">Timely transfer and record retention compliance</p>
                   </div>
                   
-                  <div className="p-2 bg-teal-50 rounded border border-teal-200">
-                    <h5 className="font-medium text-teal-900 text-xs">Research Data Management Manager</h5>
-                    <p className="text-xs text-teal-700">Data transferred and R004 form obtained</p>
+                  <div className="p-2 bg-teal-50 rounded border border-teal-200 dark:bg-teal-950 dark:border-teal-800">
+                    <h5 className="font-medium text-teal-900 text-xs dark:text-teal-200">Research Data Management Manager</h5>
+                    <p className="text-xs text-teal-700 dark:text-teal-300">Data transferred and R004 form obtained</p>
                   </div>
                   
-                  <div className="p-2 bg-gray-50 rounded border border-gray-200">
-                    <h5 className="font-medium text-gray-900 text-xs">PMO (All changes)</h5>
-                    <p className="text-xs text-gray-700">Stakeholders informed and database updated</p>
+                  <div className="p-2 bg-gray-50 rounded border border-gray-200 dark:bg-gray-900 dark:border-gray-700">
+                    <h5 className="font-medium text-gray-900 text-xs dark:text-gray-100">PMO (All changes)</h5>
+                    <p className="text-xs text-gray-700 dark:text-gray-300">Stakeholders informed and database updated</p>
                   </div>
                 </div>
 
@@ -958,7 +958,7 @@ export default function EditRA205AApplication() {
                 <div className="space-y-3">
                   {application.reviewHistory && application.reviewHistory.length > 0 ? (
                     application.reviewHistory.map((entry: any, index: number) => (
-                      <div key={index} className="border-l-4 border-orange-200 pl-4 pb-3">
+                      <div key={index} className="border-l-4 border-orange-200 pl-4 pb-3 dark:border-orange-800">
                         <div className="flex justify-between items-start">
                           <div>
                             <p className="font-medium text-sm">{entry.action}</p>
@@ -996,7 +996,7 @@ export default function EditRA205AApplication() {
                     <div className="space-y-2">
                       {application.officeComments && application.officeComments.length > 0 ? (
                         application.officeComments.map((comment: any, index: number) => (
-                          <div key={index} className="bg-red-50 p-3 rounded border-l-4 border-red-200">
+                          <div key={index} className="bg-red-50 p-3 rounded border-l-4 border-red-200 dark:bg-red-950 dark:border-red-800">
                             <div className="flex justify-between items-start mb-1">
                               <span className="font-medium text-sm">{comment.user}</span>
                               <span className="text-xs text-muted-foreground">
@@ -1005,7 +1005,7 @@ export default function EditRA205AApplication() {
                             </div>
                             <p className="text-sm">{comment.comment}</p>
                             {comment.action && (
-                              <span className="text-xs text-red-600 font-medium">Action: {comment.action}</span>
+                              <span className="text-xs text-red-600 font-medium dark:text-red-400">Action: {comment.action}</span>
                             )}
                           </div>
                         ))
@@ -1021,7 +1021,7 @@ export default function EditRA205AApplication() {
                     <div className="space-y-2">
                       {application.piComments && application.piComments.length > 0 ? (
                         application.piComments.map((comment: any, index: number) => (
-                          <div key={index} className="bg-blue-50 p-3 rounded border-l-4 border-blue-200">
+                          <div key={index} className="bg-blue-50 p-3 rounded border-l-4 border-blue-200 dark:bg-blue-950 dark:border-blue-800">
                             <div className="flex justify-between items-start mb-1">
                               <span className="font-medium text-sm">{comment.user}</span>
                               <span className="text-xs text-muted-foreground">

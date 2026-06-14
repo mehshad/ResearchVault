@@ -33,7 +33,7 @@ import { formatFullName } from "@/utils/nameUtils";
 // Helper function to get certification color based on expiry date
 function getCertificationColor(expiryDate: string | null): string {
   if (!expiryDate) {
-    return "bg-gray-100 text-gray-600";
+    return "bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-300";
   }
 
   const today = new Date();
@@ -41,11 +41,11 @@ function getCertificationColor(expiryDate: string | null): string {
   const daysUntilExpiry = differenceInDays(expiry, today);
 
   if (daysUntilExpiry < 0) {
-    return "bg-red-100 text-red-800";
+    return "bg-red-100 text-red-800 dark:bg-red-950 dark:text-red-300";
   } else if (daysUntilExpiry <= 30) {
-    return "bg-orange-100 text-orange-800";
+    return "bg-orange-100 text-orange-800 dark:bg-orange-950 dark:text-orange-300";
   } else {
-    return "bg-green-100 text-green-800";
+    return "bg-green-100 text-green-800 dark:bg-green-950 dark:text-green-300";
   }
 }
 
@@ -204,13 +204,13 @@ function buildDataBlock(data: any): React.ReactNode | null {
       )}
       {rows.map(([l, v]) => (
         <div key={l} className="text-sm">
-          <span className="text-xs font-medium text-gray-500">{l}: </span>
+          <span className="text-xs font-medium text-gray-500 dark:text-gray-400">{l}: </span>
           <span className="whitespace-pre-wrap">{v}</span>
         </div>
       ))}
       {nested.map(([l, child], idx) => (
-        <div key={`${l}-${idx}`} className="pl-3 border-l-2 border-gray-100">
-          <p className="text-xs font-semibold text-gray-600 mb-1">{l}</p>
+        <div key={`${l}-${idx}`} className="pl-3 border-l-2 border-gray-100 dark:border-gray-800">
+          <p className="text-xs font-semibold text-gray-600 mb-1 dark:text-gray-300">{l}</p>
           {child}
         </div>
       ))}
@@ -224,7 +224,7 @@ function Field({ label, value }: { label: string; value: any }) {
   const display = Array.isArray(value) ? value.join(", ") : String(value);
   return (
     <div>
-      <p className="text-xs font-medium text-gray-500">{label}</p>
+      <p className="text-xs font-medium text-gray-500 dark:text-gray-400">{label}</p>
       <p className="text-sm whitespace-pre-wrap">{display}</p>
     </div>
   );
@@ -236,7 +236,7 @@ function YesNoRow({ label, value }: { label: string; value: any }) {
   return (
     <div className="flex items-center justify-between gap-3">
       <span className="text-sm">{label}</span>
-      <Badge variant="outline" className={yes ? "bg-green-50 text-green-700" : "bg-gray-50 text-gray-600"}>
+      <Badge variant="outline" className={yes ? "bg-green-50 text-green-700 dark:bg-green-950 dark:text-green-300" : "bg-gray-50 text-gray-600 dark:bg-gray-900 dark:text-gray-300"}>
         {yes ? "Yes" : "No"}
       </Badge>
     </div>
@@ -247,7 +247,7 @@ function ChipList({ label, values }: { label: string; values: any }) {
   if (!Array.isArray(values) || values.length === 0) return null;
   return (
     <div>
-      <p className="text-xs font-medium text-gray-500 mb-1.5">{label}</p>
+      <p className="text-xs font-medium text-gray-500 mb-1.5 dark:text-gray-400">{label}</p>
       <div className="flex flex-wrap gap-1.5">
         {values.map((v, i) => (
           <Badge key={`${v}-${i}`} variant="secondary" className="font-normal">
@@ -438,9 +438,9 @@ export default function IbcProtocolView({ applicationId, sidebar, printMode = fa
             </CardTitle>
             {!printMode &&
               (isOpen ? (
-                <ChevronDown className="h-5 w-5 text-gray-400" />
+                <ChevronDown className="h-5 w-5 text-gray-400 dark:text-gray-500" />
               ) : (
-                <ChevronRight className="h-5 w-5 text-gray-400" />
+                <ChevronRight className="h-5 w-5 text-gray-400 dark:text-gray-500" />
               ))}
           </div>
         </CardHeader>
@@ -479,15 +479,15 @@ export default function IbcProtocolView({ applicationId, sidebar, printMode = fa
             <Field label="Next Review" value={safeDate(application.nextReviewDate)} />
           </div>
           <div className="flex items-center gap-3 pt-2">
-            <div className="w-10 h-10 bg-blue-100 rounded-full flex items-center justify-center">
-              <User className="h-5 w-5 text-blue-600" />
+            <div className="w-10 h-10 bg-blue-100 rounded-full flex items-center justify-center dark:bg-blue-950">
+              <User className="h-5 w-5 text-blue-600 dark:text-blue-400" />
             </div>
             <div>
-              <p className="text-xs font-medium text-gray-500">Principal Investigator</p>
+              <p className="text-xs font-medium text-gray-500 dark:text-gray-400">Principal Investigator</p>
               <p className="font-medium" data-testid="text-pi-name">
                 {scientist ? formatFullName(scientist) : "Loading..."}
               </p>
-              {scientist?.email && <p className="text-sm text-gray-500">{scientist.email}</p>}
+              {scientist?.email && <p className="text-sm text-gray-500 dark:text-gray-400">{scientist.email}</p>}
             </div>
           </div>
         </Section>
@@ -507,14 +507,14 @@ export default function IbcProtocolView({ applicationId, sidebar, printMode = fa
               {researchActivities.map((activity: any) => (
                 <div
                   key={activity.id}
-                  className="flex items-center gap-2 p-2 bg-gray-50 rounded"
+                  className="flex items-center gap-2 p-2 bg-gray-50 rounded dark:bg-gray-900"
                   data-testid={`row-activity-${activity.id}`}
                 >
-                  <Microscope className="h-4 w-4 text-gray-500" />
+                  <Microscope className="h-4 w-4 text-gray-500 dark:text-gray-400" />
                   <div>
                     <p className="text-sm font-medium">{activity.sdrNumber || activity.title}</p>
                     {activity.sdrNumber && activity.title && (
-                      <p className="text-xs text-gray-500">{activity.title}</p>
+                      <p className="text-xs text-gray-500 dark:text-gray-400">{activity.title}</p>
                     )}
                   </div>
                 </div>
@@ -527,7 +527,7 @@ export default function IbcProtocolView({ applicationId, sidebar, printMode = fa
         <Section id="sec-scope" title="Biosafety Scope" icon={Biohazard}>
           {scopeItems.length > 0 ? (
             <div>
-              <p className="text-xs font-medium text-gray-500 mb-1.5">Materials & work involved</p>
+              <p className="text-xs font-medium text-gray-500 mb-1.5 dark:text-gray-400">Materials & work involved</p>
               <div className="flex flex-wrap gap-1.5">
                 {scopeItems.map(([k, label]) => (
                   <Badge key={k} variant="secondary" className="font-normal">
@@ -537,7 +537,7 @@ export default function IbcProtocolView({ applicationId, sidebar, printMode = fa
               </div>
             </div>
           ) : (
-            <p className="text-sm text-gray-500">No biosafety material categories were selected.</p>
+            <p className="text-sm text-gray-500 dark:text-gray-400">No biosafety material categories were selected.</p>
           )}
 
           {application.wholeAnimalsAnimalMaterial && (
@@ -586,13 +586,13 @@ export default function IbcProtocolView({ applicationId, sidebar, printMode = fa
         {/* Personnel & Training */}
         <Section id="sec-personnel" title="Personnel & Training" icon={Users}>
           <div>
-            <p className="text-xs font-medium text-gray-500 mb-2">Team Members</p>
+            <p className="text-xs font-medium text-gray-500 mb-2 dark:text-gray-400">Team Members</p>
             {personnelLoading ? (
               <div className="flex items-center space-x-3">
-                <div className="w-8 h-8 bg-gray-100 rounded-full animate-pulse" />
+                <div className="w-8 h-8 bg-gray-100 rounded-full animate-pulse dark:bg-gray-800" />
                 <div className="space-y-2 flex-1">
-                  <div className="h-4 bg-gray-200 rounded animate-pulse" />
-                  <div className="h-3 bg-gray-200 rounded w-2/3 animate-pulse" />
+                  <div className="h-4 bg-gray-200 rounded animate-pulse dark:bg-gray-700" />
+                  <div className="h-3 bg-gray-200 rounded w-2/3 animate-pulse dark:bg-gray-700" />
                 </div>
               </div>
             ) : personnelData && personnelData.length > 0 ? (
@@ -611,29 +611,29 @@ export default function IbcProtocolView({ applicationId, sidebar, printMode = fa
                   return (
                     <div
                       key={`${member.scientistId || "unknown"}-${member.role || "no-role"}-${index}`}
-                      className="p-3 border rounded-lg bg-white"
+                      className="p-3 border rounded-lg bg-white dark:bg-card"
                       data-testid={`row-member-${member.scientistId || index}`}
                     >
                       <div className="flex items-center justify-between mb-3">
                         <div className="flex items-center space-x-3">
-                          <div className="w-8 h-8 bg-gray-100 rounded-full flex items-center justify-center">
-                            <User className="h-4 w-4 text-gray-600" />
+                          <div className="w-8 h-8 bg-gray-100 rounded-full flex items-center justify-center dark:bg-gray-800">
+                            <User className="h-4 w-4 text-gray-600 dark:text-gray-300" />
                           </div>
                           <div>
                             <p className="font-medium">
                               {member.scientist ? formatFullName(member.scientist) : "Unknown"}
                             </p>
-                            <p className="text-sm text-gray-500">{member.scientist?.email || ""}</p>
+                            <p className="text-sm text-gray-500 dark:text-gray-400">{member.scientist?.email || ""}</p>
                           </div>
                         </div>
                         <Badge
                           variant="secondary"
                           className={
                             member.role === "team_leader"
-                              ? "bg-blue-100 text-blue-800"
+                              ? "bg-blue-100 text-blue-800 dark:bg-blue-950 dark:text-blue-300"
                               : member.role === "safety_representative"
-                              ? "bg-orange-100 text-orange-800"
-                              : "bg-gray-100 text-gray-800"
+                              ? "bg-orange-100 text-orange-800 dark:bg-orange-950 dark:text-orange-300"
+                              : "bg-gray-100 text-gray-800 dark:bg-gray-800 dark:text-gray-200"
                           }
                         >
                           {member.role === "team_leader"
@@ -672,7 +672,7 @@ export default function IbcProtocolView({ applicationId, sidebar, printMode = fa
                                     );
                                   })
                                 ) : (
-                                  <Badge className="bg-gray-100 text-gray-600 text-xs" variant="outline">
+                                  <Badge className="bg-gray-100 text-gray-600 text-xs dark:bg-gray-800 dark:text-gray-300" variant="outline">
                                     None
                                   </Badge>
                                 )}
@@ -700,7 +700,7 @@ export default function IbcProtocolView({ applicationId, sidebar, printMode = fa
                                   </TooltipContent>
                                 </Tooltip>
                               ) : (
-                                <Badge className="bg-gray-100 text-gray-600 text-xs" variant="outline">
+                                <Badge className="bg-gray-100 text-gray-600 text-xs dark:bg-gray-800 dark:text-gray-300" variant="outline">
                                   None
                                 </Badge>
                               )}
@@ -713,7 +713,7 @@ export default function IbcProtocolView({ applicationId, sidebar, printMode = fa
                 })}
               </div>
             ) : (
-              <p className="text-sm text-gray-500 text-center py-4">No team members defined for this protocol</p>
+              <p className="text-sm text-gray-500 text-center py-4 dark:text-gray-400">No team members defined for this protocol</p>
             )}
           </div>
         </Section>
@@ -726,31 +726,31 @@ export default function IbcProtocolView({ applicationId, sidebar, printMode = fa
                 <p className="text-sm font-semibold">NIH Guidelines</p>
                 {nihBlockABC && (
                   <div>
-                    <p className="text-xs font-semibold text-gray-600 mb-1">Section III-A/B/C</p>
+                    <p className="text-xs font-semibold text-gray-600 mb-1 dark:text-gray-300">Section III-A/B/C</p>
                     {nihBlockABC}
                   </div>
                 )}
                 {nihBlockD && (
                   <div>
-                    <p className="text-xs font-semibold text-gray-600 mb-1">Section III-D</p>
+                    <p className="text-xs font-semibold text-gray-600 mb-1 dark:text-gray-300">Section III-D</p>
                     {nihBlockD}
                   </div>
                 )}
                 {nihBlockE && (
                   <div>
-                    <p className="text-xs font-semibold text-gray-600 mb-1">Section III-E</p>
+                    <p className="text-xs font-semibold text-gray-600 mb-1 dark:text-gray-300">Section III-E</p>
                     {nihBlockE}
                   </div>
                 )}
                 {nihBlockF && (
                   <div>
-                    <p className="text-xs font-semibold text-gray-600 mb-1">Section III-F (Exempt)</p>
+                    <p className="text-xs font-semibold text-gray-600 mb-1 dark:text-gray-300">Section III-F (Exempt)</p>
                     {nihBlockF}
                   </div>
                 )}
                 {nihBlockC && (
                   <div>
-                    <p className="text-xs font-semibold text-gray-600 mb-1">Appendix C</p>
+                    <p className="text-xs font-semibold text-gray-600 mb-1 dark:text-gray-300">Appendix C</p>
                     {nihBlockC}
                   </div>
                 )}
@@ -763,12 +763,12 @@ export default function IbcProtocolView({ applicationId, sidebar, printMode = fa
                 {syntheticExperiments.map((exp: any, i: number) => {
                   const block = buildDataBlock(exp);
                   return (
-                    <div key={i} className="p-3 border rounded-lg bg-gray-50" data-testid={`row-synthetic-${i}`}>
-                      <p className="text-xs font-semibold text-gray-600 mb-1">
+                    <div key={i} className="p-3 border rounded-lg bg-gray-50 dark:bg-gray-900" data-testid={`row-synthetic-${i}`}>
+                      <p className="text-xs font-semibold text-gray-600 mb-1 dark:text-gray-300">
                         Experiment {i + 1}
                         {exp?.vectorInsertName ? ` — ${exp.vectorInsertName}` : ""}
                       </p>
-                      {block || <p className="text-sm text-gray-500">No details provided.</p>}
+                      {block || <p className="text-sm text-gray-500 dark:text-gray-400">No details provided.</p>}
                     </div>
                   );
                 })}
@@ -816,9 +816,9 @@ export default function IbcProtocolView({ applicationId, sidebar, printMode = fa
                 {cellLines.map((line: any, i: number) => {
                   const block = buildDataBlock(line);
                   return (
-                    <div key={i} className="p-3 border rounded-lg bg-gray-50" data-testid={`row-cellline-${i}`}>
-                      <p className="text-xs font-semibold text-gray-600 mb-1">{line?.name || `Cell Line ${i + 1}`}</p>
-                      {block || <p className="text-sm text-gray-500">No details provided.</p>}
+                    <div key={i} className="p-3 border rounded-lg bg-gray-50 dark:bg-gray-900" data-testid={`row-cellline-${i}`}>
+                      <p className="text-xs font-semibold text-gray-600 mb-1 dark:text-gray-300">{line?.name || `Cell Line ${i + 1}`}</p>
+                      {block || <p className="text-sm text-gray-500 dark:text-gray-400">No details provided.</p>}
                     </div>
                   );
                 })}
@@ -831,11 +831,11 @@ export default function IbcProtocolView({ applicationId, sidebar, printMode = fa
                 {hazardousProcedures.map((proc: any, i: number) => {
                   const block = buildDataBlock(proc);
                   return (
-                    <div key={i} className="p-3 border rounded-lg bg-gray-50" data-testid={`row-procedure-${i}`}>
-                      <p className="text-xs font-semibold text-gray-600 mb-1">
+                    <div key={i} className="p-3 border rounded-lg bg-gray-50 dark:bg-gray-900" data-testid={`row-procedure-${i}`}>
+                      <p className="text-xs font-semibold text-gray-600 mb-1 dark:text-gray-300">
                         {proc?.procedure || `Procedure ${i + 1}`}
                       </p>
-                      {block || <p className="text-sm text-gray-500">No details provided.</p>}
+                      {block || <p className="text-sm text-gray-500 dark:text-gray-400">No details provided.</p>}
                     </div>
                   );
                 })}
@@ -945,9 +945,9 @@ export default function IbcProtocolView({ applicationId, sidebar, printMode = fa
         {/* Documents placeholder (kept as-is per scope) */}
         <Section id="sec-documents" title="Documents" icon={FileText}>
           <div className="text-center py-8">
-            <FileText className="h-12 w-12 text-gray-400 mx-auto mb-4" />
-            <h3 className="text-lg font-medium text-gray-900 mb-2">Document Management</h3>
-            <p className="text-gray-500">Document management system will be available in a future update.</p>
+            <FileText className="h-12 w-12 text-gray-400 mx-auto mb-4 dark:text-gray-500" />
+            <h3 className="text-lg font-medium text-gray-900 mb-2 dark:text-gray-100">Document Management</h3>
+            <p className="text-gray-500 dark:text-gray-400">Document management system will be available in a future update.</p>
           </div>
         </Section>
       </div>
@@ -967,7 +967,7 @@ export default function IbcProtocolView({ applicationId, sidebar, printMode = fa
                     <button
                       key={item.id}
                       onClick={() => scrollToSection(item.id)}
-                      className="block w-full text-left text-xs text-gray-600 hover:text-gray-900 hover:bg-gray-50 rounded px-2 py-1"
+                      className="block w-full text-left text-xs text-gray-600 hover:text-gray-900 hover:bg-gray-50 rounded px-2 py-1 dark:text-gray-300 dark:hover:text-gray-100 dark:hover:bg-gray-900"
                       data-testid={`nav-${item.id}`}
                     >
                       {item.label}

@@ -84,7 +84,7 @@ function TeamMemberCard({ member, showElementType = true }: { member: TeamMember
             )}
             
             {member.institution && (
-              <p className="text-xs text-slate-500">{member.institution}</p>
+              <p className="text-xs text-slate-500 dark:text-slate-400">{member.institution}</p>
             )}
             
             {(member.email || member.linkedInUrl) && (
@@ -241,9 +241,9 @@ function TeamSection({
         </div>
         <Card className="bg-slate-800/50 border-slate-700/50 border-dashed">
           <CardContent className="p-8 text-center">
-            <Users className="h-12 w-12 text-slate-600 mx-auto mb-4" />
+            <Users className="h-12 w-12 text-slate-600 mx-auto mb-4 dark:text-slate-300" />
             <p className="text-slate-400">Team members will be added soon.</p>
-            <p className="text-sm text-slate-500 mt-1">
+            <p className="text-sm text-slate-500 mt-1 dark:text-slate-400">
               Use the Settings panel in the application to add team members.
             </p>
           </CardContent>

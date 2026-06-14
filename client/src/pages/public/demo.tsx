@@ -1,15 +1,17 @@
-import { Link } from "wouter";
+import { Link, useLocation } from "wouter";
 import { motion } from "framer-motion";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { 
-  ArrowLeft, Rocket, CheckCircle2, AlertCircle, Clock, 
-  Shield, Users, FileText, Microscope, Building2, 
+import {
+  ArrowLeft, Rocket, CheckCircle2, AlertCircle, Clock,
+  Shield, Users, FileText, Microscope, Building2,
   BarChart3, Database, BookOpen, Award, Briefcase,
   Play, ArrowRight
 } from "lucide-react";
 import qbridgeLogo from "@assets/image_1767775219373.png";
+import { useAuth } from "@/hooks/useAuth";
+import { useEffect } from "react";
 
 const implementedFeatures = [
   {
@@ -108,7 +110,35 @@ const limitations = [
   }
 ];
 
+// Demo port — matches the DEMO_PORT env var (default 8080).
+// When this page is served by the production app (non-demo mode),
+// the Launch button redirects directly to the demo instance.
+const DEMO_PORT = (window as any).__DEMO_PORT__ ?? '8080';
+const DEMO_ORIGIN = `${window.location.protocol}//${window.location.hostname}:${DEMO_PORT}`;
+
 export default function DemoPage() {
+  const { isAuthenticated, authConfig, loginWithSso } = useAuth();
+  const [, navigate] = useLocation();
+  const isDemo = authConfig.mode === 'demo';
+
+  // If the production app is serving this page (non-demo mode + not logged in),
+  // auto-redirect to the demo instance so no login is ever needed.
+  useEffect(() => {
+    if (!isDemo && !isAuthenticated && authConfig.mode !== 'local') {
+      window.location.replace(`${DEMO_ORIGIN}/app`);
+    }
+  }, [isDemo, isAuthenticated, authConfig.mode]);
+
+  const handleLaunch = () => {
+    if (isDemo || isAuthenticated) {
+      // Already in demo mode or logged in — go straight to dashboard.
+      navigate('/app');
+    } else {
+      // Production app serving this page — redirect to demo instance.
+      window.location.href = `${DEMO_ORIGIN}/app`;
+    }
+  };
+
   return (
     <div className="min-h-screen bg-gradient-to-b from-slate-900 via-slate-800 to-slate-900">
       <header className="sticky top-0 z-50 backdrop-blur-md bg-slate-900/80 border-b border-slate-700/50">
@@ -125,12 +155,10 @@ export default function DemoPage() {
               <Link href="/team" className="text-slate-300 hover:text-white transition-colors">
                 Team
               </Link>
-              <Link href="/app">
-                <Button variant="default" className="bg-teal-600 hover:bg-teal-500">
+              <Button variant="default" className="bg-teal-600 hover:bg-teal-500" onClick={handleLaunch}>
                   Launch Platform
                   <ArrowRight className="ml-2 h-4 w-4" />
                 </Button>
-              </Link>
             </nav>
           </div>
         </div>
@@ -166,13 +194,11 @@ export default function DemoPage() {
             animate={{ opacity: 1, scale: 1 }}
             transition={{ delay: 0.2 }}
           >
-            <Link href="/app">
-              <Button size="lg" className="bg-teal-600 hover:bg-teal-500 text-xl px-12 py-8 shadow-lg shadow-teal-500/20">
+            <Button size="lg" className="bg-teal-600 hover:bg-teal-500 text-xl px-12 py-8 shadow-lg shadow-teal-500/20" onClick={handleLaunch}>
                 <Play className="mr-3 h-6 w-6" />
-                Launch Demo Application
+                {isDemo ? 'Launch Demo Application' : isAuthenticated ? 'Launch Application' : 'Sign In to Launch'}
                 <Rocket className="ml-3 h-6 w-6" />
               </Button>
-            </Link>
           </motion.div>
 
           <div className="mb-16">
@@ -260,12 +286,10 @@ export default function DemoPage() {
                   using the sidebar dropdown to experience different user perspectives.
                 </p>
               </div>
-              <Link href="/app">
-                <Button size="lg" className="bg-teal-600 hover:bg-teal-500 whitespace-nowrap">
+              <Button size="lg" className="bg-teal-600 hover:bg-teal-500 whitespace-nowrap" onClick={handleLaunch}>
                   <Rocket className="mr-2 h-5 w-5" />
-                  Launch Demo
+                  {isDemo ? 'Launch Demo' : isAuthenticated ? 'Launch App' : 'Sign In to Launch'}
                 </Button>
-              </Link>
             </div>
           </motion.div>
         </motion.div>
@@ -280,7 +304,7 @@ export default function DemoPage() {
           <div className="flex gap-6">
             <Link href="/" className="text-slate-400 hover:text-white transition-colors">Home</Link>
             <Link href="/team" className="text-slate-400 hover:text-white transition-colors">Team</Link>
-            <Link href="/app" className="text-slate-400 hover:text-white transition-colors">Launch App</Link>
+            <button onClick={handleLaunch} className="text-slate-400 hover:text-white transition-colors">Launch App</button>
           </div>
         </div>
       </footer>

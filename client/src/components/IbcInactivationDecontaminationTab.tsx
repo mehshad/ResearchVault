@@ -128,7 +128,7 @@ export function IbcInactivationDecontaminationTab({
       <div className="flex items-center justify-between">
         <div>
           <h3 className="text-lg font-medium">Inactivation and Decontamination</h3>
-          <p className="text-sm text-gray-600">
+          <p className="text-sm text-gray-600 dark:text-gray-300">
             Specify procedures for inactivation and decontamination of materials and equipment
           </p>
         </div>

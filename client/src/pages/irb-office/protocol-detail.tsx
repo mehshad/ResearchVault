@@ -261,21 +261,21 @@ export default function IrbOfficeProtocolDetail(
   const getStatusBadge = (status: string) => {
     switch (status) {
       case 'submitted':
-        return 'bg-blue-100 text-blue-800';
+        return 'bg-blue-100 text-blue-800 dark:bg-blue-950 dark:text-blue-300';
       case 'triage_complete':
-        return 'bg-cyan-100 text-cyan-800';
+        return 'bg-cyan-100 text-cyan-800 dark:bg-cyan-950 dark:text-cyan-300';
       case 'under_review':
-        return 'bg-yellow-100 text-yellow-800';
+        return 'bg-yellow-100 text-yellow-800 dark:bg-yellow-950 dark:text-yellow-300';
       case 'approved':
-        return 'bg-green-100 text-green-800';
+        return 'bg-green-100 text-green-800 dark:bg-green-950 dark:text-green-300';
       case 'rejected':
-        return 'bg-red-100 text-red-800';
+        return 'bg-red-100 text-red-800 dark:bg-red-950 dark:text-red-300';
       case 'revisions_requested':
-        return 'bg-orange-100 text-orange-800';
+        return 'bg-orange-100 text-orange-800 dark:bg-orange-950 dark:text-orange-300';
       case 'resubmitted':
-        return 'bg-purple-100 text-purple-800';
+        return 'bg-purple-100 text-purple-800 dark:bg-purple-950 dark:text-purple-300';
       default:
-        return 'bg-gray-100 text-gray-800';
+        return 'bg-gray-100 text-gray-800 dark:bg-gray-800 dark:text-gray-200';
     }
   };
 
@@ -319,7 +319,7 @@ export default function IrbOfficeProtocolDetail(
       <div className="flex items-start justify-between">
         <div>
           <h1 className="text-2xl font-semibold text-foreground mb-2">{application.title}</h1>
-          <div className="flex items-center gap-4 text-sm text-gray-600">
+          <div className="flex items-center gap-4 text-sm text-gray-600 dark:text-gray-300">
             <span>IRB Number: {application.irbNumber || "Pending"}</span>
             <span>•</span>
             <span>SDR: {researchActivity?.sdrNumber}</span>
@@ -361,33 +361,33 @@ export default function IrbOfficeProtocolDetail(
             <CardContent className="space-y-4">
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <label className="text-sm font-medium text-gray-600">Protocol Type</label>
+                  <label className="text-sm font-medium text-gray-600 dark:text-gray-300">Protocol Type</label>
                   <p>{application.protocolType || "—"}</p>
                 </div>
                 <div>
-                  <label className="text-sm font-medium text-gray-600">Risk Level</label>
+                  <label className="text-sm font-medium text-gray-600 dark:text-gray-300">Risk Level</label>
                   <p>{application.riskLevel || "—"}</p>
                 </div>
                 <div>
-                  <label className="text-sm font-medium text-gray-600">Interventional</label>
+                  <label className="text-sm font-medium text-gray-600 dark:text-gray-300">Interventional</label>
                   <p>{application.isInterventional ? "Yes" : "No"}</p>
                 </div>
                 <div>
-                  <label className="text-sm font-medium text-gray-600">Expected Participants</label>
+                  <label className="text-sm font-medium text-gray-600 dark:text-gray-300">Expected Participants</label>
                   <p>{application.expectedParticipants || "—"}</p>
                 </div>
               </div>
               
               {application.description && (
                 <div>
-                  <label className="text-sm font-medium text-gray-600">Description</label>
+                  <label className="text-sm font-medium text-gray-600 dark:text-gray-300">Description</label>
                   <p className="mt-1">{application.description}</p>
                 </div>
               )}
               
               {application.vulnerablePopulations && application.vulnerablePopulations.length > 0 && (
                 <div>
-                  <label className="text-sm font-medium text-gray-600">Vulnerable Populations</label>
+                  <label className="text-sm font-medium text-gray-600 dark:text-gray-300">Vulnerable Populations</label>
                   <div className="flex flex-wrap gap-2 mt-1">
                     {application.vulnerablePopulations.map((pop) => (
                       <Badge key={pop} variant="outline">{pop.replace('_', ' ')}</Badge>
@@ -407,16 +407,16 @@ export default function IrbOfficeProtocolDetail(
               <CardContent>
                 <div className="space-y-2">
                   <div>
-                    <label className="text-sm font-medium text-gray-600">SDR Number</label>
+                    <label className="text-sm font-medium text-gray-600 dark:text-gray-300">SDR Number</label>
                     <p>{researchActivity.sdrNumber}</p>
                   </div>
                   <div>
-                    <label className="text-sm font-medium text-gray-600">Title</label>
+                    <label className="text-sm font-medium text-gray-600 dark:text-gray-300">Title</label>
                     <p>{researchActivity.title}</p>
                   </div>
                   {researchActivity.description && (
                     <div>
-                      <label className="text-sm font-medium text-gray-600">Description</label>
+                      <label className="text-sm font-medium text-gray-600 dark:text-gray-300">Description</label>
                       <p>{researchActivity.description}</p>
                     </div>
                   )}
@@ -446,7 +446,7 @@ export default function IrbOfficeProtocolDetail(
                         <div key={member.id} className="flex items-center justify-between p-3 border rounded-lg">
                           <div className="flex-1">
                             <h4 className="font-medium">{member.name}</h4>
-                            <p className="text-sm text-gray-600">{member.email}</p>
+                            <p className="text-sm text-gray-600 dark:text-gray-300">{member.email}</p>
                             <div className="flex flex-wrap gap-1 mt-1">
                               {member.roles.map((role: string, index: number) => (
                                 <Badge key={index} variant="secondary" className="text-xs">
@@ -467,7 +467,7 @@ export default function IrbOfficeProtocolDetail(
                       ))}
                     </div>
                   ) : (
-                    <p className="text-gray-500 italic">No team members assigned yet.</p>
+                    <p className="text-gray-500 italic dark:text-gray-400">No team members assigned yet.</p>
                   )}
                 </CardContent>
               </Card>
@@ -506,9 +506,9 @@ export default function IrbOfficeProtocolDetail(
                           </div>
                           
                           {doc.uploadedFile && (
-                            <div className="bg-gray-50 rounded p-2 mb-2">
+                            <div className="bg-gray-50 rounded p-2 mb-2 dark:bg-gray-900">
                               <p className="text-sm font-medium">{doc.uploadedFile.name}</p>
-                              <p className="text-xs text-gray-600">
+                              <p className="text-xs text-gray-600 dark:text-gray-300">
                                 Size: {(doc.uploadedFile.size / 1024).toFixed(1)} KB | 
                                 Type: {doc.uploadedFile.type}
                               </p>
@@ -521,16 +521,16 @@ export default function IrbOfficeProtocolDetail(
                               {doc.signatures && doc.signatures.length > 0 ? (
                                 <div className="space-y-1">
                                   {doc.signatures.map((sig: any, index: number) => (
-                                    <div key={index} className="text-sm bg-green-50 border border-green-200 rounded p-2">
+                                    <div key={index} className="text-sm bg-green-50 border border-green-200 rounded p-2 dark:bg-green-950 dark:border-green-800">
                                       <span className="font-medium">{sig.signedBy}</span>
-                                      <span className="text-gray-600 ml-2">
+                                      <span className="text-gray-600 ml-2 dark:text-gray-300">
                                         Signed on {formatDate(sig.signedAt)}
                                       </span>
                                     </div>
                                   ))}
                                 </div>
                               ) : (
-                                <p className="text-sm text-amber-600">Signature pending</p>
+                                <p className="text-sm text-amber-600 dark:text-amber-400">Signature pending</p>
                               )}
                             </div>
                           )}
@@ -538,7 +538,7 @@ export default function IrbOfficeProtocolDetail(
                       ))}
                     </div>
                   ) : (
-                    <p className="text-gray-500 italic">No documents uploaded yet.</p>
+                    <p className="text-gray-500 italic dark:text-gray-400">No documents uploaded yet.</p>
                   )}
                 </CardContent>
               </Card>
@@ -567,7 +567,7 @@ export default function IrbOfficeProtocolDetail(
                   </div>
                   <div>
                     <p className="font-medium">{principalInvestigator.name}</p>
-                    <p className="text-sm text-gray-500">{principalInvestigator.email}</p>
+                    <p className="text-sm text-gray-500 dark:text-gray-400">{principalInvestigator.email}</p>
                   </div>
                 </div>
               </CardContent>
@@ -584,9 +584,9 @@ export default function IrbOfficeProtocolDetail(
               {/* Triage Stage */}
               {(application.workflowStatus === 'submitted' || application.workflowStatus === 'resubmitted') && (
                 <>
-                  <div className="bg-blue-50 p-3 rounded-lg">
-                    <h4 className="font-medium text-blue-900 mb-2">Triage Stage</h4>
-                    <p className="text-sm text-blue-700 mb-3">Initial review to determine if protocol is complete and ready for formal review.</p>
+                  <div className="bg-blue-50 p-3 rounded-lg dark:bg-blue-950">
+                    <h4 className="font-medium text-blue-900 mb-2 dark:text-blue-200">Triage Stage</h4>
+                    <p className="text-sm text-blue-700 mb-3 dark:text-blue-300">Initial review to determine if protocol is complete and ready for formal review.</p>
                   </div>
                   
                   <div>
@@ -627,9 +627,9 @@ export default function IrbOfficeProtocolDetail(
               {/* Reviewer Assignment Stage */}
               {application.workflowStatus === 'triage_complete' && (
                 <>
-                  <div className="bg-green-50 p-3 rounded-lg">
-                    <h4 className="font-medium text-green-900 mb-2">Assign Reviewers</h4>
-                    <p className="text-sm text-green-700 mb-3">Protocol has passed triage. Assign reviewers for formal review.</p>
+                  <div className="bg-green-50 p-3 rounded-lg dark:bg-green-950">
+                    <h4 className="font-medium text-green-900 mb-2 dark:text-green-200">Assign Reviewers</h4>
+                    <p className="text-sm text-green-700 mb-3 dark:text-green-300">Protocol has passed triage. Assign reviewers for formal review.</p>
                   </div>
 
                   <div>
@@ -724,9 +724,9 @@ export default function IrbOfficeProtocolDetail(
               {/* Under Review Stage */}
               {application.workflowStatus === 'under_review' && (
                 <>
-                  <div className="bg-yellow-50 p-3 rounded-lg">
-                    <h4 className="font-medium text-yellow-900 mb-2">Under Review</h4>
-                    <p className="text-sm text-yellow-700 mb-3">Protocol is currently under formal review by assigned reviewers.</p>
+                  <div className="bg-yellow-50 p-3 rounded-lg dark:bg-yellow-950">
+                    <h4 className="font-medium text-yellow-900 mb-2 dark:text-yellow-200">Under Review</h4>
+                    <p className="text-sm text-yellow-700 mb-3 dark:text-yellow-300">Protocol is currently under formal review by assigned reviewers.</p>
                   </div>
 
                   <div>

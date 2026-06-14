@@ -32,6 +32,7 @@ const createPublicationSchema = insertPublicationSchema.extend({
   issue: z.string().optional(),
   pages: z.string().optional(),
   doi: z.string().optional(),
+  pmid: z.string().optional(),
   publicationDate: z.string().optional(),
   publicationType: z.string().optional(),
   researchActivityId: z.number().min(1, "Research Activity (SDR) is required"),
@@ -63,6 +64,7 @@ export default function CreatePublication() {
     issue: "",
     pages: "",
     doi: "",
+    pmid: "",
     publicationDate: "",
   };
 
@@ -176,7 +178,7 @@ export default function CreatePublication() {
                   name="authors"
                   render={({ field }) => (
                     <FormItem className="col-span-full">
-                      <FormLabel>Authors <span className="text-gray-500">(Optional - required for Complete Draft status)</span></FormLabel>
+                      <FormLabel>Authors <span className="text-gray-500 dark:text-gray-400">(Optional - required for Complete Draft status)</span></FormLabel>
                       <FormControl>
                         <Textarea 
                           placeholder="List of authors (e.g., Smith J, Doe A, Johnson B) - leave empty for Concept stage"
@@ -322,6 +324,20 @@ export default function CreatePublication() {
                     </FormItem>
                   )}
                 />
+
+                <FormField
+                  control={form.control}
+                  name="pmid"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>PMID</FormLabel>
+                      <FormControl>
+                        <Input placeholder="e.g. 36293564" autoComplete="off" data-testid="input-pmid" {...field} value={field.value ?? ""} />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
                 
               </div>
 
@@ -355,61 +371,61 @@ export default function CreatePublication() {
             </CardHeader>
             <CardContent className="space-y-4">
               <div className="space-y-3">
-                <div className="p-3 border rounded-lg bg-gray-50">
-                  <h4 className="font-medium text-sm text-blue-800">1. Concept</h4>
-                  <p className="text-xs text-gray-600 mt-1">Initial stage - basic title and SDR required</p>
-                  <p className="text-xs text-blue-600 mt-1">Required: Title, SDR</p>
+                <div className="p-3 border rounded-lg bg-gray-50 dark:bg-gray-900">
+                  <h4 className="font-medium text-sm text-blue-800 dark:text-blue-300">1. Concept</h4>
+                  <p className="text-xs text-gray-600 mt-1 dark:text-gray-300">Initial stage - basic title and SDR required</p>
+                  <p className="text-xs text-blue-600 mt-1 dark:text-blue-400">Required: Title, SDR</p>
                 </div>
                 
                 <div className="p-3 border rounded-lg">
                   <h4 className="font-medium text-sm">2. Complete Draft</h4>
-                  <p className="text-xs text-gray-600 mt-1">Full manuscript ready</p>
-                  <p className="text-xs text-orange-600 mt-1">Required: Authors</p>
+                  <p className="text-xs text-gray-600 mt-1 dark:text-gray-300">Full manuscript ready</p>
+                  <p className="text-xs text-orange-600 mt-1 dark:text-orange-400">Required: Authors</p>
                 </div>
                 
                 <div className="p-3 border rounded-lg">
                   <h4 className="font-medium text-sm">3. Vetted for submission</h4>
-                  <p className="text-xs text-gray-600 mt-1">IP office approval obtained</p>
-                  <p className="text-xs text-gray-500 mt-1">Ready for submission decision</p>
+                  <p className="text-xs text-gray-600 mt-1 dark:text-gray-300">IP office approval obtained</p>
+                  <p className="text-xs text-gray-500 mt-1 dark:text-gray-400">Ready for submission decision</p>
                 </div>
                 
                 <div className="p-3 border rounded-lg">
                   <h4 className="font-medium text-sm">4. Submitted for review</h4>
-                  <p className="text-xs text-gray-600 mt-1">With/without pre-publication</p>
-                  <p className="text-xs text-purple-600 mt-1">May require: Pre-pub URL & Site</p>
+                  <p className="text-xs text-gray-600 mt-1 dark:text-gray-300">With/without pre-publication</p>
+                  <p className="text-xs text-purple-600 mt-1 dark:text-purple-400">May require: Pre-pub URL & Site</p>
                 </div>
                 
                 <div className="p-3 border rounded-lg">
                   <h4 className="font-medium text-sm">5. Under review</h4>
-                  <p className="text-xs text-gray-600 mt-1">Journal review process</p>
-                  <p className="text-xs text-green-600 mt-1">Required: Journal name</p>
+                  <p className="text-xs text-gray-600 mt-1 dark:text-gray-300">Journal review process</p>
+                  <p className="text-xs text-green-600 mt-1 dark:text-green-400">Required: Journal name</p>
                 </div>
                 
                 <div className="p-3 border rounded-lg">
                   <h4 className="font-medium text-sm">6. Accepted/In Press</h4>
-                  <p className="text-xs text-gray-600 mt-1">Accepted, awaiting publication</p>
-                  <p className="text-xs text-green-600 mt-1">Required: Journal name</p>
+                  <p className="text-xs text-gray-600 mt-1 dark:text-gray-300">Accepted, awaiting publication</p>
+                  <p className="text-xs text-green-600 mt-1 dark:text-green-400">Required: Journal name</p>
                 </div>
                 
-                <div className="p-3 border rounded-lg bg-green-50">
-                  <h4 className="font-medium text-sm text-green-800">7. Published</h4>
-                  <p className="text-xs text-gray-600 mt-1">Final published version</p>
-                  <p className="text-xs text-green-600 mt-1">Required: Publication date, DOI</p>
+                <div className="p-3 border rounded-lg bg-green-50 dark:bg-green-950">
+                  <h4 className="font-medium text-sm text-green-800 dark:text-green-300">7. Published</h4>
+                  <p className="text-xs text-gray-600 mt-1 dark:text-gray-300">Final published version</p>
+                  <p className="text-xs text-green-600 mt-1 dark:text-green-400">Required: Publication date, DOI</p>
                 </div>
                 
-                <div className="p-3 border rounded-lg bg-green-100">
-                  <h4 className="font-medium text-sm text-green-900 flex items-center gap-1">
+                <div className="p-3 border rounded-lg bg-green-100 dark:bg-green-950">
+                  <h4 className="font-medium text-sm text-green-900 flex items-center gap-1 dark:text-green-200">
                     <span className="text-yellow-500">★</span>
                     8. Published
                   </h4>
-                  <p className="text-xs text-gray-600 mt-1">Publication Office vetted and approved</p>
-                  <p className="text-xs text-green-700 mt-1">Final status - workflow complete</p>
+                  <p className="text-xs text-gray-600 mt-1 dark:text-gray-300">Publication Office vetted and approved</p>
+                  <p className="text-xs text-green-700 mt-1 dark:text-green-300">Final status - workflow complete</p>
                 </div>
               </div>
               
-              <div className="mt-4 p-3 bg-blue-50 rounded-lg">
-                <h5 className="font-medium text-sm text-blue-800 mb-2">Automatic Processing</h5>
-                <ul className="text-xs text-blue-700 space-y-1">
+              <div className="mt-4 p-3 bg-blue-50 rounded-lg dark:bg-blue-950">
+                <h5 className="font-medium text-sm text-blue-800 mb-2 dark:text-blue-300">Automatic Processing</h5>
+                <ul className="text-xs text-blue-700 space-y-1 dark:text-blue-300">
                   <li>• Titles are auto-capitalized</li>
                   <li>• Author names are standardized</li>
                   <li>• Fields marked with * are required</li>

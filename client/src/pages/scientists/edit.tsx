@@ -19,6 +19,7 @@ import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle }
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { SearchableSelect } from "@/components/ui/searchable-select";
 import { formatFullName } from "@/utils/nameUtils";
+import { normalizeOptionalScientistFields } from "@/utils/scientistForm";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -191,7 +192,7 @@ export default function EditScientist() {
       data.profileImageInitials = `${data.firstName[0]}${data.lastName[0]}`;
     }
     
-    updateScientistMutation.mutate(data);
+    updateScientistMutation.mutate(normalizeOptionalScientistFields(data));
   };
 
   if (isLoading) {

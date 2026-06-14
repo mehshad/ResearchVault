@@ -168,7 +168,7 @@ export default function CreateRa200() {
           </Button>
           
           <div className="flex items-center gap-3">
-            <FileCheck className="h-8 w-8 text-blue-600" />
+            <FileCheck className="h-8 w-8 text-blue-600 dark:text-blue-400" />
             <div>
               <h1 className="text-3xl font-bold">Create RA-200 Application</h1>
               <p className="text-muted-foreground mt-1">Research Activity Plan Form</p>
@@ -596,9 +596,9 @@ export default function CreateRa200() {
             </CardHeader>
             <CardContent className="space-y-4">
               <div className="space-y-3">
-                <div className="p-3 bg-blue-50 rounded-lg">
-                  <h4 className="font-medium text-blue-900 mb-2">Required Fields</h4>
-                  <ul className="text-sm text-blue-800 space-y-1">
+                <div className="p-3 bg-blue-50 rounded-lg dark:bg-blue-950">
+                  <h4 className="font-medium text-blue-900 mb-2 dark:text-blue-200">Required Fields</h4>
+                  <ul className="text-sm text-blue-800 space-y-1 dark:text-blue-300">
                     <li>• Research Activity Title</li>
                     <li>• Lead Scientist</li>
                     <li>• Project ID (PRJ)</li>
@@ -607,18 +607,18 @@ export default function CreateRa200() {
                   </ul>
                 </div>
 
-                <div className="p-3 bg-green-50 rounded-lg">
-                  <h4 className="font-medium text-green-900 mb-2">Review Process</h4>
-                  <ul className="text-sm text-green-800 space-y-1">
+                <div className="p-3 bg-green-50 rounded-lg dark:bg-green-950">
+                  <h4 className="font-medium text-green-900 mb-2 dark:text-green-200">Review Process</h4>
+                  <ul className="text-sm text-green-800 space-y-1 dark:text-green-300">
                     <li>• Draft: Save progress</li>
                     <li>• Submit: Send for PMO review</li>
                     <li>• Review time: 5-10 business days</li>
                   </ul>
                 </div>
 
-                <div className="p-3 bg-orange-50 rounded-lg">
-                  <h4 className="font-medium text-orange-900 mb-2">Tips</h4>
-                  <ul className="text-sm text-orange-800 space-y-1">
+                <div className="p-3 bg-orange-50 rounded-lg dark:bg-orange-950">
+                  <h4 className="font-medium text-orange-900 mb-2 dark:text-orange-200">Tips</h4>
+                  <ul className="text-sm text-orange-800 space-y-1 dark:text-orange-300">
                     <li>• Be specific in your abstract</li>
                     <li>• Include all relevant core facilities</li>
                     <li>• Provide realistic timelines</li>

@@ -7,8 +7,12 @@ import {
   FolderTree, FileCheck, ShieldCheck, TestTube, TrendingUp, ChevronDown, Eye,
   ClipboardList, Briefcase
 } from "lucide-react";
+import {
+  Select, SelectContent, SelectItem, SelectTrigger, SelectValue
+} from "@/components/ui/select";
 import { usePermissions } from "@/hooks/usePermissions";
 import { useAuth } from "@/hooks/useAuth";
+import { useCurrentUser, DUMMY_USERS } from "@/hooks/useCurrentUser";
 import { useTheme, themes } from "@/contexts/ThemeContext";
 import qbridgeLogo from "@assets/image_1767775219373.png";
 
@@ -20,9 +24,16 @@ interface SidebarProps {
 export default function Sidebar({ mobile = false, onClose }: SidebarProps) {
   const [location] = useLocation();
   const { isHidden, isReadOnly } = usePermissions();
-  const { themeName, currentLabels } = useTheme();
-  const { authConfig, logout, user } = useAuth();
-  const currentUser = user ?? { id: 0, name: "Unknown", email: "", role: "user", username: "" };
+  const { themeName, currentLabels, isSectionVisible } = useTheme();
+  const { authConfig, logout } = useAuth();
+  const { currentUser, setCurrentUser } = useCurrentUser();
+  const ssoEnabled = authConfig.ssoEnabled;
+  const availableUsers = DUMMY_USERS;
+
+  const handleUserSwitch = (userId: string) => {
+    const selected = availableUsers.find((u) => u.id.toString() === userId);
+    if (selected) setCurrentUser(selected);
+  };
 
   // Simple pluralization helper
   const pluralize = (word: string): string => {
@@ -262,16 +273,41 @@ export default function Sidebar({ mobile = false, onClose }: SidebarProps) {
 
         {/* User Info */}
         <div className="p-4 border-b border-primary/30">
-          <div className="flex items-center space-x-3">
+          <div className="flex items-center space-x-3 mb-3">
             <div className="h-10 w-10 rounded-full bg-primary/20 flex items-center justify-center text-primary font-medium flex-shrink-0">
               {getInitials(currentUser.name || currentUser.role)}
             </div>
             <div className="flex-1 min-w-0">
               <div className="font-medium text-card-foreground truncate">{currentUser.name}</div>
               <div className="text-xs text-muted-foreground truncate">{currentUser.role}</div>
-              <div className="text-xs text-muted-foreground/70 truncate">{currentUser.email}</div>
+              <div className="text-xs text-muted-foreground/70 truncate">
+                {ssoEnabled
+                  ? `Signed in${authConfig.providerName ? ' with ' + authConfig.providerName : ' via SSO'}`
+                  : 'Role-based Testing'}
+              </div>
             </div>
           </div>
+
+          {/* Role Selector — test mode only (hidden under SSO/real auth) */}
+          {!ssoEnabled && (
+            <Select value={currentUser.id.toString()} onValueChange={handleUserSwitch}>
+              <SelectTrigger className="w-full h-8 text-xs" data-testid="select-role">
+                <SelectValue placeholder="Switch role..." />
+              </SelectTrigger>
+              <SelectContent>
+                {availableUsers.map((user) => (
+                  <SelectItem key={user.id} value={user.id.toString()} data-testid={`option-role-${user.id}`}>
+                    <div className="flex items-center space-x-2">
+                      <div className="h-4 w-4 rounded-full bg-primary/20 flex items-center justify-center text-xs text-primary font-medium">
+                        {getInitials(user.role)}
+                      </div>
+                      <span>{user.role}</span>
+                    </div>
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          )}
         </div>
 
         {/* Navigation */}
@@ -289,6 +325,7 @@ export default function Sidebar({ mobile = false, onClose }: SidebarProps) {
                     </h3>
                   </div>
                 )}
+                {isSectionVisible(section.title) && (
                 <div className={sectionIndex === 0 ? "space-y-1" : "space-y-1 mt-1"}>
                   {section.items
                     .filter((item) => {
@@ -326,6 +363,7 @@ export default function Sidebar({ mobile = false, onClose }: SidebarProps) {
                       );
                     })}
                 </div>
+                )}
               </div>
             ))}
           </div>

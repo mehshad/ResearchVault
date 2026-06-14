@@ -60,12 +60,12 @@ export function ScientistPublications({ scientistId, yearsSince = 5 }: Scientist
 
   const getAuthorshipBadgeColor = (type: string) => {
     switch (type) {
-      case 'First Author': return 'bg-blue-100 text-blue-800 border-blue-300';
-      case 'Contributing Author': return 'bg-green-100 text-green-800 border-green-300';
-      case 'Senior Author': return 'bg-purple-100 text-purple-800 border-purple-300';
-      case 'Last Author': return 'bg-amber-100 text-amber-800 border-amber-300';
-      case 'Corresponding Author': return 'bg-red-100 text-red-800 border-red-300';
-      default: return 'bg-gray-100 text-gray-800 border-gray-300';
+      case 'First Author': return 'bg-blue-100 text-blue-800 border-blue-300 dark:bg-blue-950 dark:text-blue-300 dark:border-blue-700';
+      case 'Contributing Author': return 'bg-green-100 text-green-800 border-green-300 dark:bg-green-950 dark:text-green-300 dark:border-green-700';
+      case 'Senior Author': return 'bg-purple-100 text-purple-800 border-purple-300 dark:bg-purple-950 dark:text-purple-300 dark:border-purple-700';
+      case 'Last Author': return 'bg-amber-100 text-amber-800 border-amber-300 dark:bg-amber-950 dark:text-amber-300 dark:border-amber-700';
+      case 'Corresponding Author': return 'bg-red-100 text-red-800 border-red-300 dark:bg-red-950 dark:text-red-300 dark:border-red-700';
+      default: return 'bg-gray-100 text-gray-800 border-gray-300 dark:bg-gray-800 dark:text-gray-200 dark:border-gray-600';
     }
   };
 
@@ -114,7 +114,7 @@ export function ScientistPublications({ scientistId, yearsSince = 5 }: Scientist
         <CardContent>
           <div className="animate-pulse space-y-4">
             {[1, 2, 3].map((i) => (
-              <div key={i} className="h-24 bg-gray-200 rounded"></div>
+              <div key={i} className="h-24 bg-gray-200 rounded dark:bg-gray-700"></div>
             ))}
           </div>
         </CardContent>
@@ -147,8 +147,8 @@ export function ScientistPublications({ scientistId, yearsSince = 5 }: Scientist
               const count = authorshipCounts[type] || 0;
               return (
                 <div key={type} className="text-center">
-                  <div className="text-2xl font-bold text-gray-900">{count}</div>
-                  <div className="text-sm text-gray-600">{type}</div>
+                  <div className="text-2xl font-bold text-gray-900 dark:text-gray-100">{count}</div>
+                  <div className="text-sm text-gray-600 dark:text-gray-300">{type}</div>
                 </div>
               );
             })}
@@ -203,16 +203,16 @@ export function ScientistPublications({ scientistId, yearsSince = 5 }: Scientist
         </CardHeader>
         <CardContent>
           {publications.length === 0 ? (
-            <div className="text-center py-8 text-gray-600">
+            <div className="text-center py-8 text-gray-600 dark:text-gray-300">
               No publications found in the last {yearsSince} years
             </div>
           ) : (
             <div className="space-y-6">
               {publications.map((pub: Publication) => (
-                <div key={pub.id} className="border-l-4 border-gray-200 pl-4 pb-4">
+                <div key={pub.id} className="border-l-4 border-gray-200 pl-4 pb-4 dark:border-gray-700">
                   <div className="flex items-start justify-between gap-4">
                     <div className="flex-1">
-                      <h3 className="font-semibold text-lg text-gray-900 mb-2">
+                      <h3 className="font-semibold text-lg text-gray-900 mb-2 dark:text-gray-100">
                         {pub.title}
                       </h3>
                       
@@ -224,11 +224,11 @@ export function ScientistPublications({ scientistId, yearsSince = 5 }: Scientist
                         <Badge variant="outline">{pub.status}</Badge>
                       </div>
 
-                      <p className="text-gray-700 text-sm mb-2">
+                      <p className="text-gray-700 text-sm mb-2 dark:text-gray-300">
                         <strong>Authors:</strong> {pub.authors}
                       </p>
 
-                      <div className="text-sm text-gray-600 space-y-1">
+                      <div className="text-sm text-gray-600 space-y-1 dark:text-gray-300">
                         <p>
                           <strong>{pub.journal}</strong>
                           {pub.volume && ` ${pub.volume}`}
@@ -239,7 +239,7 @@ export function ScientistPublications({ scientistId, yearsSince = 5 }: Scientist
                           Published: {formatPublicationDate(pub.publicationDate)}
                         </p>
                         {pub.abstract && (
-                          <p className="text-gray-700 mt-2 text-sm leading-relaxed">
+                          <p className="text-gray-700 mt-2 text-sm leading-relaxed dark:text-gray-300">
                             {pub.abstract}
                           </p>
                         )}

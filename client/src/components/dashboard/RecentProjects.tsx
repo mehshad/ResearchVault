@@ -31,11 +31,11 @@ export default function RecentProjects({ limit = 5 }: RecentProjectsProps) {
   });
 
   const statusColors = {
-    active: "bg-green-100 text-green-700",
-    pending: "bg-yellow-100 text-yellow-700",
-    planning: "bg-blue-100 text-blue-600",
-    completed: "bg-gray-100 text-gray-600",
-    on_hold: "bg-red-100 text-red-600"
+    active: "bg-green-100 text-green-700 dark:bg-green-950 dark:text-green-300",
+    pending: "bg-yellow-100 text-yellow-700 dark:bg-yellow-950 dark:text-yellow-300",
+    planning: "bg-blue-100 text-blue-600 dark:bg-blue-950 dark:text-blue-400",
+    completed: "bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-300",
+    on_hold: "bg-red-100 text-red-600 dark:bg-red-950 dark:text-red-400"
   };
 
   const formatDate = (dateString: string) => {
@@ -61,7 +61,7 @@ export default function RecentProjects({ limit = 5 }: RecentProjectsProps) {
 
   const renderPerson = (person: PersonInfo | null | undefined, label: string) => {
     if (!person) {
-      return <span className="text-gray-400">Unassigned</span>;
+      return <span className="text-gray-400 dark:text-gray-500">Unassigned</span>;
     }
     
     const initials = person.profileImageInitials || getInitials(person);
@@ -79,14 +79,14 @@ export default function RecentProjects({ limit = 5 }: RecentProjectsProps) {
 
   if (error) {
     return (
-      <div className="bg-white rounded-lg shadow-sm p-6">
+      <div className="bg-white rounded-lg shadow-sm p-6 dark:bg-card">
         <p className="text-red-500">Error loading recent activities</p>
       </div>
     );
   }
 
   return (
-    <div className="bg-white rounded-lg shadow-sm">
+    <div className="bg-white rounded-lg shadow-sm dark:bg-card">
       <div className="p-6 border-b border-neutral-100">
         <div className="flex items-center justify-between">
           <h2 className="font-medium text-lg">Recent Research Activities</h2>
@@ -123,7 +123,7 @@ export default function RecentProjects({ limit = 5 }: RecentProjectsProps) {
                 {activities?.map((activity) => (
                   <tr key={activity.id} data-testid={`row-activity-${activity.id}`}>
                     <td className="px-6 py-4 whitespace-nowrap">
-                      <Link href={`/research-activities/${activity.id}`} className="font-medium text-gray-900 hover:text-primary-600">
+                      <Link href={`/research-activities/${activity.id}`} className="font-medium text-gray-900 hover:text-primary-600 dark:text-gray-100">
                         {activity.title}
                       </Link>
                     </td>

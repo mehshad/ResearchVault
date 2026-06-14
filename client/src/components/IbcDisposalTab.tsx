@@ -138,7 +138,7 @@ export function IbcDisposalTab({ applicationId, application, isReadOnly = false 
 
           {/* Regulated Medical Waste */}
           <div className="space-y-4">
-            <h3 className="text-lg font-semibold text-gray-900">Regulated Medical Waste</h3>
+            <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100">Regulated Medical Waste</h3>
             
             <div className="space-y-3">
               <div className="flex items-start space-x-3">
@@ -173,7 +173,7 @@ export function IbcDisposalTab({ applicationId, application, isReadOnly = false 
 
           {/* General Biosafety Procedures */}
           <div className="space-y-4">
-            <h3 className="text-lg font-semibold text-gray-900">General Biosafety Procedures (GPB)</h3>
+            <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100">General Biosafety Procedures (GPB)</h3>
             
             <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
               <div className="flex items-center space-x-3">
@@ -236,10 +236,10 @@ export function IbcDisposalTab({ applicationId, application, isReadOnly = false 
 
           {/* Carcasses */}
           <div className="space-y-4">
-            <h3 className="text-lg font-semibold text-gray-900">Carcasses</h3>
+            <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100">Carcasses</h3>
             
             <div className="space-y-3">
-              <h4 className="text-base font-medium text-gray-700">General Biosafety Procedures (GPB)</h4>
+              <h4 className="text-base font-medium text-gray-700 dark:text-gray-300">General Biosafety Procedures (GPB)</h4>
               
               <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                 <div className="flex items-center space-x-3">

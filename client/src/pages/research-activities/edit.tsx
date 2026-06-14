@@ -555,7 +555,7 @@ export default function EditResearchActivity() {
                         <div className="space-y-3">
                           {selectedBudgetSources.map((source, index) => (
                             <div key={source} className="flex items-center space-x-3">
-                              <div className="w-24 text-sm font-medium text-gray-600">
+                              <div className="w-24 text-sm font-medium text-gray-600 dark:text-gray-300">
                                 {source}:
                               </div>
                               <Input

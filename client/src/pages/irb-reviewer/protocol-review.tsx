@@ -172,7 +172,7 @@ export default function IrbProtocolReview() {
               <div className="flex items-start justify-between">
                 <div>
                   <CardTitle className="text-xl">{application.title}</CardTitle>
-                  <div className="flex items-center gap-4 text-sm text-gray-600 mt-2">
+                  <div className="flex items-center gap-4 text-sm text-gray-600 mt-2 dark:text-gray-300">
                     <span>IRB #{application.irbNumber}</span>
                     <span>•</span>
                     <span>SDR: {researchActivity?.sdrNumber}</span>
@@ -180,7 +180,7 @@ export default function IrbProtocolReview() {
                     <span>Submitted: {formatDate(application.submissionDate)}</span>
                   </div>
                 </div>
-                <Badge variant="outline" className="bg-yellow-50 text-yellow-700 border-yellow-200">
+                <Badge variant="outline" className="bg-yellow-50 text-yellow-700 border-yellow-200 dark:bg-yellow-950 dark:text-yellow-300 dark:border-yellow-800">
                   Under Review
                 </Badge>
               </div>
@@ -195,33 +195,33 @@ export default function IrbProtocolReview() {
             <CardContent>
               <div className="grid grid-cols-2 gap-4 mb-4">
                 <div>
-                  <label className="text-sm font-medium text-gray-600">Protocol Type</label>
+                  <label className="text-sm font-medium text-gray-600 dark:text-gray-300">Protocol Type</label>
                   <p>{application.protocolType || "—"}</p>
                 </div>
                 <div>
-                  <label className="text-sm font-medium text-gray-600">Risk Level</label>
+                  <label className="text-sm font-medium text-gray-600 dark:text-gray-300">Risk Level</label>
                   <p>{application.riskLevel || "—"}</p>
                 </div>
                 <div>
-                  <label className="text-sm font-medium text-gray-600">Interventional</label>
+                  <label className="text-sm font-medium text-gray-600 dark:text-gray-300">Interventional</label>
                   <p>{application.isInterventional ? "Yes" : "No"}</p>
                 </div>
                 <div>
-                  <label className="text-sm font-medium text-gray-600">Expected Participants</label>
+                  <label className="text-sm font-medium text-gray-600 dark:text-gray-300">Expected Participants</label>
                   <p>{application.expectedParticipants || "—"}</p>
                 </div>
               </div>
               
               {application.description && (
                 <div>
-                  <label className="text-sm font-medium text-gray-600">Description</label>
+                  <label className="text-sm font-medium text-gray-600 dark:text-gray-300">Description</label>
                   <p className="mt-1">{application.description}</p>
                 </div>
               )}
               
               {application.vulnerablePopulations && application.vulnerablePopulations.length > 0 && (
                 <div className="mt-4">
-                  <label className="text-sm font-medium text-gray-600">Vulnerable Populations</label>
+                  <label className="text-sm font-medium text-gray-600 dark:text-gray-300">Vulnerable Populations</label>
                   <div className="flex flex-wrap gap-2 mt-1">
                     {application.vulnerablePopulations.map((pop) => (
                       <Badge key={pop} variant="outline">{pop.replace('_', ' ')}</Badge>
@@ -247,7 +247,7 @@ export default function IrbProtocolReview() {
                     <div key={member.id} className="flex items-center justify-between p-3 border rounded-lg">
                       <div className="flex-1">
                         <h4 className="font-medium">{member.name}</h4>
-                        <p className="text-sm text-gray-600">{member.email}</p>
+                        <p className="text-sm text-gray-600 dark:text-gray-300">{member.email}</p>
                         <div className="flex flex-wrap gap-1 mt-1">
                           {member.roles.map((role: string, index: number) => (
                             <Badge key={index} variant="secondary" className="text-xs">
@@ -268,7 +268,7 @@ export default function IrbProtocolReview() {
                   ))}
                 </div>
               ) : (
-                <p className="text-gray-500 italic">No team members assigned.</p>
+                <p className="text-gray-500 italic dark:text-gray-400">No team members assigned.</p>
               )}
             </CardContent>
           </Card>
@@ -299,9 +299,9 @@ export default function IrbProtocolReview() {
                       </div>
                       
                       {doc.uploadedFile && (
-                        <div className="bg-gray-50 rounded p-2 mb-2">
+                        <div className="bg-gray-50 rounded p-2 mb-2 dark:bg-gray-900">
                           <p className="text-sm font-medium">{doc.uploadedFile.name}</p>
-                          <p className="text-xs text-gray-600">
+                          <p className="text-xs text-gray-600 dark:text-gray-300">
                             Size: {(doc.uploadedFile.size / 1024).toFixed(1)} KB
                           </p>
                         </div>
@@ -311,9 +311,9 @@ export default function IrbProtocolReview() {
                         <div className="mt-2">
                           <p className="text-sm font-medium mb-1">Signatures:</p>
                           {doc.signatures.map((sig: any, index: number) => (
-                            <div key={index} className="text-sm bg-green-50 border border-green-200 rounded p-2">
+                            <div key={index} className="text-sm bg-green-50 border border-green-200 rounded p-2 dark:bg-green-950 dark:border-green-800">
                               <span className="font-medium">{sig.signedBy}</span>
-                              <span className="text-gray-600 ml-2">
+                              <span className="text-gray-600 ml-2 dark:text-gray-300">
                                 Signed on {formatDate(sig.signedAt)}
                               </span>
                             </div>
@@ -324,7 +324,7 @@ export default function IrbProtocolReview() {
                   ))}
                 </div>
               ) : (
-                <p className="text-gray-500 italic">No documents uploaded.</p>
+                <p className="text-gray-500 italic dark:text-gray-400">No documents uploaded.</p>
               )}
             </CardContent>
           </Card>
@@ -348,7 +348,7 @@ export default function IrbProtocolReview() {
                   </div>
                   <div>
                     <p className="font-medium">{principalInvestigator.name}</p>
-                    <p className="text-sm text-gray-500">{principalInvestigator.email}</p>
+                    <p className="text-sm text-gray-500 dark:text-gray-400">{principalInvestigator.email}</p>
                   </div>
                 </div>
               </CardContent>

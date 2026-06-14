@@ -1,5 +1,5 @@
 import React from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueries } from "@tanstack/react-query";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { BarChart3, Award } from "lucide-react";
 import { ResponsiveContainer, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend } from 'recharts';
@@ -27,6 +27,27 @@ interface AuthorshipStats {
   count: number;
 }
 
+interface JournalImpactFactor {
+  year: number;
+  impactFactor: string | null;
+  quartile: string | null;
+}
+
+/**
+ * Pick the impact-factor row that best matches a publication year: the exact
+ * year if available, otherwise the closest year that actually has an IF value.
+ */
+function pickIfRow(rows: JournalImpactFactor[], pubYear: number): JournalImpactFactor | null {
+  const valid = rows.filter(r => r.impactFactor != null && Number.isFinite(parseFloat(r.impactFactor as string)));
+  if (!valid.length) return null;
+  const exact = valid.find(r => r.year === pubYear);
+  if (exact) return exact;
+  return valid.reduce<JournalImpactFactor | null>(
+    (best, r) => !best || Math.abs(r.year - pubYear) < Math.abs(best.year - pubYear) ? r : best,
+    null,
+  );
+}
+
 interface PublicationChartsProps {
   scientistId: number;
   yearsSince?: number;
@@ -51,22 +72,60 @@ export function PublicationCharts({ scientistId, yearsSince = 5 }: PublicationCh
     queryKey: [`/api/scientists/${scientistId}/authorship-stats?years=${yearsSince}`],
   });
 
-  // Calculate impact factor statistics
+  // Unique journals among publications that have a journal + date, so we fetch
+  // each journal's impact-factor history exactly once (deduped) for the stats.
+  const uniqueJournals = React.useMemo(() => {
+    const set = new Set<string>();
+    publications.forEach(pub => {
+      if (pub.journal && pub.publicationDate) set.add(pub.journal);
+    });
+    return Array.from(set);
+  }, [publications]);
+
+  const historicalIfResults = useQueries({
+    queries: uniqueJournals.map(journal => ({
+      queryKey: [`/api/journal-impact-factors/historical/${encodeURIComponent(journal)}`],
+    })),
+  });
+
+  // True while any journal IF history is still loading, so we can avoid showing
+  // a misleading "N/A" / "0" flash before the lookups resolve.
+  const ifLoading = uniqueJournals.length > 0 && historicalIfResults.some(r => r.isLoading);
+
+  // Calculate impact factor statistics from the fetched journal IF history.
   const impactFactorStats = React.useMemo(() => {
     if (!publications.length) return null;
-    
-    const withImpactFactor = publications.filter(pub => pub.journal && pub.publicationDate);
-    const totalPubs = withImpactFactor.length;
-    
-    if (totalPubs === 0) return null;
 
-    // Simple calculation since we don't have impact factor data yet
+    const withJournal = publications.filter(pub => pub.journal && pub.publicationDate);
+    if (withJournal.length === 0) return null;
+
+    const rowsByJournal = new Map<string, JournalImpactFactor[]>();
+    uniqueJournals.forEach((journal, i) => {
+      const data = historicalIfResults[i]?.data as JournalImpactFactor[] | undefined;
+      rowsByJournal.set(journal, Array.isArray(data) ? data : []);
+    });
+
+    let ifSum = 0;
+    let ifCount = 0;
+    let highImpactPubs = 0;
+    for (const pub of withJournal) {
+      const rows = rowsByJournal.get(pub.journal) || [];
+      const row = pickIfRow(rows, new Date(pub.publicationDate).getFullYear());
+      if (!row) continue;
+      const ifVal = parseFloat(row.impactFactor as string);
+      if (Number.isFinite(ifVal)) {
+        ifSum += ifVal;
+        ifCount++;
+      }
+      if (row.quartile === 'Q1') highImpactPubs++;
+    }
+
     return {
-      totalWithJournal: totalPubs,
-      averageImpactFactor: 0, // Will be calculated with actual data
-      highImpactPubs: 0 // Publications in Q1 journals
+      totalWithJournal: withJournal.length,
+      averageImpactFactor: ifCount > 0 ? ifSum / ifCount : 0,
+      highImpactPubs,
     };
-  }, [publications]);
+  }, [publications, uniqueJournals, historicalIfResults]);
 
   const chartData = React.useMemo(() => {
     if (!authorshipStats.length) return [];
@@ -99,8 +158,8 @@ export function PublicationCharts({ scientistId, yearsSince = 5 }: PublicationCh
           </CardHeader>
           <CardContent>
             <div className="animate-pulse space-y-4">
-              <div className="h-24 bg-gray-200 rounded"></div>
-              <div className="h-48 bg-gray-200 rounded"></div>
+              <div className="h-24 bg-gray-200 rounded dark:bg-gray-700"></div>
+              <div className="h-48 bg-gray-200 rounded dark:bg-gray-700"></div>
             </div>
           </CardContent>
         </Card>
@@ -140,8 +199,8 @@ export function PublicationCharts({ scientistId, yearsSince = 5 }: PublicationCh
               if (count === 0) return null;
               return (
                 <div key={type} className="flex justify-between items-center">
-                  <div className="text-sm text-gray-600">{type}</div>
-                  <div className="text-lg font-bold text-gray-900">{count}</div>
+                  <div className="text-sm text-gray-600 dark:text-gray-300">{type}</div>
+                  <div className="text-lg font-bold text-gray-900 dark:text-gray-100">{count}</div>
                 </div>
               );
             })}
@@ -163,19 +222,19 @@ export function PublicationCharts({ scientistId, yearsSince = 5 }: PublicationCh
           </CardHeader>
           <CardContent>
             <div className="grid grid-cols-3 gap-4 text-center">
-              <div className="p-4 bg-blue-50 rounded-lg">
-                <div className="text-2xl font-bold text-blue-600">{impactFactorStats.totalWithJournal}</div>
-                <div className="text-sm text-blue-600">Publications with Journal</div>
+              <div className="p-4 bg-blue-50 rounded-lg dark:bg-blue-950">
+                <div className="text-2xl font-bold text-blue-600 dark:text-blue-400">{impactFactorStats.totalWithJournal}</div>
+                <div className="text-sm text-blue-600 dark:text-blue-400">Publications with Journal</div>
               </div>
-              <div className="p-4 bg-green-50 rounded-lg">
-                <div className="text-2xl font-bold text-green-600">
-                  {impactFactorStats.averageImpactFactor > 0 ? impactFactorStats.averageImpactFactor.toFixed(2) : 'N/A'}
+              <div className="p-4 bg-green-50 rounded-lg dark:bg-green-950">
+                <div className="text-2xl font-bold text-green-600 dark:text-green-400">
+                  {ifLoading ? '…' : (impactFactorStats.averageImpactFactor > 0 ? impactFactorStats.averageImpactFactor.toFixed(2) : 'N/A')}
                 </div>
-                <div className="text-sm text-green-600">Average Impact Factor</div>
+                <div className="text-sm text-green-600 dark:text-green-400">Average Impact Factor</div>
               </div>
-              <div className="p-4 bg-purple-50 rounded-lg">
-                <div className="text-2xl font-bold text-purple-600">{impactFactorStats.highImpactPubs}</div>
-                <div className="text-sm text-purple-600">High Impact (Q1)</div>
+              <div className="p-4 bg-purple-50 rounded-lg dark:bg-purple-950">
+                <div className="text-2xl font-bold text-purple-600 dark:text-purple-400">{ifLoading ? '…' : impactFactorStats.highImpactPubs}</div>
+                <div className="text-sm text-purple-600 dark:text-purple-400">High Impact (Q1)</div>
               </div>
             </div>
           </CardContent>

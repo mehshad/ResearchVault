@@ -101,7 +101,7 @@ function TeamMemberForm({ member, onSubmit, onCancel, isSubmitting }: TeamMember
       
       if (!response.ok) throw new Error("Failed to get upload URL");
       
-      const { uploadURL, objectPath } = await response.json();
+      const { uploadURL, objectPath, finalizeToken } = await response.json();
       
       const uploadResponse = await fetch(uploadURL, {
         method: "PUT",
@@ -110,6 +110,15 @@ function TeamMemberForm({ member, onSubmit, onCancel, isSubmitting }: TeamMember
       });
       
       if (!uploadResponse.ok) throw new Error("Failed to upload file");
+
+      // Finalize upload — set private ACL so deny-by-default ACL enforcement works.
+      if (objectPath) {
+        await fetch("/api/uploads/finalize", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ objectPath, finalizeToken }),
+        }).catch(() => { /* best-effort */ });
+      }
       
       setFormData(prev => ({ ...prev, photoUrl: objectPath }));
       toast({ title: "Photo uploaded successfully" });

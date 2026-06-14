@@ -190,13 +190,13 @@ export default function CreateRoom() {
           variant="ghost" 
           size="sm" 
           onClick={() => navigate('/facilities')}
-          className="text-gray-600 hover:text-gray-900"
+          className="text-gray-600 hover:text-gray-900 dark:text-gray-300 dark:hover:text-gray-100"
         >
           <ArrowLeft className="h-4 w-4 mr-2" />
           Back to Facilities
         </Button>
         <div className="flex items-center gap-2">
-          <Plus className="h-5 w-5 text-blue-600" />
+          <Plus className="h-5 w-5 text-blue-600 dark:text-blue-400" />
           <h1 className="text-2xl font-semibold text-foreground">Create Room</h1>
         </div>
       </div>

@@ -30,6 +30,22 @@ export const objectStorageClient = new Storage({
   projectId: "",
 });
 
+// MIME types that are safe to serve inline (do not allow active-content execution).
+// SVG is intentionally excluded — it can contain embedded JavaScript.
+// Everything not in this list is served with Content-Disposition: attachment.
+export const SAFE_INLINE_MIME_TYPES = new Set([
+  "image/jpeg",
+  "image/png",
+  "image/gif",
+  "image/webp",
+  "audio/mpeg",
+  "audio/ogg",
+  "audio/wav",
+  "video/mp4",
+  "video/webm",
+  "application/pdf",
+]);
+
 export class ObjectNotFoundError extends Error {
   constructor() {
     super("Object not found");
@@ -102,13 +118,20 @@ export class ObjectStorageService {
       // Get the ACL policy for the object.
       const aclPolicy = await getObjectAclPolicy(file);
       const isPublic = aclPolicy?.visibility === "public";
-      // Set appropriate headers
+      // Determine safe response headers.
+      // Safe image/media MIME types may be served inline (needed for <img> tags etc.).
+      // Everything else — especially text/html, application/javascript, image/svg+xml,
+      // and any unknown type — is forced to attachment to prevent same-origin XSS.
+      const storedType = metadata.contentType || "application/octet-stream";
+      const isSafeInline = SAFE_INLINE_MIME_TYPES.has(storedType);
       res.set({
-        "Content-Type": metadata.contentType || "application/octet-stream",
+        "Content-Type": isSafeInline ? storedType : "application/octet-stream",
         "Content-Length": metadata.size,
         "Cache-Control": `${
           isPublic ? "public" : "private"
         }, max-age=${cacheTtlSec}`,
+        "Content-Disposition": isSafeInline ? "inline" : "attachment",
+        "X-Content-Type-Options": "nosniff",
       });
 
       // Stream the file to the response

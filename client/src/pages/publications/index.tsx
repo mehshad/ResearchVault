@@ -18,13 +18,14 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { EnhancedPublication } from "@/lib/types";
-import { Plus, Search, MoreHorizontal, CalendarRange, Bookmark, FileText, Download, Star } from "lucide-react";
+import { Plus, Search, MoreHorizontal, CalendarRange, Bookmark, FileText, Download, Star, ArrowUpDown, ArrowUp, ArrowDown } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { PermissionWrapper } from "@/components/PermissionWrapper";
 import { usePermissions } from "@/hooks/usePermissions";
 import { useCurrentUser } from "@/hooks/useCurrentUser";
+import { PublicationsToFix } from "@/components/PublicationsToFix";
 import PublicationImport from "./import";
 
 export default function PublicationsList() {
@@ -86,16 +87,76 @@ export default function PublicationsList() {
 
     // Then apply search query filter
     if (searchQuery) {
+      const q = searchQuery.toLowerCase().trim();
+      // Normalize DOI queries so a pasted resolver URL (https://doi.org/...)
+      // matches a bare DOI stored in the record, and vice versa.
+      const stripDoi = (s: string) =>
+        s.toLowerCase().replace(/^https?:\/\/(dx\.)?doi\.org\//, "").replace(/^doi:\s*/, "");
+      const qDoi = stripDoi(q);
       return (
-        publication.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        (publication.authors && publication.authors.toLowerCase().includes(searchQuery.toLowerCase())) ||
-        (publication.journal && publication.journal.toLowerCase().includes(searchQuery.toLowerCase())) ||
-        (publication.abstract && publication.abstract.toLowerCase().includes(searchQuery.toLowerCase()))
+        publication.title.toLowerCase().includes(q) ||
+        (publication.authors && publication.authors.toLowerCase().includes(q)) ||
+        (publication.journal && publication.journal.toLowerCase().includes(q)) ||
+        (publication.abstract && publication.abstract.toLowerCase().includes(q)) ||
+        (publication.doi && stripDoi(publication.doi).includes(qDoi)) ||
+        (publication.pmid && publication.pmid.toLowerCase().includes(q))
       );
     }
     
     return true;
   });
+
+  const [sortColumn, setSortColumn] = useState<string | null>(null);
+  const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('asc');
+
+  const handleSort = (column: string) => {
+    if (sortColumn === column) {
+      setSortDirection((prev) => (prev === 'asc' ? 'desc' : 'asc'));
+    } else {
+      setSortColumn(column);
+      setSortDirection('asc');
+    }
+  };
+
+  const sortedPublications = (() => {
+    if (!filteredPublications || !sortColumn) return filteredPublications;
+    const getValue = (p: EnhancedPublication): string | number => {
+      switch (sortColumn) {
+        case 'title':
+          return (p.title ?? '').toLowerCase();
+        case 'journal':
+          return (p.journal ?? '').toLowerCase();
+        case 'date':
+          return p.publicationDate ? new Date(p.publicationDate).getTime() : 0;
+        case 'sdr':
+          return p.researchActivityId ?? 0;
+        case 'status':
+          return (p.status ?? '').toLowerCase();
+        default:
+          return '';
+      }
+    };
+    return [...filteredPublications].sort((a, b) => {
+      const av = getValue(a);
+      const bv = getValue(b);
+      let cmp: number;
+      if (typeof av === 'number' && typeof bv === 'number') {
+        cmp = av - bv;
+      } else {
+        cmp = String(av).localeCompare(String(bv), undefined, { numeric: true, sensitivity: 'base' });
+      }
+      return sortDirection === 'asc' ? cmp : -cmp;
+    });
+  })();
+
+  const SortIcon = ({ column }: { column: string }) => {
+    if (sortColumn !== column) {
+      return <ArrowUpDown className="h-3 w-3 ml-1 inline-block opacity-40" />;
+    }
+    return sortDirection === 'asc'
+      ? <ArrowUp className="h-3 w-3 ml-1 inline-block" />
+      : <ArrowDown className="h-3 w-3 ml-1 inline-block" />;
+  };
 
   return (
     <div className="space-y-6">
@@ -104,13 +165,13 @@ export default function PublicationsList() {
           <h1 className="text-2xl font-semibold text-foreground">Publications</h1>
           {filterResearchActivityId && researchActivity && (
             <div className="mt-1 flex items-center">
-              <Badge variant="outline" className="mr-2 bg-blue-50 text-blue-700 border-blue-200">
+              <Badge variant="outline" className="mr-2 bg-blue-50 text-blue-700 border-blue-200 dark:bg-blue-950 dark:text-blue-300 dark:border-blue-800">
                 Filtered by SDR: {researchActivity.sdrNumber}
               </Badge>
               <Button 
                 variant="ghost" 
                 size="sm" 
-                className="h-7 px-2 text-sm text-blue-600" 
+                className="h-7 px-2 text-sm text-blue-600 dark:text-blue-400" 
                 onClick={() => {
                   setFilterResearchActivityId(null);
                   window.history.pushState({}, '', '/publications');
@@ -122,13 +183,13 @@ export default function PublicationsList() {
           )}
           {filterJournal && (
             <div className="mt-1 flex items-center" data-testid="banner-journal-filter">
-              <Badge variant="outline" className="mr-2 bg-amber-50 text-amber-800 border-amber-200">
+              <Badge variant="outline" className="mr-2 bg-amber-50 text-amber-800 border-amber-200 dark:bg-amber-950 dark:text-amber-300 dark:border-amber-800">
                 Filtered by Journal: {filterJournal}
               </Badge>
               <Button
                 variant="ghost"
                 size="sm"
-                className="h-7 px-2 text-sm text-amber-700"
+                className="h-7 px-2 text-sm text-amber-700 dark:text-amber-300"
                 onClick={() => {
                   setFilterJournal(null);
                   const params = new URLSearchParams(window.location.search);
@@ -185,15 +246,17 @@ export default function PublicationsList() {
         </div>
       </div>
 
+      <PublicationsToFix />
+
       <Card>
         <CardHeader className="pb-3">
           <div className="flex items-center justify-between">
             <CardTitle>Research Publications</CardTitle>
             <div className="relative w-64">
-              <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-gray-400" />
+              <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-gray-400 dark:text-gray-500" />
               <Input
                 type="search"
-                placeholder="Search publications..."
+                placeholder="Search by title, author, journal, DOI, PMID..."
                 className="pl-8"
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
@@ -206,11 +269,31 @@ export default function PublicationsList() {
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead className="w-[40%]">Title & Authors</TableHead>
-                  <TableHead>Journal</TableHead>
-                  <TableHead>Date</TableHead>
-                  <TableHead>SDR</TableHead>
-                  <TableHead>Status</TableHead>
+                  <TableHead className="w-[40%]">
+                    <button type="button" onClick={() => handleSort('title')} className="flex items-center font-medium hover:text-foreground" data-testid="sort-title">
+                      Title & Authors <SortIcon column="title" />
+                    </button>
+                  </TableHead>
+                  <TableHead>
+                    <button type="button" onClick={() => handleSort('journal')} className="flex items-center font-medium hover:text-foreground" data-testid="sort-journal">
+                      Journal <SortIcon column="journal" />
+                    </button>
+                  </TableHead>
+                  <TableHead>
+                    <button type="button" onClick={() => handleSort('date')} className="flex items-center font-medium hover:text-foreground" data-testid="sort-date">
+                      Date <SortIcon column="date" />
+                    </button>
+                  </TableHead>
+                  <TableHead>
+                    <button type="button" onClick={() => handleSort('sdr')} className="flex items-center font-medium hover:text-foreground" data-testid="sort-sdr">
+                      SDR <SortIcon column="sdr" />
+                    </button>
+                  </TableHead>
+                  <TableHead>
+                    <button type="button" onClick={() => handleSort('status')} className="flex items-center font-medium hover:text-foreground" data-testid="sort-status">
+                      Status <SortIcon column="status" />
+                    </button>
+                  </TableHead>
                   <TableHead className="w-[80px]"></TableHead>
                 </TableRow>
               </TableHeader>
@@ -230,7 +313,7 @@ export default function PublicationsList() {
                     <TableCell><Skeleton className="h-8 w-8" /></TableCell>
                   </TableRow>
                 ))}
-                {!isLoading && (filteredPublications?.length ?? 0) === 0 && (
+                {!isLoading && (sortedPublications?.length ?? 0) === 0 && (
                   <TableRow>
                     <TableCell colSpan={6} className="text-center py-8 text-muted-foreground" data-testid="text-publications-empty">
                       {searchQuery
@@ -239,10 +322,10 @@ export default function PublicationsList() {
                     </TableCell>
                   </TableRow>
                 )}
-                {!isLoading && filteredPublications?.map((publication) => (
+                {!isLoading && sortedPublications?.map((publication) => (
                   <TableRow 
                     key={publication.id} 
-                    className="hover:bg-gray-50 cursor-pointer transition-colors"
+                    className="hover:bg-gray-50 cursor-pointer transition-colors dark:hover:bg-gray-900"
                     onClick={() => navigate(`/publications/${publication.id}`)}
                     data-testid={`row-publication-${publication.id}`}
                   >
@@ -250,7 +333,7 @@ export default function PublicationsList() {
                       <div className="font-medium">
                         {publication.title}
                       </div>
-                      <div className="text-sm text-gray-600 mt-1">
+                      <div className="text-sm text-gray-600 mt-1 dark:text-gray-300">
                         {publication.authors || '—'}
                       </div>
                     </TableCell>
@@ -260,7 +343,7 @@ export default function PublicationsList() {
                         <span>{publication.journal || "—"}</span>
                       </div>
                       {publication.volume && (
-                        <div className="text-sm text-gray-600 mt-1">
+                        <div className="text-sm text-gray-600 mt-1 dark:text-gray-300">
                           Vol. {publication.volume}{publication.issue ? `, Issue ${publication.issue}` : ''}
                           {publication.pages ? `, pp. ${publication.pages}` : ''}
                         </div>
@@ -268,7 +351,7 @@ export default function PublicationsList() {
                     </TableCell>
                     <TableCell>
                       <div className="flex items-center text-sm">
-                        <CalendarRange className="h-4 w-4 mr-1 text-gray-600" />
+                        <CalendarRange className="h-4 w-4 mr-1 text-gray-600 dark:text-gray-300" />
                         <span>{formatDate(publication.publicationDate)}</span>
                       </div>
                     </TableCell>
@@ -280,7 +363,7 @@ export default function PublicationsList() {
                           </span>
                         </Link>
                       ) : (
-                        <span className="text-gray-600 text-sm">—</span>
+                        <span className="text-gray-600 text-sm dark:text-gray-300">—</span>
                       )}
                     </TableCell>
                     <TableCell>

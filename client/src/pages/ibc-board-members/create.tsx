@@ -120,7 +120,7 @@ export default function CreateIbcBoardMember() {
       <div className="p-6">
         <div className="space-y-4">
           {[1, 2, 3].map(i => (
-            <div key={i} className="h-32 bg-gray-100 rounded-lg animate-pulse" />
+            <div key={i} className="h-32 bg-gray-100 rounded-lg animate-pulse dark:bg-gray-800" />
           ))}
         </div>
       </div>
@@ -177,7 +177,7 @@ export default function CreateIbcBoardMember() {
                             <SelectItem key={scientist.id} value={scientist.id.toString()}>
                               <div>
                                 <div className="font-medium">{scientist.name}</div>
-                                <div className="text-sm text-gray-500">{scientist.title}</div>
+                                <div className="text-sm text-gray-500 dark:text-gray-400">{scientist.title}</div>
                               </div>
                             </SelectItem>
                           ))}

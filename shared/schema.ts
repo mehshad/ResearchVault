@@ -867,17 +867,28 @@ export const insertIbcApplicationPpeSchema = createInsertSchema(ibcApplicationPp
   createdAt: true,
 });
 
+// Role groups — canonical list of role names (replaces free-text job_title on role_permissions)
+export const roleGroups = pgTable("role_groups", {
+  id: serial("id").primaryKey(),
+  name: text("name").notNull().unique(),
+  description: text("description"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+export type RoleGroup = typeof roleGroups.$inferSelect;
+
 // Role permissions schema - stores access level for each role/navigation item combination
 export const rolePermissions = pgTable("role_permissions", {
   id: serial("id").primaryKey(),
-  jobTitle: text("job_title").notNull(), // e.g., "Investigator", "PhD Student", etc.
+  roleGroupId: integer("role_group_id").notNull(), // FK to role_groups (replaces job_title)
   navigationItem: text("navigation_item").notNull(), // e.g., "facilities", "programs", etc.
-  accessLevel: text("access_level").notNull(), // "hide", "view", or "edit"
+  accessLevel: text("access_level").notNull(), // "hide", "view", "edit", or "create"
+  updatedBy: integer("updated_by"),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 }, (table) => ({
-  // Ensure unique combination of jobTitle and navigationItem
-  uniqueJobTitleNavItem: uniqueIndex("unique_job_title_nav_item").on(table.jobTitle, table.navigationItem),
+  uniqueRoleGroupNavItem: uniqueIndex("unique_role_group_nav_item").on(table.roleGroupId, table.navigationItem),
 }));
 
 export const insertRolePermissionSchema = createInsertSchema(rolePermissions).omit({
@@ -1057,6 +1068,28 @@ export type InsertIbcApplicationPpe = z.infer<typeof insertIbcApplicationPpeSche
 
 export type RolePermission = typeof rolePermissions.$inferSelect;
 export type InsertRolePermission = z.infer<typeof insertRolePermissionSchema>;
+
+// Ownership overrides schema — record-level access elevation based on user relationship to a record
+export const ownershipOverrides = pgTable("ownership_overrides", {
+  id: serial("id").primaryKey(),
+  module: text("module").notNull(),         // matches NAVIGATION_ITEMS id
+  relationship: text("relationship").notNull(), // 'is_author', 'is_pi', etc.
+  grantedAccess: text("granted_access").notNull(), // 'view' | 'create' | 'edit'
+  description: text("description"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => ({
+  uniqueModuleRelationship: uniqueIndex("unique_module_relationship").on(table.module, table.relationship),
+}));
+
+export const insertOwnershipOverrideSchema = createInsertSchema(ownershipOverrides).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export type InsertOwnershipOverride = z.infer<typeof insertOwnershipOverrideSchema>;
+export type OwnershipOverride = typeof ownershipOverrides.$inferSelect;
 
 // Journal Impact Factors schema
 // Journals: one row per journal with stable metadata

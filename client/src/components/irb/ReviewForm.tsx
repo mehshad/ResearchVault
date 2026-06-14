@@ -69,9 +69,9 @@ export function ReviewForm({ application, onSubmit, onCancel, isLoading }: Revie
   };
 
   const riskLevels = [
-    { value: 'minimal', label: 'Minimal Risk', color: 'bg-green-100 text-green-800' },
-    { value: 'moderate', label: 'Moderate Risk', color: 'bg-yellow-100 text-yellow-800' },
-    { value: 'high', label: 'High Risk', color: 'bg-red-100 text-red-800' }
+    { value: 'minimal', label: 'Minimal Risk', color: 'bg-green-100 text-green-800 dark:bg-green-950 dark:text-green-300' },
+    { value: 'moderate', label: 'Moderate Risk', color: 'bg-yellow-100 text-yellow-800 dark:bg-yellow-950 dark:text-yellow-300' },
+    { value: 'high', label: 'High Risk', color: 'bg-red-100 text-red-800 dark:bg-red-950 dark:text-red-300' }
   ];
 
   const commonRecommendations = [
@@ -107,7 +107,7 @@ export function ReviewForm({ application, onSubmit, onCancel, isLoading }: Revie
             <FileText className="h-5 w-5" />
             IRB Review Form
           </CardTitle>
-          <p className="text-sm text-gray-600">
+          <p className="text-sm text-gray-600 dark:text-gray-300">
             Protocol: {application.title} ({application.irbNumber})
           </p>
         </CardHeader>
@@ -257,28 +257,28 @@ export function ReviewForm({ application, onSubmit, onCancel, isLoading }: Revie
               <div className="flex items-center space-x-2">
                 <RadioGroupItem value="approved" id="approved" />
                 <Label htmlFor="approved" className="flex items-center gap-2">
-                  <CheckCircle className="h-4 w-4 text-green-600" />
+                  <CheckCircle className="h-4 w-4 text-green-600 dark:text-green-400" />
                   Approved
                 </Label>
               </div>
               <div className="flex items-center space-x-2">
                 <RadioGroupItem value="approved_with_modifications" id="approved_with_modifications" />
                 <Label htmlFor="approved_with_modifications" className="flex items-center gap-2">
-                  <AlertTriangle className="h-4 w-4 text-yellow-600" />
+                  <AlertTriangle className="h-4 w-4 text-yellow-600 dark:text-yellow-400" />
                   Approved with Modifications
                 </Label>
               </div>
               <div className="flex items-center space-x-2">
                 <RadioGroupItem value="deferred" id="deferred" />
                 <Label htmlFor="deferred" className="flex items-center gap-2">
-                  <AlertTriangle className="h-4 w-4 text-orange-600" />
+                  <AlertTriangle className="h-4 w-4 text-orange-600 dark:text-orange-400" />
                   Deferred
                 </Label>
               </div>
               <div className="flex items-center space-x-2">
                 <RadioGroupItem value="disapproved" id="disapproved" />
                 <Label htmlFor="disapproved" className="flex items-center gap-2">
-                  <XCircle className="h-4 w-4 text-red-600" />
+                  <XCircle className="h-4 w-4 text-red-600 dark:text-red-400" />
                   Disapproved
                 </Label>
               </div>

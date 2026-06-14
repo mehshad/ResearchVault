@@ -123,7 +123,7 @@ export default function ProjectGroupDetail() {
               <div>
                 <h2 className="text-xl font-semibold">{projectGroup.name}</h2>
                 <div className="text-foreground flex items-center gap-1 mt-1">
-                  <Badge variant="outline" className="rounded-sm bg-blue-50 text-blue-700 border-blue-200">{projectGroup.projectGroupId}</Badge>
+                  <Badge variant="outline" className="rounded-sm bg-blue-50 text-blue-700 border-blue-200 dark:bg-blue-950 dark:text-blue-300 dark:border-blue-800">{projectGroup.projectGroupId}</Badge>
                 </div>
               </div>
 
@@ -192,12 +192,12 @@ export default function ProjectGroupDetail() {
                   {researchActivities.map((activity) => (
                     <div 
                       key={activity.id} 
-                      className="flex justify-between items-center p-2 hover:bg-gray-50 rounded cursor-pointer"
+                      className="flex justify-between items-center p-2 hover:bg-gray-50 rounded cursor-pointer dark:hover:bg-gray-900"
                       onClick={() => navigate(`/projects/${activity.id}`)}
                     >
                       <div>
                         <p className="font-medium">{activity.title}</p>
-                        <p className="text-sm text-gray-500">{activity.sdrNumber}</p>
+                        <p className="text-sm text-gray-500 dark:text-gray-400">{activity.sdrNumber}</p>
                       </div>
                       <Badge>{activity.status}</Badge>
                     </div>

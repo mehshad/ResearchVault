@@ -74,14 +74,14 @@ export default function FacilitiesList() {
 
   const getBiosafetyLevelBadge = (level: string) => {
     const colors = {
-      'BSL-1': 'bg-green-100 text-green-800',
-      'BSL-2': 'bg-yellow-100 text-yellow-800',
-      'BSL-3': 'bg-orange-100 text-orange-800',
-      'BSL-4': 'bg-red-100 text-red-800',
-      'ABSL-1': 'bg-blue-100 text-blue-800',
-      'ABSL-2': 'bg-purple-100 text-purple-800'
+      'BSL-1': 'bg-green-100 text-green-800 dark:bg-green-950 dark:text-green-300',
+      'BSL-2': 'bg-yellow-100 text-yellow-800 dark:bg-yellow-950 dark:text-yellow-300',
+      'BSL-3': 'bg-orange-100 text-orange-800 dark:bg-orange-950 dark:text-orange-300',
+      'BSL-4': 'bg-red-100 text-red-800 dark:bg-red-950 dark:text-red-300',
+      'ABSL-1': 'bg-blue-100 text-blue-800 dark:bg-blue-950 dark:text-blue-300',
+      'ABSL-2': 'bg-purple-100 text-purple-800 dark:bg-purple-950 dark:text-purple-300'
     };
-    return colors[level as keyof typeof colors] || 'bg-gray-100 text-gray-800';
+    return colors[level as keyof typeof colors] || 'bg-gray-100 text-gray-800 dark:bg-gray-800 dark:text-gray-200';
   };
 
   const getScientistInfo = (scientistId: number | null) => {
@@ -149,7 +149,7 @@ export default function FacilitiesList() {
         <CardHeader className="pb-3">
           <div className="flex items-center gap-4">
             <div className="relative flex-1 max-w-sm">
-              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 h-4 w-4" />
+              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 h-4 w-4 dark:text-gray-500" />
               <Input
                 placeholder="Search buildings..."
                 value={searchQuery}
@@ -168,7 +168,7 @@ export default function FacilitiesList() {
               return (
                 <Card key={building.id} className="border-l-4 border-l-blue-500">
                   <CardHeader 
-                    className="pb-3 cursor-pointer hover:bg-gray-50 transition-colors"
+                    className="pb-3 cursor-pointer hover:bg-gray-50 transition-colors dark:hover:bg-gray-900"
                     onClick={() => toggleBuildingExpansion(building.id)}
                   >
                     <div className="flex items-center justify-between">
@@ -187,11 +187,11 @@ export default function FacilitiesList() {
                             <ChevronDown className="h-4 w-4" />
                           }
                         </Button>
-                        <Building2 className="h-5 w-5 text-blue-600" />
+                        <Building2 className="h-5 w-5 text-blue-600 dark:text-blue-400" />
                         <div>
                           <CardTitle className="text-lg">{building.name}</CardTitle>
                           {building.address && (
-                            <p className="text-sm text-gray-600 flex items-center gap-1 mt-1">
+                            <p className="text-sm text-gray-600 flex items-center gap-1 mt-1 dark:text-gray-300">
                               <MapPin className="h-3 w-3" />
                               {building.address}
                             </p>
@@ -237,9 +237,9 @@ export default function FacilitiesList() {
                       </div>
                     </div>
                     {building.description && (
-                      <p className="text-sm text-gray-600 mt-2">{building.description}</p>
+                      <p className="text-sm text-gray-600 mt-2 dark:text-gray-300">{building.description}</p>
                     )}
-                    <div className="flex gap-4 text-sm text-gray-500 mt-2">
+                    <div className="flex gap-4 text-sm text-gray-500 mt-2 dark:text-gray-400">
                       {building.totalFloors && (
                         <span>{building.totalFloors} floors</span>
                       )}
@@ -252,7 +252,7 @@ export default function FacilitiesList() {
                   {isExpanded && buildingRooms.length > 0 && (
                     <CardContent className="pt-0">
                       <div className="border-t pt-4">
-                        <h4 className="font-medium text-sm text-gray-700 mb-3">Rooms</h4>
+                        <h4 className="font-medium text-sm text-gray-700 mb-3 dark:text-gray-300">Rooms</h4>
                         <Table>
                           <TableHeader>
                             <TableRow>
@@ -280,7 +280,7 @@ export default function FacilitiesList() {
                                       {room.biosafetyLevel}
                                     </Badge>
                                   ) : (
-                                    <span className="text-gray-400">N/A</span>
+                                    <span className="text-gray-400 dark:text-gray-500">N/A</span>
                                   )}
                                 </TableCell>
                                 <TableCell>
@@ -289,15 +289,15 @@ export default function FacilitiesList() {
                                       const supervisor = getScientistInfo(room.roomSupervisorId);
                                       return supervisor ? (
                                         <div className="text-sm">
-                                          <div className="font-medium text-gray-900">{formatFullName(supervisor)}</div>
-                                          <div className="text-gray-500 text-xs">{supervisor.email}</div>
+                                          <div className="font-medium text-gray-900 dark:text-gray-100">{formatFullName(supervisor)}</div>
+                                          <div className="text-gray-500 text-xs dark:text-gray-400">{supervisor.email}</div>
                                         </div>
                                       ) : (
-                                        <span className="text-gray-400">Not found</span>
+                                        <span className="text-gray-400 dark:text-gray-500">Not found</span>
                                       );
                                     })()
                                   ) : (
-                                    <span className="text-gray-400">Not assigned</span>
+                                    <span className="text-gray-400 dark:text-gray-500">Not assigned</span>
                                   )}
                                 </TableCell>
                                 <TableCell>
@@ -306,15 +306,15 @@ export default function FacilitiesList() {
                                       const manager = getScientistInfo(room.roomManagerId);
                                       return manager ? (
                                         <div className="text-sm">
-                                          <div className="font-medium text-gray-900">{formatFullName(manager)}</div>
-                                          <div className="text-gray-500 text-xs">{manager.email}</div>
+                                          <div className="font-medium text-gray-900 dark:text-gray-100">{formatFullName(manager)}</div>
+                                          <div className="text-gray-500 text-xs dark:text-gray-400">{manager.email}</div>
                                         </div>
                                       ) : (
-                                        <span className="text-gray-400">Not found</span>
+                                        <span className="text-gray-400 dark:text-gray-500">Not found</span>
                                       );
                                     })()
                                   ) : (
-                                    <span className="text-gray-400">Not assigned</span>
+                                    <span className="text-gray-400 dark:text-gray-500">Not assigned</span>
                                   )}
                                 </TableCell>
                                 <TableCell>
@@ -343,9 +343,9 @@ export default function FacilitiesList() {
             
             {filteredBuildings?.length === 0 && (
               <div className="text-center py-8">
-                <Building2 className="h-12 w-12 text-gray-400 mx-auto mb-4" />
-                <h3 className="text-lg font-medium text-gray-900 mb-2">No buildings found</h3>
-                <p className="text-gray-600 mb-4">
+                <Building2 className="h-12 w-12 text-gray-400 mx-auto mb-4 dark:text-gray-500" />
+                <h3 className="text-lg font-medium text-gray-900 mb-2 dark:text-gray-100">No buildings found</h3>
+                <p className="text-gray-600 mb-4 dark:text-gray-300">
                   {searchQuery ? 'Try adjusting your search criteria.' : 'Get started by adding your first building.'}
                 </p>
                 {!searchQuery && (

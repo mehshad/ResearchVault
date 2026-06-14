@@ -13,11 +13,30 @@ import { Badge } from "@/components/ui/badge";
 import { ScientistAvatar } from "@/components/ScientistAvatar";
 import React, { useState } from "react";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
-import { PublicationsList } from "@/components/PublicationsList";
+import { PublicationsPanel } from "@/components/PublicationsPanel";
 import { PublicationCharts } from "@/components/PublicationCharts";
 import { OrgChart } from "@/components/OrgChart";
 import { formatFullName } from "@/utils/nameUtils";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
+import { Certification, CertificationModule } from "@shared/schema";
+import { parseISO, differenceInDays } from "date-fns";
+
+// Derive a badge color from a certification's expiry date (valid/expiring/expired)
+function getCertificationColor(expiryDate: string | null): string {
+  if (!expiryDate) {
+    return "bg-gray-100 text-gray-600 border-gray-200 dark:bg-gray-800 dark:text-gray-300 dark:border-gray-700";
+  }
+
+  const daysUntilExpiry = differenceInDays(parseISO(expiryDate), new Date());
+
+  if (daysUntilExpiry < 0) {
+    return "bg-red-100 text-red-800 border-red-200 hover:bg-red-200 dark:bg-red-950 dark:text-red-300 dark:border-red-800 dark:hover:bg-red-900";
+  } else if (daysUntilExpiry <= 30) {
+    return "bg-orange-100 text-orange-800 border-orange-200 hover:bg-orange-200 dark:bg-orange-950 dark:text-orange-300 dark:border-orange-800 dark:hover:bg-orange-900";
+  } else {
+    return "bg-green-100 text-green-800 border-green-200 hover:bg-green-200 dark:bg-green-950 dark:text-green-300 dark:border-green-800 dark:hover:bg-green-900";
+  }
+}
 
 // Tree structure component for research activities
 interface ResearchActivitiesTreeProps {
@@ -86,7 +105,7 @@ function ResearchActivitiesTree({ activities, navigate }: ResearchActivitiesTree
               ) : (
                 <ChevronRight className="h-4 w-4 text-foreground" />
               )}
-              <Folder className="h-4 w-4 text-blue-600" />
+              <Folder className="h-4 w-4 text-blue-600 dark:text-blue-400" />
               <span className="font-medium text-sm">
                 {program.name}
               </span>
@@ -108,7 +127,7 @@ function ResearchActivitiesTree({ activities, navigate }: ResearchActivitiesTree
                       ) : (
                         <ChevronRight className="h-4 w-4 text-foreground" />
                       )}
-                      <Building className="h-4 w-4 text-green-600" />
+                      <Building className="h-4 w-4 text-green-600 dark:text-green-400" />
                       <span className="text-sm">
                         {project.name}
                       </span>
@@ -125,7 +144,7 @@ function ResearchActivitiesTree({ activities, navigate }: ResearchActivitiesTree
                           className="flex items-center gap-2 w-full justify-start p-2 h-auto text-left"
                           onClick={() => navigate(`/research-activities/${activity.id}`)}
                         >
-                          <FileText className="h-4 w-4 text-purple-600" />
+                          <FileText className="h-4 w-4 text-purple-600 dark:text-purple-400" />
                           <div className="flex-1 min-w-0">
                             <div className="text-sm font-medium truncate">
                               {activity.title}
@@ -192,7 +211,32 @@ export default function ScientistDetail() {
     },
     enabled: !!id,
   });
-  
+
+  // Fetch the scientist's real certifications and the module catalog (to resolve names)
+  const { data: certifications = [], isLoading: certificationsLoading } = useQuery<Certification[]>({
+    queryKey: ['/api/certifications/scientist', id],
+    queryFn: async () => {
+      const response = await fetch(`/api/certifications/scientist/${id}`);
+      if (!response.ok) {
+        throw new Error('Failed to fetch certifications');
+      }
+      return response.json();
+    },
+    enabled: !!id,
+  });
+
+  const { data: certificationModules = [] } = useQuery<CertificationModule[]>({
+    queryKey: ['/api/certification-modules'],
+  });
+
+  const citiCertifications = certifications.filter((cert) => {
+    const module = certificationModules.find((m) => m.id === cert.moduleId);
+    return module && module.name !== "Lab Safety";
+  });
+  const labSafetyCertification = certifications.find((cert) => {
+    const module = certificationModules.find((m) => m.id === cert.moduleId);
+    return module && module.name === "Lab Safety";
+  });
 
 
   if (isLoading) {
@@ -290,7 +334,7 @@ export default function ScientistDetail() {
                       <h2 className="text-xl font-semibold">
                         {formatFullName(scientist)}
                         {scientist.staffId && (
-                          <Badge variant="outline" className="ml-3 rounded-sm bg-blue-50 text-blue-700 border-blue-200">
+                          <Badge variant="outline" className="ml-3 rounded-sm bg-blue-50 text-blue-700 border-blue-200 dark:bg-blue-950 dark:text-blue-300 dark:border-blue-800">
                             ID: {scientist.staffId}
                           </Badge>
                         )}
@@ -305,7 +349,7 @@ export default function ScientistDetail() {
 
                     <div className="flex flex-wrap gap-2">
                       {scientist.department && (
-                        <Badge variant="outline" className="bg-green-50 text-green-700 border-green-200">{scientist.department}</Badge>
+                        <Badge variant="outline" className="bg-green-50 text-green-700 border-green-200 dark:bg-green-950 dark:text-green-300 dark:border-green-800">{scientist.department}</Badge>
                       )}
                     </div>
 
@@ -337,7 +381,7 @@ export default function ScientistDetail() {
                               href={`https://orcid.org/${scientist.orcidId}`} 
                               target="_blank" 
                               rel="noopener noreferrer"
-                              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-green-50 text-green-700 hover:bg-green-100 transition-colors text-sm"
+                              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-green-50 text-green-700 hover:bg-green-100 transition-colors text-sm dark:bg-green-950 dark:text-green-300 dark:hover:bg-green-950"
                               data-testid="link-orcid"
                             >
                               <SiOrcid className="h-4 w-4" />
@@ -350,7 +394,7 @@ export default function ScientistDetail() {
                               href={scientist.linkedInUrl} 
                               target="_blank" 
                               rel="noopener noreferrer"
-                              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-blue-50 text-blue-700 hover:bg-blue-100 transition-colors text-sm"
+                              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-blue-50 text-blue-700 hover:bg-blue-100 transition-colors text-sm dark:bg-blue-950 dark:text-blue-300 dark:hover:bg-blue-950"
                               data-testid="link-linkedin"
                             >
                               <FaLinkedin className="h-4 w-4" />
@@ -363,7 +407,7 @@ export default function ScientistDetail() {
                               href={scientist.googleScholarUrl} 
                               target="_blank" 
                               rel="noopener noreferrer"
-                              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-blue-50 text-blue-700 hover:bg-blue-100 transition-colors text-sm"
+                              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-blue-50 text-blue-700 hover:bg-blue-100 transition-colors text-sm dark:bg-blue-950 dark:text-blue-300 dark:hover:bg-blue-950"
                               data-testid="link-google-scholar"
                             >
                               <SiGooglescholar className="h-4 w-4" />
@@ -376,7 +420,7 @@ export default function ScientistDetail() {
                               href={`https://www.webofscience.com/wos/author/record/${scientist.webOfScienceId}`} 
                               target="_blank" 
                               rel="noopener noreferrer"
-                              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-orange-50 text-orange-700 hover:bg-orange-100 transition-colors text-sm"
+                              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-orange-50 text-orange-700 hover:bg-orange-100 transition-colors text-sm dark:bg-orange-950 dark:text-orange-300 dark:hover:bg-orange-950"
                               data-testid="link-web-of-science"
                             >
                               <ExternalLink className="h-4 w-4" />
@@ -393,98 +437,72 @@ export default function ScientistDetail() {
                 {/* Certification Status */}
                 <div className="mt-6">
                   <h3 className="font-medium mb-2">Certification</h3>
-                  <div className="space-y-2">
-                    <div className="flex items-center gap-2">
-                      <span className="text-sm text-muted-foreground w-16">Citi:</span>
-                      <div className="flex gap-1">
-                        <TooltipProvider>
-                          {(() => {
-                            // Generate dummy CITI modules based on scientist ID
-                            const citiModules = [
-                              [
-                                { module: 'BRB', status: 'valid', expiryDate: '2025-12-15', color: 'green' },
-                                { module: 'COL', status: 'valid', expiryDate: '2025-11-20', color: 'green' },
-                                { module: 'RCR', status: 'expiring', expiryDate: '2025-09-25', color: 'orange' }
-                              ],
-                              [
-                                { module: 'BRB', status: 'expired', expiryDate: '2024-10-15', color: 'red' },
-                                { module: 'COL', status: 'expiring', expiryDate: '2025-10-01', color: 'orange' },
-                                { module: 'RCR', status: 'valid', expiryDate: '2025-12-30', color: 'green' }
-                              ],
-                              [
-                                { module: 'BRB', status: 'valid', expiryDate: '2026-06-10', color: 'green' },
-                                { module: 'COL', status: 'expiring', expiryDate: '2025-09-30', color: 'orange' },
-                                { module: 'RCR', status: 'expired', expiryDate: '2024-09-20', color: 'red' }
-                              ]
-                            ];
-                            
-                            // Use scientist ID to determine which modules to show
-                            const moduleIndex = (parseInt(id) % 3);
-                            const modules = citiModules[moduleIndex];
-                            
-                            return modules.map((module, idx) => (
-                              <Tooltip key={idx}>
-                                <TooltipTrigger>
-                                  <Badge 
-                                    className={`
-                                      ${module.color === 'green' ? 'bg-green-100 text-green-800 border-green-200 hover:bg-green-200' : ''}
-                                      ${module.color === 'orange' ? 'bg-orange-100 text-orange-800 border-orange-200 hover:bg-orange-200' : ''}
-                                      ${module.color === 'red' ? 'bg-red-100 text-red-800 border-red-200 hover:bg-red-200' : ''}
-                                      cursor-help transition-colors text-xs
-                                    `}
-                                    variant="outline"
-                                  >
-                                    {module.module}
-                                  </Badge>
-                                </TooltipTrigger>
-                                <TooltipContent>
-                                  <p>{module.module} - Expires: {module.expiryDate}</p>
-                                </TooltipContent>
-                              </Tooltip>
-                            ));
-                          })()}
-                        </TooltipProvider>
-                      </div>
+                  {certificationsLoading ? (
+                    <div className="space-y-2" data-testid="loading-certifications">
+                      <Skeleton className="h-5 w-48" />
+                      <Skeleton className="h-5 w-32" />
                     </div>
-                    <div className="flex items-center gap-2">
-                      <span className="text-sm text-muted-foreground w-16">Lab Safety:</span>
-                      <TooltipProvider>
-                        {(() => {
-                          // Generate dummy lab training data based on scientist ID
-                          const labStatuses = [
-                            { status: 'valid', color: 'green', expiryDate: '2026-03-15' },
-                            { status: 'expiring', color: 'orange', expiryDate: '2025-10-01' },
-                            { status: 'expired', color: 'red', expiryDate: '2024-08-05' }
-                          ];
-                          
-                          // Use scientist ID to determine which status to show (for consistent dummy data)
-                          const statusIndex = ((parseInt(id) + 1) % 3);
-                          const lab = labStatuses[statusIndex];
-                          
-                          return (
+                  ) : certifications.length === 0 ? (
+                    <p className="text-sm text-muted-foreground" data-testid="text-no-certifications">
+                      No certifications recorded
+                    </p>
+                  ) : (
+                    <div className="space-y-2">
+                      <div className="flex items-center gap-2">
+                        <span className="text-sm text-muted-foreground w-16">Citi:</span>
+                        <div className="flex gap-1 flex-wrap">
+                          <TooltipProvider>
+                            {citiCertifications.length > 0 ? (
+                              citiCertifications.map((cert) => {
+                                const module = certificationModules.find((m) => m.id === cert.moduleId);
+                                return (
+                                  <Tooltip key={cert.id}>
+                                    <TooltipTrigger>
+                                      <Badge
+                                        className={`${getCertificationColor(cert.endDate)} cursor-help transition-colors text-xs`}
+                                        variant="outline"
+                                        data-testid={`badge-citi-${cert.id}`}
+                                      >
+                                        {module?.name || "Unknown"}
+                                      </Badge>
+                                    </TooltipTrigger>
+                                    <TooltipContent>
+                                      <p>{module?.name || "Unknown"} - Expires: {cert.endDate || "N/A"}</p>
+                                    </TooltipContent>
+                                  </Tooltip>
+                                );
+                              })
+                            ) : (
+                              <span className="text-sm text-muted-foreground" data-testid="text-no-citi">None</span>
+                            )}
+                          </TooltipProvider>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <span className="text-sm text-muted-foreground w-16">Lab Safety:</span>
+                        <TooltipProvider>
+                          {labSafetyCertification ? (
                             <Tooltip>
                               <TooltipTrigger>
-                                <Badge 
-                                  className={`
-                                    ${lab.color === 'green' ? 'bg-green-100 text-green-800 border-green-200 hover:bg-green-200' : ''}
-                                    ${lab.color === 'orange' ? 'bg-orange-100 text-orange-800 border-orange-200 hover:bg-orange-200' : ''}
-                                    ${lab.color === 'red' ? 'bg-red-100 text-red-800 border-red-200 hover:bg-red-200' : ''}
-                                    cursor-help transition-colors text-xs
-                                  `}
+                                <Badge
+                                  className={`${getCertificationColor(labSafetyCertification.endDate)} cursor-help transition-colors text-xs`}
                                   variant="outline"
+                                  data-testid={`badge-lab-safety-${labSafetyCertification.id}`}
                                 >
-                                  {lab.expiryDate}
+                                  {labSafetyCertification.endDate || "Certified"}
                                 </Badge>
                               </TooltipTrigger>
                               <TooltipContent>
-                                <p>Lab Safety Training - Expires: {lab.expiryDate}</p>
+                                <p>Lab Safety Training - Expires: {labSafetyCertification.endDate || "N/A"}</p>
                               </TooltipContent>
                             </Tooltip>
-                          );
-                        })()}
-                      </TooltipProvider>
+                          ) : (
+                            <span className="text-sm text-muted-foreground" data-testid="text-no-lab-safety">None</span>
+                          )}
+                        </TooltipProvider>
+                      </div>
                     </div>
-                  </div>
+                  )}
                 </div>
 
                 {scientist.bio && (
@@ -496,9 +514,16 @@ export default function ScientistDetail() {
           </CardContent>
         </Card>
 
-        {/* Publications List - Only show for scientific staff */}
+        {/* Unified Publications panel - Only show for scientific staff.
+            Combines recent publications, internal author links, and (when an
+            external profile is on file) the missing-works importer. */}
         {isScientificStaff && (
-          <PublicationsList scientistId={id} yearsSince={5} />
+          <PublicationsPanel
+            scientistId={id}
+            yearsSince={5}
+            hasOrcid={!!scientist.orcidId}
+            hasScholar={!!scientist.googleScholarUrl}
+          />
         )}
         </div>
 

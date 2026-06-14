@@ -3,18 +3,20 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Palette, Settings as SettingsIcon, Moon, Sun, MessageSquarePlus, Send, Lightbulb, Zap, AlertCircle, CheckCircle, Clock, X, ChevronDown, ChevronUp, ThumbsUp, User, Calendar, Users, ShieldCheck, KeyRound } from "lucide-react";
-import { useTheme, themes, defaultInstitutionLabels, type InstitutionConfig } from "@/contexts/ThemeContext";
+import { Palette, Settings as SettingsIcon, Moon, Sun, MessageSquarePlus, Send, Lightbulb, Zap, AlertCircle, CheckCircle, Clock, X, ChevronDown, ChevronUp, ThumbsUp, User, Calendar, Users, ShieldCheck, KeyRound, Layers, Lock } from "lucide-react";
+import { useTheme, themes, defaultInstitutionLabels, TOGGLEABLE_SECTIONS, type InstitutionConfig } from "@/contexts/ThemeContext";
+import { useTheme as useColorMode } from "next-themes";
 import { useAuth } from "@/hooks/useAuth";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
 import TeamManagement from "@/components/settings/TeamManagement";
+import RoleAccessConfig from "@/pages/scientists/role-access-config";
 
 // Types for feature requests
 interface FeatureRequest {
@@ -53,26 +55,42 @@ const categoryOptions = [
 ];
 
 const priorityOptions = [
-  { value: 'low', label: 'Low', color: 'bg-gray-100 text-gray-800' },
-  { value: 'medium', label: 'Medium', color: 'bg-yellow-100 text-yellow-800' },
-  { value: 'high', label: 'High', color: 'bg-orange-100 text-orange-800' },
-  { value: 'critical', label: 'Critical', color: 'bg-red-100 text-red-800' }
+  { value: 'low', label: 'Low', color: 'bg-gray-100 text-gray-800 dark:bg-gray-800 dark:text-gray-200' },
+  { value: 'medium', label: 'Medium', color: 'bg-yellow-100 text-yellow-800 dark:bg-yellow-950 dark:text-yellow-300' },
+  { value: 'high', label: 'High', color: 'bg-orange-100 text-orange-800 dark:bg-orange-950 dark:text-orange-300' },
+  { value: 'critical', label: 'Critical', color: 'bg-red-100 text-red-800 dark:bg-red-950 dark:text-red-300' }
 ];
 
 const statusOptions = [
-  { value: 'pending', label: 'Pending', icon: Clock, color: 'bg-gray-100 text-gray-800' },
-  { value: 'enhanced', label: 'AI Enhanced', icon: Lightbulb, color: 'bg-blue-100 text-blue-800' },
-  { value: 'approved', label: 'Approved', icon: CheckCircle, color: 'bg-green-100 text-green-800' },
-  { value: 'implemented', label: 'Implemented', icon: CheckCircle, color: 'bg-emerald-100 text-emerald-800' },
-  { value: 'rejected', label: 'Rejected', icon: X, color: 'bg-red-100 text-red-800' }
+  { value: 'pending', label: 'Pending', icon: Clock, color: 'bg-gray-100 text-gray-800 dark:bg-gray-800 dark:text-gray-200' },
+  { value: 'enhanced', label: 'AI Enhanced', icon: Lightbulb, color: 'bg-blue-100 text-blue-800 dark:bg-blue-950 dark:text-blue-300' },
+  { value: 'approved', label: 'Approved', icon: CheckCircle, color: 'bg-green-100 text-green-800 dark:bg-green-950 dark:text-green-300' },
+  { value: 'implemented', label: 'Implemented', icon: CheckCircle, color: 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300' },
+  { value: 'rejected', label: 'Rejected', icon: X, color: 'bg-red-100 text-red-800 dark:bg-red-950 dark:text-red-300' }
 ];
 
 export default function Settings() {
-  const { mode, themeName, setMode, setTheme, toggleMode, institutionLabels, setInstitutionLabels } = useTheme();
+  const { themeName, setTheme, institutionLabels, setInstitutionLabels, isSectionVisible, setSectionVisible } = useTheme();
+  const { resolvedTheme, setTheme: setColorMode } = useColorMode();
+  const mode = resolvedTheme === 'dark' ? 'dark' : 'light';
+  const toggleMode = () => setColorMode(mode === 'dark' ? 'light' : 'dark');
   const { authConfig } = useAuth();
   const { toast } = useToast();
   const queryClient = useQueryClient();
   
+  // Active tab — can be set via URL hash (e.g. /settings#access-control)
+  const [activeTab, setActiveTab] = useState(() => {
+    const hash = window.location.hash.replace('#', '');
+    const valid = ['layout-theme', 'team', 'authentication', 'access-control', 'feature-requests'];
+    return valid.includes(hash) ? hash : 'layout-theme';
+  });
+
+  useEffect(() => {
+    const hash = window.location.hash.replace('#', '');
+    const valid = ['layout-theme', 'team', 'authentication', 'access-control', 'feature-requests'];
+    if (valid.includes(hash)) setActiveTab(hash);
+  }, []);
+
   // Feature request form state
   const [requestForm, setRequestForm] = useState({
     title: '',
@@ -297,8 +315,8 @@ IRIS (Intelligent Research Information Management System) is a research manageme
         <h1 className="text-2xl font-semibold text-foreground">Settings</h1>
       </div>
 
-      <Tabs defaultValue="layout-theme" className="space-y-6">
-        <TabsList className="grid w-full grid-cols-1 lg:grid-cols-4">
+      <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">
+        <TabsList className="grid w-full grid-cols-1 lg:grid-cols-5">
           <TabsTrigger value="layout-theme" className="flex items-center gap-2">
             <Palette className="h-4 w-4" />
             Layout & Theme
@@ -306,6 +324,10 @@ IRIS (Intelligent Research Information Management System) is a research manageme
           <TabsTrigger value="team" className="flex items-center gap-2">
             <Users className="h-4 w-4" />
             Team Members
+          </TabsTrigger>
+          <TabsTrigger value="access-control" className="flex items-center gap-2">
+            <Lock className="h-4 w-4" />
+            Access Control
           </TabsTrigger>
           <TabsTrigger value="authentication" className="flex items-center gap-2" data-testid="tab-authentication">
             <ShieldCheck className="h-4 w-4" />
@@ -513,6 +535,41 @@ IRIS (Intelligent Research Information Management System) is a research manageme
             );
           })()}
 
+          {/* Section Rollout */}
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Layers className="h-5 w-5" />
+                Section Rollout
+              </CardTitle>
+              <p className="text-sm text-muted-foreground">
+                Turn sections on or off to roll out the portal one area at a time. When a
+                section is off, its title still appears in the sidebar but the links below it are hidden.
+              </p>
+            </CardHeader>
+            <CardContent>
+              <div className="space-y-3">
+                {TOGGLEABLE_SECTIONS.map((sectionTitle) => (
+                  <div
+                    key={sectionTitle}
+                    className="flex items-center justify-between rounded-lg border p-3"
+                    data-testid={`row-section-${sectionTitle}`}
+                  >
+                    <Label htmlFor={`switch-section-${sectionTitle}`} className="cursor-pointer">
+                      {sectionTitle}
+                    </Label>
+                    <Switch
+                      id={`switch-section-${sectionTitle}`}
+                      checked={isSectionVisible(sectionTitle)}
+                      onCheckedChange={(checked) => setSectionVisible(sectionTitle, checked)}
+                      data-testid={`switch-section-${sectionTitle}`}
+                    />
+                  </div>
+                ))}
+              </div>
+            </CardContent>
+          </Card>
+
           {/* Application Info */}
           <Card>
             <CardHeader>
@@ -716,7 +773,7 @@ IRIS (Intelligent Research Information Management System) is a research manageme
               </div>
 
               <div className="flex items-start gap-2 rounded-md border border-amber-500/30 bg-amber-500/5 p-3 text-sm">
-                <AlertCircle className="h-4 w-4 mt-0.5 text-amber-600" />
+                <AlertCircle className="h-4 w-4 mt-0.5 text-amber-600 dark:text-amber-400" />
                 <div>
                   When SSO is enabled, the sidebar role selector and the local username /
                   password form are hidden. New users are auto-provisioned from their
@@ -739,7 +796,7 @@ IRIS (Intelligent Research Information Management System) is a research manageme
             <CardContent>
               <div className="space-y-3 text-sm">
                 <div className="flex items-start gap-3">
-                  <div className="bg-blue-100 dark:bg-blue-900/20 text-blue-600 rounded-full p-1 mt-0.5">
+                  <div className="bg-blue-100 dark:bg-blue-900/20 text-blue-600 rounded-full p-1 mt-0.5 dark:text-blue-400">
                     <MessageSquarePlus className="h-4 w-4" />
                   </div>
                   <div>
@@ -748,7 +805,7 @@ IRIS (Intelligent Research Information Management System) is a research manageme
                   </div>
                 </div>
                 <div className="flex items-start gap-3">
-                  <div className="bg-green-100 dark:bg-green-900/20 text-green-600 rounded-full p-1 mt-0.5">
+                  <div className="bg-green-100 dark:bg-green-900/20 text-green-600 rounded-full p-1 mt-0.5 dark:text-green-400">
                     <Zap className="h-4 w-4" />
                   </div>
                   <div>
@@ -757,7 +814,7 @@ IRIS (Intelligent Research Information Management System) is a research manageme
                   </div>
                 </div>
                 <div className="flex items-start gap-3">
-                  <div className="bg-purple-100 dark:bg-purple-900/20 text-purple-600 rounded-full p-1 mt-0.5">
+                  <div className="bg-purple-100 dark:bg-purple-900/20 text-purple-600 rounded-full p-1 mt-0.5 dark:text-purple-400">
                     <ThumbsUp className="h-4 w-4" />
                   </div>
                   <div>
@@ -766,7 +823,7 @@ IRIS (Intelligent Research Information Management System) is a research manageme
                   </div>
                 </div>
                 <div className="flex items-start gap-3">
-                  <div className="bg-orange-100 dark:bg-orange-900/20 text-orange-600 rounded-full p-1 mt-0.5">
+                  <div className="bg-orange-100 dark:bg-orange-900/20 text-orange-600 rounded-full p-1 mt-0.5 dark:text-orange-400">
                     <CheckCircle className="h-4 w-4" />
                   </div>
                   <div>
@@ -910,9 +967,9 @@ IRIS (Intelligent Research Information Management System) is a research manageme
 
                 <div className="bg-blue-50 dark:bg-blue-950/20 p-4 rounded-lg">
                   <div className="flex items-start gap-2">
-                    <Zap className="h-4 w-4 text-blue-600 mt-0.5" />
+                    <Zap className="h-4 w-4 text-blue-600 mt-0.5 dark:text-blue-400" />
                     <div className="text-sm">
-                      <div className="font-medium text-blue-600">How it works</div>
+                      <div className="font-medium text-blue-600 dark:text-blue-400">How it works</div>
                       <div className="text-blue-600/80 mt-1">
                         AI analyzes your request and generates a detailed developer prompt with technical requirements, 
                         implementation suggestions, and acceptance criteria based on IRIS architecture.
@@ -1092,7 +1149,7 @@ IRIS (Intelligent Research Information Management System) is a research manageme
                             {request.enhancedPrompt && (
                               <div>
                                 <div className="flex items-center gap-2 mb-2">
-                                  <Lightbulb className="h-4 w-4 text-blue-600" />
+                                  <Lightbulb className="h-4 w-4 text-blue-600 dark:text-blue-400" />
                                   <span className="text-sm font-medium">AI-Enhanced Developer Prompt</span>
                                   <Badge variant="outline" className="text-xs">
                                     {request.aiProvider?.toUpperCase()}
@@ -1114,6 +1171,10 @@ IRIS (Intelligent Research Information Management System) is a research manageme
               )}
             </CardContent>
           </Card>
+        </TabsContent>
+
+        <TabsContent value="access-control" className="space-y-6">
+          <RoleAccessConfig embedded />
         </TabsContent>
       </Tabs>
     </div>

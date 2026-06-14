@@ -926,7 +926,7 @@ export default function ResearchContractEdit() {
                           <TableRow key={field.id}>
                             <TableCell className="font-medium">
                               <div className="flex items-center">
-                                <span className="px-2 py-1 bg-blue-100 text-blue-800 rounded text-sm">
+                                <span className="px-2 py-1 bg-blue-100 text-blue-800 rounded text-sm dark:bg-blue-950 dark:text-blue-300">
                                   #{index + 1}
                                 </span>
                               </div>

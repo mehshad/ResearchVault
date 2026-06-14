@@ -3,13 +3,19 @@ import { createReadStream, existsSync } from "fs";
 import { mkdir, writeFile } from "fs/promises";
 import path from "path";
 import { type Response } from "express";
-import { ObjectNotFoundError } from "./objectStorage";
+import { ObjectNotFoundError, SAFE_INLINE_MIME_TYPES } from "./objectStorage";
 
 const UPLOADS_DIR = process.env.UPLOADS_DIR || "/data/uploads";
 const APP_URL = process.env.APP_URL || "http://localhost:5000";
 
-// Resolves the local file path for a given UUID
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+// Resolves the local file path for a given UUID.
+// Rejects anything that is not a bare UUID to prevent path traversal.
 function localFilePath(id: string): string {
+  if (!UUID_RE.test(id)) {
+    throw new Error("Invalid file id: must be a UUID");
+  }
   return path.join(UPLOADS_DIR, id);
 }
 
@@ -30,7 +36,14 @@ export class LocalObjectStorageService {
   // Saves a file body buffer/stream to disk and returns the local file.
   async saveFile(id: string, body: Buffer, contentType: string): Promise<void> {
     await mkdir(UPLOADS_DIR, { recursive: true });
-    await writeFile(localFilePath(id), body);
+    const filePath = localFilePath(id); // throws if id is not a UUID
+    // Defense-in-depth: confirm the resolved path stays inside UPLOADS_DIR
+    const resolvedDir = path.resolve(UPLOADS_DIR);
+    const resolvedFile = path.resolve(filePath);
+    if (!resolvedFile.startsWith(resolvedDir + path.sep)) {
+      throw new Error("Path traversal detected");
+    }
+    await writeFile(resolvedFile, body);
   }
 
   async getObjectEntityFile(objectPath: string): Promise<LocalFile> {
@@ -51,7 +64,12 @@ export class LocalObjectStorageService {
   }
 
   async downloadObject(file: LocalFile, res: Response): Promise<void> {
-    res.set("Content-Type", file.contentType);
+    const isSafeInline = SAFE_INLINE_MIME_TYPES.has(file.contentType);
+    res.set({
+      "Content-Type": isSafeInline ? file.contentType : "application/octet-stream",
+      "Content-Disposition": isSafeInline ? "inline" : "attachment",
+      "X-Content-Type-Options": "nosniff",
+    });
     const stream = createReadStream(file.filePath);
     stream.on("error", () => {
       if (!res.headersSent) res.status(500).json({ error: "Error streaming file" });

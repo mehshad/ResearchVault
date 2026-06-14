@@ -38,20 +38,20 @@ export default function ContractsList() {
   };
 
   const statusColors = {
-    draft: "bg-gray-100 text-gray-700",
-    active: "bg-green-100 text-green-700",
-    pending: "bg-yellow-100 text-yellow-700",
-    completed: "bg-blue-100 text-blue-600",
-    terminated: "bg-red-100 text-red-600",
-    "under review": "bg-purple-100 text-purple-600"
+    draft: "bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-300",
+    active: "bg-green-100 text-green-700 dark:bg-green-950 dark:text-green-300",
+    pending: "bg-yellow-100 text-yellow-700 dark:bg-yellow-950 dark:text-yellow-300",
+    completed: "bg-blue-100 text-blue-600 dark:bg-blue-950 dark:text-blue-400",
+    terminated: "bg-red-100 text-red-600 dark:bg-red-950 dark:text-red-400",
+    "under review": "bg-purple-100 text-purple-600 dark:bg-purple-950 dark:text-purple-400"
   };
 
   const typeColors = {
-    collaboration: "bg-indigo-50 text-indigo-600",
-    service: "bg-green-50 text-green-600",
-    "material transfer": "bg-blue-50 text-blue-600",
-    confidentiality: "bg-yellow-50 text-yellow-600",
-    license: "bg-purple-50 text-purple-600"
+    collaboration: "bg-indigo-50 text-indigo-600 dark:bg-indigo-950 dark:text-indigo-400",
+    service: "bg-green-50 text-green-600 dark:bg-green-950 dark:text-green-400",
+    "material transfer": "bg-blue-50 text-blue-600 dark:bg-blue-950 dark:text-blue-400",
+    confidentiality: "bg-yellow-50 text-yellow-600 dark:bg-yellow-950 dark:text-yellow-400",
+    license: "bg-purple-50 text-purple-600 dark:bg-purple-950 dark:text-purple-400"
   };
 
   const filteredContracts = contracts?.filter(contract => {
@@ -112,7 +112,7 @@ export default function ContractsList() {
           <div className="flex items-center justify-between">
             <CardTitle>Active Contracts</CardTitle>
             <div className="relative w-64">
-              <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-gray-400" />
+              <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-gray-400 dark:text-gray-500" />
               <Input
                 type="search"
                 placeholder="Search contracts..."
@@ -197,7 +197,7 @@ export default function ContractsList() {
                     <TableCell>
                       {contract.contractValue ? (
                         <div className="flex items-center text-sm font-medium">
-                          <DollarSign className="h-4 w-4 mr-1 text-green-600" />
+                          <DollarSign className="h-4 w-4 mr-1 text-green-600 dark:text-green-400" />
                           {contract.contractValue}
                         </div>
                       ) : (

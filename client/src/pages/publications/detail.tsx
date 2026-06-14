@@ -22,6 +22,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Checkbox } from "@/components/ui/checkbox";
 import { Textarea } from "@/components/ui/textarea";
 import { formatFullName } from "@/utils/nameUtils";
+import { isLinkedAuthorInAuthorsText } from "@shared/authorMatching";
 
 // Linear forward order of the publication workflow. Used to tell whether a
 // status change moves the publication forward, sideways, or back. Keep in
@@ -58,12 +59,12 @@ function classifyStatusTransition(
 }
 
 const TRANSITION_STYLES: Record<TransitionKind, { border: string; bg: string; badge: string; label: string }> = {
-  forward:  { border: 'border-green-300',  bg: '',              badge: 'border-green-300 text-green-700',   label: 'Forward' },
-  revert:   { border: 'border-amber-400',  bg: 'bg-amber-50',   badge: 'border-amber-400 text-amber-700',   label: 'Reverted' },
-  reject:   { border: 'border-red-400',    bg: 'bg-red-50',     badge: 'border-red-400 text-red-700',       label: 'Rejected' },
-  withdraw: { border: 'border-red-400',    bg: 'bg-red-50',     badge: 'border-red-400 text-red-700',       label: 'Withdrawn' },
-  create:   { border: 'border-blue-300',   bg: '',              badge: 'border-blue-300 text-blue-700',     label: 'Created' },
-  field:    { border: 'border-gray-200',   bg: '',              badge: 'border-gray-300 text-gray-600',     label: 'Field change' },
+  forward:  { border: 'border-green-300 dark:border-green-700',  bg: '',              badge: 'border-green-300 text-green-700 dark:border-green-700 dark:text-green-300',   label: 'Forward' },
+  revert:   { border: 'border-amber-400',  bg: 'bg-amber-50 dark:bg-amber-950',   badge: 'border-amber-400 text-amber-700 dark:text-amber-300',   label: 'Reverted' },
+  reject:   { border: 'border-red-400',    bg: 'bg-red-50 dark:bg-red-950',     badge: 'border-red-400 text-red-700 dark:text-red-300',       label: 'Rejected' },
+  withdraw: { border: 'border-red-400',    bg: 'bg-red-50 dark:bg-red-950',     badge: 'border-red-400 text-red-700 dark:text-red-300',       label: 'Withdrawn' },
+  create:   { border: 'border-blue-300 dark:border-blue-700',   bg: '',              badge: 'border-blue-300 text-blue-700 dark:border-blue-700 dark:text-blue-300',     label: 'Created' },
+  field:    { border: 'border-gray-200 dark:border-gray-700',   bg: '',              badge: 'border-gray-300 text-gray-600 dark:border-gray-600 dark:text-gray-300',     label: 'Field change' },
 };
 
 export default function PublicationDetail() {
@@ -215,91 +216,8 @@ export default function PublicationDetail() {
   });
 
   // Function to check if a scientist's name appears in the authors text
-  const isScientistInAuthorsText = (scientist: Scientist): boolean => {
-    if (!publication?.authors) return true; // If no authors text, assume all are valid
-    
-    const authorNames = publication.authors.split(',').map(name => name.trim().toLowerCase());
-    const scientistLastName = scientist.lastName?.toLowerCase() || '';
-    const scientistFirstName = scientist.firstName?.toLowerCase() || '';
-    
-    if (!scientistLastName || !scientistFirstName) return true; // Skip if missing names
-    
-    const firstInitial = scientistFirstName.charAt(0);
-    
-    return authorNames.some(authorName => {
-      // Remove common titles and clean
-      const cleanAuthorName = authorName
-        .replace(/^(dr\.?|prof\.?|professor|mr\.?|ms\.?|mrs\.?|phd\.?|md\.?)\s+/i, '')
-        .trim();
-      
-      // Handle different academic citation patterns
-      
-      // Pattern 1: "Smith JA" or "Johnson MK" (LastName InitialInitial...)
-      const lastNameFirstPattern = cleanAuthorName.match(/^([a-z-]+)\s+([a-z]+)$/i);
-      if (lastNameFirstPattern) {
-        const [, lastName, initials] = lastNameFirstPattern;
-        if (lastName === scientistLastName && initials.startsWith(firstInitial)) {
-          return true;
-        }
-      }
-      
-      // Pattern 2: "K. Al-Mansouri" or "L. Chen" (Initial. LastName)
-      const initialFirstPattern = cleanAuthorName.match(/^([a-z])\.?\s+([a-z-]+)$/i);
-      if (initialFirstPattern) {
-        const [, initial, lastName] = initialFirstPattern;
-        if (initial === firstInitial && lastName === scientistLastName) {
-          return true;
-        }
-      }
-      
-      // Pattern 2b: "X. Y. LastName" (FirstInitial. MiddleInitial. LastName)
-      const multipleInitialsPattern = cleanAuthorName.match(/^([a-z])\.?\s+([a-z])\.?\s+([a-z-]+)$/i);
-      if (multipleInitialsPattern) {
-        const [, firstInit, , lastName] = multipleInitialsPattern; // Skip middle initial
-        if (firstInit === firstInitial && lastName === scientistLastName) {
-          return true;
-        }
-      }
-      
-      // Pattern 3: "Emily Chen" (FirstName LastName)
-      const fullNamePattern = cleanAuthorName.match(/^([a-z]+)\s+([a-z-]+)$/i);
-      if (fullNamePattern) {
-        const [, firstName, lastName] = fullNamePattern;
-        if (firstName === scientistFirstName && lastName === scientistLastName) {
-          return true;
-        }
-      }
-      
-      // Pattern 4: Multiple parts - find last name and check for first initial
-      const nameParts = cleanAuthorName.split(/\s+/);
-      if (nameParts.length > 2) {
-        // Check if any part matches last name and another starts with first initial
-        for (const part of nameParts) {
-          if (part === scientistLastName) {
-            for (const otherPart of nameParts) {
-              if (otherPart !== part && (
-                otherPart.startsWith(firstInitial) || 
-                otherPart.replace('.', '') === firstInitial
-              )) {
-                return true;
-              }
-            }
-          }
-        }
-      }
-      
-      // Fallback: Check if last name appears and first initial is present
-      if (cleanAuthorName.includes(scientistLastName)) {
-        // Look for the first initial anywhere in the string
-        const hasFirstInitial = cleanAuthorName.includes(firstInitial) || 
-                               cleanAuthorName.includes(firstInitial + '.') ||
-                               cleanAuthorName.includes(scientistFirstName);
-        return hasFirstInitial;
-      }
-      
-      return false;
-    });
-  };
+  const isScientistInAuthorsText = (scientist: Scientist): boolean =>
+    isLinkedAuthorInAuthorsText(publication?.authors, scientist.firstName, scientist.lastName);
 
   // Check for missing internal authors in the authors text
   const missingAuthors = publicationAuthors.filter(author => 
@@ -408,12 +326,12 @@ export default function PublicationDetail() {
     });
 
   const authorshipTypeColors = {
-    'First Author': 'bg-blue-100 text-blue-800',
-    'Co-First Author': 'bg-blue-100 text-blue-800',
-    'Contributing Author': 'bg-green-100 text-green-800',
-    'Senior/Last Author': 'bg-purple-100 text-purple-800',
-    'Co-Senior/Last Author': 'bg-purple-100 text-purple-800',
-    'Corresponding Author': 'bg-red-100 text-red-800',
+    'First Author': 'bg-blue-100 text-blue-800 dark:bg-blue-950 dark:text-blue-300',
+    'Co-First Author': 'bg-blue-100 text-blue-800 dark:bg-blue-950 dark:text-blue-300',
+    'Contributing Author': 'bg-green-100 text-green-800 dark:bg-green-950 dark:text-green-300',
+    'Senior/Last Author': 'bg-purple-100 text-purple-800 dark:bg-purple-950 dark:text-purple-300',
+    'Co-Senior/Last Author': 'bg-purple-100 text-purple-800 dark:bg-purple-950 dark:text-purple-300',
+    'Corresponding Author': 'bg-red-100 text-red-800 dark:bg-red-950 dark:text-red-300',
   };
 
   const { data: researchActivity, isLoading: researchActivityLoading } = useQuery<ResearchActivity>({
@@ -530,15 +448,15 @@ export default function PublicationDetail() {
                 <h2 className="text-xl font-semibold">{publication.title}</h2>
                 <div className="flex items-center gap-2 mt-1">
                   {researchActivity && (
-                    <Badge variant="outline" className="rounded-sm bg-blue-50 text-blue-700 border-blue-200">
+                    <Badge variant="outline" className="rounded-sm bg-blue-50 text-blue-700 border-blue-200 dark:bg-blue-950 dark:text-blue-300 dark:border-blue-800">
                       {researchActivity.sdrNumber}
                     </Badge>
                   )}
                   <Badge className={
-                    publication.status === 'published' ? 'bg-green-100 text-green-800' :
-                    publication.status === 'in press' ? 'bg-blue-100 text-blue-800' :
-                    publication.status === 'submitted' ? 'bg-yellow-100 text-yellow-800' :
-                    'bg-gray-100 text-gray-800'
+                    publication.status === 'published' ? 'bg-green-100 text-green-800 dark:bg-green-950 dark:text-green-300' :
+                    publication.status === 'in press' ? 'bg-blue-100 text-blue-800 dark:bg-blue-950 dark:text-blue-300' :
+                    publication.status === 'submitted' ? 'bg-yellow-100 text-yellow-800 dark:bg-yellow-950 dark:text-yellow-300' :
+                    'bg-gray-100 text-gray-800 dark:bg-gray-800 dark:text-gray-200'
                   }>
                     {publication.status}
                   </Badge>
@@ -613,18 +531,18 @@ export default function PublicationDetail() {
                   
                   {/* Impact Factor Display */}
                   {publication.journal && (
-                    <div className="mt-2 p-3 bg-gray-50 rounded-lg">
-                      <h4 className="text-sm font-medium text-gray-700 mb-3">Journal Impact Factor</h4>
+                    <div className="mt-2 p-3 bg-gray-50 rounded-lg dark:bg-gray-900">
+                      <h4 className="text-sm font-medium text-gray-700 mb-3 dark:text-gray-300">Journal Impact Factor</h4>
                       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                         {/* Year Before Publication */}
                         <div className="text-center">
-                          <div className="text-xs text-gray-500 mb-1">Year Before Publication</div>
-                          <div className="text-sm font-medium text-gray-700">
+                          <div className="text-xs text-gray-500 mb-1 dark:text-gray-400">Year Before Publication</div>
+                          <div className="text-sm font-medium text-gray-700 dark:text-gray-300">
                             {new Date(publication.publicationDate).getFullYear() - 1}
                           </div>
                           {previousYearImpactFactor ? (
                             <>
-                              <div className="text-lg font-semibold text-blue-600">
+                              <div className="text-lg font-semibold text-blue-600 dark:text-blue-400">
                                 {previousYearImpactFactor.impactFactor}
                               </div>
                               {previousYearImpactFactor.quartile && (
@@ -639,7 +557,7 @@ export default function PublicationDetail() {
                               )}
                             </>
                           ) : (
-                            <div className="text-lg text-gray-400 italic">
+                            <div className="text-lg text-gray-400 italic dark:text-gray-500">
                               Not Available
                             </div>
                           )}
@@ -647,13 +565,13 @@ export default function PublicationDetail() {
                         
                         {/* Publication Year (Bold and Larger) */}
                         <div className="text-center">
-                          <div className="text-xs text-gray-500 mb-1">Publication Year</div>
-                          <div className="text-lg font-bold text-gray-700">
+                          <div className="text-xs text-gray-500 mb-1 dark:text-gray-400">Publication Year</div>
+                          <div className="text-lg font-bold text-gray-700 dark:text-gray-300">
                             {new Date(publication.publicationDate).getFullYear()}
                           </div>
                           {impactFactor ? (
                             <>
-                              <div className="text-2xl font-bold text-blue-600">
+                              <div className="text-2xl font-bold text-blue-600 dark:text-blue-400">
                                 {impactFactor.impactFactor}
                               </div>
                               {impactFactor.quartile && (
@@ -668,7 +586,7 @@ export default function PublicationDetail() {
                               )}
                             </>
                           ) : (
-                            <div className="text-xl font-bold text-gray-400 italic">
+                            <div className="text-xl font-bold text-gray-400 italic dark:text-gray-500">
                               Not Available
                             </div>
                           )}
@@ -676,13 +594,13 @@ export default function PublicationDetail() {
                         
                         {/* Most Current Year */}
                         <div className="text-center">
-                          <div className="text-xs text-gray-500 mb-1">Most Current</div>
-                          <div className="text-sm font-medium text-gray-700">
+                          <div className="text-xs text-gray-500 mb-1 dark:text-gray-400">Most Current</div>
+                          <div className="text-sm font-medium text-gray-700 dark:text-gray-300">
                             2024
                           </div>
                           {currentYearImpactFactor ? (
                             <>
-                              <div className="text-lg font-semibold text-blue-600">
+                              <div className="text-lg font-semibold text-blue-600 dark:text-blue-400">
                                 {currentYearImpactFactor.impactFactor}
                               </div>
                               {currentYearImpactFactor.quartile && (
@@ -697,7 +615,7 @@ export default function PublicationDetail() {
                               )}
                             </>
                           ) : (
-                            <div className="text-lg text-gray-400 italic">
+                            <div className="text-lg text-gray-400 italic dark:text-gray-500">
                               Not Available
                             </div>
                           )}
@@ -720,6 +638,24 @@ export default function PublicationDetail() {
                       className="text-primary-600 hover:underline"
                     >
                       {publication.doi}
+                    </a>
+                  </div>
+                </div>
+              )}
+
+              {publication.pmid && (
+                <div className="mt-4">
+                  <h3 className="text-sm font-medium text-foreground">PMID</h3>
+                  <div className="flex items-center gap-2 mt-1">
+                    <ExternalLink className="h-3 w-3" />
+                    <a
+                      href={`https://pubmed.ncbi.nlm.nih.gov/${publication.pmid}/`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-primary-600 hover:underline"
+                      data-testid="link-pmid"
+                    >
+                      {publication.pmid}
                     </a>
                   </div>
                 </div>
@@ -757,7 +693,7 @@ export default function PublicationDetail() {
                   <h3 className="text-sm font-medium text-foreground">IP Office Review</h3>
                   <div className="flex items-center gap-2 mt-1">
                     <div className="h-3 w-3 rounded-full bg-green-500"></div>
-                    <span className="text-green-600 text-sm font-medium">✓ Vetted for submission</span>
+                    <span className="text-green-600 text-sm font-medium dark:text-green-400">✓ Vetted for submission</span>
                   </div>
                 </div>
               )}
@@ -779,7 +715,7 @@ export default function PublicationDetail() {
                 <Users className="h-5 w-5" />
                 Internal Authors
                 {missingAuthors.length > 0 && (
-                  <Badge variant="outline" className="bg-amber-50 text-amber-600 border-amber-200">
+                  <Badge variant="outline" className="bg-amber-50 text-amber-600 border-amber-200 dark:bg-amber-950 dark:text-amber-400 dark:border-amber-800">
                     <AlertTriangle className="h-3 w-3 mr-1" />
                     {missingAuthors.length} missing in text
                   </Badge>
@@ -789,9 +725,9 @@ export default function PublicationDetail() {
             <CardContent>
               <div className="space-y-4">
                 {missingAuthors.length > 0 && (
-                  <Alert className="border-amber-200 bg-amber-50">
-                    <AlertTriangle className="h-4 w-4 text-amber-600" />
-                    <AlertDescription className="text-amber-800">
+                  <Alert className="border-amber-200 bg-amber-50 dark:border-amber-800 dark:bg-amber-950">
+                    <AlertTriangle className="h-4 w-4 text-amber-600 dark:text-amber-400" />
+                    <AlertDescription className="text-amber-800 dark:text-amber-300">
                       <strong>Authors mismatch detected:</strong> The following internal authors are not found in the authors field: {' '}
                       <span className="font-medium">
                         {missingAuthors.map(author => formatFullName(author.scientist)).join(', ')}
@@ -803,7 +739,7 @@ export default function PublicationDetail() {
                 {authorsLoading ? (
                   <div className="space-y-2">
                     {[1, 2, 3].map((i) => (
-                      <div key={i} className="h-12 bg-gray-200 rounded animate-pulse"></div>
+                      <div key={i} className="h-12 bg-gray-200 rounded animate-pulse dark:bg-gray-700"></div>
                     ))}
                   </div>
                 ) : publicationAuthors.length === 0 ? (
@@ -823,12 +759,12 @@ export default function PublicationDetail() {
                         {publicationAuthors.map((author) => {
                           const isInText = isScientistInAuthorsText(author.scientist);
                           return (
-                            <TableRow key={author.id} className={!isInText ? "bg-amber-50 border-l-4 border-amber-300" : ""}>
+                            <TableRow key={author.id} className={!isInText ? "bg-amber-50 border-l-4 border-amber-300 dark:bg-amber-950 dark:border-amber-700" : ""}>
                               <TableCell className="font-medium">
                                 <div className="flex items-center gap-2">
                                   {formatFullName(author.scientist)}
                                   {!isInText && (
-                                    <AlertTriangle className="h-4 w-4 text-amber-600" title="Not found in authors text" />
+                                    <AlertTriangle className="h-4 w-4 text-amber-600 dark:text-amber-400" title="Not found in authors text" />
                                   )}
                                 </div>
                               </TableCell>
@@ -888,12 +824,12 @@ export default function PublicationDetail() {
                       </DialogDescription>
                     </DialogHeader>
                     
-                    <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 mb-4">
+                    <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 mb-4 dark:bg-blue-950 dark:border-blue-800">
                       <div className="flex items-start gap-2">
-                        <Info className="h-4 w-4 text-blue-600 mt-0.5 flex-shrink-0" />
-                        <div className="text-sm text-blue-800">
+                        <Info className="h-4 w-4 text-blue-600 mt-0.5 flex-shrink-0 dark:text-blue-400" />
+                        <div className="text-sm text-blue-800 dark:text-blue-300">
                           <p className="font-medium mb-1">Smart Filtering Active</p>
-                          <p className="text-blue-700">
+                          <p className="text-blue-700 dark:text-blue-300">
                             Only scientists whose names match the publication's author list are shown, 
                             sorted alphabetically by last name. This works with abbreviated names like "Chen E" or "Wilson J".
                           </p>
@@ -1006,7 +942,7 @@ export default function PublicationDetail() {
                   <Layers className="h-4 w-4 mr-2" /> 
                   <span className="flex-1 text-left">Research Activity</span>
                   {researchActivity && (
-                    <Badge variant="outline" className="ml-2 rounded-sm bg-blue-50 text-blue-700 border-blue-200">
+                    <Badge variant="outline" className="ml-2 rounded-sm bg-blue-50 text-blue-700 border-blue-200 dark:bg-blue-950 dark:text-blue-300 dark:border-blue-800">
                       {researchActivity.sdrNumber}
                     </Badge>
                   )}
@@ -1028,7 +964,7 @@ export default function PublicationDetail() {
                   >
                     <Award className="h-4 w-4 mr-2" /> 
                     <span className="flex-1 text-left">Related Patent</span>
-                    <Badge variant="outline" className="ml-2 rounded-sm bg-amber-50 text-amber-700 border-amber-200">
+                    <Badge variant="outline" className="ml-2 rounded-sm bg-amber-50 text-amber-700 border-amber-200 dark:bg-amber-950 dark:text-amber-300 dark:border-amber-800">
                       {relatedPatents[0]?.patentNumber || 'Pending'}
                     </Badge>
                   </Button>
@@ -1041,7 +977,7 @@ export default function PublicationDetail() {
                   >
                     <Award className="h-4 w-4 mr-2" /> 
                     <span className="flex-1 text-left">Related Patents</span>
-                    <Badge variant="outline" className="ml-2 rounded-sm bg-gray-50 text-gray-700 border-gray-200">
+                    <Badge variant="outline" className="ml-2 rounded-sm bg-gray-50 text-gray-700 border-gray-200 dark:bg-gray-900 dark:text-gray-300 dark:border-gray-700">
                       0
                     </Badge>
                   </Button>
@@ -1087,13 +1023,13 @@ export default function PublicationDetail() {
                       'outline'
                     } className={
                       publication.status === 'Published *' ? 'bg-green-600 text-white hover:bg-green-700' :
-                      publication.status === 'Published' ? 'bg-green-100 text-green-800 hover:bg-green-200' :
-                      publication.status === 'Accepted/In Press' ? 'bg-blue-100 text-blue-800 hover:bg-blue-200' :
-                      publication.status === 'Under review' ? 'bg-yellow-100 text-yellow-800 hover:bg-yellow-200' :
-                      publication.status === 'Submitted for review with pre-publication' ? 'bg-orange-100 text-orange-800 hover:bg-orange-200' :
-                      publication.status === 'Submitted for review without pre-publication' ? 'bg-orange-100 text-orange-800 hover:bg-orange-200' :
-                      publication.status === 'Vetted for submission' ? 'bg-purple-100 text-purple-800 hover:bg-purple-200' :
-                      publication.status === 'Complete Draft' ? 'bg-cyan-100 text-cyan-800 hover:bg-cyan-200' :
+                      publication.status === 'Published' ? 'bg-green-100 text-green-800 hover:bg-green-200 dark:bg-green-950 dark:text-green-300 dark:hover:bg-green-900' :
+                      publication.status === 'Accepted/In Press' ? 'bg-blue-100 text-blue-800 hover:bg-blue-200 dark:bg-blue-950 dark:text-blue-300 dark:hover:bg-blue-900' :
+                      publication.status === 'Under review' ? 'bg-yellow-100 text-yellow-800 hover:bg-yellow-200 dark:bg-yellow-950 dark:text-yellow-300 dark:hover:bg-yellow-900' :
+                      publication.status === 'Submitted for review with pre-publication' ? 'bg-orange-100 text-orange-800 hover:bg-orange-200 dark:bg-orange-950 dark:text-orange-300 dark:hover:bg-orange-900' :
+                      publication.status === 'Submitted for review without pre-publication' ? 'bg-orange-100 text-orange-800 hover:bg-orange-200 dark:bg-orange-950 dark:text-orange-300 dark:hover:bg-orange-900' :
+                      publication.status === 'Vetted for submission' ? 'bg-purple-100 text-purple-800 hover:bg-purple-200 dark:bg-purple-950 dark:text-purple-300 dark:hover:bg-purple-900' :
+                      publication.status === 'Complete Draft' ? 'bg-cyan-100 text-cyan-800 hover:bg-cyan-200 dark:bg-cyan-950 dark:text-cyan-300 dark:hover:bg-cyan-900' :
                       ''
                     }>
                       {publication.status || 'Concept'}
@@ -1121,7 +1057,7 @@ export default function PublicationDetail() {
                 </div>
                 
                 {/* Next Steps Information */}
-                <div className="text-sm text-gray-600">
+                <div className="text-sm text-gray-600 dark:text-gray-300">
                   {(() => {
                     const status = publication.status || 'Concept';
                     switch (status) {
@@ -1167,7 +1103,7 @@ export default function PublicationDetail() {
                   <Skeleton className="h-4 w-1/2" />
                 </div>
               ) : manuscriptHistory.length === 0 ? (
-                <p className="text-sm text-gray-500">No changes recorded yet.</p>
+                <p className="text-sm text-gray-500 dark:text-gray-400">No changes recorded yet.</p>
               ) : (
                 <div className="space-y-3">
                   {manuscriptHistory.map((entry) => {
@@ -1188,21 +1124,21 @@ export default function PublicationDetail() {
                               {styles.label}
                             </Badge>
                           )}
-                          <span className="text-gray-500">
+                          <span className="text-gray-500 dark:text-gray-400">
                             {format(new Date(entry.createdAt), 'MMM d, yyyy HH:mm')}
                           </span>
                         </div>
-                        <p className="text-xs text-gray-600 mt-1" data-testid={`text-actor-${entry.id}`}>
+                        <p className="text-xs text-gray-600 mt-1 dark:text-gray-300" data-testid={`text-actor-${entry.id}`}>
                           by{' '}
                           <span className="font-medium">
                             {entry.changedByName ?? 'Unknown user'}
                           </span>
                         </p>
                         {entry.changeReason && (
-                          <p className="text-sm text-gray-600 mt-1">{entry.changeReason}</p>
+                          <p className="text-sm text-gray-600 mt-1 dark:text-gray-300">{entry.changeReason}</p>
                         )}
                         {entry.changedField && (
-                          <p className="text-xs text-gray-500 mt-1">
+                          <p className="text-xs text-gray-500 mt-1 dark:text-gray-400">
                             {entry.changedField}: "{entry.oldValue}" → "{entry.newValue}"
                           </p>
                         )}
@@ -1320,7 +1256,7 @@ function StatusUpdateForm({
       <div className="text-center py-6">
         <CheckCircle className="h-12 w-12 text-green-500 mx-auto mb-3" />
         <p className="text-lg font-medium">Publication Complete</p>
-        <p className="text-sm text-gray-600">This publication has reached its final status.</p>
+        <p className="text-sm text-gray-600 dark:text-gray-300">This publication has reached its final status.</p>
       </div>
     );
   }
@@ -1424,7 +1360,7 @@ function StatusUpdateForm({
         <Label className="text-sm font-medium">Select Next Status</Label>
         <div className="mt-2 space-y-3">
           {nextStatuses.map((status) => (
-            <div key={status} className="space-y-3 border border-gray-200 rounded-lg p-4">
+            <div key={status} className="space-y-3 border border-gray-200 rounded-lg p-4 dark:border-gray-700">
               <div className="font-medium">{status}</div>
               
               {/* Conditional Form Fields */}
@@ -1494,7 +1430,7 @@ function StatusUpdateForm({
                     data-1p-ignore="true"
                     data-lpignore="true"
                   />
-                  <p className="text-xs text-gray-500 mt-1">
+                  <p className="text-xs text-gray-500 mt-1 dark:text-gray-400">
                     List authors as they should appear in the publication
                   </p>
                 </div>

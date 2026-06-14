@@ -50,11 +50,11 @@ const mockApplication = {
 };
 
 const statusColors = {
-  submitted: "bg-blue-100 text-blue-800",
-  under_review: "bg-yellow-100 text-yellow-800", 
-  revision_requested: "bg-orange-100 text-orange-800",
-  approved: "bg-green-100 text-green-800",
-  rejected: "bg-red-100 text-red-800"
+  submitted: "bg-blue-100 text-blue-800 dark:bg-blue-950 dark:text-blue-300",
+  under_review: "bg-yellow-100 text-yellow-800 dark:bg-yellow-950 dark:text-yellow-300", 
+  revision_requested: "bg-orange-100 text-orange-800 dark:bg-orange-950 dark:text-orange-300",
+  approved: "bg-green-100 text-green-800 dark:bg-green-950 dark:text-green-300",
+  rejected: "bg-red-100 text-red-800 dark:bg-red-950 dark:text-red-300"
 };
 
 export default function PmoOfficeReviewDetail() {
@@ -348,7 +348,7 @@ export default function PmoOfficeReviewDetail() {
               <div className="space-y-6">
                 <div className="space-y-4">
                   <div className="flex items-start gap-3">
-                    <div className="bg-blue-100 dark:bg-blue-900/20 text-blue-600 rounded-full p-1 mt-0.5">
+                    <div className="bg-blue-100 dark:bg-blue-900/20 text-blue-600 rounded-full p-1 mt-0.5 dark:text-blue-400">
                       <FileText className="h-4 w-4" />
                     </div>
                     <div>
@@ -360,7 +360,7 @@ export default function PmoOfficeReviewDetail() {
                   </div>
                   
                   <div className="flex items-start gap-3">
-                    <div className="bg-yellow-100 dark:bg-yellow-900/20 text-yellow-600 rounded-full p-1 mt-0.5">
+                    <div className="bg-yellow-100 dark:bg-yellow-900/20 text-yellow-600 rounded-full p-1 mt-0.5 dark:text-yellow-400">
                       <MessageSquare className="h-4 w-4" />
                     </div>
                     <div>
@@ -372,7 +372,7 @@ export default function PmoOfficeReviewDetail() {
                   </div>
                   
                   <div className="flex items-start gap-3">
-                    <div className="bg-orange-100 dark:bg-orange-900/20 text-orange-600 rounded-full p-1 mt-0.5">
+                    <div className="bg-orange-100 dark:bg-orange-900/20 text-orange-600 rounded-full p-1 mt-0.5 dark:text-orange-400">
                       <X className="h-4 w-4" />
                     </div>
                     <div>
@@ -384,7 +384,7 @@ export default function PmoOfficeReviewDetail() {
                   </div>
                   
                   <div className="flex items-start gap-3">
-                    <div className="bg-green-100 dark:bg-green-900/20 text-green-600 rounded-full p-1 mt-0.5">
+                    <div className="bg-green-100 dark:bg-green-900/20 text-green-600 rounded-full p-1 mt-0.5 dark:text-green-400">
                       <CheckCircle className="h-4 w-4" />
                     </div>
                     <div>

@@ -7,33 +7,35 @@ interface PermissionWrapperProps {
   children: ReactNode;
   currentUserRole?: string;
   navigationItem?: string;
-  requiredPermissions?: ('canEdit' | 'canAdd' | 'canView' | 'canDelete')[];
+  requiredPermissions?: ('canEdit' | 'canCreate' | 'canAdd' | 'canView' | 'canDelete')[];
   fallback?: ReactNode;
   showReadOnlyBanner?: boolean;
 }
 
-export function PermissionWrapper({ 
-  children, 
-  currentUserRole, 
-  navigationItem, 
+export function PermissionWrapper({
+  children,
+  currentUserRole,
+  navigationItem,
   requiredPermissions,
   fallback = null,
-  showReadOnlyBanner = true 
+  showReadOnlyBanner = true
 }: PermissionWrapperProps) {
-  const { isHidden, isReadOnly, canEdit, canView } = usePermissions();
+  const { isHidden, isReadOnly, canEdit, canCreate, canView } = usePermissions();
 
   // Handle button-level permission checking with requiredPermissions
   if (requiredPermissions && currentUserRole && navigationItem) {
     const hasRequiredPermission = requiredPermissions.every(permission => {
       if (permission === 'canEdit') {
         return canEdit(currentUserRole, navigationItem);
+      } else if (permission === 'canCreate') {
+        return canCreate(currentUserRole, navigationItem);
       } else if (permission === 'canView') {
         return canView(currentUserRole, navigationItem);
       } else if (permission === 'canAdd') {
-        // canAdd is treated the same as canEdit for now
-        return canEdit(currentUserRole, navigationItem);
+        // canAdd maps to canCreate
+        return canCreate(currentUserRole, navigationItem);
       } else if (permission === 'canDelete') {
-        // canDelete is treated the same as canEdit for now
+        // canDelete is treated the same as canEdit
         return canEdit(currentUserRole, navigationItem);
       }
       return false;
@@ -86,12 +88,13 @@ export function PermissionWrapper({
 
 // Hook to check permissions for specific elements
 export function useElementPermissions(currentUserRole: string, navigationItem: string) {
-  const { isHidden, isReadOnly, canEdit } = usePermissions();
+  const { isHidden, isReadOnly, canEdit, canCreate } = usePermissions();
 
   return {
     isHidden: isHidden(currentUserRole, navigationItem),
     isReadOnly: isReadOnly(currentUserRole, navigationItem),
     canEdit: canEdit(currentUserRole, navigationItem),
+    canCreate: canCreate(currentUserRole, navigationItem),
     shouldHideEditButtons: !canEdit(currentUserRole, navigationItem),
     readOnlyClass: isReadOnly(currentUserRole, navigationItem) ? "read-only" : ""
   };

@@ -267,7 +267,7 @@ export default function IbcFacilitiesTab({ applicationId, application, isReadOnl
       <div className="flex items-center justify-between">
         <div>
           <h3 className="text-lg font-medium">Facilities & Laboratory Assignments</h3>
-          <p className="text-sm text-gray-600">
+          <p className="text-sm text-gray-600 dark:text-gray-300">
             Assign rooms, backbone sources, and PPE for this IBC application
           </p>
         </div>
@@ -335,17 +335,17 @@ export default function IbcFacilitiesTab({ applicationId, application, isReadOnl
           {/* Assigned Rooms */}
           <div className="space-y-3">
             {assignedRooms.length === 0 ? (
-              <p className="text-sm text-gray-500 italic">No rooms assigned yet</p>
+              <p className="text-sm text-gray-500 italic dark:text-gray-400">No rooms assigned yet</p>
             ) : (
               assignedRooms.map(room => {
                 const building = getBuildingInfo(room.buildingId);
                 return (
                   <div key={room.id} className="flex items-center justify-between p-3 border rounded-lg">
                     <div className="flex items-center gap-3">
-                      <MapPin className="h-4 w-4 text-gray-500" />
+                      <MapPin className="h-4 w-4 text-gray-500 dark:text-gray-400" />
                       <div>
                         <div className="font-medium">{building?.name} - {room.roomNumber}</div>
-                        <div className="text-sm text-gray-600">
+                        <div className="text-sm text-gray-600 dark:text-gray-300">
                           {room.roomType} • Floor {room.floor}
                           {room.biosafetyLevel && (
                             <Badge variant="outline" className="ml-2">
@@ -385,9 +385,9 @@ export default function IbcFacilitiesTab({ applicationId, application, isReadOnl
           </CardHeader>
           <CardContent className="space-y-4">
             {availableBackboneSources.length === 0 ? (
-              <div className="flex items-center gap-2 p-3 border border-yellow-200 bg-yellow-50 rounded-lg">
-                <AlertTriangle className="h-4 w-4 text-yellow-600" />
-                <p className="text-sm text-yellow-800">
+              <div className="flex items-center gap-2 p-3 border border-yellow-200 bg-yellow-50 rounded-lg dark:border-yellow-800 dark:bg-yellow-950">
+                <AlertTriangle className="h-4 w-4 text-yellow-600 dark:text-yellow-400" />
+                <p className="text-sm text-yellow-800 dark:text-yellow-300">
                   No backbone sources available. Add synthetic experiments with backbone sources first.
                 </p>
               </div>
@@ -463,18 +463,18 @@ export default function IbcFacilitiesTab({ applicationId, application, isReadOnl
                 {/* Backbone Source Assignments - Grouped by Backbone */}
                 <div className="space-y-4">
                   {!backboneSourceRooms || backboneSourceRooms.length === 0 ? (
-                    <p className="text-sm text-gray-500 italic">No backbone sources assigned yet</p>
+                    <p className="text-sm text-gray-500 italic dark:text-gray-400">No backbone sources assigned yet</p>
                   ) : (
                     Object.entries(getBackboneSourceGroups()).map(([backboneSource, roomAssignments]) => (
                       <div key={backboneSource} className="border rounded-lg p-4">
                         <div className="flex items-center gap-2 mb-3">
                           <FlaskConical className="h-5 w-5 text-blue-500" />
                           <h4 className="font-semibold text-lg">{backboneSource}</h4>
-                          <span className="text-sm text-gray-500">({roomAssignments.length} room{roomAssignments.length !== 1 ? 's' : ''})</span>
+                          <span className="text-sm text-gray-500 dark:text-gray-400">({roomAssignments.length} room{roomAssignments.length !== 1 ? 's' : ''})</span>
                         </div>
                         <div className="space-y-2">
                           {roomAssignments.map(({ roomId, room, building }) => (
-                            <div key={roomId} className="flex items-center justify-between p-2 bg-gray-50 rounded border">
+                            <div key={roomId} className="flex items-center justify-between p-2 bg-gray-50 rounded border dark:bg-gray-900">
                               <div className="flex items-center gap-2">
                                 <div className="w-2 h-2 bg-blue-400 rounded-full"></div>
                                 <span className="text-sm font-medium">
@@ -563,7 +563,7 @@ export default function IbcFacilitiesTab({ applicationId, application, isReadOnl
                           <FormItem>
                             <FormLabel>Available PPE</FormLabel>
                             {availablePpe.length === 0 ? (
-                              <p className="text-sm text-gray-500">No additional PPE available for this room</p>
+                              <p className="text-sm text-gray-500 dark:text-gray-400">No additional PPE available for this room</p>
                             ) : (
                               <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
                                 {availablePpe.map((ppeItem) => (
@@ -626,7 +626,7 @@ export default function IbcFacilitiesTab({ applicationId, application, isReadOnl
                 return (
                   <div key={room.id} className="border rounded-lg p-4">
                     <div className="flex items-center gap-2 mb-3">
-                      <MapPin className="h-4 w-4 text-gray-500" />
+                      <MapPin className="h-4 w-4 text-gray-500 dark:text-gray-400" />
                       <span className="font-medium">{building?.name} - {room.roomNumber}</span>
                     </div>
                     <div className="flex flex-wrap gap-2">

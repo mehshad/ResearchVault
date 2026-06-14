@@ -60,7 +60,7 @@ export default function QuickLinks() {
   ];
 
   return (
-    <div className="bg-white rounded-lg shadow-sm">
+    <div className="bg-white rounded-lg shadow-sm dark:bg-card">
       <div className="p-4 border-b border-neutral-100">
         <h2 className="font-medium text-lg">Quick Links</h2>
       </div>

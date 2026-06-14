@@ -145,7 +145,7 @@ export default function IrbApplicationDetail() {
           <CardContent>
             <div className="space-y-4">
               {allEntries.map(([timestamp, entry]: [string, any], index) => (
-                <div key={`${timestamp}-${index}`} className="border-l-2 border-gray-200 pl-4">
+                <div key={`${timestamp}-${index}`} className="border-l-2 border-gray-200 pl-4 dark:border-gray-700">
                   <div className="flex items-center gap-2 mb-2">
                     <Badge 
                       variant="outline" 
@@ -160,7 +160,7 @@ export default function IrbApplicationDetail() {
                         : 'PI Submission'
                       }
                     </Badge>
-                    <span className="text-sm text-gray-500">
+                    <span className="text-sm text-gray-500 dark:text-gray-400">
                       {formatDate(isNaN(Number(timestamp)) ? timestamp : new Date(Number(timestamp)))}
                     </span>
                   </div>
@@ -171,7 +171,7 @@ export default function IrbApplicationDetail() {
                   {entry.changes && (
                     <div className="mt-2">
                       <p className="text-sm font-medium">Changes Made:</p>
-                      <p className="text-sm text-gray-600">{entry.changes}</p>
+                      <p className="text-sm text-gray-600 dark:text-gray-300">{entry.changes}</p>
                     </div>
                   )}
                 </div>
@@ -304,21 +304,21 @@ export default function IrbApplicationDetail() {
               <div>
                 <h2 className="text-xl font-semibold">{irbApplication.title}</h2>
                 <div className="flex items-center gap-2 mt-1">
-                  <Badge variant="outline" className="rounded-sm bg-blue-50 text-blue-700 border-blue-200">
+                  <Badge variant="outline" className="rounded-sm bg-blue-50 text-blue-700 border-blue-200 dark:bg-blue-950 dark:text-blue-300 dark:border-blue-800">
                     {irbApplication.irbNumber}
                   </Badge>
                   {researchActivity && (
-                    <Badge variant="outline" className="rounded-sm bg-green-50 text-green-700 border-green-200">
+                    <Badge variant="outline" className="rounded-sm bg-green-50 text-green-700 border-green-200 dark:bg-green-950 dark:text-green-300 dark:border-green-800">
                       {researchActivity.sdrNumber}
                     </Badge>
                   )}
                   <Badge className={
-                    irbApplication.workflowStatus === 'approved' ? 'bg-green-100 text-green-800' :
-                    irbApplication.workflowStatus === 'submitted' ? 'bg-yellow-100 text-yellow-800' :
-                    irbApplication.workflowStatus === 'under_review' ? 'bg-blue-100 text-blue-800' :
-                    irbApplication.workflowStatus === 'rejected' ? 'bg-red-100 text-red-800' :
-                    irbApplication.workflowStatus === 'revisions_requested' ? 'bg-orange-100 text-orange-800' :
-                    'bg-gray-100 text-gray-800'
+                    irbApplication.workflowStatus === 'approved' ? 'bg-green-100 text-green-800 dark:bg-green-950 dark:text-green-300' :
+                    irbApplication.workflowStatus === 'submitted' ? 'bg-yellow-100 text-yellow-800 dark:bg-yellow-950 dark:text-yellow-300' :
+                    irbApplication.workflowStatus === 'under_review' ? 'bg-blue-100 text-blue-800 dark:bg-blue-950 dark:text-blue-300' :
+                    irbApplication.workflowStatus === 'rejected' ? 'bg-red-100 text-red-800 dark:bg-red-950 dark:text-red-300' :
+                    irbApplication.workflowStatus === 'revisions_requested' ? 'bg-orange-100 text-orange-800 dark:bg-orange-950 dark:text-orange-300' :
+                    'bg-gray-100 text-gray-800 dark:bg-gray-800 dark:text-gray-200'
                   }>
                     {irbApplication.workflowStatus === 'revisions_requested' ? 'revisions requested' : 
                      (irbApplication.workflowStatus || 'draft').replace('_', ' ')}
@@ -446,7 +446,7 @@ export default function IrbApplicationDetail() {
                   <Layers className="h-4 w-4 mr-2" /> 
                   <span className="flex-1 text-left">Research Activity</span>
                   {researchActivity && (
-                    <Badge variant="outline" className="ml-2 rounded-sm bg-blue-50 text-blue-700 border-blue-200">
+                    <Badge variant="outline" className="ml-2 rounded-sm bg-blue-50 text-blue-700 border-blue-200 dark:bg-blue-950 dark:text-blue-300 dark:border-blue-800">
                       {researchActivity.sdrNumber}
                     </Badge>
                   )}
@@ -460,11 +460,11 @@ export default function IrbApplicationDetail() {
                   <Users className="h-4 w-4 mr-2" /> 
                   <span className="flex-1 text-left">Principal Investigator</span>
                   {principalInvestigator && principalInvestigator.staffId ? (
-                    <Badge variant="outline" className="ml-2 rounded-sm bg-blue-50 text-blue-700 border-blue-200">
+                    <Badge variant="outline" className="ml-2 rounded-sm bg-blue-50 text-blue-700 border-blue-200 dark:bg-blue-950 dark:text-blue-300 dark:border-blue-800">
                       ID: {principalInvestigator.staffId}
                     </Badge>
                   ) : principalInvestigator && (
-                    <Badge variant="outline" className="ml-2 rounded-sm bg-purple-50 text-purple-700 border-purple-200">
+                    <Badge variant="outline" className="ml-2 rounded-sm bg-purple-50 text-purple-700 border-purple-200 dark:bg-purple-950 dark:text-purple-300 dark:border-purple-800">
                       PI
                     </Badge>
                   )}
@@ -484,11 +484,11 @@ export default function IrbApplicationDetail() {
                   <FileText className="h-4 w-4 mr-2" /> 
                   <span className="flex-1 text-left">Data Management Plan</span>
                   {dataManagementPlan ? (
-                    <Badge variant="outline" className="ml-2 rounded-sm bg-teal-50 text-teal-700 border-teal-200">
+                    <Badge variant="outline" className="ml-2 rounded-sm bg-teal-50 text-teal-700 border-teal-200 dark:bg-teal-950 dark:text-teal-300 dark:border-teal-800">
                       {dataManagementPlan.dmpNumber}
                     </Badge>
                   ) : researchActivity ? (
-                    <Badge variant="outline" className="ml-2 rounded-sm bg-gray-50 text-gray-700 border-gray-200">
+                    <Badge variant="outline" className="ml-2 rounded-sm bg-gray-50 text-gray-700 border-gray-200 dark:bg-gray-900 dark:text-gray-300 dark:border-gray-700">
                       None
                     </Badge>
                   ) : null}
@@ -502,7 +502,7 @@ export default function IrbApplicationDetail() {
                   <FileText className="h-4 w-4 mr-2" /> 
                   <span className="flex-1 text-left">Publications</span>
                   {researchActivity && (
-                    <Badge variant="outline" className="ml-2 rounded-sm bg-green-50 text-green-700 border-green-200">
+                    <Badge variant="outline" className="ml-2 rounded-sm bg-green-50 text-green-700 border-green-200 dark:bg-green-950 dark:text-green-300 dark:border-green-800">
                       {publicationCount} {publicationCount === 1 ? 'publication' : 'publications'}
                     </Badge>
                   )}

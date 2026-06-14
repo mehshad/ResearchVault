@@ -341,7 +341,7 @@ export default function LandingPage() {
             <img src={qbridgeLogo} alt="Q-BRIDGE" className="h-8 w-8" />
             <span className="text-slate-400">Q-BRIDGE Research Governance Platform</span>
           </div>
-          <div className="text-slate-500 text-sm">
+          <div className="text-slate-500 text-sm dark:text-slate-400">
             Qatar Biomedical Research Inter-Institutional Data & Governance Ecosystem
           </div>
         </div>

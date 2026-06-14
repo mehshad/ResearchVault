@@ -27,19 +27,19 @@ import type { IbcApplication, IbcBoardMember, Scientist } from "@shared/schema";
 import { formatFullName } from "@/utils/nameUtils";
 
 const IBC_WORKFLOW_STATUSES = [
-  { value: "draft", label: "Draft", color: "bg-gray-100 text-gray-800" },
-  { value: "submitted", label: "Submitted", color: "bg-blue-100 text-blue-800" },
-  { value: "vetted", label: "Vetted", color: "bg-purple-100 text-purple-800" },
-  { value: "under_review", label: "Under Review", color: "bg-yellow-100 text-yellow-800" },
-  { value: "active", label: "Active", color: "bg-green-100 text-green-800" },
-  { value: "expired", label: "Expired", color: "bg-red-100 text-red-800" }
+  { value: "draft", label: "Draft", color: "bg-gray-100 text-gray-800 dark:bg-gray-800 dark:text-gray-200" },
+  { value: "submitted", label: "Submitted", color: "bg-blue-100 text-blue-800 dark:bg-blue-950 dark:text-blue-300" },
+  { value: "vetted", label: "Vetted", color: "bg-purple-100 text-purple-800 dark:bg-purple-950 dark:text-purple-300" },
+  { value: "under_review", label: "Under Review", color: "bg-yellow-100 text-yellow-800 dark:bg-yellow-950 dark:text-yellow-300" },
+  { value: "active", label: "Active", color: "bg-green-100 text-green-800 dark:bg-green-950 dark:text-green-300" },
+  { value: "expired", label: "Expired", color: "bg-red-100 text-red-800 dark:bg-red-950 dark:text-red-300" }
 ];
 
 const BIOSAFETY_LEVELS = [
-  { value: "BSL-1", label: "BSL-1", color: "bg-green-100 text-green-800" },
-  { value: "BSL-2", label: "BSL-2", color: "bg-yellow-100 text-yellow-800" },
-  { value: "BSL-3", label: "BSL-3", color: "bg-orange-100 text-orange-800" },
-  { value: "BSL-4", label: "BSL-4", color: "bg-red-100 text-red-800" }
+  { value: "BSL-1", label: "BSL-1", color: "bg-green-100 text-green-800 dark:bg-green-950 dark:text-green-300" },
+  { value: "BSL-2", label: "BSL-2", color: "bg-yellow-100 text-yellow-800 dark:bg-yellow-950 dark:text-yellow-300" },
+  { value: "BSL-3", label: "BSL-3", color: "bg-orange-100 text-orange-800 dark:bg-orange-950 dark:text-orange-300" },
+  { value: "BSL-4", label: "BSL-4", color: "bg-red-100 text-red-800 dark:bg-red-950 dark:text-red-300" }
 ];
 
 export default function IbcOfficePage() {
@@ -79,12 +79,12 @@ export default function IbcOfficePage() {
 
   const getStatusBadge = (status: string) => {
     const statusConfig = IBC_WORKFLOW_STATUSES.find(s => s.value === status);
-    return statusConfig ? statusConfig : { value: status, label: status, color: "bg-gray-100 text-gray-800" };
+    return statusConfig ? statusConfig : { value: status, label: status, color: "bg-gray-100 text-gray-800 dark:bg-gray-800 dark:text-gray-200" };
   };
 
   const getBiosafetyLevelBadge = (level: string) => {
     const levelConfig = BIOSAFETY_LEVELS.find(l => l.value === level);
-    return levelConfig ? levelConfig : { value: level, label: level, color: "bg-gray-100 text-gray-800" };
+    return levelConfig ? levelConfig : { value: level, label: level, color: "bg-gray-100 text-gray-800 dark:bg-gray-800 dark:text-gray-200" };
   };
 
   const getScientistName = (id: number) => {
@@ -101,7 +101,7 @@ export default function IbcOfficePage() {
         </div>
         <div className="space-y-4">
           {[1, 2, 3].map(i => (
-            <div key={i} className="h-32 bg-gray-100 rounded-lg animate-pulse" />
+            <div key={i} className="h-32 bg-gray-100 rounded-lg animate-pulse dark:bg-gray-800" />
           ))}
         </div>
       </div>
@@ -136,7 +136,7 @@ export default function IbcOfficePage() {
               <div className="flex flex-col sm:flex-row gap-4">
                 <div className="flex-1">
                   <div className="relative">
-                    <Search className="absolute left-3 top-3 h-4 w-4 text-gray-400" />
+                    <Search className="absolute left-3 top-3 h-4 w-4 text-gray-400 dark:text-gray-500" />
                     <Input
                       placeholder="Search by title or IBC number..."
                       value={searchTerm}
@@ -191,7 +191,7 @@ export default function IbcOfficePage() {
                         <Badge className={statusConfig.color}>
                           {statusConfig.label}
                         </Badge>
-                        <span className="text-sm text-gray-500">
+                        <span className="text-sm text-gray-500 dark:text-gray-400">
                           {statusApplications.length} application{statusApplications.length !== 1 ? 's' : ''}
                         </span>
                       </div>
@@ -201,12 +201,12 @@ export default function IbcOfficePage() {
                     <div className="space-y-3">
                       {statusApplications.map((app: IbcApplication) => (
                         <Link key={app.id} href={`/ibc-office/protocol-detail/${app.id}`}>
-                          <div className="flex items-center justify-between p-4 border rounded-lg hover:bg-gray-50 cursor-pointer transition-colors">
+                          <div className="flex items-center justify-between p-4 border rounded-lg hover:bg-gray-50 cursor-pointer transition-colors dark:hover:bg-gray-900">
                             <div className="flex-1">
                               <div className="flex items-center space-x-3">
                                 <div>
                                   <h4 className="font-medium">{app.title}</h4>
-                                  <div className="flex items-center space-x-4 text-sm text-gray-500 mt-1">
+                                  <div className="flex items-center space-x-4 text-sm text-gray-500 mt-1 dark:text-gray-400">
                                     <span>{app.ibcNumber}</span>
                                     <span>PI: {getScientistName(app.principalInvestigatorId)}</span>
                                     <Badge className={getBiosafetyLevelBadge(app.biosafetyLevel).color} variant="outline">
@@ -223,7 +223,7 @@ export default function IbcOfficePage() {
                               </div>
                             </div>
                             <div className="flex items-center space-x-2">
-                              <Eye className="h-4 w-4 text-gray-400" />
+                              <Eye className="h-4 w-4 text-gray-400 dark:text-gray-500" />
                             </div>
                           </div>
                         </Link>
@@ -238,9 +238,9 @@ export default function IbcOfficePage() {
           {filteredApplications.length === 0 && (
             <Card>
               <CardContent className="text-center py-8">
-                <FileText className="h-12 w-12 text-gray-400 mx-auto mb-4" />
-                <h3 className="text-lg font-medium text-gray-900 mb-2">No applications found</h3>
-                <p className="text-gray-500">No IBC applications match your current filters.</p>
+                <FileText className="h-12 w-12 text-gray-400 mx-auto mb-4 dark:text-gray-500" />
+                <h3 className="text-lg font-medium text-gray-900 mb-2 dark:text-gray-100">No applications found</h3>
+                <p className="text-gray-500 dark:text-gray-400">No IBC applications match your current filters.</p>
               </CardContent>
             </Card>
           )}
@@ -271,7 +271,7 @@ export default function IbcOfficePage() {
                     <div className="flex items-center space-x-4">
                       <div>
                         <h4 className="font-medium">{formatFullName(member.scientist)}</h4>
-                        <div className="flex items-center space-x-3 text-sm text-gray-500">
+                        <div className="flex items-center space-x-3 text-sm text-gray-500 dark:text-gray-400">
                           <Badge variant="outline">{member.role}</Badge>
                           {member.expertise && member.expertise.length > 0 && (
                             <span>Expertise: {member.expertise.join(", ")}</span>
@@ -285,7 +285,7 @@ export default function IbcOfficePage() {
                     </div>
                     <div className="flex items-center space-x-2">
                       {member.isActive ? (
-                        <Badge className="bg-green-100 text-green-800">Active</Badge>
+                        <Badge className="bg-green-100 text-green-800 dark:bg-green-950 dark:text-green-300">Active</Badge>
                       ) : (
                         <Badge variant="secondary">Inactive</Badge>
                       )}
@@ -294,9 +294,9 @@ export default function IbcOfficePage() {
                 ))}
                 {boardMembers.length === 0 && (
                   <div className="text-center py-8">
-                    <Users className="h-12 w-12 text-gray-400 mx-auto mb-4" />
-                    <h3 className="text-lg font-medium text-gray-900 mb-2">No board members</h3>
-                    <p className="text-gray-500">Add IBC board members to start managing reviews.</p>
+                    <Users className="h-12 w-12 text-gray-400 mx-auto mb-4 dark:text-gray-500" />
+                    <h3 className="text-lg font-medium text-gray-900 mb-2 dark:text-gray-100">No board members</h3>
+                    <p className="text-gray-500 dark:text-gray-400">Add IBC board members to start managing reviews.</p>
                   </div>
                 )}
               </div>
@@ -314,9 +314,9 @@ export default function IbcOfficePage() {
             </CardHeader>
             <CardContent>
               <div className="text-center py-8">
-                <Calendar className="h-12 w-12 text-gray-400 mx-auto mb-4" />
-                <h3 className="text-lg font-medium text-gray-900 mb-2">Calendar Integration</h3>
-                <p className="text-gray-500">Calendar integration will be available in a future update.</p>
+                <Calendar className="h-12 w-12 text-gray-400 mx-auto mb-4 dark:text-gray-500" />
+                <h3 className="text-lg font-medium text-gray-900 mb-2 dark:text-gray-100">Calendar Integration</h3>
+                <p className="text-gray-500 dark:text-gray-400">Calendar integration will be available in a future update.</p>
               </div>
             </CardContent>
           </Card>
@@ -333,20 +333,20 @@ export default function IbcOfficePage() {
             <CardContent>
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 <div className="text-center p-4 border rounded-lg">
-                  <div className="text-2xl font-bold text-blue-600">{applications.length}</div>
-                  <div className="text-sm text-gray-500">Total Applications</div>
+                  <div className="text-2xl font-bold text-blue-600 dark:text-blue-400">{applications.length}</div>
+                  <div className="text-sm text-gray-500 dark:text-gray-400">Total Applications</div>
                 </div>
                 <div className="text-center p-4 border rounded-lg">
-                  <div className="text-2xl font-bold text-green-600">
+                  <div className="text-2xl font-bold text-green-600 dark:text-green-400">
                     {applications.filter((app: IbcApplication) => app.status?.toLowerCase() === 'active').length}
                   </div>
-                  <div className="text-sm text-gray-500">Active</div>
+                  <div className="text-sm text-gray-500 dark:text-gray-400">Active</div>
                 </div>
                 <div className="text-center p-4 border rounded-lg">
-                  <div className="text-2xl font-bold text-yellow-600">
+                  <div className="text-2xl font-bold text-yellow-600 dark:text-yellow-400">
                     {applications.filter((app: IbcApplication) => app.status?.toLowerCase() === 'under_review').length}
                   </div>
-                  <div className="text-sm text-gray-500">Under Review</div>
+                  <div className="text-sm text-gray-500 dark:text-gray-400">Under Review</div>
                 </div>
               </div>
             </CardContent>

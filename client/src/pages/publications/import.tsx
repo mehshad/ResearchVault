@@ -405,32 +405,32 @@ export default function PublicationImport({ onClose }: PublicationImportProps) {
       <div className="space-y-6">
         <div className="text-center">
           <h3 className="text-lg font-semibold mb-2">Bulk Import Complete</h3>
-          <p className="text-gray-600">
+          <p className="text-gray-600 dark:text-gray-300">
             Processed {stats.total} PMID(s)
           </p>
         </div>
 
         {/* Statistics Summary */}
         <div className="grid grid-cols-3 gap-4">
-          <Card className="bg-green-50 border-green-200">
+          <Card className="bg-green-50 border-green-200 dark:bg-green-950 dark:border-green-800">
             <CardContent className="p-4 text-center">
-              <CheckCircle className="h-8 w-8 text-green-600 mx-auto mb-2" />
-              <div className="text-2xl font-bold text-green-700">{stats.successful}</div>
-              <div className="text-sm text-green-600">Imported</div>
+              <CheckCircle className="h-8 w-8 text-green-600 mx-auto mb-2 dark:text-green-400" />
+              <div className="text-2xl font-bold text-green-700 dark:text-green-300">{stats.successful}</div>
+              <div className="text-sm text-green-600 dark:text-green-400">Imported</div>
             </CardContent>
           </Card>
-          <Card className="bg-yellow-50 border-yellow-200">
+          <Card className="bg-yellow-50 border-yellow-200 dark:bg-yellow-950 dark:border-yellow-800">
             <CardContent className="p-4 text-center">
-              <SkipForward className="h-8 w-8 text-yellow-600 mx-auto mb-2" />
-              <div className="text-2xl font-bold text-yellow-700">{stats.skipped}</div>
-              <div className="text-sm text-yellow-600">Skipped (Duplicates)</div>
+              <SkipForward className="h-8 w-8 text-yellow-600 mx-auto mb-2 dark:text-yellow-400" />
+              <div className="text-2xl font-bold text-yellow-700 dark:text-yellow-300">{stats.skipped}</div>
+              <div className="text-sm text-yellow-600 dark:text-yellow-400">Skipped (Duplicates)</div>
             </CardContent>
           </Card>
-          <Card className="bg-red-50 border-red-200">
+          <Card className="bg-red-50 border-red-200 dark:bg-red-950 dark:border-red-800">
             <CardContent className="p-4 text-center">
-              <XCircle className="h-8 w-8 text-red-600 mx-auto mb-2" />
-              <div className="text-2xl font-bold text-red-700">{stats.failed}</div>
-              <div className="text-sm text-red-600">Failed</div>
+              <XCircle className="h-8 w-8 text-red-600 mx-auto mb-2 dark:text-red-400" />
+              <div className="text-2xl font-bold text-red-700 dark:text-red-300">{stats.failed}</div>
+              <div className="text-sm text-red-600 dark:text-red-400">Failed</div>
             </CardContent>
           </Card>
         </div>
@@ -452,11 +452,11 @@ export default function PublicationImport({ onClose }: PublicationImportProps) {
                   }`}
                 >
                   {result.status === 'success' ? (
-                    <CheckCircle className="h-5 w-5 text-green-600 flex-shrink-0 mt-0.5" />
+                    <CheckCircle className="h-5 w-5 text-green-600 flex-shrink-0 mt-0.5 dark:text-green-400" />
                   ) : result.status === 'skipped' ? (
-                    <SkipForward className="h-5 w-5 text-yellow-600 flex-shrink-0 mt-0.5" />
+                    <SkipForward className="h-5 w-5 text-yellow-600 flex-shrink-0 mt-0.5 dark:text-yellow-400" />
                   ) : (
-                    <XCircle className="h-5 w-5 text-red-600 flex-shrink-0 mt-0.5" />
+                    <XCircle className="h-5 w-5 text-red-600 flex-shrink-0 mt-0.5 dark:text-red-400" />
                   )}
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2">
@@ -472,7 +472,7 @@ export default function PublicationImport({ onClose }: PublicationImportProps) {
                       </span>
                     </div>
                     {result.title && (
-                      <p className="text-sm text-gray-600 mt-1 truncate">{result.title}</p>
+                      <p className="text-sm text-gray-600 mt-1 truncate dark:text-gray-300">{result.title}</p>
                     )}
                   </div>
                 </div>
@@ -497,7 +497,7 @@ export default function PublicationImport({ onClose }: PublicationImportProps) {
     return (
       <div className="space-y-6">
         <div className="text-center">
-          <p className="text-gray-600 mb-4">
+          <p className="text-gray-600 mb-4 dark:text-gray-300">
             Import publication data automatically using a PubMed ID (PMID), DOI, or bulk import multiple PMIDs
           </p>
         </div>
@@ -535,7 +535,7 @@ export default function PublicationImport({ onClose }: PublicationImportProps) {
                   Import
                 </Button>
               </div>
-              <p className="text-sm text-gray-500 mt-2">
+              <p className="text-sm text-gray-500 mt-2 dark:text-gray-400">
                 Enter the PubMed ID to automatically fetch publication details from NCBI
               </p>
             </div>
@@ -567,7 +567,7 @@ export default function PublicationImport({ onClose }: PublicationImportProps) {
                   Import
                 </Button>
               </div>
-              <p className="text-sm text-gray-500 mt-2">
+              <p className="text-sm text-gray-500 mt-2 dark:text-gray-400">
                 Enter the DOI to automatically fetch publication details from CrossRef
               </p>
             </div>
@@ -575,7 +575,7 @@ export default function PublicationImport({ onClose }: PublicationImportProps) {
 
           <TabsContent value="bulk" className="space-y-4">
             <div>
-              <Label htmlFor="bulk-sdr">Research Activity (SDR) <span className="text-gray-400 font-normal">(optional)</span></Label>
+              <Label htmlFor="bulk-sdr">Research Activity (SDR) <span className="text-gray-400 font-normal dark:text-gray-500">(optional)</span></Label>
               <Select 
                 value={bulkResearchActivityId} 
                 onValueChange={setBulkResearchActivityId}
@@ -592,7 +592,7 @@ export default function PublicationImport({ onClose }: PublicationImportProps) {
                   ))}
                 </SelectContent>
               </Select>
-              <p className="text-sm text-gray-500 mt-1">
+              <p className="text-sm text-gray-500 mt-1 dark:text-gray-400">
                 Optionally link all imported publications to a research activity. You can link them later if needed.
               </p>
             </div>
@@ -607,7 +607,7 @@ export default function PublicationImport({ onClose }: PublicationImportProps) {
                 className="min-h-[120px] font-mono text-sm"
                 data-testid="input-bulk-pmids"
               />
-              <p className="text-sm text-gray-500 mt-2">
+              <p className="text-sm text-gray-500 mt-2 dark:text-gray-400">
                 Enter multiple PMIDs to import them all at once. Existing publications will be skipped.
               </p>
             </div>
@@ -615,12 +615,12 @@ export default function PublicationImport({ onClose }: PublicationImportProps) {
             {isBulkImporting && (
               <div className="space-y-2">
                 <div className="flex items-center justify-between text-sm">
-                  <span className="text-gray-600">Importing publications...</span>
+                  <span className="text-gray-600 dark:text-gray-300">Importing publications...</span>
                   <span className="font-medium">{bulkImportProgress}%</span>
                 </div>
                 <Progress value={bulkImportProgress} className="h-2" />
                 {bulkImportResults.length > 0 && (
-                  <div className="text-xs text-gray-500">
+                  <div className="text-xs text-gray-500 dark:text-gray-400">
                     Processing: {bulkImportResults[bulkImportResults.length - 1]?.pmid}
                   </div>
                 )}
@@ -660,7 +660,7 @@ export default function PublicationImport({ onClose }: PublicationImportProps) {
 
     return (
       <div className="space-y-6">
-        <div className="flex items-center gap-2 text-green-600 mb-4">
+        <div className="flex items-center gap-2 text-green-600 mb-4 dark:text-green-400">
           <CheckCircle className="h-5 w-5" />
           <span className="font-medium">Publication data imported successfully</span>
         </div>
@@ -674,45 +674,45 @@ export default function PublicationImport({ onClose }: PublicationImportProps) {
           </CardHeader>
           <CardContent className="space-y-4">
             <div>
-              <Label className="text-sm font-medium text-gray-700">Title</Label>
-              <p className="text-sm text-gray-900 mt-1">{importedData.title}</p>
+              <Label className="text-sm font-medium text-gray-700 dark:text-gray-300">Title</Label>
+              <p className="text-sm text-gray-900 mt-1 dark:text-gray-100">{importedData.title}</p>
             </div>
             
             <div>
-              <Label className="text-sm font-medium text-gray-700">Authors</Label>
-              <p className="text-sm text-gray-900 mt-1">{importedData.authors}</p>
+              <Label className="text-sm font-medium text-gray-700 dark:text-gray-300">Authors</Label>
+              <p className="text-sm text-gray-900 mt-1 dark:text-gray-100">{importedData.authors}</p>
             </div>
             
             <div>
-              <Label className="text-sm font-medium text-gray-700">Journal</Label>
-              <p className="text-sm text-gray-900 mt-1">{importedData.journal}</p>
+              <Label className="text-sm font-medium text-gray-700 dark:text-gray-300">Journal</Label>
+              <p className="text-sm text-gray-900 mt-1 dark:text-gray-100">{importedData.journal}</p>
             </div>
             
             <div className="grid grid-cols-3 gap-4">
               <div>
-                <Label className="text-sm font-medium text-gray-700">Volume</Label>
-                <p className="text-sm text-gray-900 mt-1">{importedData.volume || '—'}</p>
+                <Label className="text-sm font-medium text-gray-700 dark:text-gray-300">Volume</Label>
+                <p className="text-sm text-gray-900 mt-1 dark:text-gray-100">{importedData.volume || '—'}</p>
               </div>
               <div>
-                <Label className="text-sm font-medium text-gray-700">Issue</Label>
-                <p className="text-sm text-gray-900 mt-1">{importedData.issue || '—'}</p>
+                <Label className="text-sm font-medium text-gray-700 dark:text-gray-300">Issue</Label>
+                <p className="text-sm text-gray-900 mt-1 dark:text-gray-100">{importedData.issue || '—'}</p>
               </div>
               <div>
-                <Label className="text-sm font-medium text-gray-700">Pages</Label>
-                <p className="text-sm text-gray-900 mt-1">{importedData.pages || '—'}</p>
+                <Label className="text-sm font-medium text-gray-700 dark:text-gray-300">Pages</Label>
+                <p className="text-sm text-gray-900 mt-1 dark:text-gray-100">{importedData.pages || '—'}</p>
               </div>
             </div>
             
             <div className="grid grid-cols-2 gap-4">
               <div>
-                <Label className="text-sm font-medium text-gray-700">DOI</Label>
-                <p className="text-sm text-gray-900 mt-1">
+                <Label className="text-sm font-medium text-gray-700 dark:text-gray-300">DOI</Label>
+                <p className="text-sm text-gray-900 mt-1 dark:text-gray-100">
                   {importedData.doi ? (
                     <a 
                       href={`https://doi.org/${importedData.doi}`} 
                       target="_blank" 
                       rel="noopener noreferrer"
-                      className="text-blue-600 hover:text-blue-800 flex items-center gap-1"
+                      className="text-blue-600 hover:text-blue-800 flex items-center gap-1 dark:text-blue-400 dark:hover:text-blue-300"
                     >
                       {importedData.doi}
                       <ExternalLink className="h-3 w-3" />
@@ -721,14 +721,14 @@ export default function PublicationImport({ onClose }: PublicationImportProps) {
                 </p>
               </div>
               <div>
-                <Label className="text-sm font-medium text-gray-700">PMID</Label>
-                <p className="text-sm text-gray-900 mt-1">
+                <Label className="text-sm font-medium text-gray-700 dark:text-gray-300">PMID</Label>
+                <p className="text-sm text-gray-900 mt-1 dark:text-gray-100">
                   {importedData.pmid ? (
                     <a 
                       href={`https://pubmed.ncbi.nlm.nih.gov/${importedData.pmid}/`} 
                       target="_blank" 
                       rel="noopener noreferrer"
-                      className="text-blue-600 hover:text-blue-800 flex items-center gap-1"
+                      className="text-blue-600 hover:text-blue-800 flex items-center gap-1 dark:text-blue-400 dark:hover:text-blue-300"
                     >
                       {importedData.pmid}
                       <ExternalLink className="h-3 w-3" />
@@ -750,14 +750,14 @@ export default function PublicationImport({ onClose }: PublicationImportProps) {
           </CardHeader>
           <CardContent className="space-y-4">
             <div>
-              <Label className="text-sm font-medium text-gray-700">
+              <Label className="text-sm font-medium text-gray-700 dark:text-gray-300">
                 Imported Journal: <span className="font-normal">{importedData.journal}</span>
               </Label>
             </div>
             
             {matchingJournals.length > 0 ? (
               <div>
-                <Label className="text-sm font-medium text-gray-700 mb-2 block">
+                <Label className="text-sm font-medium text-gray-700 mb-2 block dark:text-gray-300">
                   Found {matchingJournals.length} matching journal(s) in impact factor database:
                 </Label>
                 <div className="space-y-2 max-h-48 overflow-y-auto">
@@ -775,17 +775,17 @@ export default function PublicationImport({ onClose }: PublicationImportProps) {
                       <div className="flex items-center justify-between">
                         <div>
                           <div className="font-medium text-sm">{journal.journalName}</div>
-                          <div className="text-xs text-gray-600">
+                          <div className="text-xs text-gray-600 dark:text-gray-300">
                             {journal.publisher} • {journal.year}
                             {journal.impactFactor && (
-                              <span className="ml-2 text-blue-600">
+                              <span className="ml-2 text-blue-600 dark:text-blue-400">
                                 Impact Factor: {journal.impactFactor}
                               </span>
                             )}
                           </div>
                         </div>
                         {selectedJournalId === journal.id.toString() && (
-                          <CheckCircle className="h-4 w-4 text-blue-600" />
+                          <CheckCircle className="h-4 w-4 text-blue-600 dark:text-blue-400" />
                         )}
                       </div>
                     </div>
@@ -793,9 +793,9 @@ export default function PublicationImport({ onClose }: PublicationImportProps) {
                 </div>
               </div>
             ) : (
-              <div className="text-center py-6 border-2 border-dashed border-gray-300 rounded-lg">
-                <AlertCircle className="h-8 w-8 text-gray-400 mx-auto mb-2" />
-                <p className="text-sm text-gray-600 mb-3">
+              <div className="text-center py-6 border-2 border-dashed border-gray-300 rounded-lg dark:border-gray-600">
+                <AlertCircle className="h-8 w-8 text-gray-400 mx-auto mb-2 dark:text-gray-500" />
+                <p className="text-sm text-gray-600 mb-3 dark:text-gray-300">
                   No matching journals found in the impact factor database
                 </p>
                 <Button 
@@ -816,7 +816,7 @@ export default function PublicationImport({ onClose }: PublicationImportProps) {
 
             {/* Add Journal Form */}
             {showAddJournal && (
-              <Card className="border-blue-200 bg-blue-50">
+              <Card className="border-blue-200 bg-blue-50 dark:border-blue-800 dark:bg-blue-950">
                 <CardHeader>
                   <CardTitle className="text-lg flex items-center gap-2">
                     <Plus className="h-5 w-5" />
@@ -906,7 +906,7 @@ export default function PublicationImport({ onClose }: PublicationImportProps) {
             <Card>
               <CardHeader>
                 <CardTitle>Complete Publication Details</CardTitle>
-                <p className="text-sm text-gray-600">
+                <p className="text-sm text-gray-600 dark:text-gray-300">
                   Review and edit the imported data before saving. Required fields are marked with *.
                 </p>
               </CardHeader>

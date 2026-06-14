@@ -614,7 +614,7 @@ export default function CreateIbc() {
                                             field.onChange(currentValues.filter(id => id !== activity.id));
                                           }
                                         }}
-                                        className="rounded border-gray-300"
+                                        className="rounded border-gray-300 dark:border-gray-600"
                                       />
                                       <label htmlFor={`sdr-${activity.id}`} className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70">
                                         {activity.sdrNumber} - {activity.title}
@@ -764,7 +764,7 @@ export default function CreateIbc() {
                       control={form.control}
                       name="recombinantSyntheticNucleicAcid"
                       render={({ field }) => (
-                        <FormItem className="bg-white p-4 rounded-lg border border-gray-200">
+                        <FormItem className="bg-white p-4 rounded-lg border border-gray-200 dark:bg-card dark:border-gray-700">
                           <div className="space-y-3">
                             <FormLabel className="text-base font-medium">
                               Recombinant and/or Synthetic Nucleic Acid Molecules (e.g., plasmids, viral vectors, synthetic DNA/RNA)
@@ -776,7 +776,7 @@ export default function CreateIbc() {
                                     type="radio"
                                     checked={field.value === true}
                                     onChange={() => field.onChange(true)}
-                                    className="w-4 h-4 text-blue-600"
+                                    className="w-4 h-4 text-blue-600 dark:text-blue-400"
                                   />
                                   <span>Yes</span>
                                 </label>
@@ -785,7 +785,7 @@ export default function CreateIbc() {
                                     type="radio"
                                     checked={field.value === false}
                                     onChange={() => field.onChange(false)}
-                                    className="w-4 h-4 text-blue-600"
+                                    className="w-4 h-4 text-blue-600 dark:text-blue-400"
                                   />
                                   <span>No</span>
                                 </label>
@@ -801,7 +801,7 @@ export default function CreateIbc() {
                       control={form.control}
                       name="wholeAnimalsAnimalMaterial"
                       render={({ field }) => (
-                        <FormItem className="bg-white p-4 rounded-lg border border-gray-200">
+                        <FormItem className="bg-white p-4 rounded-lg border border-gray-200 dark:bg-card dark:border-gray-700">
                           <div className="space-y-3">
                             <FormLabel className="text-base font-medium">
                               Whole Animals and/or Animal Materials (e.g., tissues, cells, sera, proteins)
@@ -813,7 +813,7 @@ export default function CreateIbc() {
                                     type="radio"
                                     checked={field.value === true}
                                     onChange={() => field.onChange(true)}
-                                    className="w-4 h-4 text-blue-600"
+                                    className="w-4 h-4 text-blue-600 dark:text-blue-400"
                                   />
                                   <span>Yes</span>
                                 </label>
@@ -822,7 +822,7 @@ export default function CreateIbc() {
                                     type="radio"
                                     checked={field.value === false}
                                     onChange={() => field.onChange(false)}
-                                    className="w-4 h-4 text-blue-600"
+                                    className="w-4 h-4 text-blue-600 dark:text-blue-400"
                                   />
                                   <span>No</span>
                                 </label>
@@ -840,9 +840,9 @@ export default function CreateIbc() {
                         control={form.control}
                         name="animalMaterialSubOptions"
                         render={({ field }) => (
-                          <FormItem className="bg-blue-50 p-4 rounded-lg border border-blue-200 ml-8">
+                          <FormItem className="bg-blue-50 p-4 rounded-lg border border-blue-200 ml-8 dark:bg-blue-950 dark:border-blue-800">
                             <div className="space-y-3">
-                              <FormLabel className="text-base font-medium text-blue-800">
+                              <FormLabel className="text-base font-medium text-blue-800 dark:text-blue-300">
                                 Please specify which animal materials will be used:
                               </FormLabel>
                               <FormControl>
@@ -891,7 +891,7 @@ export default function CreateIbc() {
                       control={form.control}
                       name="humanNonHumanPrimateMaterial"
                       render={({ field }) => (
-                        <FormItem className="bg-white p-4 rounded-lg border border-gray-200">
+                        <FormItem className="bg-white p-4 rounded-lg border border-gray-200 dark:bg-card dark:border-gray-700">
                           <div className="space-y-3">
                             <FormLabel className="text-base font-medium">
                               Human & Non-Human Primate Material (e.g., blood, fluids, tissues, primary/established cell lines)
@@ -903,7 +903,7 @@ export default function CreateIbc() {
                                     type="radio"
                                     checked={field.value === true}
                                     onChange={() => field.onChange(true)}
-                                    className="w-4 h-4 text-blue-600"
+                                    className="w-4 h-4 text-blue-600 dark:text-blue-400"
                                   />
                                   <span>Yes</span>
                                 </label>
@@ -912,7 +912,7 @@ export default function CreateIbc() {
                                     type="radio"
                                     checked={field.value === false}
                                     onChange={() => field.onChange(false)}
-                                    className="w-4 h-4 text-blue-600"
+                                    className="w-4 h-4 text-blue-600 dark:text-blue-400"
                                   />
                                   <span>No</span>
                                 </label>
@@ -930,9 +930,9 @@ export default function CreateIbc() {
                         control={form.control}
                         name="introducingPrimateMaterialIntoAnimals"
                         render={({ field }) => (
-                          <FormItem className="bg-orange-50 p-4 rounded-lg border border-orange-200 ml-8">
+                          <FormItem className="bg-orange-50 p-4 rounded-lg border border-orange-200 ml-8 dark:bg-orange-950 dark:border-orange-800">
                             <div className="space-y-3">
-                              <FormLabel className="text-base font-medium text-orange-800">
+                              <FormLabel className="text-base font-medium text-orange-800 dark:text-orange-300">
                                 Will you be introducing these materials into animals?
                               </FormLabel>
                               <FormControl>
@@ -942,7 +942,7 @@ export default function CreateIbc() {
                                       type="radio"
                                       checked={field.value === true}
                                       onChange={() => field.onChange(true)}
-                                      className="w-4 h-4 text-orange-600"
+                                      className="w-4 h-4 text-orange-600 dark:text-orange-400"
                                     />
                                     <span>Yes</span>
                                   </label>
@@ -951,7 +951,7 @@ export default function CreateIbc() {
                                       type="radio"
                                       checked={field.value === false}
                                       onChange={() => field.onChange(false)}
-                                      className="w-4 h-4 text-orange-600"
+                                      className="w-4 h-4 text-orange-600 dark:text-orange-400"
                                     />
                                     <span>No</span>
                                   </label>
@@ -968,7 +968,7 @@ export default function CreateIbc() {
                       control={form.control}
                       name="microorganismsInfectiousMaterial"
                       render={({ field }) => (
-                        <FormItem className="bg-white p-4 rounded-lg border border-gray-200">
+                        <FormItem className="bg-white p-4 rounded-lg border border-gray-200 dark:bg-card dark:border-gray-700">
                           <div className="space-y-3">
                             <FormLabel className="text-base font-medium">
                               Microorganisms/Potentially Infectious Material (e.g., viruses, bacteria, yeast, fungi, parasites, prions)
@@ -980,7 +980,7 @@ export default function CreateIbc() {
                                     type="radio"
                                     checked={field.value === true}
                                     onChange={() => field.onChange(true)}
-                                    className="w-4 h-4 text-blue-600"
+                                    className="w-4 h-4 text-blue-600 dark:text-blue-400"
                                   />
                                   <span>Yes</span>
                                 </label>
@@ -989,7 +989,7 @@ export default function CreateIbc() {
                                     type="radio"
                                     checked={field.value === false}
                                     onChange={() => field.onChange(false)}
-                                    className="w-4 h-4 text-blue-600"
+                                    className="w-4 h-4 text-blue-600 dark:text-blue-400"
                                   />
                                   <span>No</span>
                                 </label>
@@ -1007,9 +1007,9 @@ export default function CreateIbc() {
                         control={form.control}
                         name="introducingRecombinantDnaToMicroorganisms"
                         render={({ field }) => (
-                          <FormItem className="bg-blue-50 p-4 rounded-lg border border-blue-200 ml-8">
+                          <FormItem className="bg-blue-50 p-4 rounded-lg border border-blue-200 ml-8 dark:bg-blue-950 dark:border-blue-800">
                             <div className="space-y-3">
-                              <FormLabel className="text-base font-medium text-blue-800">
+                              <FormLabel className="text-base font-medium text-blue-800 dark:text-blue-300">
                                 Will you introduce recombinant/synthetic DNA to any microorganism/potentially infectious agent, use recombinant/synthetic DNA to change the genetic make-up of any microorganism/potentially infectious agent, or use DNA from any microorganism/infectious agent to perform any recombinant DNA experiments? <span className="text-red-500">*</span>
                               </FormLabel>
                               <FormControl>
@@ -1019,7 +1019,7 @@ export default function CreateIbc() {
                                       type="radio"
                                       checked={field.value === true}
                                       onChange={() => field.onChange(true)}
-                                      className="w-4 h-4 text-blue-600"
+                                      className="w-4 h-4 text-blue-600 dark:text-blue-400"
                                     />
                                     <span>Yes</span>
                                   </label>
@@ -1028,7 +1028,7 @@ export default function CreateIbc() {
                                       type="radio"
                                       checked={field.value === false}
                                       onChange={() => field.onChange(false)}
-                                      className="w-4 h-4 text-blue-600"
+                                      className="w-4 h-4 text-blue-600 dark:text-blue-400"
                                     />
                                     <span>No</span>
                                   </label>
@@ -1045,7 +1045,7 @@ export default function CreateIbc() {
                       control={form.control}
                       name="biologicalToxins"
                       render={({ field }) => (
-                        <FormItem className="bg-white p-4 rounded-lg border border-gray-200">
+                        <FormItem className="bg-white p-4 rounded-lg border border-gray-200 dark:bg-card dark:border-gray-700">
                           <div className="space-y-3">
                             <FormLabel className="text-base font-medium">
                               Biological Toxins (e.g., cholera toxin, pertussis toxin, diphtheria toxin, tetrodotoxin)
@@ -1057,7 +1057,7 @@ export default function CreateIbc() {
                                     type="radio"
                                     checked={field.value === true}
                                     onChange={() => field.onChange(true)}
-                                    className="w-4 h-4 text-blue-600"
+                                    className="w-4 h-4 text-blue-600 dark:text-blue-400"
                                   />
                                   <span>Yes</span>
                                 </label>
@@ -1066,7 +1066,7 @@ export default function CreateIbc() {
                                     type="radio"
                                     checked={field.value === false}
                                     onChange={() => field.onChange(false)}
-                                    className="w-4 h-4 text-blue-600"
+                                    className="w-4 h-4 text-blue-600 dark:text-blue-400"
                                   />
                                   <span>No</span>
                                 </label>
@@ -1082,7 +1082,7 @@ export default function CreateIbc() {
                       control={form.control}
                       name="nanoparticles"
                       render={({ field }) => (
-                        <FormItem className="bg-white p-4 rounded-lg border border-gray-200">
+                        <FormItem className="bg-white p-4 rounded-lg border border-gray-200 dark:bg-card dark:border-gray-700">
                           <div className="space-y-3">
                             <FormLabel className="text-base font-medium">
                               Nanoparticles (e.g., use of Jet-Pei or Poly-L-Lysine to form nano-sized particles)
@@ -1094,7 +1094,7 @@ export default function CreateIbc() {
                                     type="radio"
                                     checked={field.value === true}
                                     onChange={() => field.onChange(true)}
-                                    className="w-4 h-4 text-blue-600"
+                                    className="w-4 h-4 text-blue-600 dark:text-blue-400"
                                   />
                                   <span>Yes</span>
                                 </label>
@@ -1103,7 +1103,7 @@ export default function CreateIbc() {
                                     type="radio"
                                     checked={field.value === false}
                                     onChange={() => field.onChange(false)}
-                                    className="w-4 h-4 text-blue-600"
+                                    className="w-4 h-4 text-blue-600 dark:text-blue-400"
                                   />
                                   <span>No</span>
                                 </label>
@@ -1119,7 +1119,7 @@ export default function CreateIbc() {
                       control={form.control}
                       name="arthropods"
                       render={({ field }) => (
-                        <FormItem className="bg-white p-4 rounded-lg border border-gray-200">
+                        <FormItem className="bg-white p-4 rounded-lg border border-gray-200 dark:bg-card dark:border-gray-700">
                           <div className="space-y-3">
                             <FormLabel className="text-base font-medium">
                               Arthropods (e.g., insects, spiders, crabs, lobsters, shrimp)
@@ -1131,7 +1131,7 @@ export default function CreateIbc() {
                                     type="radio"
                                     checked={field.value === true}
                                     onChange={() => field.onChange(true)}
-                                    className="w-4 h-4 text-blue-600"
+                                    className="w-4 h-4 text-blue-600 dark:text-blue-400"
                                   />
                                   <span>Yes</span>
                                 </label>
@@ -1140,7 +1140,7 @@ export default function CreateIbc() {
                                     type="radio"
                                     checked={field.value === false}
                                     onChange={() => field.onChange(false)}
-                                    className="w-4 h-4 text-blue-600"
+                                    className="w-4 h-4 text-blue-600 dark:text-blue-400"
                                   />
                                   <span>No</span>
                                 </label>
@@ -1158,9 +1158,9 @@ export default function CreateIbc() {
                         control={form.control}
                         name="transgenicArthropodsOrExposure"
                         render={({ field }) => (
-                          <FormItem className="bg-blue-50 p-4 rounded-lg border border-blue-200 ml-8">
+                          <FormItem className="bg-blue-50 p-4 rounded-lg border border-blue-200 ml-8 dark:bg-blue-950 dark:border-blue-800">
                             <div className="space-y-3">
-                              <FormLabel className="text-base font-medium text-blue-800">
+                              <FormLabel className="text-base font-medium text-blue-800 dark:text-blue-300">
                                 Will you be using, creating, or breeding transgenic arthropods or exposing arthropods to recombinant DNA? <span className="text-red-500">*</span>
                               </FormLabel>
                               <FormControl>
@@ -1170,7 +1170,7 @@ export default function CreateIbc() {
                                       type="radio"
                                       checked={field.value === true}
                                       onChange={() => field.onChange(true)}
-                                      className="w-4 h-4 text-blue-600"
+                                      className="w-4 h-4 text-blue-600 dark:text-blue-400"
                                     />
                                     <span>Yes</span>
                                   </label>
@@ -1179,7 +1179,7 @@ export default function CreateIbc() {
                                       type="radio"
                                       checked={field.value === false}
                                       onChange={() => field.onChange(false)}
-                                      className="w-4 h-4 text-blue-600"
+                                      className="w-4 h-4 text-blue-600 dark:text-blue-400"
                                     />
                                     <span>No</span>
                                   </label>
@@ -1196,7 +1196,7 @@ export default function CreateIbc() {
                       control={form.control}
                       name="plants"
                       render={({ field }) => (
-                        <FormItem className="bg-white p-4 rounded-lg border border-gray-200">
+                        <FormItem className="bg-white p-4 rounded-lg border border-gray-200 dark:bg-card dark:border-gray-700">
                           <div className="space-y-3">
                             <FormLabel className="text-base font-medium">
                               Plants (e.g., toxic/transgenic plants)
@@ -1208,7 +1208,7 @@ export default function CreateIbc() {
                                     type="radio"
                                     checked={field.value === true}
                                     onChange={() => field.onChange(true)}
-                                    className="w-4 h-4 text-blue-600"
+                                    className="w-4 h-4 text-blue-600 dark:text-blue-400"
                                   />
                                   <span>Yes</span>
                                 </label>
@@ -1217,7 +1217,7 @@ export default function CreateIbc() {
                                     type="radio"
                                     checked={field.value === false}
                                     onChange={() => field.onChange(false)}
-                                    className="w-4 h-4 text-blue-600"
+                                    className="w-4 h-4 text-blue-600 dark:text-blue-400"
                                   />
                                   <span>No</span>
                                 </label>
@@ -1235,9 +1235,9 @@ export default function CreateIbc() {
                         control={form.control}
                         name="transgenicPlantsOrExposure"
                         render={({ field }) => (
-                          <FormItem className="bg-blue-50 p-4 rounded-lg border border-blue-200 ml-8">
+                          <FormItem className="bg-blue-50 p-4 rounded-lg border border-blue-200 ml-8 dark:bg-blue-950 dark:border-blue-800">
                             <div className="space-y-3">
-                              <FormLabel className="text-base font-medium text-blue-800">
+                              <FormLabel className="text-base font-medium text-blue-800 dark:text-blue-300">
                                 Will you be creating transgenic plants, exposing plant to recombinant DNA, transgenic arthropods, or transgenic microorganism/infectious agents? <span className="text-red-500">*</span>
                               </FormLabel>
                               <FormControl>
@@ -1247,7 +1247,7 @@ export default function CreateIbc() {
                                       type="radio"
                                       checked={field.value === true}
                                       onChange={() => field.onChange(true)}
-                                      className="w-4 h-4 text-blue-600"
+                                      className="w-4 h-4 text-blue-600 dark:text-blue-400"
                                     />
                                     <span>Yes</span>
                                   </label>
@@ -1256,7 +1256,7 @@ export default function CreateIbc() {
                                       type="radio"
                                       checked={field.value === false}
                                       onChange={() => field.onChange(false)}
-                                      className="w-4 h-4 text-blue-600"
+                                      className="w-4 h-4 text-blue-600 dark:text-blue-400"
                                     />
                                     <span>No</span>
                                   </label>
@@ -1285,7 +1285,7 @@ export default function CreateIbc() {
                     <CardContent className="space-y-6">
                       {/* Team member selection section */}
                       {selectedSDRIds.length > 0 && availableStaff && availableStaff.length > 0 && (
-                        <div className="space-y-4 p-4 border rounded-lg bg-gray-50">
+                        <div className="space-y-4 p-4 border rounded-lg bg-gray-50 dark:bg-gray-900">
                           <h4 className="font-medium">Add Team Member from Research Activities</h4>
                           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                             <Select value={selectedMember} onValueChange={setSelectedMember}>
@@ -1358,13 +1358,13 @@ export default function CreateIbc() {
                             // Team member from staff database
                             const staff = availableStaff?.find(s => s.id === member.scientistId);
                             return (
-                              <div key={index} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
+                              <div key={index} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg dark:bg-gray-900">
                                 <div className="flex items-center space-x-3">
                                   <div>
                                     <div className="font-medium">
                                       {staff ? `${staff.firstName} ${staff.lastName}` : `Staff ID: ${member.scientistId}`}
                                     </div>
-                                    <div className="text-sm text-gray-600">
+                                    <div className="text-sm text-gray-600 dark:text-gray-300">
                                       {staff?.jobTitle || "Staff"} • Role: {member.role.replace('_', ' ')}
                                     </div>
                                   </div>
@@ -1387,11 +1387,11 @@ export default function CreateIbc() {
                           } else {
                             // External team member
                             return (
-                              <div key={index} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
+                              <div key={index} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg dark:bg-gray-900">
                                 <div className="flex items-center space-x-3">
                                   <div>
                                     <div className="font-medium">{member.name}</div>
-                                    <div className="text-sm text-gray-600">
+                                    <div className="text-sm text-gray-600 dark:text-gray-300">
                                       {member.email && `${member.email} • `}Role: {member.role}
                                     </div>
                                   </div>
@@ -1415,7 +1415,7 @@ export default function CreateIbc() {
                         })}
                         
                         {(!form.watch('teamMembers') || form.watch('teamMembers')?.length === 0) && (
-                          <div className="text-center py-4 text-gray-500 text-sm">
+                          <div className="text-center py-4 text-gray-500 text-sm dark:text-gray-400">
                             No team members added yet
                           </div>
                         )}
@@ -1472,7 +1472,7 @@ export default function CreateIbc() {
                       )}
                     />
                     
-                    <div className="text-sm text-muted-foreground bg-gray-50 p-3 rounded-md">
+                    <div className="text-sm text-muted-foreground bg-gray-50 p-3 rounded-md dark:bg-gray-900">
                       <strong>Note:</strong> Submission, approval, and expiration dates will be automatically set by the system during the review process.
                     </div>
                   </div>
@@ -1484,8 +1484,8 @@ export default function CreateIbc() {
               </Tabs>
 
               {/* Additional tabs message */}
-              <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 mt-6">
-                <p className="text-sm text-blue-800">
+              <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 mt-6 dark:bg-blue-950 dark:border-blue-800">
+                <p className="text-sm text-blue-800 dark:text-blue-300">
                   <strong>Note:</strong> Additional tabs (Facilities, Inactivation/Decontamination, Disposal, Transport/Shipping, Dual Use, NIH Guidelines, etc.) will be available after you save this application.
                 </p>
               </div>

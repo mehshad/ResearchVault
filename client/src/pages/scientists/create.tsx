@@ -20,6 +20,7 @@ import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle }
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { SearchableSelect } from "@/components/ui/searchable-select";
 import { formatFullName } from "@/utils/nameUtils";
+import { normalizeOptionalScientistFields } from "@/utils/scientistForm";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { queryClient, apiRequest, invalidateScientistLists } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
@@ -96,10 +97,10 @@ export default function CreateScientist() {
     if (!data.profileImageInitials && data.firstName && data.lastName) {
       data.profileImageInitials = `${data.firstName[0]}${data.lastName[0]}`;
     }
-    
+
     // supervisorId can be null if no line manager is selected
 
-    createScientistMutation.mutate(data);
+    createScientistMutation.mutate(normalizeOptionalScientistFields(data));
   };
 
   return (
