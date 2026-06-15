@@ -216,7 +216,16 @@ CREATE TABLE IF NOT EXISTS "role_permissions" (
   "created_at" timestamp DEFAULT now(),
   "updated_at" timestamp DEFAULT now()
 );
-CREATE UNIQUE INDEX IF NOT EXISTS "unique_job_title_nav_item" ON "role_permissions" ("job_title", "navigation_item");
+-- Index only created if job_title column still exists (dropped by 20260611_role_groups.sql)
+DO $$ BEGIN
+  IF EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_name = 'role_permissions' AND column_name = 'job_title'
+  ) THEN
+    CREATE UNIQUE INDEX IF NOT EXISTS "unique_job_title_nav_item"
+      ON "role_permissions" ("job_title", "navigation_item");
+  END IF;
+END $$;
 
 -- IRB Board Members
 CREATE TABLE IF NOT EXISTS "irb_board_members" (

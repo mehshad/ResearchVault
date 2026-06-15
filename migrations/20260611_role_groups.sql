@@ -51,11 +51,19 @@ INSERT INTO role_groups (name) VALUES
 ON CONFLICT (name) DO NOTHING;
 
 -- ─── 5. Backfill role_group_id on existing role_permissions rows ─────────────
-UPDATE role_permissions rp
-SET    role_group_id = rg.id
-FROM   role_groups rg
-WHERE  rp.job_title = rg.name
-  AND  rp.role_group_id IS NULL;
+-- Guard: only run if job_title still exists (idempotent on re-runs after drop)
+DO $$ BEGIN
+  IF EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_name = 'role_permissions' AND column_name = 'job_title'
+  ) THEN
+    UPDATE role_permissions rp
+    SET    role_group_id = rg.id
+    FROM   role_groups rg
+    WHERE  rp.job_title = rg.name
+      AND  rp.role_group_id IS NULL;
+  END IF;
+END $$;
 
 -- ─── 6. Drop rows that could not be matched (orphaned job_title values) ───────
 --       (safe to delete — they would fail the NOT NULL constraint below anyway)
