@@ -5,6 +5,9 @@
 server {
     listen 80;
 
+    # Allow large uploads: CSV imports, document attachments, etc.
+    client_max_body_size 50m;
+
     # /demo and /demo/ redirect straight to the demo dashboard (no login needed).
     location = /demo  { return 302 http://$host:__DEMO_PORT__/app; }
     location = /demo/ { return 302 http://$host:__DEMO_PORT__/app; }
@@ -18,13 +21,15 @@ server {
         proxy_set_header   X-Forwarded-Proto $scheme;
         proxy_set_header   Upgrade           $http_upgrade;
         proxy_set_header   Connection        "upgrade";
-        proxy_read_timeout 60s;
+        proxy_read_timeout 120s;
     }
 }
 
 # ── Demo (port 8080 internally, exposed as DEMO_PORT on the host) ─────────────
 server {
     listen 8080;
+
+    client_max_body_size 50m;
 
     location / {
         proxy_pass         http://app-demo:5000;
@@ -35,6 +40,6 @@ server {
         proxy_set_header   X-Forwarded-Proto $scheme;
         proxy_set_header   Upgrade           $http_upgrade;
         proxy_set_header   Connection        "upgrade";
-        proxy_read_timeout 60s;
+        proxy_read_timeout 120s;
     }
 }
