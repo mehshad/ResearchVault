@@ -811,27 +811,35 @@ export async function registerRoutes(app: Express): Promise<Server> {
             }
           }
 
-          // Download the file content once from the authoritative GCS File object.
-          // All subsequent processing (type detection, OCR) uses this buffer — no
-          // further outbound fetch calls based on caller-supplied input are made.
+          // Read the file into a buffer. Works for both local storage (LocalFile)
+          // and GCS (File). Local storage path is read directly from disk;
+          // GCS path uses the SDK download() method.
           let fileBuffer: Buffer;
           let contentType = '';
           try {
-            // Get content type from GCS metadata (no outbound fetch to user URL).
-            try {
-              const [metadata] = await gcsFile.getMetadata();
-              contentType = metadata.contentType || '';
-              console.log(`Content-Type from GCS metadata: ${contentType}`);
-            } catch (metaError) {
-              console.log('Could not read GCS metadata, will detect from bytes');
+            if (isLocalStorage) {
+              // LocalFile has a .filePath property — read directly from disk.
+              const { readFile } = await import('fs/promises');
+              fileBuffer = await readFile((gcsFile as import('./localObjectStorage').LocalFile).filePath);
+              // Content-type from the upload request is not stored on disk;
+              // fall through to magic-byte detection below.
+            } else {
+              // GCS: get content-type from object metadata, then download.
+              try {
+                const [metadata] = await gcsFile.getMetadata();
+                contentType = metadata.contentType || '';
+                console.log(`Content-Type from GCS metadata: ${contentType}`);
+              } catch (metaError) {
+                console.log('Could not read GCS metadata, will detect from bytes');
+              }
+              const [fileContent] = await gcsFile.download();
+              fileBuffer = fileContent;
             }
-            const [fileContent] = await gcsFile.download();
-            fileBuffer = fileContent;
           } catch (downloadError: any) {
             results.push({
               ...detectedData,
               status: 'error',
-              error: 'Failed to download file from storage.'
+              error: 'Failed to read file from storage.'
             });
             continue;
           }
