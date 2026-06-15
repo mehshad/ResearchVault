@@ -1,6 +1,7 @@
 import { useState } from "react";
-import { Search, Bell, Menu, HelpCircle } from "lucide-react";
+import { Search, Bell, Menu, HelpCircle, Sun, Moon } from "lucide-react";
 import { Input } from "@/components/ui/input";
+import { useTheme } from "next-themes";
 
 interface HeaderProps {
   onMenuClick: () => void;
@@ -8,6 +9,8 @@ interface HeaderProps {
 
 export default function Header({ onMenuClick }: HeaderProps) {
   const [searchQuery, setSearchQuery] = useState<string>("");
+  const { resolvedTheme, setTheme } = useTheme();
+  const isDark = resolvedTheme === "dark";
 
   const handleSearch = (e: React.FormEvent) => {
     e.preventDefault();
@@ -24,7 +27,7 @@ export default function Header({ onMenuClick }: HeaderProps) {
           <Menu className="h-6 w-6" />
         </button>
       </div>
-      
+
       <div className="flex items-center">
         <form onSubmit={handleSearch} className="relative">
           <span className="absolute inset-y-0 left-0 flex items-center pl-3">
@@ -39,8 +42,17 @@ export default function Header({ onMenuClick }: HeaderProps) {
           />
         </form>
       </div>
-      
+
       <div className="flex items-center space-x-4">
+        {/* Dark / light mode toggle */}
+        <button
+          className="text-primary hover:text-primary/80 transition-colors"
+          onClick={() => setTheme(isDark ? "light" : "dark")}
+          title={isDark ? "Switch to light mode" : "Switch to dark mode"}
+        >
+          {isDark ? <Sun className="h-5 w-5" /> : <Moon className="h-5 w-5" />}
+        </button>
+
         <button className="text-primary hover:text-primary/80 relative">
           <Bell className="h-5 w-5" />
           <span className="absolute top-0 right-0 block h-2 w-2 rounded-full bg-destructive"></span>

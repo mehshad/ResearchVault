@@ -3,7 +3,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Palette, Settings as SettingsIcon, Moon, Sun, MessageSquarePlus, Send, Lightbulb, Zap, AlertCircle, CheckCircle, Clock, X, ChevronDown, ChevronUp, ThumbsUp, User, Calendar, Users, ShieldCheck, KeyRound, Layers, Lock } from "lucide-react";
+import { Palette, Settings as SettingsIcon, MessageSquarePlus, Send, Lightbulb, Zap, AlertCircle, CheckCircle, Clock, X, ChevronDown, ChevronUp, ThumbsUp, User, Calendar, Users, ShieldCheck, KeyRound, Layers, Lock } from "lucide-react";
 import { useTheme, themes, defaultInstitutionLabels, TOGGLEABLE_SECTIONS, type InstitutionConfig } from "@/contexts/ThemeContext";
 import { useTheme as useColorMode } from "next-themes";
 import { useAuth } from "@/hooks/useAuth";
@@ -71,9 +71,8 @@ const statusOptions = [
 
 export default function Settings() {
   const { themeName, setTheme, institutionLabels, setInstitutionLabels, isSectionVisible, setSectionVisible } = useTheme();
-  const { resolvedTheme, setTheme: setColorMode } = useColorMode();
+  const { resolvedTheme } = useColorMode();
   const mode = resolvedTheme === 'dark' ? 'dark' : 'light';
-  const toggleMode = () => setColorMode(mode === 'dark' ? 'light' : 'dark');
   const { authConfig } = useAuth();
   const { toast } = useToast();
   const queryClient = useQueryClient();
@@ -392,39 +391,6 @@ IRIS (Intelligent Research Information Management System) is a research manageme
               </CardContent>
             </Card>
 
-            {/* Display Settings */}
-            <Card>
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2">
-                  {mode === 'dark' ? <Moon className="h-5 w-5" /> : <Sun className="h-5 w-5" />}
-                  Display Settings
-                </CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <div className="flex items-center justify-between">
-                  <div className="space-y-0.5">
-                    <Label htmlFor="dark-mode">Dark Mode</Label>
-                    <div className="text-sm text-muted-foreground">
-                      Switch between light and dark themes
-                    </div>
-                  </div>
-                  <Switch
-                    id="dark-mode"
-                    checked={mode === 'dark'}
-                    onCheckedChange={toggleMode}
-                  />
-                </div>
-
-                <div className="space-y-2">
-                  <Label>Current Settings</Label>
-                  <div className="text-sm space-y-1">
-                    <div>Theme: <span className="font-medium">{themeOptions.find(t => t.id === themeName)?.name}</span></div>
-                    <div>Mode: <span className="font-medium">{mode === 'dark' ? 'Dark' : 'Light'}</span></div>
-                    <div>App: <span className="font-medium">IRIS: Intelligent Research Information Management System</span></div>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
           </div>
 
           {/* Institution Labels Configuration - Only show active institution */}
