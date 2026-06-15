@@ -283,7 +283,7 @@ export function registerAuthRoutes(app: any) {
     }
     req.session.destroy((err: any) => {
       if (err) return res.status(500).json({ message: "Failed to log out" });
-      res.clearCookie("connect.sid");
+      res.clearCookie("rv.sid");
       res.json({ message: "Logged out successfully" });
     });
   });

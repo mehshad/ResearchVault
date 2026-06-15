@@ -60,7 +60,15 @@ const sessionStore = process.env.DATABASE_URL
     })
   : undefined; // falls back to default MemoryStore in dev without a DB
 
+// Use a distinct cookie name per auth mode so the production app and the demo
+// app (same hostname, different ports) never share or corrupt each other's
+// sessions. Browsers scope cookies to hostname only — not port — so without
+// distinct names, a demo cookie sent to the production app (or vice versa)
+// would silently invalidate the user's real session.
+const cookieName = getAuthMode() === 'demo' ? 'rv-demo.sid' : 'rv.sid';
+
 app.use(session({
+  name: cookieName,
   store: sessionStore,
   secret: process.env.SESSION_SECRET || createHash('sha256').update('research-portal-session-secret').digest('hex'),
   resave: false,
