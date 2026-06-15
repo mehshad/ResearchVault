@@ -117,24 +117,25 @@ const DEMO_PORT = (window as any).__DEMO_PORT__ ?? '8080';
 const DEMO_ORIGIN = `${window.location.protocol}//${window.location.hostname}:${DEMO_PORT}`;
 
 export default function DemoPage() {
-  const { isAuthenticated, authConfig, loginWithSso } = useAuth();
+  const { authConfig } = useAuth();
   const [, navigate] = useLocation();
   const isDemo = authConfig.mode === 'demo';
 
-  // If the production app is serving this page (non-demo mode + not logged in),
-  // auto-redirect to the demo instance so no login is ever needed.
+  // If the production app is serving this page, always redirect to the demo
+  // instance as soon as the auth config is known — regardless of login state.
+  // (Wouter handles /demo client-side so nginx's redirect never fires here.)
   useEffect(() => {
-    if (!isDemo && !isAuthenticated && authConfig.mode !== 'local') {
+    if (!isDemo && authConfig.mode !== 'loading') {
       window.location.replace(`${DEMO_ORIGIN}/app`);
     }
-  }, [isDemo, isAuthenticated, authConfig.mode]);
+  }, [isDemo, authConfig.mode]);
 
   const handleLaunch = () => {
-    if (isDemo || isAuthenticated) {
-      // Already in demo mode or logged in — go straight to dashboard.
+    if (isDemo) {
+      // Already inside the demo instance — go straight to dashboard.
       navigate('/app');
     } else {
-      // Production app serving this page — redirect to demo instance.
+      // Production app: always send to the demo instance.
       window.location.href = `${DEMO_ORIGIN}/app`;
     }
   };
@@ -196,7 +197,7 @@ export default function DemoPage() {
           >
             <Button size="lg" className="bg-teal-600 hover:bg-teal-500 text-xl px-12 py-8 shadow-lg shadow-teal-500/20" onClick={handleLaunch}>
                 <Play className="mr-3 h-6 w-6" />
-                {isDemo ? 'Launch Demo Application' : isAuthenticated ? 'Launch Application' : 'Sign In to Launch'}
+                {isDemo ? 'Launch Demo Application' : 'Launch Demo'}
                 <Rocket className="ml-3 h-6 w-6" />
               </Button>
           </motion.div>
@@ -288,7 +289,7 @@ export default function DemoPage() {
               </div>
               <Button size="lg" className="bg-teal-600 hover:bg-teal-500 whitespace-nowrap" onClick={handleLaunch}>
                   <Rocket className="mr-2 h-5 w-5" />
-                  {isDemo ? 'Launch Demo' : isAuthenticated ? 'Launch App' : 'Sign In to Launch'}
+                  {isDemo ? 'Launch Demo' : 'Launch Demo'}
                 </Button>
             </div>
           </motion.div>
