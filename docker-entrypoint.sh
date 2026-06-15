@@ -29,7 +29,8 @@ for migration in \
     "migrations/20260611_role_groups.sql" \
     "migrations/20260611_ownership_overrides.sql" \
     "migrations/20260615_publications_missing_columns.sql" \
-    "migrations/20260615_ibc_missing_columns.sql"; do
+    "migrations/20260615_ibc_missing_columns.sql" \
+    "migrations/20260615_schema_sync.sql"; do
   if [ -f "/app/$migration" ]; then
     echo "  Applying $migration..."
     psql "$DATABASE_URL" -f "/app/$migration" -v ON_ERROR_STOP=0 2>&1 | grep -v "^$\|already exists\|does not exist\|NOTICE" || true
