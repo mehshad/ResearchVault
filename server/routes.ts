@@ -3721,6 +3721,24 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Count of linked internal authors per publication. Returns a map of
+  // { [publicationId]: number } so the office can flag publications that have
+  // no internal scientist/author records linked. Registered before
+  // "/api/publications/:id" so the literal path isn't swallowed by the id route.
+  app.get('/api/publications/author-counts', async (_req: Request, res: Response) => {
+    try {
+      const allAuthors = await storage.getAllPublicationAuthors();
+      const counts: Record<number, number> = {};
+      for (const author of allAuthors) {
+        counts[author.publicationId] = (counts[author.publicationId] || 0) + 1;
+      }
+      res.json(counts);
+    } catch (error) {
+      console.error('Error getting publication author counts:', error);
+      res.status(500).json({ message: 'Failed to count publication authors' });
+    }
+  });
+
   // Publications needing author-linking fixes for the current user.
   // Returns only the logged-in user's likely publications that have a real
   // author-linking problem: either no internal authors linked, or a linked

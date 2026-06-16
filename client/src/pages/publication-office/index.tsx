@@ -24,7 +24,8 @@ import { Checkbox } from "@/components/ui/checkbox";
 import * as SliderPrimitive from "@radix-ui/react-slider";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
-import { Pencil, Save, X, Upload, Search, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, ChevronDown, ArrowUpDown, ArrowUp, ArrowDown, Star, Shield, FileText, BarChart3, Download, Calendar, User, BookOpen, Award, TrendingUp, CopyCheck } from "lucide-react";
+import { Pencil, Save, X, Upload, Search, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, ChevronDown, ArrowUpDown, ArrowUp, ArrowDown, Star, Shield, FileText, BarChart3, Download, Calendar, User, BookOpen, Award, TrendingUp, CopyCheck, AlertTriangle, UserX, Unlink, CheckCircle2 } from "lucide-react";
+import { PublicationsToFix } from "@/components/PublicationsToFix";
 import { UploadingModal } from "@/components/ui/upload-modal";
 import { PublicationDuplicates } from "@/components/PublicationDuplicates";
 import { useToast } from "@/hooks/use-toast";
@@ -411,12 +412,20 @@ export default function PublicationOffice() {
       const response = await fetch('/api/publications');
       if (!response.ok) throw new Error('Failed to fetch publications');
       const publications = await response.json();
-      // Filter publications that have been vetted (Published status)
-      return publications.filter((pub: Publication) => 
-        pub.vettedForSubmissionByIpOffice === true &&
-        pub.status === 'Published'
+      // Surface publications that are NOT yet finalized/vetted by the office so
+      // staff can see records still needing attention (data-quality fixes,
+      // author links, SDR links) before they are marked Published *.
+      return publications.filter((pub: Publication) =>
+        pub.vettedForSubmissionByIpOffice !== true
       );
     },
+    enabled: activeTab === "new-publications"
+  });
+
+  // Per-publication internal author counts, used to flag publications with no
+  // linked internal scientist/author records on the New Publications tab.
+  const { data: authorCounts = {} } = useQuery<Record<number, number>>({
+    queryKey: ['/api/publications/author-counts'],
     enabled: activeTab === "new-publications"
   });
 
@@ -954,8 +963,24 @@ export default function PublicationOffice() {
                 </div>
               ) : (
                 <div className="space-y-4">
-                  {newPublications.map((pub: Publication) => (
-                    <div key={pub.id} className="border rounded-lg p-4 space-y-3">
+                  {newPublications.map((pub: Publication) => {
+                    // Compute data-quality issues so staff can see what each
+                    // record is missing before it gets vetted/finalized.
+                    const missingFields: string[] = [];
+                    if (!pub.journal?.trim()) missingFields.push('journal');
+                    if (!pub.publicationDate) missingFields.push('publication date');
+                    if (!pub.doi?.trim() && !pub.pmid?.trim()) missingFields.push('DOI/PMID');
+                    if (!pub.authors?.trim()) missingFields.push('authors');
+                    if (!pub.abstract?.trim()) missingFields.push('abstract');
+                    const hasInternalAuthors = (authorCounts[pub.id] || 0) > 0;
+                    const hasSdr = !!pub.researchActivityId;
+                    const hasIssues = missingFields.length > 0 || !hasInternalAuthors || !hasSdr;
+                    return (
+                    <div
+                      key={pub.id}
+                      className={`border rounded-lg p-4 space-y-3 ${hasIssues ? 'border-amber-300 dark:border-amber-800 bg-amber-50/40 dark:bg-amber-950/20' : 'border-green-300 dark:border-green-800 bg-green-50/40 dark:bg-green-950/20'}`}
+                      data-testid={`row-new-publication-${pub.id}`}
+                    >
                       <div className="flex items-start justify-between">
                         <div className="flex-1">
                           <Link href={`/publications/${pub.id}`}>
@@ -963,9 +988,9 @@ export default function PublicationOffice() {
                               {pub.title}
                             </h3>
                           </Link>
-                          <p className="text-sm text-gray-600 mt-1 dark:text-gray-300">{pub.authors}</p>
+                          <p className="text-sm text-gray-600 mt-1 dark:text-gray-300">{pub.authors || <span className="italic text-gray-400">No authors listed</span>}</p>
                           <p className="text-sm text-gray-500 dark:text-gray-400">
-                            {pub.journal} • {pub.publicationDate ? format(new Date(pub.publicationDate), 'yyyy') : 'No date'}
+                            {pub.journal || 'No journal'} • {pub.publicationDate ? format(new Date(pub.publicationDate), 'yyyy') : 'No date'}
                           </p>
                         </div>
                         <div className="flex items-center gap-2">
@@ -994,12 +1019,62 @@ export default function PublicationOffice() {
                           )}
                         </div>
                       </div>
+                      <div className="flex flex-wrap items-center gap-2" data-testid={`flags-publication-${pub.id}`}>
+                        {!hasIssues ? (
+                          <Badge
+                            variant="secondary"
+                            className="bg-green-100 text-green-800 dark:bg-green-950 dark:text-green-300"
+                            data-testid={`flag-complete-${pub.id}`}
+                          >
+                            <CheckCircle2 className="h-3 w-3 mr-1" />
+                            No issues
+                          </Badge>
+                        ) : (
+                          <>
+                            {missingFields.length > 0 && (
+                              <Badge
+                                variant="secondary"
+                                className="bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300"
+                                data-testid={`flag-missing-data-${pub.id}`}
+                              >
+                                <AlertTriangle className="h-3 w-3 mr-1" />
+                                Missing: {missingFields.join(', ')}
+                              </Badge>
+                            )}
+                            {!hasInternalAuthors && (
+                              <Badge
+                                variant="secondary"
+                                className="bg-red-100 text-red-800 dark:bg-red-950 dark:text-red-300"
+                                data-testid={`flag-no-internal-authors-${pub.id}`}
+                              >
+                                <UserX className="h-3 w-3 mr-1" />
+                                No internal users linked
+                              </Badge>
+                            )}
+                            {!hasSdr && (
+                              <Badge
+                                variant="secondary"
+                                className="bg-orange-100 text-orange-800 dark:bg-orange-950 dark:text-orange-300"
+                                data-testid={`flag-no-sdr-${pub.id}`}
+                              >
+                                <Unlink className="h-3 w-3 mr-1" />
+                                Not linked to an SDR
+                              </Badge>
+                            )}
+                          </>
+                        )}
+                      </div>
                     </div>
-                  ))}
+                    );
+                  })}
                 </div>
               )}
             </CardContent>
           </Card>
+
+          {/* Internal author-link checking tool, consolidated here from the
+              main Publications page so staff fix author links from the office. */}
+          <PublicationsToFix />
         </TabsContent>
 
         {/* Duplicates Tab */}
