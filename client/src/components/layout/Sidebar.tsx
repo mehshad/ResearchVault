@@ -451,7 +451,7 @@ export default function Sidebar({ mobile = false, onClose, onCollapsedChange }: 
                   <Home className="w-4 h-4" />
                 </button>
               </Link>
-              {(currentUser.role === 'admin' || currentUser.role === 'superadmin') && (
+              {(currentUser.role === 'admin' || currentUser.role === 'superadmin' || currentUser.role === 'Management') && (
                 <>
                   <Link href="/settings/users" title="Manage Users" onClick={() => { if (mobile && onClose) onClose(); }}>
                     <button className="p-2 rounded-lg text-muted-foreground hover:text-primary hover:bg-primary/10 transition-colors">
@@ -484,7 +484,7 @@ export default function Sidebar({ mobile = false, onClose, onCollapsedChange }: 
                   <span className="text-[10px]">Home</span>
                 </button>
               </Link>
-              {(currentUser.role === 'admin' || currentUser.role === 'superadmin') && (
+              {(currentUser.role === 'admin' || currentUser.role === 'superadmin' || currentUser.role === 'Management') && (
                 <>
                   <Link href="/settings/users" onClick={() => { if (mobile && onClose) onClose(); }}>
                     <button className="flex flex-col items-center gap-0.5 text-muted-foreground hover:text-primary transition-colors p-1">
