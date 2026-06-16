@@ -30,6 +30,8 @@ import { usePermissions } from "@/hooks/usePermissions";
 export default function FacilitiesList() {
   const [searchQuery, setSearchQuery] = useState("");
   const [expandedBuildings, setExpandedBuildings] = useState<Set<number>>(new Set());
+  // Floors start collapsed by default; this tracks the ones the user opens.
+  const [expandedFloors, setExpandedFloors] = useState<Set<string>>(new Set());
   const { currentUser } = useCurrentUser();
   const { canEdit } = usePermissions();
 
@@ -61,6 +63,16 @@ export default function FacilitiesList() {
     building.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
     building.address?.toLowerCase().includes(searchQuery.toLowerCase())
   );
+
+  const toggleFloorExpansion = (floorKey: string) => {
+    const newExpanded = new Set(expandedFloors);
+    if (newExpanded.has(floorKey)) {
+      newExpanded.delete(floorKey);
+    } else {
+      newExpanded.add(floorKey);
+    }
+    setExpandedFloors(newExpanded);
+  };
 
   const toggleBuildingExpansion = (buildingId: number) => {
     const newExpanded = new Set(expandedBuildings);
@@ -273,17 +285,27 @@ export default function FacilitiesList() {
                   {isExpanded && buildingRooms.length > 0 && (
                     <CardContent className="pt-0">
                       <div className="border-t pt-4 space-y-6">
-                        {floorGroups.map(group => (
+                        {floorGroups.map(group => {
+                          const floorKey = `${building.id}-${group.key}`;
+                          const isFloorExpanded = expandedFloors.has(floorKey);
+                          return (
                           <div key={group.key}>
-                            <h4
-                              className="font-medium text-sm text-gray-700 mb-3 dark:text-gray-300"
+                            <button
+                              type="button"
+                              onClick={() => toggleFloorExpansion(floorKey)}
+                              className="flex items-center gap-2 w-full text-left font-medium text-sm text-gray-700 mb-3 dark:text-gray-300 hover:text-gray-900 dark:hover:text-gray-100"
                               data-testid={`heading-floor-${building.id}-${group.key}`}
                             >
+                              {isFloorExpanded ?
+                                <ChevronUp className="h-4 w-4" /> :
+                                <ChevronDown className="h-4 w-4" />
+                              }
                               {group.label}
-                              <span className="ml-2 text-xs font-normal text-gray-400 dark:text-gray-500">
+                              <span className="text-xs font-normal text-gray-400 dark:text-gray-500">
                                 ({group.rooms.length} {group.rooms.length === 1 ? 'room' : 'rooms'})
                               </span>
-                            </h4>
+                            </button>
+                            {isFloorExpanded && (
                             <Table>
                               <TableHeader>
                                 <TableRow>
@@ -365,8 +387,10 @@ export default function FacilitiesList() {
                                 ))}
                               </TableBody>
                             </Table>
+                            )}
                           </div>
-                        ))}
+                          );
+                        })}
                       </div>
                     </CardContent>
                   )}
