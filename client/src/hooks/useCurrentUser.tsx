@@ -46,6 +46,16 @@ const DUMMY_USERS: DummyUser[] = [
   { id: 16, name: 'David Thompson', email: 'd.thompson@research.org', role: 'Contracts Officer' },
 ];
 
+// Super Admin test identity — only exposed in the role selector when
+// AUTH_MODE=demo (see Sidebar). Lets testers exercise the superadmin-gated
+// surfaces (Settings, Users) without a real account. Not in the database.
+const SUPER_ADMIN_USER: DummyUser = {
+  id: 99,
+  name: 'Super Admin',
+  email: 'superadmin@research.org',
+  role: 'superadmin',
+};
+
 interface CurrentUserProviderProps {
   children: ReactNode;
 }
@@ -93,5 +103,5 @@ export function useCurrentUser() {
   return context;
 }
 
-export { DUMMY_USERS };
+export { DUMMY_USERS, SUPER_ADMIN_USER };
 export type { DummyUser };

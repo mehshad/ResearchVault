@@ -13,7 +13,7 @@ import {
 } from "@/components/ui/select";
 import { usePermissions } from "@/hooks/usePermissions";
 import { useAuth } from "@/hooks/useAuth";
-import { useCurrentUser, DUMMY_USERS } from "@/hooks/useCurrentUser";
+import { useCurrentUser, DUMMY_USERS, SUPER_ADMIN_USER } from "@/hooks/useCurrentUser";
 import { useTheme, themes } from "@/contexts/ThemeContext";
 import qbridgeLogo from "@assets/image_1767775219373.png";
 
@@ -30,7 +30,10 @@ export default function Sidebar({ mobile = false, onClose, onCollapsedChange }: 
   const { authConfig, logout } = useAuth();
   const { currentUser, setCurrentUser } = useCurrentUser();
   const ssoEnabled = authConfig.ssoEnabled;
-  const availableUsers = DUMMY_USERS;
+  // Expose the Super Admin test identity in the role selector only in demo mode.
+  const availableUsers = authConfig.mode === 'demo'
+    ? [...DUMMY_USERS, SUPER_ADMIN_USER]
+    : DUMMY_USERS;
 
   const [collapsed, setCollapsed] = useState<boolean>(() => {
     try {
