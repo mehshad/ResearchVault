@@ -164,6 +164,27 @@ export default function FacilitiesList() {
             {filteredBuildings?.map(building => {
               const buildingRooms = roomsByBuilding[building.id] || [];
               const isExpanded = expandedBuildings.has(building.id);
+
+              const floorGroups = (() => {
+                const groups = buildingRooms.reduce((acc, room) => {
+                  const key = room.floor != null ? String(room.floor) : '__unassigned__';
+                  if (!acc[key]) acc[key] = [];
+                  acc[key].push(room);
+                  return acc;
+                }, {} as Record<string, Room[]>);
+                return Object.entries(groups)
+                  .map(([key, rooms]) => ({
+                    key,
+                    floor: key === '__unassigned__' ? null : Number(key),
+                    label: key === '__unassigned__' ? 'No floor' : `Floor ${key}`,
+                    rooms,
+                  }))
+                  .sort((a, b) => {
+                    if (a.floor == null) return 1;
+                    if (b.floor == null) return -1;
+                    return a.floor - b.floor;
+                  });
+              })();
               
               return (
                 <Card key={building.id} className="border-l-4 border-l-blue-500">
@@ -251,23 +272,33 @@ export default function FacilitiesList() {
                   
                   {isExpanded && buildingRooms.length > 0 && (
                     <CardContent className="pt-0">
-                      <div className="border-t pt-4">
-                        <h4 className="font-medium text-sm text-gray-700 mb-3 dark:text-gray-300">Rooms</h4>
-                        <Table>
-                          <TableHeader>
-                            <TableRow>
-                              <TableHead>Room</TableHead>
-                              <TableHead>Type</TableHead>
-                              <TableHead>Floor</TableHead>
-                              <TableHead>Biosafety Level</TableHead>
-                              <TableHead>Supervisor</TableHead>
-                              <TableHead>Manager</TableHead>
-                              <TableHead className="w-12"></TableHead>
-                            </TableRow>
-                          </TableHeader>
-                          <TableBody>
-                            {buildingRooms.map(room => (
-                              <TableRow key={room.id}>
+                      <div className="border-t pt-4 space-y-6">
+                        {floorGroups.map(group => (
+                          <div key={group.key}>
+                            <h4
+                              className="font-medium text-sm text-gray-700 mb-3 dark:text-gray-300"
+                              data-testid={`heading-floor-${building.id}-${group.key}`}
+                            >
+                              {group.label}
+                              <span className="ml-2 text-xs font-normal text-gray-400 dark:text-gray-500">
+                                ({group.rooms.length} {group.rooms.length === 1 ? 'room' : 'rooms'})
+                              </span>
+                            </h4>
+                            <Table>
+                              <TableHeader>
+                                <TableRow>
+                                  <TableHead>Room</TableHead>
+                                  <TableHead>Type</TableHead>
+                                  <TableHead>Floor</TableHead>
+                                  <TableHead>Biosafety Level</TableHead>
+                                  <TableHead>Supervisor</TableHead>
+                                  <TableHead>Manager</TableHead>
+                                  <TableHead className="w-12"></TableHead>
+                                </TableRow>
+                              </TableHeader>
+                              <TableBody>
+                                {group.rooms.map(room => (
+                                  <TableRow key={room.id}>
                                 <TableCell className="font-medium">
                                   {room.roomNumber}
                                 </TableCell>
@@ -330,10 +361,12 @@ export default function FacilitiesList() {
                                     </Link>
                                   </PermissionWrapper>
                                 </TableCell>
-                              </TableRow>
-                            ))}
-                          </TableBody>
-                        </Table>
+                                  </TableRow>
+                                ))}
+                              </TableBody>
+                            </Table>
+                          </div>
+                        ))}
                       </div>
                     </CardContent>
                   )}
