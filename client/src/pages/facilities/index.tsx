@@ -50,8 +50,43 @@ export default function FacilitiesList() {
     queryFn: () => fetch('/api/scientists').then(res => res.json()),
   });
 
-  // Group rooms by building
+  const getScientistInfo = (scientistId: number | null) => {
+    if (!scientistId || !scientists) return null;
+    return scientists.find(s => s.id === scientistId);
+  };
+
+  const query = searchQuery.trim().toLowerCase();
+
+  // Whether a single room matches the search across any of its fields,
+  // including the names/emails of its linked supervisor and manager.
+  const roomMatchesQuery = (room: Room) => {
+    if (!query) return true;
+    const supervisor = getScientistInfo(room.roomSupervisorId);
+    const manager = getScientistInfo(room.roomManagerId);
+    const parts: (string | number | null | undefined)[] = [
+      room.roomNumber,
+      room.floor,
+      room.roomType,
+      room.capacity,
+      room.area,
+      room.biosafetyLevel,
+      room.equipment,
+      room.specialFeatures,
+      room.accessRestrictions,
+      room.maintenanceNotes,
+      Array.isArray(room.certifications) ? (room.certifications as string[]).join(' ') : '',
+      Array.isArray(room.availablePpe) ? (room.availablePpe as string[]).join(' ') : '',
+      supervisor ? formatFullName(supervisor) : '',
+      supervisor?.email,
+      manager ? formatFullName(manager) : '',
+      manager?.email,
+    ];
+    return parts.some(p => p != null && String(p).toLowerCase().includes(query));
+  };
+
+  // Group rooms by building (only rooms matching the search when one is active).
   const roomsByBuilding = allRooms?.reduce((acc, room) => {
+    if (!roomMatchesQuery(room)) return acc;
     if (!acc[room.buildingId]) {
       acc[room.buildingId] = [];
     }
@@ -59,10 +94,15 @@ export default function FacilitiesList() {
     return acc;
   }, {} as Record<number, Room[]>) || {};
 
-  const filteredBuildings = buildings?.filter(building => 
-    building.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    building.address?.toLowerCase().includes(searchQuery.toLowerCase())
-  );
+  // A building shows when it matches by name/address, OR (with the small number
+  // of buildings) when any of its rooms match the search by any field.
+  const filteredBuildings = buildings?.filter(building => {
+    if (!query) return true;
+    const buildingMatches =
+      building.name.toLowerCase().includes(query) ||
+      building.address?.toLowerCase().includes(query);
+    return buildingMatches || (roomsByBuilding[building.id]?.length ?? 0) > 0;
+  });
 
   const toggleFloorExpansion = (floorKey: string) => {
     const newExpanded = new Set(expandedFloors);
@@ -94,11 +134,6 @@ export default function FacilitiesList() {
       'ABSL-2': 'bg-purple-100 text-purple-800 dark:bg-purple-950 dark:text-purple-300'
     };
     return colors[level as keyof typeof colors] || 'bg-gray-100 text-gray-800 dark:bg-gray-800 dark:text-gray-200';
-  };
-
-  const getScientistInfo = (scientistId: number | null) => {
-    if (!scientistId || !scientists) return null;
-    return scientists.find(s => s.id === scientistId);
   };
 
   if (buildingsLoading || roomsLoading) {
@@ -163,7 +198,7 @@ export default function FacilitiesList() {
             <div className="relative flex-1 max-w-sm">
               <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 h-4 w-4 dark:text-gray-500" />
               <Input
-                placeholder="Search buildings..."
+                placeholder="Search buildings or rooms (any field)..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 className="pl-10"
@@ -175,7 +210,7 @@ export default function FacilitiesList() {
           <div className="space-y-4">
             {filteredBuildings?.map(building => {
               const buildingRooms = roomsByBuilding[building.id] || [];
-              const isExpanded = expandedBuildings.has(building.id);
+              const isExpanded = expandedBuildings.has(building.id) || !!query;
 
               const floorGroups = (() => {
                 const groups = buildingRooms.reduce((acc, room) => {
@@ -287,7 +322,7 @@ export default function FacilitiesList() {
                       <div className="border-t pt-4 space-y-6">
                         {floorGroups.map(group => {
                           const floorKey = `${building.id}-${group.key}`;
-                          const isFloorExpanded = expandedFloors.has(floorKey);
+                          const isFloorExpanded = expandedFloors.has(floorKey) || !!query;
                           return (
                           <div key={group.key}>
                             <button
