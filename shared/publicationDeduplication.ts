@@ -123,34 +123,57 @@ export function isPreprintRecord(pub: DedupPublication): boolean {
   return false;
 }
 
-// Human-readable preprint-server name keyed by DOI prefix, for labelling the
-// prepublication site of a published record after a preprint is merged into it.
-const PREPRINT_SERVER_BY_PREFIX: Record<string, string> = {
-  "10.1101/": "bioRxiv / medRxiv",
-  "10.48550/": "arXiv",
-  "10.21203/": "Research Square",
-  "10.26434/": "ChemRxiv",
-  "10.31234/": "PsyArXiv",
-  "10.31219/": "OSF Preprints",
-};
-
 /**
- * Best-effort name of the preprint server a record came from. Tries the DOI
- * prefix first, then any keyword found in the journal / prepublication-site
- * text. Returns null when the record is not recognizably a preprint.
+ * Name of the preprint server a record came from, constrained to the exact
+ * values accepted by the `prepublicationSite` radio group on the publication
+ * edit/detail forms: "arXiv", "bioRxiv", "medRxiv", "Research Square", or
+ * "Other". Returns null when the record is not recognizably a preprint.
+ *
+ * The record's own site / journal text is checked first (lowercased match) —
+ * that's the only way to tell bioRxiv from medRxiv, which share the `10.1101`
+ * DOI prefix. Otherwise we fall back to the DOI prefix, mapping any preprint
+ * server we can't pin to a specific radio option (incl. `10.1101`) to "Other".
  */
 export function preprintServerName(pub: DedupPublication): string | null {
+  const text = `${pub.prepublicationSite || ""} ${pub.journal || ""}`.toLowerCase();
+
+  // Text-based detection first. bioRxiv / medRxiv can only be distinguished
+  // here since they share a DOI prefix.
+  if (text.includes("biorxiv")) return "bioRxiv";
+  if (text.includes("medrxiv")) return "medRxiv";
+  if (text.includes("research square") || text.includes("researchsquare")) {
+    return "Research Square";
+  }
+  // Recognizable preprint servers that have no dedicated radio option collapse
+  // to "Other". Check these before the bare "arxiv" match because e.g.
+  // "psyarxiv" / "chemrxiv" contain "rxiv" and "psyarxiv" contains "arxiv".
+  if (
+    text.includes("psyarxiv") ||
+    text.includes("chemrxiv") ||
+    text.includes("ssrn") ||
+    text.includes("osf")
+  ) {
+    return "Other";
+  }
+  if (text.includes("arxiv")) return "arXiv";
+
+  // DOI prefix fallback for records lacking descriptive site/journal text.
   const doi = normalizeDoi(pub.doi);
   if (doi) {
-    for (const [prefix, name] of Object.entries(PREPRINT_SERVER_BY_PREFIX)) {
-      if (doi.startsWith(prefix)) return name;
-    }
+    if (doi.startsWith("10.48550/")) return "arXiv";
+    if (doi.startsWith("10.21203/")) return "Research Square";
+    if (PREPRINT_DOI_PREFIXES.some((p) => doi.startsWith(p))) return "Other";
   }
-  const site = (pub.prepublicationSite || "").trim();
-  if (site) return site;
-  const haystack = `${pub.journal || ""}`.toLowerCase();
-  const hit = PREPRINT_KEYWORDS.find((k) => haystack.includes(k));
-  if (hit) return pub.journal || hit;
+
+  // A generic "preprint" mention with no recognizable server still marks the
+  // record as a preprint of unknown origin.
+  if (
+    text.includes("preprint") ||
+    (pub.publicationType || "").toLowerCase().includes("preprint")
+  ) {
+    return "Other";
+  }
+
   return null;
 }
 

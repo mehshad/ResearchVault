@@ -652,29 +652,50 @@ export class DatabaseStorage implements IStorage {
       // deleted along with its record. If the survivor ends up as the published
       // article and has no prepublication link yet, carry the preprint's link
       // and server name onto it so that data is merged, not lost.
-      // Only auto-fill a prepublication field when the officer did NOT make an
-      // explicit choice for it (key absent from overrides). A deliberate clear
-      // (override present but empty/null) must be respected, not overwritten.
-      const urlOverridden = Object.prototype.hasOwnProperty.call(overrides, "prepublicationUrl");
-      const siteOverridden = Object.prototype.hasOwnProperty.call(overrides, "prepublicationSite");
+      //
+      // Gate each backfill on whether the *effective value is empty* (a
+      // text-presence check), never on whether the key exists in `overrides`.
+      // The merge dialog always sends both prepublication keys (empty when
+      // neither record had them), so a key-presence check would make every
+      // merge look like a deliberate clear and the backfill would never fire
+      // through the real UI.
+      //
+      // A deliberate clear must still be respected: when the officer empties a
+      // field the survivor previously had a value for, that is an intentional
+      // removal, not a missing value — so we skip backfill for that field. We
+      // detect it by comparing the original survivor value against the
+      // effective value, rather than by key presence in `overrides`.
       const effectiveSurvivor = { ...survivor, ...overrides };
-      if ((!urlOverridden || !siteOverridden) && !isPreprintRecord(effectiveSurvivor as any)) {
+      const hasText = (v: any) => !!v && !!String(v).trim();
+      const urlClearedDeliberately =
+        hasText(survivor.prepublicationUrl) && !hasText(effectiveSurvivor.prepublicationUrl);
+      const siteClearedDeliberately =
+        hasText(survivor.prepublicationSite) && !hasText(effectiveSurvivor.prepublicationSite);
+      if (!isPreprintRecord(effectiveSurvivor as any)) {
         let prepubUrl = effectiveSurvivor.prepublicationUrl;
         let prepubSite = effectiveSurvivor.prepublicationSite;
         for (const t of targets) {
           if (!isPreprintRecord(t as any)) continue;
-          if (!prepubUrl || !String(prepubUrl).trim()) {
+          if (!hasText(prepubUrl)) {
             prepubUrl = preprintLink(t as any) ?? prepubUrl;
           }
-          if (!prepubSite || !String(prepubSite).trim()) {
+          if (!hasText(prepubSite)) {
             prepubSite = preprintServerName(t as any) ?? prepubSite;
           }
-          if (prepubUrl && prepubSite) break;
+          if (hasText(prepubUrl) && hasText(prepubSite)) break;
         }
-        if (!urlOverridden && prepubUrl && !updateData.prepublicationUrl) {
+        if (
+          !urlClearedDeliberately &&
+          !hasText(effectiveSurvivor.prepublicationUrl) &&
+          hasText(prepubUrl)
+        ) {
           updateData.prepublicationUrl = prepubUrl;
         }
-        if (!siteOverridden && prepubSite && !updateData.prepublicationSite) {
+        if (
+          !siteClearedDeliberately &&
+          !hasText(effectiveSurvivor.prepublicationSite) &&
+          hasText(prepubSite)
+        ) {
           updateData.prepublicationSite = prepubSite;
         }
       }
