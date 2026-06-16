@@ -4,3 +4,4 @@
 - [Unified multi-provider auth](unified-auth.md) — AUTH_MODE (local/demo/ldap/oidc) drives everything; SSO off by default; `entra_oid` reused as generic subject id; config keeps `ssoEnabled` for back-compat.
 - [Publications route ordering](publications-route-ordering.md) — literal /api/publications/<name> routes must be registered before /:id or the param route swallows them (400 "Invalid publication ID").
 - [drizzle-kit push + post-merge](drizzle-push-postmerge.md) — DB names must match Drizzle (`_key`→`_unique`, FKs `_fk`, ownership_overrides index) or `push --force` hangs on TTY prompt; post-merge timeout 180s.
+- [session table dropped by push](session-table-drizzle-push.md) — connect-pg-simple `session` table isn't in schema; drizzle-kit push drops it → "relation session does not exist"; recreate it + restart.
