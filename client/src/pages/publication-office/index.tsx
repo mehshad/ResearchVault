@@ -422,8 +422,12 @@ export default function PublicationOffice() {
       // Surface publications that are NOT yet finalized/vetted by the office so
       // staff can see records still needing attention (data-quality fixes,
       // author links, SDR links) before they are marked Published *.
+      // A record is finalized when EITHER the vetted flag is set OR its status
+      // already carries the "*" (Published *) final marker — some records have
+      // the final status without the flag, and those must not reappear here.
       return publications.filter((pub: Publication) =>
-        pub.vettedForSubmissionByIpOffice !== true
+        pub.vettedForSubmissionByIpOffice !== true &&
+        !pub.status?.includes('*')
       );
     },
     enabled: activeTab === "new-publications"
