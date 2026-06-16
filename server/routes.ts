@@ -61,7 +61,7 @@ import {
 import { requireAuth, requireAdmin, requireContractsOfficer, requireContractsRead, requirePublicationOfficer, getAuthMode } from "./auth";
 import { resolveOwnershipAccess, maxAccess, type AccessLevel as OwnershipAccessLevel } from "./ownershipResolver";
 import { matchesAuthorName, isLinkedAuthorInAuthorsText } from "@shared/authorMatching";
-import { detectDuplicateGroups, pickDefaultSurvivorId } from "@shared/publicationDeduplication";
+import { detectDuplicateGroups, pickDefaultSurvivorId, normalizeDoi as canonicalDoi } from "@shared/publicationDeduplication";
 import { getObjectAclPolicy, ObjectPermission } from "./objectAcl";
 
 const isLocalStorage = process.env.STORAGE_TYPE === "local";
@@ -161,6 +161,50 @@ function normalizeDoi(doi: string | null | undefined): string {
     .replace(/^https?:\/\/(dx\.)?doi\.org\//, "")
     .replace(/^doi:\s*/, "")
     .trim();
+}
+
+// Pull a DOI out of a stored preprint link. Handles both forms we persist on a
+// published record after a preprint is merged into it: a doi.org resolver link
+// (https://doi.org/10.1101/...) and a preprint-server content URL (e.g.
+// https://www.biorxiv.org/content/10.1101/2021.01.01.123456v2.full). Returns
+// the version-aware normalized DOI (so v1/v2 collapse) or null when there is no
+// DOI in the link.
+function preprintLinkToDoi(url: string | null | undefined): string | null {
+  if (!url || typeof url !== "string") return null;
+  const m = url.match(/10\.\d{4,9}\/[^\s"'<>)\]}?#]+/i);
+  if (!m) return null;
+  let raw = m[0].toLowerCase();
+  // bioRxiv/medRxiv content URLs carry a version plus an optional file/section
+  // suffix on the DOI segment (".../123456v2.full"); for the openRxiv namespace
+  // trim everything from the version marker so it matches the registered DOI.
+  if (raw.startsWith("10.1101/")) {
+    raw = raw.replace(/v\d+(\..*)?$/i, "");
+  }
+  return canonicalDoi(raw);
+}
+
+// Build the set of DOIs (version-aware normalized) that already represent works
+// in the system. Besides each record's primary DOI, this includes the preprint
+// DOI carried on a published record's preprint link (prepublicationUrl) — so an
+// ORCID/Scholar re-sync never resurfaces a preprint that was merged into its
+// published version and now survives only as that record's preprint link.
+function buildExistingWorkDois(
+  pubs: { doi?: string | null; prepublicationUrl?: string | null }[]
+): Set<string> {
+  const set = new Set<string>();
+  for (const p of pubs) {
+    const primary = canonicalDoi(p.doi);
+    if (primary) set.add(primary);
+    const preprint = preprintLinkToDoi(p.prepublicationUrl);
+    if (preprint) set.add(preprint);
+  }
+  return set;
+}
+
+// Version-aware identity for an incoming candidate DOI, matching how
+// buildExistingWorkDois normalizes the records already in the system.
+function workDoiIdentity(doi: string | null | undefined): string {
+  return canonicalDoi(doi) ?? "";
 }
 
 interface MissingPaperMeta {
@@ -7359,13 +7403,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
         });
       }
 
-      // Existing DOIs already in the system (normalized).
+      // DOIs already in the system (version-aware normalized). Includes the
+      // preprint DOI carried on a published record's preprint link, so a
+      // previously merged preprint is not resurfaced as "missing".
       const existingPublications = await storage.getPublications();
-      const existingDois = new Set(
-        existingPublications
-          .map((p) => normalizeDoi(p.doi))
-          .filter((d) => d !== "")
-      );
+      const existingDois = buildExistingWorkDois(existingPublications);
 
       let orcidAttempted = false;
       let orcidAvailable = false;
@@ -7392,15 +7434,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
       const scholarAvailable = scholarWorks.length > 0;
 
-      // Merge ORCID + Scholar, dedupe by normalized DOI (ORCID wins because it
-      // carries richer metadata), and drop anything already in the system.
+      // Merge ORCID + Scholar, dedupe by version-aware DOI identity (ORCID wins
+      // because it carries richer metadata), and drop anything already in the
+      // system — including preprints captured as a published record's link.
       const byDoi = new Map<string, MissingPaperMeta>();
       for (const w of orcidWorks) {
-        if (!existingDois.has(w.doi)) byDoi.set(w.doi, w);
+        const key = workDoiIdentity(w.doi);
+        if (!key || existingDois.has(key) || byDoi.has(key)) continue;
+        byDoi.set(key, w);
       }
       for (const w of scholarWorks) {
-        if (existingDois.has(w.doi) || byDoi.has(w.doi)) continue;
-        byDoi.set(w.doi, w);
+        const key = workDoiIdentity(w.doi);
+        if (!key || existingDois.has(key) || byDoi.has(key)) continue;
+        byDoi.set(key, w);
       }
 
       const missing = Array.from(byDoi.values()).sort(
@@ -7499,20 +7545,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       const requestedPapers = Array.from(requestedMap.values());
 
-      // Server-side duplicate guard against the current DB state.
+      // Server-side duplicate guard against the current DB state. Version-aware
+      // and also keyed on the preprint DOI carried on a published record's link,
+      // so a stale client list cannot re-create a previously merged preprint.
       const existingPublications = await storage.getPublications();
-      const existingDois = new Set(
-        existingPublications
-          .map((p) => normalizeDoi(p.doi))
-          .filter((d) => d !== "")
-      );
+      const existingDois = buildExistingWorkDois(existingPublications);
 
       const created: { doi: string; title: string }[] = [];
       const skipped: { doi: string; reason: string }[] = [];
 
       for (const paper of requestedPapers) {
         const doi = paper.doi;
-        if (existingDois.has(doi)) {
+        const identity = workDoiIdentity(doi);
+        if (!identity || existingDois.has(identity)) {
           skipped.push({ doi, reason: "already exists" });
           continue;
         }
@@ -7586,7 +7631,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           });
 
           // Mark as present so a duplicate inside the same batch is skipped.
-          existingDois.add(doi);
+          existingDois.add(identity);
           created.push({ doi, title });
         } catch (err) {
           console.error(`Failed to import DOI ${doi}:`, err);
