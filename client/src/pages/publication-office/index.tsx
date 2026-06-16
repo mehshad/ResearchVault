@@ -7,6 +7,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { SearchableSelect } from "@/components/ui/searchable-select";
 import { Textarea } from "@/components/ui/textarea";
 import { 
   Table, 
@@ -66,6 +67,12 @@ export default function PublicationOffice() {
   
   // Tab state
   const [activeTab, setActiveTab] = useState("ip-vetting");
+
+  // New Publications tab filters (issue/tag, scientist, publication date range)
+  const [npTagFilter, setNpTagFilter] = useState<string>("all");
+  const [npScientistId, setNpScientistId] = useState<string>("all");
+  const [npDateFrom, setNpDateFrom] = useState<string>("");
+  const [npDateTo, setNpDateTo] = useState<string>("");
   
   // Export tab state
   const [exportStartDate, setExportStartDate] = useState("");
@@ -428,6 +435,76 @@ export default function PublicationOffice() {
     queryKey: ['/api/publications/author-counts'],
     enabled: activeTab === "new-publications"
   });
+
+  // Per-publication linked internal scientists, used to power the "filter by
+  // scientist" control on the New Publications tab.
+  const { data: authorMap = {} } = useQuery<Record<number, Array<{ id: number; name: string }>>>({
+    queryKey: ['/api/publications/author-map'],
+    enabled: activeTab === "new-publications"
+  });
+
+  // Shared data-quality / vetting issue computation so the filter and the
+  // rendered badges stay in sync.
+  const getPubIssues = (pub: Publication) => {
+    const missingFields: string[] = [];
+    if (!pub.journal?.trim()) missingFields.push('journal');
+    if (!pub.publicationDate) missingFields.push('publication date');
+    if (!pub.doi?.trim() && !pub.pmid?.trim()) missingFields.push('DOI/PMID');
+    if (!pub.authors?.trim()) missingFields.push('authors');
+    if (!pub.abstract?.trim()) missingFields.push('abstract');
+    const hasInternalAuthors = (authorCounts[pub.id] || 0) > 0;
+    const hasSdr = !!pub.researchActivityId;
+    const isVetted = !!pub.status?.includes('*');
+    const hasIssues = missingFields.length > 0 || !hasInternalAuthors || !hasSdr;
+    return { missingFields, hasInternalAuthors, hasSdr, isVetted, hasIssues };
+  };
+
+  // Scientist options (only those actually linked to current new publications).
+  const npScientistOptions = useMemo(() => {
+    const seen = new Map<number, string>();
+    for (const pub of newPublications) {
+      for (const s of authorMap[pub.id] || []) {
+        if (!seen.has(s.id)) seen.set(s.id, s.name);
+      }
+    }
+    return Array.from(seen.entries())
+      .map(([id, name]) => ({ value: String(id), label: name }))
+      .sort((a, b) => a.label.localeCompare(b.label));
+  }, [newPublications, authorMap]);
+
+  // Apply the New Publications filters (issue/tag, scientist, date range).
+  const filteredNewPublications = useMemo(() => {
+    return newPublications.filter((pub) => {
+      const { missingFields, hasInternalAuthors, hasSdr, isVetted, hasIssues } = getPubIssues(pub);
+
+      if (npTagFilter !== "all") {
+        if (npTagFilter === "missing-data" && missingFields.length === 0) return false;
+        if (npTagFilter === "no-internal-authors" && hasInternalAuthors) return false;
+        if (npTagFilter === "no-sdr" && hasSdr) return false;
+        if (npTagFilter === "not-vetted" && isVetted) return false;
+        if (npTagFilter === "no-issues" && hasIssues) return false;
+      }
+
+      if (npScientistId !== "all") {
+        const ids = (authorMap[pub.id] || []).map((s) => s.id);
+        if (!ids.includes(Number(npScientistId))) return false;
+      }
+
+      if (npDateFrom || npDateTo) {
+        if (!pub.publicationDate) return false;
+        const d = new Date(pub.publicationDate);
+        if (npDateFrom && d < new Date(npDateFrom)) return false;
+        if (npDateTo) {
+          const to = new Date(npDateTo);
+          to.setHours(23, 59, 59, 999);
+          if (d > to) return false;
+        }
+      }
+
+      return true;
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [newPublications, authorCounts, authorMap, npTagFilter, npScientistId, npDateFrom, npDateTo]);
 
   // Export functionality
   const searchExportMutation = useMutation({
@@ -962,19 +1039,88 @@ export default function PublicationOffice() {
                   No new publications
                 </div>
               ) : (
+                <>
+                  {/* Filters: focus the list by data-quality/vetting issue,
+                      linked scientist, and publication date range. */}
+                  <div className="flex flex-wrap items-end gap-3 mb-4">
+                    <div className="space-y-1">
+                      <Label className="text-xs">Issue / tag</Label>
+                      <Select value={npTagFilter} onValueChange={setNpTagFilter}>
+                        <SelectTrigger className="w-[210px]" data-testid="select-np-tag">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="all">All publications</SelectItem>
+                          <SelectItem value="not-vetted">Not marked as vetted</SelectItem>
+                          <SelectItem value="missing-data">Missing data</SelectItem>
+                          <SelectItem value="no-internal-authors">No internal users linked</SelectItem>
+                          <SelectItem value="no-sdr">Not linked to an SDR</SelectItem>
+                          <SelectItem value="no-issues">No issues</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="space-y-1">
+                      <Label className="text-xs">Scientist</Label>
+                      <SearchableSelect
+                        options={[{ value: "all", label: "All scientists" }, ...npScientistOptions]}
+                        value={npScientistId}
+                        onChange={setNpScientistId}
+                        placeholder="All scientists"
+                        searchPlaceholder="Search scientists..."
+                        triggerClassName="w-[230px]"
+                        data-testid="select-np-scientist"
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <Label className="text-xs">From date</Label>
+                      <Input
+                        type="date"
+                        value={npDateFrom}
+                        onChange={(e) => setNpDateFrom(e.target.value)}
+                        className="w-[160px]"
+                        data-testid="input-np-date-from"
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <Label className="text-xs">To date</Label>
+                      <Input
+                        type="date"
+                        value={npDateTo}
+                        onChange={(e) => setNpDateTo(e.target.value)}
+                        className="w-[160px]"
+                        data-testid="input-np-date-to"
+                      />
+                    </div>
+                    {(npTagFilter !== "all" || npScientistId !== "all" || npDateFrom || npDateTo) && (
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => {
+                          setNpTagFilter("all");
+                          setNpScientistId("all");
+                          setNpDateFrom("");
+                          setNpDateTo("");
+                        }}
+                        data-testid="button-np-clear-filters"
+                      >
+                        <X className="h-4 w-4 mr-1" />
+                        Clear
+                      </Button>
+                    )}
+                  </div>
+                  <div className="text-sm text-muted-foreground mb-3" data-testid="text-np-result-count">
+                    Showing {filteredNewPublications.length} of {newPublications.length} publications
+                  </div>
+                  {filteredNewPublications.length === 0 ? (
+                    <div className="text-center py-8 text-muted-foreground">
+                      No publications match the current filters
+                    </div>
+                  ) : (
                 <div className="space-y-4">
-                  {newPublications.map((pub: Publication) => {
+                  {filteredNewPublications.map((pub: Publication) => {
                     // Compute data-quality issues so staff can see what each
                     // record is missing before it gets vetted/finalized.
-                    const missingFields: string[] = [];
-                    if (!pub.journal?.trim()) missingFields.push('journal');
-                    if (!pub.publicationDate) missingFields.push('publication date');
-                    if (!pub.doi?.trim() && !pub.pmid?.trim()) missingFields.push('DOI/PMID');
-                    if (!pub.authors?.trim()) missingFields.push('authors');
-                    if (!pub.abstract?.trim()) missingFields.push('abstract');
-                    const hasInternalAuthors = (authorCounts[pub.id] || 0) > 0;
-                    const hasSdr = !!pub.researchActivityId;
-                    const hasIssues = missingFields.length > 0 || !hasInternalAuthors || !hasSdr;
+                    const { missingFields, hasInternalAuthors, hasSdr, hasIssues } = getPubIssues(pub);
                     return (
                     <div
                       key={pub.id}
@@ -1068,6 +1214,8 @@ export default function PublicationOffice() {
                     );
                   })}
                 </div>
+                  )}
+                </>
               )}
             </CardContent>
           </Card>

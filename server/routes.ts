@@ -3739,6 +3739,31 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Map of publicationId -> linked internal scientists (id + display name).
+  // Used by the office UI to offer a "filter by scientist" control over the
+  // New Publications list. Registered before "/api/publications/:id".
+  app.get('/api/publications/author-map', async (_req: Request, res: Response) => {
+    try {
+      const allAuthors = await storage.getAllPublicationAuthors();
+      const map: Record<number, Array<{ id: number; name: string }>> = {};
+      for (const author of allAuthors) {
+        const s = author.scientist;
+        const name = [s.honorificTitle, s.firstName, s.lastName]
+          .filter(Boolean)
+          .join(' ')
+          .trim() || `Scientist #${s.id}`;
+        if (!map[author.publicationId]) map[author.publicationId] = [];
+        if (!map[author.publicationId].some((e) => e.id === s.id)) {
+          map[author.publicationId].push({ id: s.id, name });
+        }
+      }
+      res.json(map);
+    } catch (error) {
+      console.error('Error building publication author map:', error);
+      res.status(500).json({ message: 'Failed to build publication author map' });
+    }
+  });
+
   // Publications needing author-linking fixes for the current user.
   // Returns only the logged-in user's likely publications that have a real
   // author-linking problem: either no internal authors linked, or a linked

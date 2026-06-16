@@ -2,4 +2,5 @@
 - [IBC office view data](ibc-office-view-data.md) — office read-only view reads DB column names (not edit-form aliases); stored checkbox/array values are already human-readable; reuse *Tab components with isReadOnly.
 - [IBC protocol read-only view](ibc-protocol-view.md) — office + reviewer share `IbcProtocolView` (sections + jump nav); each page keeps its own header and passes role controls via the `sidebar` slot.
 - [Unified multi-provider auth](unified-auth.md) — AUTH_MODE (local/demo/ldap/oidc) drives everything; SSO off by default; `entra_oid` reused as generic subject id; config keeps `ssoEnabled` for back-compat.
+- [Publications route ordering](publications-route-ordering.md) — literal /api/publications/<name> routes must be registered before /:id or the param route swallows them (400 "Invalid publication ID").
 - [drizzle-kit push + post-merge](drizzle-push-postmerge.md) — DB names must match Drizzle (`_key`→`_unique`, FKs `_fk`, ownership_overrides index) or `push --force` hangs on TTY prompt; post-merge timeout 180s.
