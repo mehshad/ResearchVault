@@ -1,4 +1,4 @@
-import { pgTable, text, serial, integer, timestamp, boolean, json, uniqueIndex, date, numeric } from "drizzle-orm/pg-core";
+import { pgTable, text, serial, integer, timestamp, boolean, json, uniqueIndex, unique, date, numeric } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
@@ -877,6 +877,26 @@ export const roleGroups = pgTable("role_groups", {
 });
 
 export type RoleGroup = typeof roleGroups.$inferSelect;
+
+// User-to-role-group assignments (used by SSO authorization to resolve a
+// signed-in user's effective role groups). Composite unique on (user, group).
+export const userRoleAssignments = pgTable("user_role_assignments", {
+  id: serial("id").primaryKey(),
+  userId: integer("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  roleGroupId: integer("role_group_id").notNull().references(() => roleGroups.id, { onDelete: "cascade" }),
+  assignedBy: integer("assigned_by").references(() => users.id),
+  assignedAt: timestamp("assigned_at").defaultNow(),
+}, (table) => ({
+  uniqueUserRoleGroup: unique().on(table.userId, table.roleGroupId),
+}));
+
+export const insertUserRoleAssignmentSchema = createInsertSchema(userRoleAssignments).omit({
+  id: true,
+  assignedAt: true,
+});
+
+export type UserRoleAssignment = typeof userRoleAssignments.$inferSelect;
+export type InsertUserRoleAssignment = z.infer<typeof insertUserRoleAssignmentSchema>;
 
 // Role permissions schema - stores access level for each role/navigation item combination
 export const rolePermissions = pgTable("role_permissions", {
