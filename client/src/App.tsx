@@ -9,6 +9,7 @@ import { PermissionsProvider } from "@/hooks/usePermissions";
 import { CurrentUserProvider } from "@/hooks/useCurrentUser";
 import { AuthProvider } from "@/hooks/useAuth";
 import { ThemeProvider } from "@/contexts/ThemeContext";
+import GlobalColorModeInit from "@/components/GlobalColorModeInit";
 
 // Dashboard
 import Dashboard from "@/pages/dashboard";
@@ -331,6 +332,7 @@ function App() {
   return (
     <QueryClientProvider client={queryClient}>
       <ThemeProvider>
+        <GlobalColorModeInit />
         <TooltipProvider>
           {/* AuthProvider wraps everything so any page can call useAuth() */}
           <AuthProvider>

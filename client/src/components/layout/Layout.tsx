@@ -10,6 +10,13 @@ interface LayoutProps {
 
 export default function Layout({ children }: LayoutProps) {
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem("sidebar-collapsed") === "true";
+    } catch {
+      return false;
+    }
+  });
 
   const toggleMobileSidebar = () => {
     setMobileSidebarOpen(prev => !prev);
@@ -29,10 +36,10 @@ export default function Layout({ children }: LayoutProps) {
       </div>
 
       {/* Desktop sidebar */}
-      <Sidebar />
+      <Sidebar onCollapsedChange={setSidebarCollapsed} />
 
       {/* Main content */}
-      <div className="flex flex-col flex-1 overflow-hidden">
+      <div className="flex flex-col flex-1 overflow-hidden min-w-0">
         <Header onMenuClick={toggleMobileSidebar} />
 
         <main className="flex-1 overflow-y-auto p-6 bg-background">

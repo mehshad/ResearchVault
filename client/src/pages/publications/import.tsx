@@ -19,6 +19,7 @@ import { insertPublicationSchema, type InsertPublication } from "@shared/schema"
 import { useToast } from "@/hooks/use-toast";
 import { Search, FileText, ExternalLink, Loader2, CheckCircle, AlertCircle, Plus, BookOpen, Upload, XCircle, SkipForward } from "lucide-react";
 import { apiRequest } from "@/lib/queryClient";
+import { UploadingModal } from "@/components/ui/upload-modal";
 
 interface ImportedPublicationData {
   title: string;
@@ -495,6 +496,12 @@ export default function PublicationImport({ onClose }: PublicationImportProps) {
 
   if (step === 'search') {
     return (
+      <>
+      <UploadingModal
+        open={isBulkImporting}
+        label="Importing publications…"
+        sublabel={`Processing PubMed IDs`}
+      />
       <div className="space-y-6">
         <div className="text-center">
           <p className="text-gray-600 mb-4 dark:text-gray-300">
@@ -649,6 +656,7 @@ export default function PublicationImport({ onClose }: PublicationImportProps) {
           </Button>
         </div>
       </div>
+      </>
     );
   }
 

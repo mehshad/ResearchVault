@@ -1,11 +1,12 @@
+import { useState, useEffect } from "react";
 import { Link, useLocation } from "wouter";
 import { cn } from "@/lib/utils";
-import { 
-  Beaker, LayoutDashboard, Users, FlaskConical, Database, 
+import {
+  Beaker, LayoutDashboard, Users, FlaskConical, Database,
   BookOpen, Award, FileText, Table, Handshake, PieChart,
   Settings, LogOut, UserPlus, X, Shield, Biohazard, Building,
   FolderTree, FileCheck, ShieldCheck, TestTube, TrendingUp, ChevronDown, Eye,
-  ClipboardList, Briefcase
+  ClipboardList, Briefcase, ChevronLeft, ChevronRight, Home, UserCog
 } from "lucide-react";
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue
@@ -19,9 +20,10 @@ import qbridgeLogo from "@assets/image_1767775219373.png";
 interface SidebarProps {
   mobile?: boolean;
   onClose?: () => void;
+  onCollapsedChange?: (collapsed: boolean) => void;
 }
 
-export default function Sidebar({ mobile = false, onClose }: SidebarProps) {
+export default function Sidebar({ mobile = false, onClose, onCollapsedChange }: SidebarProps) {
   const [location] = useLocation();
   const { isHidden, isReadOnly } = usePermissions();
   const { themeName, currentLabels, isSectionVisible } = useTheme();
@@ -29,6 +31,26 @@ export default function Sidebar({ mobile = false, onClose }: SidebarProps) {
   const { currentUser, setCurrentUser } = useCurrentUser();
   const ssoEnabled = authConfig.ssoEnabled;
   const availableUsers = DUMMY_USERS;
+
+  const [collapsed, setCollapsed] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem("sidebar-collapsed") === "true";
+    } catch {
+      return false;
+    }
+  });
+
+  const toggleCollapsed = () => {
+    const next = !collapsed;
+    setCollapsed(next);
+    try { localStorage.setItem("sidebar-collapsed", String(next)); } catch {}
+    onCollapsedChange?.(next);
+  };
+
+  // Notify parent on mount
+  useEffect(() => {
+    onCollapsedChange?.(collapsed);
+  }, []);
 
   const handleUserSwitch = (userId: string) => {
     const selected = availableUsers.find((u) => u.id.toString() === userId);
@@ -61,10 +83,10 @@ export default function Sidebar({ mobile = false, onClose }: SidebarProps) {
     const pathMap: Record<string, string> = {
       "/app": "dashboard",
       "/scientists": "scientists",
-      "/facilities": "facilities", 
+      "/facilities": "facilities",
       "/pmo": "pmo",
       "/pmo/programs": "programs",
-      "/pmo/projects": "projects", 
+      "/pmo/projects": "projects",
       "/pmo/research-activities": "research-activities",
       "/pmo/applications": "pmo-applications",
       "/pmo/office": "pmo-office",
@@ -91,239 +113,281 @@ export default function Sidebar({ mobile = false, onClose }: SidebarProps) {
     {
       title: "Dashboard",
       items: [
-        { 
+        {
           href: "/app",
           label: "Dashboard",
-          icon: <LayoutDashboard className="w-4 h-4 mr-3" />
+          icon: LayoutDashboard
         }
       ]
     },
     {
       title: "Research Management",
       items: [
-        { 
+        {
           href: "/scientists",
           label: "Scientists & Staff",
-          icon: <Users className="w-4 h-4 mr-3" />
+          icon: Users
         },
-        { 
+        {
           href: "/facilities",
           label: "Facilities",
-          icon: <Building className="w-4 h-4 mr-3" />
+          icon: Building
         },
-        { 
+        {
           href: "/certifications",
           label: "Certifications",
-          icon: <ShieldCheck className="w-4 h-4 mr-3" />
+          icon: ShieldCheck
         }
       ]
     },
     {
       title: "PMO Office",
       items: [
-        { 
+        {
           href: "/pmo/programs",
           label: `${pluralize(currentLabels.tier1)} (${currentLabels.abbr1 || 'PRM'})`,
-          icon: <Beaker className="w-4 h-4 mr-3" />
+          icon: Beaker
         },
-        { 
+        {
           href: "/pmo/projects",
           label: `${pluralize(currentLabels.tier2)} (${currentLabels.abbr2 || 'PRJ'})`,
-          icon: <FlaskConical className="w-4 h-4 mr-3" />
+          icon: FlaskConical
         },
-        { 
+        {
           href: "/pmo/research-activities",
           label: `${pluralize(currentLabels.tier3)} (${currentLabels.abbr3 || 'SDR'})`,
-          icon: <Database className="w-4 h-4 mr-3" />
+          icon: Database
         },
-        { 
+        {
           href: "/pmo/applications",
           label: "PMO Applications",
-          icon: <ClipboardList className="w-4 h-4 mr-3" />
+          icon: ClipboardList
         },
-        { 
+        {
           href: "/pmo/office",
           label: "PMO Office Review",
-          icon: <Eye className="w-4 h-4 mr-3" />
+          icon: Eye
         }
       ]
     },
     {
       title: "IRB Compliance",
       items: [
-        { 
+        {
           href: "/irb",
           label: "IRB Applications",
-          icon: <Shield className="w-4 h-4 mr-3" />
+          icon: Shield
         },
-        { 
+        {
           href: "/irb-office",
           label: "IRB Office",
-          icon: <Building className="w-4 h-4 mr-3" />
+          icon: Building
         },
-        { 
+        {
           href: "/irb-reviewer",
           label: "IRB Reviewer",
-          icon: <FileCheck className="w-4 h-4 mr-3" />
+          icon: FileCheck
         }
       ]
     },
     {
       title: "IBC Compliance",
       items: [
-        { 
+        {
           href: "/ibc",
           label: "IBC Applications",
-          icon: <Biohazard className="w-4 h-4 mr-3" />
+          icon: Biohazard
         },
-        { 
+        {
           href: "/ibc-office",
           label: "IBC Office",
-          icon: <TestTube className="w-4 h-4 mr-3" />
+          icon: TestTube
         },
-        { 
+        {
           href: "/ibc-reviewer",
           label: "IBC Reviewer",
-          icon: <ShieldCheck className="w-4 h-4 mr-3" />
+          icon: ShieldCheck
         }
       ]
     },
     {
       title: "Research Data Management",
       items: [
-        { 
+        {
           href: "/data-management",
           label: "Data Management Plans",
-          icon: <FileText className="w-4 h-4 mr-3" />
+          icon: FileText
         },
-        { 
+        {
           href: "/contracts",
           label: "Research Contracts",
-          icon: <Handshake className="w-4 h-4 mr-3" />
+          icon: Handshake
         },
-        { 
+        {
           href: "/grants",
           label: "Grants Office",
-          icon: <PieChart className="w-4 h-4 mr-3" />
+          icon: PieChart
         }
       ]
     },
     {
       title: "Outcomes & Reports",
       items: [
-        { 
+        {
           href: "/publications",
           label: "Publications",
-          icon: <BookOpen className="w-4 h-4 mr-3" />
+          icon: BookOpen
         },
-        { 
+        {
           href: "/outcome-office",
           label: "Outcome Office",
-          icon: <Building className="w-4 h-4 mr-3" />
+          icon: Building
         },
-        { 
+        {
           href: "/patents",
           label: "Patents",
-          icon: <Award className="w-4 h-4 mr-3" />
+          icon: Award
         },
-        { 
+        {
           href: "/reports",
           label: "Reports",
-          icon: <TrendingUp className="w-4 h-4 mr-3" />
+          icon: TrendingUp
         }
       ]
     }
   ];
 
+  const isCollapsed = !mobile && collapsed;
+
   return (
     <div className={mobile ? "flex flex-shrink-0 h-full" : "hidden md:flex md:flex-shrink-0"}>
       <div className={cn(
-        "flex flex-col w-64 border-r border-primary/30 bg-card",
-        mobile ? "h-full" : ""
+        "flex flex-col border-r border-primary/30 bg-card transition-all duration-200",
+        isCollapsed ? "w-16" : "w-64",
+        mobile ? "h-full w-64" : ""
       )}>
         {/* Logo/Brand */}
-        <div className="h-20 flex items-center justify-between px-2 border-b border-primary/30 bg-primary">
-          <div className="flex items-center space-x-2 w-full">
-            <img 
-              src={qbridgeLogo} 
-              alt="Q-BRIDGE Logo" 
-              className="h-16 w-16 flex-shrink-0"
-            />
-            <div className="flex flex-col min-w-0 flex-1">
-              <div className="font-semibold text-sm text-white leading-tight">
+        <div className="h-20 flex items-center border-b border-primary/30 bg-primary px-2 overflow-hidden">
+          {/* Logo image — always visible */}
+          <img
+            src={qbridgeLogo}
+            alt="Q-BRIDGE Logo"
+            className={cn(
+              "flex-shrink-0 object-contain",
+              isCollapsed ? "h-10 w-10" : "h-16 w-16"
+            )}
+          />
+
+          {/* Text — only in expanded mode */}
+          {!isCollapsed && (
+            <div className="flex flex-col min-w-0 flex-1 ml-2">
+              <div className="font-semibold text-sm text-white leading-tight truncate">
                 Q-BRIDGE
               </div>
-              <div className="text-xs text-white/90 leading-tight">
-                Qatar Biomedical Research Inter-Institutional Data & Governance Ecosystem
+              <div className="text-xs text-white/90 leading-snug line-clamp-2">
+                Qatar Biomedical Research Inter-Institutional Data &amp; Governance Ecosystem
               </div>
-              <div className="text-xs text-white/70 leading-tight mt-0.5">
+              <div className="text-xs text-white/70 leading-tight mt-0.5 truncate">
                 {themes[themeName].name}
               </div>
             </div>
-          </div>
+          )}
+
+          {/* Mobile close button */}
           {mobile && onClose && (
-            <button 
+            <button
               onClick={onClose}
-              className="text-white hover:text-sidra-teal-light"
+              className="ml-auto text-white hover:text-white/70 flex-shrink-0"
             >
               <X className="h-5 w-5" />
+            </button>
+          )}
+
+          {/* Desktop collapse toggle — inline, never absolute */}
+          {!mobile && (
+            <button
+              onClick={toggleCollapsed}
+              className={cn(
+                "flex-shrink-0 text-white/70 hover:text-white transition-colors rounded p-1 hover:bg-white/10",
+                isCollapsed ? "ml-auto" : "ml-auto"
+              )}
+              title={isCollapsed ? "Expand sidebar" : "Collapse sidebar"}
+            >
+              {isCollapsed ? <ChevronRight className="h-4 w-4" /> : <ChevronLeft className="h-4 w-4" />}
             </button>
           )}
         </div>
 
         {/* User Info */}
-        <div className="p-4 border-b border-primary/30">
-          <div className="flex items-center space-x-3 mb-3">
-            <div className="h-10 w-10 rounded-full bg-primary/20 flex items-center justify-center text-primary font-medium flex-shrink-0">
-              {getInitials(currentUser.name || currentUser.role)}
-            </div>
-            <div className="flex-1 min-w-0">
-              <div className="font-medium text-card-foreground truncate">{currentUser.name}</div>
-              <div className="text-xs text-muted-foreground truncate">{currentUser.role}</div>
-              <div className="text-xs text-muted-foreground/70 truncate">
-                {ssoEnabled
-                  ? `Signed in${authConfig.providerName ? ' with ' + authConfig.providerName : ' via SSO'}`
-                  : 'Role-based Testing'}
+        {!isCollapsed && (
+          <div className="p-4 border-b border-primary/30">
+            <div className="flex items-center space-x-3 mb-3">
+              <div className="h-10 w-10 rounded-full bg-primary/20 flex items-center justify-center text-primary font-medium flex-shrink-0">
+                {getInitials(currentUser.name || currentUser.role)}
+              </div>
+              <div className="flex-1 min-w-0">
+                <div className="font-medium text-card-foreground truncate">{currentUser.name}</div>
+                <div className="text-xs text-muted-foreground truncate">{currentUser.role}</div>
+                <div className="text-xs text-muted-foreground/70 truncate">
+                  {ssoEnabled
+                    ? `Signed in${authConfig.providerName ? ' with ' + authConfig.providerName : ' via SSO'}`
+                    : 'Role-based Testing'}
+                </div>
               </div>
             </div>
-          </div>
 
-          {/* Role Selector — test mode only (hidden under SSO/real auth) */}
-          {!ssoEnabled && (
-            <Select value={currentUser.id.toString()} onValueChange={handleUserSwitch}>
-              <SelectTrigger className="w-full h-8 text-xs" data-testid="select-role">
-                <SelectValue placeholder="Switch role..." />
-              </SelectTrigger>
-              <SelectContent>
-                {availableUsers.map((user) => (
-                  <SelectItem key={user.id} value={user.id.toString()} data-testid={`option-role-${user.id}`}>
-                    <div className="flex items-center space-x-2">
-                      <div className="h-4 w-4 rounded-full bg-primary/20 flex items-center justify-center text-xs text-primary font-medium">
-                        {getInitials(user.role)}
+            {/* Role Selector — test mode only (hidden under SSO/real auth) */}
+            {!ssoEnabled && (
+              <Select value={currentUser.id.toString()} onValueChange={handleUserSwitch}>
+                <SelectTrigger className="w-full h-8 text-xs" data-testid="select-role">
+                  <SelectValue placeholder="Switch role..." />
+                </SelectTrigger>
+                <SelectContent>
+                  {availableUsers.map((user) => (
+                    <SelectItem key={user.id} value={user.id.toString()} data-testid={`option-role-${user.id}`}>
+                      <div className="flex items-center space-x-2">
+                        <div className="h-4 w-4 rounded-full bg-primary/20 flex items-center justify-center text-xs text-primary font-medium">
+                          {getInitials(user.role)}
+                        </div>
+                        <span>{user.role}</span>
                       </div>
-                      <span>{user.role}</span>
-                    </div>
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          )}
-        </div>
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            )}
+          </div>
+        )}
+
+        {/* Collapsed user avatar */}
+        {isCollapsed && (
+          <div className="flex justify-center py-3 border-b border-primary/30">
+            <div
+              className="h-9 w-9 rounded-full bg-primary/20 flex items-center justify-center text-primary font-medium flex-shrink-0"
+              title={`${currentUser.name} (${currentUser.role})`}
+            >
+              {getInitials(currentUser.name || currentUser.role)}
+            </div>
+          </div>
+        )}
 
         {/* Navigation */}
         <nav className={cn(
           "flex-1 pt-2 pb-4",
           mobile ? "overflow-y-auto max-h-[calc(100vh-200px)]" : "overflow-y-auto"
         )}>
-          <div className="px-2 space-y-4">
+          <div className={cn("space-y-4", isCollapsed ? "px-1" : "px-2")}>
             {navigationSections.map((section, sectionIndex) => (
               <div key={section.title}>
-                {sectionIndex > 0 && (
+                {!isCollapsed && sectionIndex > 0 && (
                   <div className="px-3 py-2">
                     <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
                       {section.title}
                     </h3>
                   </div>
+                )}
+                {isCollapsed && sectionIndex > 0 && (
+                  <div className="border-t border-primary/20 mx-2 my-1" />
                 )}
                 {isSectionVisible(section.title) && (
                 <div className={sectionIndex === 0 ? "space-y-1" : "space-y-1 mt-1"}>
@@ -335,29 +399,33 @@ export default function Sidebar({ mobile = false, onClose }: SidebarProps) {
                     .map((item) => {
                       const navItemId = getNavigationItemId(item.href);
                       const itemIsReadOnly = isReadOnly(currentUser.role, navItemId);
-                      
+                      const IconComponent = item.icon;
+
                       return (
-                        <Link 
-                          key={item.href} 
+                        <Link
+                          key={item.href}
                           href={item.href}
                           onClick={() => {
-                            // Close mobile menu when navigation item is clicked
-                            if (mobile && onClose) {
-                              onClose();
-                            }
+                            if (mobile && onClose) onClose();
                           }}
+                          title={isCollapsed ? item.label : undefined}
                           className={cn(
-                            "flex items-center px-3 py-2 text-sm rounded-lg transition-colors",
-                            location === item.href 
-                              ? "bg-primary text-primary-foreground font-medium shadow-sm" 
+                            "flex items-center rounded-lg transition-colors",
+                            isCollapsed ? "justify-center px-2 py-2" : "px-3 py-2 text-sm",
+                            location === item.href
+                              ? "bg-primary text-primary-foreground font-medium shadow-sm"
                               : "text-card-foreground hover:bg-primary/10 hover:text-primary",
                             itemIsReadOnly && "opacity-80"
                           )}
                         >
-                          {item.icon}
-                          <span className="flex-1">{item.label}</span>
-                          {itemIsReadOnly && (
-                            <Eye className="w-3 h-3 ml-2 opacity-60" />
+                          <IconComponent className={cn("w-4 h-4 flex-shrink-0", !isCollapsed && "mr-3")} />
+                          {!isCollapsed && (
+                            <>
+                              <span className="flex-1">{item.label}</span>
+                              {itemIsReadOnly && (
+                                <Eye className="w-3 h-3 ml-2 opacity-60" />
+                              )}
+                            </>
                           )}
                         </Link>
                       );
@@ -368,49 +436,81 @@ export default function Sidebar({ mobile = false, onClose }: SidebarProps) {
             ))}
           </div>
         </nav>
-        
+
         {/* Bottom Nav */}
         <div className={cn(
-          "border-t border-primary/30 p-4",
+          "border-t border-primary/30",
+          isCollapsed ? "py-3 px-1" : "p-4",
           mobile ? "flex-shrink-0" : ""
         )}>
-          <div className="flex items-center">
-            {(currentUser.role === 'admin' || currentUser.role === 'superadmin') && (
-              <>
-                <Link
-                  href="/settings/users"
-                  className="flex items-center text-sm text-muted-foreground hover:text-primary cursor-pointer"
-                  onClick={() => { if (mobile && onClose) onClose(); }}
-                >
-                  <Users className="w-4 h-4 mr-2" />
-                  Users
-                </Link>
-                <div className="border-l border-primary/30 h-5 mx-3"></div>
-              </>
-            )}
-            <Link
-              href="/settings"
-              className="flex items-center text-sm text-muted-foreground hover:text-primary cursor-pointer"
-              onClick={() => {
-                if (mobile && onClose) {
-                  onClose();
-                }
-              }}
-            >
-              <Settings className="w-4 h-4 mr-2" />
-              Settings
-            </Link>
-            <div className="border-l border-primary/30 h-5 mx-3"></div>
-            <button
-              type="button"
-              onClick={() => { void logout(); }}
-              className="flex items-center text-sm text-muted-foreground hover:text-primary cursor-pointer bg-transparent border-0 p-0"
-              data-testid="button-logout"
-            >
-              <LogOut className="w-4 h-4 mr-2" />
-              Logout
-            </button>
-          </div>
+          {isCollapsed ? (
+            // Icon-only column layout
+            <div className="flex flex-col items-center space-y-2">
+              <Link href="/" title="Home">
+                <button className="p-2 rounded-lg text-muted-foreground hover:text-primary hover:bg-primary/10 transition-colors">
+                  <Home className="w-4 h-4" />
+                </button>
+              </Link>
+              {(currentUser.role === 'admin' || currentUser.role === 'superadmin') && (
+                <>
+                  <Link href="/settings/users" title="Manage Users" onClick={() => { if (mobile && onClose) onClose(); }}>
+                    <button className="p-2 rounded-lg text-muted-foreground hover:text-primary hover:bg-primary/10 transition-colors">
+                      <UserCog className="w-4 h-4" />
+                    </button>
+                  </Link>
+                  <Link href="/settings" title="Settings" onClick={() => { if (mobile && onClose) onClose(); }}>
+                    <button className="p-2 rounded-lg text-muted-foreground hover:text-primary hover:bg-primary/10 transition-colors">
+                      <Settings className="w-4 h-4" />
+                    </button>
+                  </Link>
+                </>
+              )}
+              <button
+                type="button"
+                onClick={() => { void logout(); }}
+                title="Logout"
+                className="p-2 rounded-lg text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors bg-transparent border-0"
+                data-testid="button-logout"
+              >
+                <LogOut className="w-4 h-4" />
+              </button>
+            </div>
+          ) : (
+            // Expanded: icon row with labels
+            <div className="flex items-center justify-around">
+              <Link href="/" title="Home">
+                <button className="flex flex-col items-center gap-0.5 text-muted-foreground hover:text-primary transition-colors p-1">
+                  <Home className="w-4 h-4" />
+                  <span className="text-[10px]">Home</span>
+                </button>
+              </Link>
+              {(currentUser.role === 'admin' || currentUser.role === 'superadmin') && (
+                <>
+                  <Link href="/settings/users" onClick={() => { if (mobile && onClose) onClose(); }}>
+                    <button className="flex flex-col items-center gap-0.5 text-muted-foreground hover:text-primary transition-colors p-1">
+                      <UserCog className="w-4 h-4" />
+                      <span className="text-[10px]">Users</span>
+                    </button>
+                  </Link>
+                  <Link href="/settings" onClick={() => { if (mobile && onClose) onClose(); }}>
+                    <button className="flex flex-col items-center gap-0.5 text-muted-foreground hover:text-primary transition-colors p-1">
+                      <Settings className="w-4 h-4" />
+                      <span className="text-[10px]">Settings</span>
+                    </button>
+                  </Link>
+                </>
+              )}
+              <button
+                type="button"
+                onClick={() => { void logout(); }}
+                className="flex flex-col items-center gap-0.5 text-muted-foreground hover:text-destructive transition-colors p-1 bg-transparent border-0"
+                data-testid="button-logout"
+              >
+                <LogOut className="w-4 h-4" />
+                <span className="text-[10px]">Logout</span>
+              </button>
+            </div>
+          )}
         </div>
       </div>
     </div>

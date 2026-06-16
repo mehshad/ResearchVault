@@ -3,7 +3,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Palette, Settings as SettingsIcon, MessageSquarePlus, Send, Lightbulb, Zap, AlertCircle, CheckCircle, Clock, X, ChevronDown, ChevronUp, ThumbsUp, User, Calendar, Users, ShieldCheck, KeyRound, Layers, Lock } from "lucide-react";
+import { Palette, Settings as SettingsIcon, MessageSquarePlus, Send, Lightbulb, Zap, AlertCircle, CheckCircle, Clock, X, ChevronDown, ChevronUp, ThumbsUp, User, Calendar, Users, ShieldCheck, KeyRound, Layers, Lock, Sun, Moon } from "lucide-react";
 import { useTheme, themes, defaultInstitutionLabels, TOGGLEABLE_SECTIONS, type InstitutionConfig } from "@/contexts/ThemeContext";
 import { useTheme as useColorMode } from "next-themes";
 import { useAuth } from "@/hooks/useAuth";
@@ -17,6 +17,7 @@ import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
 import TeamManagement from "@/components/settings/TeamManagement";
 import RoleAccessConfig from "@/pages/scientists/role-access-config";
+import { useCurrentUser } from "@/hooks/useCurrentUser";
 
 // Types for feature requests
 interface FeatureRequest {
@@ -70,11 +71,39 @@ const statusOptions = [
 ];
 
 export default function Settings() {
-  const { themeName, setTheme, institutionLabels, setInstitutionLabels, isSectionVisible, setSectionVisible } = useTheme();
+  const { themeName, setTheme, institutionLabels, setInstitutionLabels, isSectionVisible, setSectionVisible, saveSettings } = useTheme();
   const { resolvedTheme } = useColorMode();
   const mode = resolvedTheme === 'dark' ? 'dark' : 'light';
   const { authConfig } = useAuth();
+  const { currentUser } = useCurrentUser();
+  const userIsAdmin = currentUser.role === 'admin' || currentUser.role === 'superadmin';
   const { toast } = useToast();
+
+  // Global default color mode — loaded from server, saved together with other settings
+  const [globalColorMode, setGlobalColorMode] = useState<'light' | 'dark'>('light');
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    fetch('/api/system-configurations/color_mode_default')
+      .then(r => r.ok ? r.json() : null)
+      .then(cfg => {
+        if (!cfg) return;
+        const val = typeof cfg.value === 'string' ? cfg.value : cfg.value?.mode;
+        if (val === 'dark' || val === 'light') setGlobalColorMode(val);
+      })
+      .catch(() => {});
+  }, []);
+
+  const handleSaveSettings = async () => {
+    setSaving(true);
+    const ok = await saveSettings({ color_mode_default: globalColorMode });
+    setSaving(false);
+    if (ok) {
+      toast({ title: 'Settings saved', description: 'All changes have been applied globally.' });
+    } else {
+      toast({ title: 'Failed to save settings', variant: 'destructive' });
+    }
+  };
   const queryClient = useQueryClient();
   
   // Active tab — can be set via URL hash (e.g. /settings#access-control)
@@ -307,11 +336,42 @@ IRIS (Intelligent Research Information Management System) is a research manageme
     toast({ title: "Labels reset to defaults" });
   };
 
+  // Guard — non-admin users should not reach this page
+  if (!userIsAdmin) {
+    return (
+      <div className="flex flex-col items-center justify-center py-24 gap-4 text-center">
+        <Lock className="h-12 w-12 text-muted-foreground" />
+        <h2 className="text-xl font-semibold">Access Restricted</h2>
+        <p className="text-muted-foreground max-w-sm">
+          Settings are only accessible to administrators. Contact your system admin if you need access.
+        </p>
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-6">
-      <div className="flex items-center gap-2">
-        <SettingsIcon className="h-6 w-6 text-foreground" />
-        <h1 className="text-2xl font-semibold text-foreground">Settings</h1>
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          <SettingsIcon className="h-6 w-6 text-foreground" />
+          <h1 className="text-2xl font-semibold text-foreground">Settings</h1>
+          <span className="text-xs text-muted-foreground bg-muted px-2 py-0.5 rounded-full ml-1">Admin only</span>
+        </div>
+        <Button
+          onClick={handleSaveSettings}
+          disabled={saving}
+          className="bg-primary min-w-[120px]"
+          data-testid="button-save-settings"
+        >
+          {saving ? (
+            <>
+              <span className="animate-spin mr-2 h-4 w-4 border-2 border-white border-t-transparent rounded-full inline-block" />
+              Saving…
+            </>
+          ) : (
+            'Save Settings'
+          )}
+        </Button>
       </div>
 
       <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">
@@ -391,6 +451,63 @@ IRIS (Intelligent Research Information Management System) is a research manageme
               </CardContent>
             </Card>
 
+            {/* Global Default Color Mode — admin only */}
+            {userIsAdmin && (
+              <Card>
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2">
+                    {globalColorMode === 'dark' ? <Moon className="h-5 w-5" /> : <Sun className="h-5 w-5" />}
+                    Default Color Mode
+                  </CardTitle>
+                  <p className="text-sm text-muted-foreground">
+                    Sets the color mode applied to users who have not set their own preference.
+                    Individual users can still override this using the toggle in the top navigation bar.
+                  </p>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <div className="flex items-center gap-3 rounded-lg border p-4">
+                    <button
+                      type="button"
+                      onClick={() => setGlobalColorMode('light')}
+                      className={`flex-1 flex flex-col items-center gap-2 rounded-lg border-2 p-4 transition-colors ${
+                        globalColorMode === 'light'
+                          ? 'border-primary bg-primary/5'
+                          : 'border-border hover:border-primary/40'
+                      }`}
+                    >
+                      <Sun className={`h-6 w-6 ${globalColorMode === 'light' ? 'text-primary' : 'text-muted-foreground'}`} />
+                      <span className={`text-sm font-medium ${globalColorMode === 'light' ? 'text-primary' : 'text-muted-foreground'}`}>
+                        Light
+                      </span>
+                      {globalColorMode === 'light' && (
+                        <span className="text-xs text-primary">Current default</span>
+                      )}
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => setGlobalColorMode('dark')}
+                      className={`flex-1 flex flex-col items-center gap-2 rounded-lg border-2 p-4 transition-colors ${
+                        globalColorMode === 'dark'
+                          ? 'border-primary bg-primary/5'
+                          : 'border-border hover:border-primary/40'
+                      }`}
+                    >
+                      <Moon className={`h-6 w-6 ${globalColorMode === 'dark' ? 'text-primary' : 'text-muted-foreground'}`} />
+                      <span className={`text-sm font-medium ${globalColorMode === 'dark' ? 'text-primary' : 'text-muted-foreground'}`}>
+                        Dark
+                      </span>
+                      {globalColorMode === 'dark' && (
+                        <span className="text-xs text-primary">Current default</span>
+                      )}
+                    </button>
+                  </div>
+                  <p className="text-xs text-muted-foreground">
+                    Saved when you click <strong>Save Settings</strong>. Applies to all users who haven't set a personal preference. Users who have manually toggled their own mode are not affected.
+                  </p>
+                </CardContent>
+              </Card>
+            )}
           </div>
 
           {/* Institution Labels Configuration - Only show active institution */}
@@ -558,6 +675,27 @@ IRIS (Intelligent Research Information Management System) is a research manageme
               </div>
             </CardContent>
           </Card>
+
+          {/* Sticky save bar */}
+          <div className="sticky bottom-0 bg-background/95 backdrop-blur border-t pt-4 pb-2 flex justify-end gap-3">
+            <p className="text-sm text-muted-foreground self-center">
+              Changes on this tab are not applied until you save.
+            </p>
+            <Button
+              onClick={handleSaveSettings}
+              disabled={saving}
+              className="bg-primary min-w-[120px]"
+            >
+              {saving ? (
+                <>
+                  <span className="animate-spin mr-2 h-4 w-4 border-2 border-white border-t-transparent rounded-full inline-block" />
+                  Saving…
+                </>
+              ) : (
+                'Save Settings'
+              )}
+            </Button>
+          </div>
         </TabsContent>
 
         <TabsContent value="team" className="space-y-6">

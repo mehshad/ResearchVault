@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Upload, FileText, X, CheckCircle, AlertCircle } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
+import { UploadingModal } from "@/components/ui/upload-modal";
 
 interface ObjectUploaderProps {
   maxNumberOfFiles?: number;
@@ -45,6 +46,13 @@ export function ObjectUploader({
   const [uploadedFiles, setUploadedFiles] = useState<UploadedFile[]>([]);
   const [isDragOver, setIsDragOver] = useState(false);
   const { toast } = useToast();
+
+  const isUploading = uploadedFiles.some(
+    (f) => f.status === "pending" || f.status === "uploading"
+  );
+  const uploadingFile = uploadedFiles.find(
+    (f) => f.status === "uploading"
+  );
   const pendingUploadsRef = useRef<Set<File>>(new Set());
 
   const validateFile = (file: File): string | null => {
@@ -268,7 +276,13 @@ export function ObjectUploader({
 
   if (!showDropzone) {
     return (
-      <div>
+      <>
+        <UploadingModal
+          open={isUploading}
+          label="Uploading file…"
+          sublabel={uploadingFile?.file.name}
+        />
+        <div>
         <input
           type="file"
           accept={acceptedFileTypes.join(',')}
@@ -283,10 +297,17 @@ export function ObjectUploader({
           </Button>
         </label>
       </div>
+      </>
     );
   }
 
   return (
+    <>
+      <UploadingModal
+        open={isUploading}
+        label="Uploading file…"
+        sublabel={uploadingFile?.file.name}
+      />
     <div className="space-y-4">
       <Card
         className={`p-8 border-2 border-dashed transition-colors ${
@@ -368,5 +389,6 @@ export function ObjectUploader({
         </div>
       )}
     </div>
+    </>
   );
 }

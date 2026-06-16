@@ -25,6 +25,7 @@ import * as SliderPrimitive from "@radix-ui/react-slider";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Pencil, Save, X, Upload, Search, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, ChevronDown, ArrowUpDown, ArrowUp, ArrowDown, Star, Shield, FileText, BarChart3, Download, Calendar, User, BookOpen, Award, TrendingUp, CopyCheck } from "lucide-react";
+import { UploadingModal } from "@/components/ui/upload-modal";
 import { PublicationDuplicates } from "@/components/PublicationDuplicates";
 import { useToast } from "@/hooks/use-toast";
 import { Link, useLocation } from "wouter";
@@ -92,6 +93,10 @@ export default function PublicationOffice() {
     setIsDetailsModalOpen(true);
   };
   
+  // Impact Factor CSV import loading state
+  const [csvImporting, setCsvImporting] = useState(false);
+  const [csvFileName, setCsvFileName] = useState("");
+
   // Impact Factor tab state
   const [editingId, setEditingId] = useState<number | null>(null);
   const [editForm, setEditForm] = useState<Partial<InsertJournalImpactFactor>>({});
@@ -620,6 +625,8 @@ export default function PublicationOffice() {
   const handleCSVImport = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (!file) return;
+    setCsvFileName(file.name);
+    setCsvImporting(true);
 
     // RFC 4180-ish CSV parser: handles quoted fields, escaped quotes ("") and CRLF
     const parseCsv = (text: string): string[][] => {
@@ -759,6 +766,7 @@ export default function PublicationOffice() {
         variant: "destructive",
       });
       event.target.value = '';
+      setCsvImporting(false);
       return;
     }
 
@@ -777,8 +785,10 @@ export default function PublicationOffice() {
       });
     } catch (error) {
       toast({ description: "Failed to import CSV data", variant: "destructive" });
+    } finally {
+      setCsvImporting(false);
+      event.target.value = '';
     }
-    event.target.value = '';
   };
 
   // Publication status update mutations
@@ -831,6 +841,12 @@ export default function PublicationOffice() {
   }
 
   return (
+    <>
+    <UploadingModal
+      open={csvImporting}
+      label="Importing Impact Factors…"
+      sublabel={csvFileName}
+    />
     <div className="space-y-6">
       <div className="flex justify-between items-center">
         <h1 className="text-2xl font-semibold text-foreground">Outcome Office</h1>
@@ -2426,5 +2442,6 @@ export default function PublicationOffice() {
         </DialogContent>
       </Dialog>
     </div>
+    </>
   );
 }

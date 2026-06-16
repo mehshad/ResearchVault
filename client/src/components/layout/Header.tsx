@@ -47,7 +47,10 @@ export default function Header({ onMenuClick }: HeaderProps) {
         {/* Dark / light mode toggle */}
         <button
           className="text-primary hover:text-primary/80 transition-colors"
-          onClick={() => setTheme(isDark ? "light" : "dark")}
+          onClick={() => {
+            localStorage.setItem("theme-user-set", "true");
+            setTheme(isDark ? "light" : "dark");
+          }}
           title={isDark ? "Switch to light mode" : "Switch to dark mode"}
         >
           {isDark ? <Sun className="h-5 w-5" /> : <Moon className="h-5 w-5" />}

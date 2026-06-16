@@ -35,6 +35,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Scientist } from "@shared/schema";
 import { Plus, Search, MoreHorizontal, Mail, Phone, ChevronDown, ChevronUp, ArrowUpDown, Download, Upload, AlertCircle, Loader2 } from "lucide-react";
+import { UploadingModal } from "@/components/ui/upload-modal";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Badge } from "@/components/ui/badge";
 import { useCurrentUser } from "@/hooks/useCurrentUser";
@@ -156,6 +157,11 @@ function StaffImportExportButtons() {
 
   return (
     <>
+      <UploadingModal
+        open={applyMutation.isPending}
+        label="Importing staff…"
+        sublabel={file?.name}
+      />
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
           <Button variant="outline" data-testid="button-staff-export">

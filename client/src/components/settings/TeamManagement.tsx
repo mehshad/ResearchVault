@@ -14,6 +14,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from 
 import { useToast } from "@/hooks/use-toast";
 import { Plus, Pencil, Trash2, Users, Shield, Code, FlaskConical, GripVertical, Upload, X } from "lucide-react";
 import type { TeamMember, InsertTeamMember } from "@shared/schema";
+import { UploadingModal } from "@/components/ui/upload-modal";
 
 const categoryOptions = [
   { value: "lead", label: "Element Lead", icon: Shield },
@@ -137,6 +138,8 @@ function TeamMemberForm({ member, onSubmit, onCancel, isSubmitting }: TeamMember
   };
 
   return (
+    <>
+    <UploadingModal open={isUploading} label="Uploading photo…" />
     <form onSubmit={handleSubmit} className="space-y-4">
       <div className="grid grid-cols-2 gap-4">
         <div>
@@ -347,6 +350,7 @@ function TeamMemberForm({ member, onSubmit, onCancel, isSubmitting }: TeamMember
         </Button>
       </div>
     </form>
+    </>
   );
 }
 
