@@ -763,6 +763,7 @@ export default function PublicationDetail() {
                           <TableHead>Scientist</TableHead>
                           <TableHead>Role</TableHead>
                           <TableHead>Position</TableHead>
+                          <TableHead>Link</TableHead>
                           <TableHead className="w-[70px]">Actions</TableHead>
                         </TableRow>
                       </TableHeader>
@@ -801,6 +802,24 @@ export default function PublicationDetail() {
                             </TableCell>
                             <TableCell>
                               {author.authorPosition || 'N/A'}
+                            </TableCell>
+                            <TableCell>
+                              <div className="flex flex-col gap-0.5">
+                                <Badge
+                                  variant="outline"
+                                  className={`w-fit text-xs ${author.linkMethod === 'automatic'
+                                    ? 'border-blue-300 text-blue-700 dark:border-blue-700 dark:text-blue-300'
+                                    : 'border-gray-300 text-gray-700 dark:border-gray-600 dark:text-gray-300'}`}
+                                  data-testid={`badge-link-method-${author.id}`}
+                                >
+                                  {author.linkMethod === 'automatic' ? 'Auto' : 'Manual'}
+                                </Badge>
+                                {author.linkedByName && (
+                                  <span className="text-xs text-muted-foreground" data-testid={`text-linked-by-${author.id}`}>
+                                    by {author.linkedByName}
+                                  </span>
+                                )}
+                              </div>
                             </TableCell>
                             <TableCell>
                               <Button

@@ -879,10 +879,14 @@ export class DatabaseStorage implements IStorage {
         scientistId: publicationAuthors.scientistId,
         authorshipType: publicationAuthors.authorshipType,
         authorPosition: publicationAuthors.authorPosition,
+        linkedByUserId: publicationAuthors.linkedByUserId,
+        linkMethod: publicationAuthors.linkMethod,
+        linkedByName: users.name,
         scientist: scientists
       })
       .from(publicationAuthors)
-      .innerJoin(scientists, eq(publicationAuthors.scientistId, scientists.id));
+      .innerJoin(scientists, eq(publicationAuthors.scientistId, scientists.id))
+      .leftJoin(users, eq(publicationAuthors.linkedByUserId, users.id));
 
     return results as (PublicationAuthor & { scientist: Scientist })[];
   }
@@ -895,10 +899,14 @@ export class DatabaseStorage implements IStorage {
         scientistId: publicationAuthors.scientistId,
         authorshipType: publicationAuthors.authorshipType,
         authorPosition: publicationAuthors.authorPosition,
+        linkedByUserId: publicationAuthors.linkedByUserId,
+        linkMethod: publicationAuthors.linkMethod,
+        linkedByName: users.name,
         scientist: scientists
       })
       .from(publicationAuthors)
       .innerJoin(scientists, eq(publicationAuthors.scientistId, scientists.id))
+      .leftJoin(users, eq(publicationAuthors.linkedByUserId, users.id))
       .where(eq(publicationAuthors.publicationId, publicationId))
       .orderBy(publicationAuthors.authorPosition);
     

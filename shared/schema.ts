@@ -260,6 +260,11 @@ export const publicationAuthors = pgTable("publication_authors", {
   scientistId: integer("scientist_id").notNull(), // references scientists.id
   authorshipType: text("authorship_type").notNull(), // First Author, Contributing Author, Senior Author, Last Author, Corresponding Author
   authorPosition: integer("author_position"), // Position in author list (1, 2, 3, etc.)
+  // Attribution: who created this link and whether it was made manually (on the
+  // detail page) or automatically (auto-connect / discovery import). Nullable so
+  // legacy links created before attribution keep working (they show no actor).
+  linkedByUserId: integer("linked_by_user_id"), // references users.id
+  linkMethod: text("link_method").notNull().default("manual"), // 'manual' | 'automatic'
 }, (table) => {
   return {
     publicationScientistIdx: uniqueIndex("publication_scientist_idx").on(table.publicationId, table.scientistId),

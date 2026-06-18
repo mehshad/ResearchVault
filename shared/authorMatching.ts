@@ -98,6 +98,82 @@ export function matchesAuthorName(
   });
 }
 
+/** Minimal scientist shape needed to suggest internal author links. */
+export interface MatchableScientist {
+  id: number;
+  firstName: string | null | undefined;
+  lastName: string | null | undefined;
+}
+
+/** A proposed internal-author link inferred from a free-text author list. */
+export interface AuthorSuggestion {
+  scientistId: number;
+  /** Inferred role: First Author / Contributing Author / Senior/Last Author. */
+  authorshipType: string;
+  /** 1-based position of the matched name in the free-text author list. */
+  authorPosition: number;
+}
+
+/**
+ * Single source of truth for proposing internal-author links from a
+ * publication's free-text author list. Reused by both the "Auto-connect
+ * internal authors" dialog and the Paper Discovery import so the matching
+ * heuristic is never duplicated.
+ *
+ * For each author entry in the comma-separated `authorsText`, find the first
+ * not-yet-suggested internal scientist whose name matches (via
+ * `matchesAuthorName`). The author's index drives the inferred role:
+ *   - first entry  -> "First Author"
+ *   - last entry   -> "Senior/Last Author"
+ *   - otherwise    -> "Contributing Author"
+ *
+ * Scientists in `excludeScientistIds` (already linked) are skipped. A scientist
+ * is only suggested once even if their name appears multiple times.
+ */
+export function suggestInternalAuthors(
+  authorsText: string | null | undefined,
+  scientists: MatchableScientist[],
+  excludeScientistIds: Iterable<number> = [],
+): AuthorSuggestion[] {
+  if (!authorsText || !authorsText.trim()) return [];
+
+  const entries = authorsText
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean);
+  if (entries.length === 0) return [];
+
+  const excluded = new Set<number>(excludeScientistIds);
+  const used = new Set<number>();
+  const suggestions: AuthorSuggestion[] = [];
+
+  const roleForIndex = (index: number): string => {
+    if (index === 0) return "First Author";
+    if (index === entries.length - 1) return "Senior/Last Author";
+    return "Contributing Author";
+  };
+
+  for (let i = 0; i < entries.length; i++) {
+    const entry = entries[i];
+    for (const scientist of scientists) {
+      if (excluded.has(scientist.id) || used.has(scientist.id)) continue;
+      // Match against this single author entry (matchesAuthorName splits on
+      // commas internally, so a one-entry string keeps the position precise).
+      if (matchesAuthorName(entry, scientist.firstName, scientist.lastName)) {
+        used.add(scientist.id);
+        suggestions.push({
+          scientistId: scientist.id,
+          authorshipType: roleForIndex(i),
+          authorPosition: i + 1,
+        });
+        break;
+      }
+    }
+  }
+
+  return suggestions;
+}
+
 /**
  * Is a linked internal author considered "present" in the publication's
  * free-text author list? Mirrors the publication detail page's original

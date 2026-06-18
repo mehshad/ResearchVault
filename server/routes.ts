@@ -60,7 +60,7 @@ import {
 } from "@shared/schema";
 import { requireAuth, requireAdmin, requireContractsOfficer, requireContractsRead, requirePublicationOfficer, getAuthMode } from "./auth";
 import { resolveOwnershipAccess, maxAccess, type AccessLevel as OwnershipAccessLevel } from "./ownershipResolver";
-import { matchesAuthorName, isLinkedAuthorInAuthorsText } from "@shared/authorMatching";
+import { matchesAuthorName, isLinkedAuthorInAuthorsText, suggestInternalAuthors } from "@shared/authorMatching";
 import { detectDuplicateGroups, pickDefaultSurvivorId, normalizeDoi as canonicalDoi } from "@shared/publicationDeduplication";
 import { getObjectAclPolicy, ObjectPermission } from "./objectAcl";
 
@@ -569,6 +569,371 @@ async function fetchPubmedByDoi(doi: string): Promise<{
     return null;
   }
 }
+
+// ── Paper discovery (multi-source) ──────────────────────────────────────────
+// Institution-wide, multi-source paper discovery for the Publication Office
+// "Find Papers" tab. Each source fetcher returns a common metadata shape and
+// must fail soft (return []) so one slow/broken source never fails the search.
+
+interface DiscoveredPaper {
+  doi: string; // normalized (lowercase, resolver stripped)
+  title: string;
+  journal: string;
+  year: number | null;
+  authors: string;
+  source: string; // which source produced this row (merged later)
+  // Affiliation string from the matched record that triggered the find (only
+  // meaningful in institution mode). Lets staff verify the match is genuine.
+  matchedAffiliation?: string | null;
+}
+
+// Given a set of affiliation strings pulled from a record, pick the one that
+// best evidences the searched affiliation: prefer a string that contains the
+// search term (case-insensitive), otherwise fall back to the first available.
+function pickMatchedAffiliation(
+  strings: Array<string | null | undefined>,
+  term?: string,
+): string | null {
+  const cleaned = strings
+    .map((s) => (typeof s === "string" ? s.trim() : ""))
+    .filter((s) => s.length > 0);
+  if (cleaned.length === 0) return null;
+  if (term && term.trim()) {
+    const needle = term.trim().toLowerCase();
+    const hit = cleaned.find((s) => s.toLowerCase().includes(needle));
+    if (hit) return hit;
+    // Try matching on the most distinctive single word of the term (e.g.
+    // "Sidra" out of "Sidra Medicine") so partial source matches still surface.
+    const words = needle.split(/\s+/).filter((w) => w.length >= 4);
+    for (const w of words) {
+      const wHit = cleaned.find((s) => s.toLowerCase().includes(w));
+      if (wHit) return wHit;
+    }
+  }
+  return cleaned[0];
+}
+
+// A single descriptor drives every fetcher. Modes populate different fields:
+//  - scientist:   authorName (+ orcidId for the ORCID source)
+//  - institution: affiliation
+//  - keyword:     query (author / title keywords / DOI)
+interface DiscoveryQuery {
+  authorName?: string;
+  orcidId?: string;
+  affiliation?: string;
+  query?: string;
+  yearFrom?: number | null;
+  yearTo?: number | null;
+}
+
+const DISCOVERY_RESULT_CAP = 50; // per source, per query
+const DISCOVERY_TIMEOUT_MS = 12000;
+// Polite identification for OpenAlex / Crossref (mailto) per their etiquette.
+const DISCOVERY_CONTACT = "research@qbridge.local";
+const DISCOVERY_USER_AGENT = `Q-BRIDGE/1.0 (mailto:${DISCOVERY_CONTACT})`;
+
+async function fetchJsonWithTimeout(
+  url: string,
+  init?: RequestInit,
+): Promise<any | null> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), DISCOVERY_TIMEOUT_MS);
+  try {
+    const res = await fetch(url, {
+      ...init,
+      signal: controller.signal,
+      headers: {
+        Accept: "application/json",
+        "User-Agent": DISCOVERY_USER_AGENT,
+        ...(init?.headers || {}),
+      },
+    });
+    if (!res.ok) return null;
+    return await res.json();
+  } catch {
+    return null;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+function withinYearRange(
+  year: number | null,
+  from?: number | null,
+  to?: number | null,
+): boolean {
+  if (year == null) return true; // keep undated works; can't exclude reliably
+  if (from != null && year < from) return false;
+  if (to != null && year > to) return false;
+  return true;
+}
+
+// OpenAlex (keyless). Supports author (name or ORCID), affiliation, and free
+// text. Uses filters + search; returns up to the cap.
+async function discoverOpenAlex(q: DiscoveryQuery): Promise<DiscoveredPaper[]> {
+  const filters: string[] = ["type:article"];
+  const params = new URLSearchParams();
+  params.set("per-page", String(DISCOVERY_RESULT_CAP));
+  params.set("mailto", DISCOVERY_CONTACT);
+
+  if (q.orcidId) {
+    const id = q.orcidId.trim().replace(/^https?:\/\/orcid\.org\//i, "");
+    filters.push(`author.orcid:${id}`);
+  } else if (q.affiliation) {
+    filters.push(
+      `raw_affiliation_strings.search:${q.affiliation.replace(/,/g, " ")}`,
+    );
+  } else if (q.authorName) {
+    params.set("search", q.authorName);
+  } else if (q.query) {
+    params.set("search", q.query);
+  } else {
+    return [];
+  }
+
+  if (q.yearFrom != null) filters.push(`from_publication_date:${q.yearFrom}-01-01`);
+  if (q.yearTo != null) filters.push(`to_publication_date:${q.yearTo}-12-31`);
+  params.set("filter", filters.join(","));
+
+  const data = await fetchJsonWithTimeout(
+    `https://api.openalex.org/works?${params.toString()}`,
+  );
+  const results: any[] = Array.isArray(data?.results) ? data.results : [];
+  const out: DiscoveredPaper[] = [];
+  for (const w of results) {
+    const doi = normalizeDoi(w?.doi);
+    if (!doi) continue;
+    const authors = Array.isArray(w?.authorships)
+      ? w.authorships
+          .map((a: any) => a?.author?.display_name)
+          .filter(Boolean)
+          .join(", ")
+      : "";
+    const affStrings: Array<string | null | undefined> = [];
+    if (Array.isArray(w?.authorships)) {
+      for (const a of w.authorships) {
+        if (Array.isArray(a?.raw_affiliation_strings)) affStrings.push(...a.raw_affiliation_strings);
+        if (Array.isArray(a?.institutions)) {
+          for (const inst of a.institutions) affStrings.push(inst?.display_name);
+        }
+      }
+    }
+    out.push({
+      doi,
+      title: typeof w?.title === "string" ? w.title : "Untitled work",
+      journal: w?.primary_location?.source?.display_name || "",
+      year: typeof w?.publication_year === "number" ? w.publication_year : null,
+      authors,
+      source: "OpenAlex",
+      matchedAffiliation: pickMatchedAffiliation(affStrings, q.affiliation),
+    });
+  }
+  return out;
+}
+
+// PubMed via NCBI E-utilities (keyless). esearch for ids, esummary for metadata.
+async function discoverPubmed(q: DiscoveryQuery): Promise<DiscoveredPaper[]> {
+  const eutils = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils";
+  const common = "tool=qbridge&email=research@qbridge.local";
+
+  const terms: string[] = [];
+  if (q.affiliation) terms.push(`${q.affiliation}[Affiliation]`);
+  if (q.authorName) terms.push(`${q.authorName}[Author]`);
+  if (q.query) terms.push(q.query);
+  if (terms.length === 0) return [];
+
+  let term = terms.join(" AND ");
+  if (q.yearFrom != null || q.yearTo != null) {
+    const from = q.yearFrom ?? 1800;
+    const to = q.yearTo ?? new Date().getFullYear();
+    term += ` AND (${from}:${to}[Date - Publication])`;
+  }
+
+  const searchData = await fetchJsonWithTimeout(
+    `${eutils}/esearch.fcgi?db=pubmed&retmode=json&retmax=${DISCOVERY_RESULT_CAP}&term=${encodeURIComponent(
+      term,
+    )}&${common}`,
+  );
+  const ids: string[] = searchData?.esearchresult?.idlist ?? [];
+  if (ids.length === 0) return [];
+
+  const summaryData = await fetchJsonWithTimeout(
+    `${eutils}/esummary.fcgi?db=pubmed&retmode=json&id=${ids.join(",")}&${common}`,
+  );
+  const resultObj = summaryData?.result;
+  if (!resultObj) return [];
+
+  const out: DiscoveredPaper[] = [];
+  for (const id of ids) {
+    const rec = resultObj[id];
+    if (!rec) continue;
+    const doiEntry: any = Array.isArray(rec.articleids)
+      ? rec.articleids.find((a: any) => a?.idtype === "doi")
+      : null;
+    const doi = normalizeDoi(doiEntry?.value);
+    if (!doi) continue; // we key dedup/import on DOI
+    const year = rec.pubdate ? parseInt(String(rec.pubdate).slice(0, 4), 10) : null;
+    const authors = Array.isArray(rec.authors)
+      ? rec.authors.map((a: any) => a?.name).filter(Boolean).join(", ")
+      : "";
+    out.push({
+      doi,
+      title: rec.title || "Untitled work",
+      journal: rec.fulljournalname || rec.source || "",
+      year: Number.isFinite(year) ? year : null,
+      authors,
+      source: "PubMed",
+    });
+  }
+  return out;
+}
+
+// Crossref (keyless, polite mailto). author / affiliation / bibliographic query.
+async function discoverCrossref(q: DiscoveryQuery): Promise<DiscoveredPaper[]> {
+  const params = new URLSearchParams();
+  params.set("rows", String(DISCOVERY_RESULT_CAP));
+  params.set("mailto", DISCOVERY_CONTACT);
+  params.set("select", "DOI,title,container-title,issued,author");
+
+  let hasQuery = false;
+  if (q.authorName) {
+    params.set("query.author", q.authorName);
+    hasQuery = true;
+  }
+  if (q.affiliation) {
+    params.set("query.affiliation", q.affiliation);
+    hasQuery = true;
+  }
+  if (q.query) {
+    params.set("query.bibliographic", q.query);
+    hasQuery = true;
+  }
+  if (!hasQuery) return [];
+
+  const filters: string[] = [];
+  if (q.yearFrom != null) filters.push(`from-pub-date:${q.yearFrom}-01-01`);
+  if (q.yearTo != null) filters.push(`until-pub-date:${q.yearTo}-12-31`);
+  if (filters.length) params.set("filter", filters.join(","));
+
+  const data = await fetchJsonWithTimeout(
+    `https://api.crossref.org/works?${params.toString()}`,
+  );
+  const items: any[] = data?.message?.items ?? [];
+  const out: DiscoveredPaper[] = [];
+  for (const w of items) {
+    const doi = normalizeDoi(w?.DOI);
+    if (!doi) continue;
+    const authors = Array.isArray(w?.author)
+      ? w.author
+          .map((a: any) => `${a.given || ""} ${a.family || ""}`.trim())
+          .filter(Boolean)
+          .join(", ")
+      : "";
+    const affStrings: Array<string | null | undefined> = [];
+    if (Array.isArray(w?.author)) {
+      for (const a of w.author) {
+        if (Array.isArray(a?.affiliation)) {
+          for (const aff of a.affiliation) affStrings.push(aff?.name);
+        }
+      }
+    }
+    const year = w?.issued?.["date-parts"]?.[0]?.[0] ?? null;
+    out.push({
+      doi,
+      title: Array.isArray(w?.title) ? w.title[0] || "Untitled work" : "Untitled work",
+      journal: Array.isArray(w?.["container-title"]) ? w["container-title"][0] || "" : "",
+      year: typeof year === "number" ? year : null,
+      authors,
+      source: "Crossref",
+      matchedAffiliation: pickMatchedAffiliation(affStrings, q.affiliation),
+    });
+  }
+  return out;
+}
+
+// Europe PMC (keyless). affiliation (AFF) / author (AUTH) / free text query.
+async function discoverEuropePmc(q: DiscoveryQuery): Promise<DiscoveredPaper[]> {
+  const clauses: string[] = [];
+  if (q.affiliation) clauses.push(`AFF:"${q.affiliation}"`);
+  if (q.authorName) clauses.push(`AUTH:"${q.authorName}"`);
+  if (q.query) clauses.push(q.query);
+  if (clauses.length === 0) return [];
+
+  let query = clauses.join(" AND ");
+  if (q.yearFrom != null || q.yearTo != null) {
+    const from = q.yearFrom ?? 1800;
+    const to = q.yearTo ?? new Date().getFullYear();
+    query += ` AND (PUB_YEAR:[${from} TO ${to}])`;
+  }
+
+  const params = new URLSearchParams();
+  params.set("query", query);
+  params.set("format", "json");
+  params.set("pageSize", String(DISCOVERY_RESULT_CAP));
+  params.set("resultType", "core");
+
+  const data = await fetchJsonWithTimeout(
+    `https://www.ebi.ac.uk/europepmc/webservices/rest/search?${params.toString()}`,
+  );
+  const results: any[] = data?.resultList?.result ?? [];
+  const out: DiscoveredPaper[] = [];
+  for (const w of results) {
+    const doi = normalizeDoi(w?.doi);
+    if (!doi) continue;
+    const year = w?.pubYear ? parseInt(String(w.pubYear), 10) : null;
+    const affStrings: Array<string | null | undefined> = [];
+    const authorList = Array.isArray(w?.authorList?.author) ? w.authorList.author : [];
+    for (const a of authorList) {
+      const details = a?.authorAffiliationDetailsList?.authorAffiliation;
+      if (Array.isArray(details)) {
+        for (const d of details) affStrings.push(d?.affiliation);
+      }
+      if (typeof a?.affiliation === "string") affStrings.push(a.affiliation);
+    }
+    if (typeof w?.affiliation === "string") affStrings.push(w.affiliation);
+    out.push({
+      doi,
+      title: w?.title || "Untitled work",
+      journal: w?.journalTitle || w?.journalInfo?.journal?.title || "",
+      year: Number.isFinite(year) ? year : null,
+      authors: w?.authorString || "",
+      source: "Europe PMC",
+      matchedAffiliation: pickMatchedAffiliation(affStrings, q.affiliation),
+    });
+  }
+  return out;
+}
+
+// ORCID source for discovery: only meaningful in scientist mode (needs an
+// ORCID iD). Reuses the existing fetchOrcidWorks helper and reshapes to the
+// discovery paper type.
+async function discoverOrcid(q: DiscoveryQuery): Promise<DiscoveredPaper[]> {
+  if (!q.orcidId) return [];
+  try {
+    const works = await fetchOrcidWorks(q.orcidId);
+    return works.slice(0, DISCOVERY_RESULT_CAP).map((w) => ({
+      doi: w.doi,
+      title: w.title,
+      journal: w.journal,
+      year: w.year,
+      authors: "",
+      source: "ORCID",
+    }));
+  } catch {
+    return [];
+  }
+}
+
+const DISCOVERY_FETCHERS: Record<
+  string,
+  (q: DiscoveryQuery) => Promise<DiscoveredPaper[]>
+> = {
+  orcid: discoverOrcid,
+  openalex: discoverOpenAlex,
+  pubmed: discoverPubmed,
+  crossref: discoverCrossref,
+  europepmc: discoverEuropePmc,
+};
 
 export async function registerRoutes(app: Express): Promise<Server> {
   // Set up API routes
@@ -4344,6 +4709,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
         publicationId
       });
 
+      // Attribution: this endpoint is the manual linking flow (detail page), so
+      // every link/update it makes is stamped as a manual link by the acting
+      // session user. linkedByUserId is nullable for legacy rows; we set it here.
+      const actorId = (req.session as any)?.user?.id ?? null;
+
       // Check if scientist is already an author
       const existingAuthors = await storage.getPublicationAuthors(publicationId);
       const existingAuthor = existingAuthors.find(author => author.scientistId === validateData.scientistId);
@@ -4361,13 +4731,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
           validateData.scientistId,
           {
             authorshipType: combinedTypes.join(', '),
-            authorPosition: validateData.authorPosition || existingAuthor.authorPosition
+            authorPosition: validateData.authorPosition || existingAuthor.authorPosition,
+            linkMethod: "manual",
+            linkedByUserId: actorId,
           }
         );
         res.status(200).json(updatedAuthor);
       } else {
         // Add new author
-        const author = await storage.addPublicationAuthor(validateData);
+        const author = await storage.addPublicationAuthor({
+          ...validateData,
+          linkMethod: "manual",
+          linkedByUserId: actorId,
+        });
         res.status(201).json(author);
       }
     } catch (error) {
@@ -4396,6 +4772,414 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.status(204).send();
     } catch (error) {
       res.status(500).json({ message: "Failed to remove publication author" });
+    }
+  });
+
+  // Suggest internal-author links for a publication from its free-text author
+  // list. Returns one suggestion per matched internal scientist (excluding those
+  // already linked) with an inferred authorship type + position. This is the
+  // shared matcher (suggestInternalAuthors) reused by the auto-connect dialog.
+  app.get('/api/publications/:id/author-suggestions', async (req: Request, res: Response) => {
+    try {
+      const publicationId = parseInt(req.params.id);
+      if (isNaN(publicationId)) {
+        return res.status(400).json({ message: "Invalid publication ID" });
+      }
+
+      const publication = await storage.getPublication(publicationId);
+      if (!publication) {
+        return res.status(404).json({ message: "Publication not found" });
+      }
+
+      const [scientists, existingAuthors] = await Promise.all([
+        storage.getScientists(),
+        storage.getPublicationAuthors(publicationId),
+      ]);
+      const excludeIds = existingAuthors.map((a) => a.scientistId);
+
+      const suggestions = suggestInternalAuthors(
+        publication.authors,
+        scientists,
+        excludeIds,
+      );
+
+      // Hydrate each suggestion with the scientist record so the client can show
+      // names without a second round-trip.
+      const byId = new Map(scientists.map((s) => [s.id, s]));
+      const hydrated = suggestions.map((s) => ({
+        ...s,
+        scientist: byId.get(s.scientistId) ?? null,
+      }));
+
+      res.json({ suggestions: hydrated });
+    } catch (error) {
+      console.error("Error suggesting publication authors:", error);
+      res.status(500).json({ message: "Failed to suggest publication authors" });
+    }
+  });
+
+  // Bulk-confirm a set of suggested internal-author links for one publication.
+  // Each link is marked automatic and attributed to the acting session user.
+  // Used by the auto-connect confirmation dialog.
+  app.post('/api/publications/:id/authors/bulk', requireAuth, async (req: Request, res: Response) => {
+    try {
+      const publicationId = parseInt(req.params.id);
+      if (isNaN(publicationId)) {
+        return res.status(400).json({ message: "Invalid publication ID" });
+      }
+
+      const publication = await storage.getPublication(publicationId);
+      if (!publication) {
+        return res.status(404).json({ message: "Publication not found" });
+      }
+
+      const actorId = (req.session as any)?.user?.id ?? null;
+
+      const rawLinks: unknown = req.body?.links;
+      if (!Array.isArray(rawLinks) || rawLinks.length === 0) {
+        return res
+          .status(400)
+          .json({ message: "Provide a non-empty list of author links." });
+      }
+
+      // Validate each requested link; skip scientists already linked.
+      const existingAuthors = await storage.getPublicationAuthors(publicationId);
+      const alreadyLinked = new Set(existingAuthors.map((a) => a.scientistId));
+
+      const created: any[] = [];
+      const skipped: { scientistId: number; reason: string }[] = [];
+
+      for (const link of rawLinks) {
+        const scientistId = Number((link as any)?.scientistId);
+        const authorshipType =
+          typeof (link as any)?.authorshipType === "string"
+            ? (link as any).authorshipType.trim()
+            : "";
+        const authorPositionRaw = (link as any)?.authorPosition;
+        const authorPosition =
+          typeof authorPositionRaw === "number" && Number.isFinite(authorPositionRaw)
+            ? authorPositionRaw
+            : null;
+
+        if (!Number.isInteger(scientistId) || !authorshipType) {
+          skipped.push({ scientistId, reason: "invalid" });
+          continue;
+        }
+        if (alreadyLinked.has(scientistId)) {
+          skipped.push({ scientistId, reason: "already linked" });
+          continue;
+        }
+
+        const scientist = await storage.getScientist(scientistId);
+        if (!scientist) {
+          skipped.push({ scientistId, reason: "scientist not found" });
+          continue;
+        }
+
+        const author = await storage.addPublicationAuthor({
+          publicationId,
+          scientistId,
+          authorshipType,
+          authorPosition: authorPosition ?? undefined,
+          linkMethod: "automatic",
+          linkedByUserId: actorId,
+        });
+        alreadyLinked.add(scientistId);
+        created.push(author);
+      }
+
+      res.status(201).json({
+        created,
+        skipped,
+        createdCount: created.length,
+        skippedCount: skipped.length,
+      });
+    } catch (error) {
+      console.error("Error bulk-linking publication authors:", error);
+      res.status(500).json({ message: "Failed to link publication authors" });
+    }
+  });
+
+  // Paper Discovery — search multiple external sources for papers, merge and
+  // dedup by DOI, and flag which results already exist in the portal. Restricted
+  // to publication-office staff since it is an institution-wide discovery tool.
+  app.post('/api/publications/discover', requirePublicationOfficer, async (req: Request, res: Response) => {
+    try {
+      const body = req.body ?? {};
+      const mode: string = typeof body.mode === "string" ? body.mode : "institution";
+
+      // Requested sources (default to all keyless sources). ORCID only applies
+      // to scientist mode and is filtered out otherwise.
+      const requestedSources: string[] = Array.isArray(body.sources) && body.sources.length
+        ? body.sources.map((s: any) => String(s).toLowerCase())
+        : ["openalex", "pubmed", "crossref", "europepmc", "orcid"];
+
+      const yearFrom = Number.isFinite(Number(body.yearFrom)) ? Number(body.yearFrom) : null;
+      const yearTo = Number.isFinite(Number(body.yearTo)) ? Number(body.yearTo) : null;
+
+      // Build the list of per-source queries based on the mode.
+      const queries: DiscoveryQuery[] = [];
+
+      if (mode === "scientist") {
+        const scientistIds: number[] = Array.isArray(body.scientistIds)
+          ? body.scientistIds.map((n: any) => Number(n)).filter(Number.isInteger)
+          : [];
+        if (scientistIds.length === 0) {
+          return res.status(400).json({ message: "Select at least one scientist." });
+        }
+        const allScientists = await storage.getScientists();
+        const byId = new Map(allScientists.map((s) => [s.id, s]));
+        for (const sid of scientistIds) {
+          const sci = byId.get(sid);
+          if (!sci) continue;
+          const name = [sci.firstName, sci.lastName].filter(Boolean).join(" ").trim();
+          if (!name) continue;
+          queries.push({
+            authorName: name,
+            orcidId: (sci as any).orcidId || undefined,
+            yearFrom,
+            yearTo,
+          });
+        }
+        if (queries.length === 0) {
+          return res.status(400).json({ message: "No usable scientist names found." });
+        }
+      } else if (mode === "keyword") {
+        const query = typeof body.query === "string" ? body.query.trim() : "";
+        if (!query) {
+          return res.status(400).json({ message: "Provide a search query." });
+        }
+        queries.push({ query, yearFrom, yearTo });
+      } else {
+        // institution mode
+        const affiliation = typeof body.affiliation === "string" ? body.affiliation.trim() : "";
+        if (!affiliation) {
+          return res.status(400).json({ message: "Provide an institution / affiliation." });
+        }
+        queries.push({ affiliation, yearFrom, yearTo });
+      }
+
+      // Run every (source, query) pair in parallel; each fetcher fails soft.
+      const tasks: Promise<DiscoveredPaper[]>[] = [];
+      for (const sourceKey of requestedSources) {
+        const fetcher = DISCOVERY_FETCHERS[sourceKey];
+        if (!fetcher) continue;
+        // ORCID needs an orcidId, only present in scientist-mode queries.
+        if (sourceKey === "orcid" && mode !== "scientist") continue;
+        for (const q of queries) {
+          if (sourceKey === "orcid" && !q.orcidId) continue;
+          tasks.push(fetcher(q));
+        }
+      }
+
+      const settled = await Promise.allSettled(tasks);
+      const rows: DiscoveredPaper[] = [];
+      for (const r of settled) {
+        if (r.status === "fulfilled") rows.push(...r.value);
+      }
+
+      // Merge by DOI identity (version-aware), collecting contributing sources
+      // and keeping the most complete metadata seen for each work.
+      const merged = new Map<string, {
+        doi: string;
+        title: string;
+        journal: string;
+        year: number | null;
+        authors: string;
+        sources: Set<string>;
+        matchedAffiliation: string | null;
+      }>();
+
+      for (const row of rows) {
+        if (!withinYearRange(row.year, yearFrom, yearTo)) continue;
+        const identity = workDoiIdentity(row.doi) || row.doi;
+        const existing = merged.get(identity);
+        if (existing) {
+          existing.sources.add(row.source);
+          if (!existing.title || existing.title === "Untitled work") existing.title = row.title;
+          if (!existing.journal) existing.journal = row.journal;
+          if (existing.year == null) existing.year = row.year;
+          if (!existing.authors) existing.authors = row.authors;
+          if (!existing.matchedAffiliation && row.matchedAffiliation) {
+            existing.matchedAffiliation = row.matchedAffiliation;
+          }
+        } else {
+          merged.set(identity, {
+            doi: row.doi,
+            title: row.title,
+            journal: row.journal,
+            year: row.year,
+            authors: row.authors,
+            sources: new Set([row.source]),
+            matchedAffiliation: row.matchedAffiliation ?? null,
+          });
+        }
+      }
+
+      // Flag results already in the portal so the UI can disable re-import.
+      const existingPublications = await storage.getPublications();
+      const existingDois = buildExistingWorkDois(existingPublications);
+
+      const results = Array.from(merged.values())
+        .map((m) => ({
+          doi: m.doi,
+          title: m.title,
+          journal: m.journal,
+          year: m.year,
+          authors: m.authors,
+          sources: Array.from(m.sources),
+          matchedAffiliation: m.matchedAffiliation,
+          alreadyExists: (() => {
+            const identity = workDoiIdentity(m.doi);
+            return identity ? existingDois.has(identity) : false;
+          })(),
+        }))
+        .sort((a, b) => (b.year ?? 0) - (a.year ?? 0));
+
+      res.json({ results, count: results.length });
+    } catch (error) {
+      console.error("Error discovering papers:", error);
+      res.status(500).json({ message: "Failed to discover papers" });
+    }
+  });
+
+  // Import a selected set of discovered papers. Enriches each DOI via
+  // CrossRef/PubMed, creates the publication, records manuscript history, and
+  // auto-links any matching internal scientists (attributed to the acting user
+  // and flagged automatic). Mirrors the per-scientist import flow.
+  app.post('/api/publications/discover/import', requirePublicationOfficer, async (req: Request, res: Response) => {
+    try {
+      const actorId = req.session?.user?.id;
+      if (actorId == null) {
+        return res.status(401).json({ message: "Authentication required" });
+      }
+
+      const rawPapers: unknown = req.body?.papers;
+      type RequestedPaper = { doi: string; title: string; journal: string; year: number | null; authors: string };
+      const requestedMap = new Map<string, RequestedPaper>();
+      if (Array.isArray(rawPapers)) {
+        for (const p of rawPapers) {
+          const doi = normalizeDoi(typeof p?.doi === "string" ? p.doi : "");
+          if (!doi || requestedMap.has(doi)) continue;
+          requestedMap.set(doi, {
+            doi,
+            title: typeof p?.title === "string" ? p.title : "",
+            journal: typeof p?.journal === "string" ? p.journal : "",
+            year: typeof p?.year === "number" ? p.year : null,
+            authors: typeof p?.authors === "string" ? p.authors : "",
+          });
+        }
+      }
+      if (requestedMap.size === 0) {
+        return res.status(400).json({ message: "Provide a non-empty list of papers to import." });
+      }
+
+      const requestedPapers = Array.from(requestedMap.values());
+      const existingPublications = await storage.getPublications();
+      const existingDois = buildExistingWorkDois(existingPublications);
+      const allScientists = await storage.getScientists();
+
+      const created: { doi: string; title: string; linkedAuthors: number }[] = [];
+      const skipped: { doi: string; reason: string }[] = [];
+
+      for (const paper of requestedPapers) {
+        const doi = paper.doi;
+        const identity = workDoiIdentity(doi);
+        if (!identity || existingDois.has(identity)) {
+          skipped.push({ doi, reason: "already exists" });
+          continue;
+        }
+
+        const [crossref, pubmed] = await Promise.all([
+          fetchCrossrefPublication(doi),
+          fetchPubmedByDoi(doi),
+        ]);
+
+        const pick = (...vals: (string | undefined | null)[]) =>
+          vals.find((v) => typeof v === "string" && v.trim() !== "")?.trim() ?? "";
+
+        const title = pick(crossref?.title, pubmed?.title, paper.title) || "Untitled work";
+        const journal = pick(crossref?.journal, pubmed?.journal, paper.journal);
+        const authors = pick(crossref?.authors, pubmed?.authors, paper.authors);
+        const volume = pick(crossref?.volume, pubmed?.volume);
+        const issue = pick(crossref?.issue, pubmed?.issue);
+        const pages = pick(crossref?.pages, pubmed?.pages);
+        const abstract =
+          pubmed?.abstract?.trim() || (crossref?.abstract ? stripXml(crossref.abstract) : "");
+        const pmid = pubmed?.pmid || "";
+
+        const resolvedDate = crossref?.publicationDate ?? pubmed?.publicationDate ?? null;
+        let publicationDate: string | null = resolvedDate ? resolvedDate.toISOString() : null;
+        if (!publicationDate && paper.year) {
+          publicationDate = new Date(Date.UTC(paper.year, 0, 1)).toISOString();
+        }
+
+        const enrichedFromAnySource = Boolean(crossref || pubmed);
+
+        try {
+          const publicationData = insertPublicationSchema.parse({
+            researchActivityId: null,
+            title,
+            authors,
+            journal,
+            volume,
+            issue,
+            pages,
+            doi: crossref?.doi || doi,
+            pmid: pmid || null,
+            abstract,
+            publicationType: "Journal Article",
+            status: "Published",
+            publicationDate,
+          });
+
+          const publication = await storage.createPublication(publicationData);
+          await storage.createManuscriptHistoryEntry({
+            publicationId: publication.id,
+            fromStatus: "",
+            toStatus: publication.status || "Published",
+            changedBy: actorId,
+            changeReason: enrichedFromAnySource
+              ? "Imported via Paper Discovery"
+              : "Imported via Paper Discovery (metadata not enriched via CrossRef/PubMed)",
+          });
+
+          // Auto-link matching internal scientists from the resolved author text.
+          let linkedAuthors = 0;
+          const suggestions = suggestInternalAuthors(authors, allScientists);
+          for (const s of suggestions) {
+            try {
+              await storage.addPublicationAuthor({
+                publicationId: publication.id,
+                scientistId: s.scientistId,
+                authorshipType: s.authorshipType,
+                authorPosition: s.authorPosition,
+                linkMethod: "automatic",
+                linkedByUserId: actorId,
+              });
+              linkedAuthors++;
+            } catch (linkErr) {
+              console.error(`Failed to auto-link scientist ${s.scientistId} on pub ${publication.id}:`, linkErr);
+            }
+          }
+
+          existingDois.add(identity);
+          created.push({ doi, title, linkedAuthors });
+        } catch (err) {
+          console.error(`Failed to import discovered DOI ${doi}:`, err);
+          skipped.push({ doi, reason: "failed to save" });
+        }
+      }
+
+      res.json({
+        created,
+        skipped,
+        createdCount: created.length,
+        skippedCount: skipped.length,
+      });
+    } catch (error) {
+      console.error("Error importing discovered papers:", error);
+      res.status(500).json({ message: "Failed to import discovered papers" });
     }
   });
 
