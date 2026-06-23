@@ -13,7 +13,7 @@ import {
 } from "@/components/ui/select";
 import { usePermissions } from "@/hooks/usePermissions";
 import { useAuth } from "@/hooks/useAuth";
-import { useCurrentUser, DUMMY_USERS } from "@/hooks/useCurrentUser";
+import { useCurrentUser, DUMMY_USERS, SUPER_ADMIN_USER } from "@/hooks/useCurrentUser";
 import { useTheme, themes } from "@/contexts/ThemeContext";
 import qbridgeLogo from "@assets/image_1767775219373.png";
 
@@ -24,13 +24,36 @@ interface SidebarProps {
 }
 
 export default function Sidebar({ mobile = false, onClose, onCollapsedChange }: SidebarProps) {
-  const [location] = useLocation();
+  const [location, navigate] = useLocation();
   const { isHidden, isReadOnly } = usePermissions();
   const { themeName, currentLabels, isSectionVisible } = useTheme();
-  const { authConfig, logout } = useAuth();
+  const { authConfig, logout, user: authUser } = useAuth();
   const { currentUser, setCurrentUser } = useCurrentUser();
   const ssoEnabled = authConfig.ssoEnabled;
-  const availableUsers = DUMMY_USERS;
+  // Expose the Super Admin test identity in the role selector only in demo mode.
+  const availableUsers = authConfig.mode === 'demo'
+    ? [...DUMMY_USERS, SUPER_ADMIN_USER]
+    : DUMMY_USERS;
+
+  // Default scientist record for open test/demo mode (Dr. Wouter Hendrickx).
+  const DEMO_SCIENTIST_ID = 48;
+
+  // Resolve the current user to their own scientist record. Under SSO the
+  // signed-in user's linked scientistId is authoritative; in open test/demo
+  // mode there is no real link, so we always land on the demo scientist.
+  const resolvedScientistId = ssoEnabled ? authUser?.scientistId ?? null : DEMO_SCIENTIST_ID;
+
+  // Navigate to the current user's scientist detail page. If no scientist can
+  // be resolved (SSO user with no linked record), fall back to the list so the
+  // click never produces a broken/missing-id route.
+  const handleUserCardClick = () => {
+    if (resolvedScientistId != null) {
+      navigate(`/scientists/${resolvedScientistId}`);
+    } else {
+      navigate('/scientists');
+    }
+    if (mobile && onClose) onClose();
+  };
 
   const [collapsed, setCollapsed] = useState<boolean>(() => {
     try {
@@ -321,7 +344,13 @@ export default function Sidebar({ mobile = false, onClose, onCollapsedChange }: 
         {/* User Info */}
         {!isCollapsed && (
           <div className="p-4 border-b border-primary/30">
-            <div className="flex items-center space-x-3 mb-3">
+            <button
+              type="button"
+              onClick={handleUserCardClick}
+              title="View my profile"
+              className="flex items-center space-x-3 mb-3 w-full text-left rounded-md p-1 -m-1 hover:bg-primary/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50 transition-colors cursor-pointer"
+              data-testid="button-user-card"
+            >
               <div className="h-10 w-10 rounded-full bg-primary/20 flex items-center justify-center text-primary font-medium flex-shrink-0">
                 {getInitials(currentUser.name || currentUser.role)}
               </div>
@@ -334,7 +363,7 @@ export default function Sidebar({ mobile = false, onClose, onCollapsedChange }: 
                     : 'Role-based Testing'}
                 </div>
               </div>
-            </div>
+            </button>
 
             {/* Role Selector — test mode only (hidden under SSO/real auth) */}
             {!ssoEnabled && (
@@ -362,12 +391,15 @@ export default function Sidebar({ mobile = false, onClose, onCollapsedChange }: 
         {/* Collapsed user avatar */}
         {isCollapsed && (
           <div className="flex justify-center py-3 border-b border-primary/30">
-            <div
-              className="h-9 w-9 rounded-full bg-primary/20 flex items-center justify-center text-primary font-medium flex-shrink-0"
-              title={`${currentUser.name} (${currentUser.role})`}
+            <button
+              type="button"
+              onClick={handleUserCardClick}
+              className="h-9 w-9 rounded-full bg-primary/20 flex items-center justify-center text-primary font-medium flex-shrink-0 hover:bg-primary/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50 transition-colors cursor-pointer"
+              title={`${currentUser.name} (${currentUser.role}) — View my profile`}
+              data-testid="button-user-card-collapsed"
             >
               {getInitials(currentUser.name || currentUser.role)}
-            </div>
+            </button>
           </div>
         )}
 
@@ -451,7 +483,7 @@ export default function Sidebar({ mobile = false, onClose, onCollapsedChange }: 
                   <Home className="w-4 h-4" />
                 </button>
               </Link>
-              {(currentUser.role === 'admin' || currentUser.role === 'superadmin') && (
+              {(currentUser.role === 'admin' || currentUser.role === 'superadmin' || currentUser.role === 'Management') && (
                 <>
                   <Link href="/settings/users" title="Manage Users" onClick={() => { if (mobile && onClose) onClose(); }}>
                     <button className="p-2 rounded-lg text-muted-foreground hover:text-primary hover:bg-primary/10 transition-colors">
@@ -484,7 +516,7 @@ export default function Sidebar({ mobile = false, onClose, onCollapsedChange }: 
                   <span className="text-[10px]">Home</span>
                 </button>
               </Link>
-              {(currentUser.role === 'admin' || currentUser.role === 'superadmin') && (
+              {(currentUser.role === 'admin' || currentUser.role === 'superadmin' || currentUser.role === 'Management') && (
                 <>
                   <Link href="/settings/users" onClick={() => { if (mobile && onClose) onClose(); }}>
                     <button className="flex flex-col items-center gap-0.5 text-muted-foreground hover:text-primary transition-colors p-1">

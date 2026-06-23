@@ -72,6 +72,17 @@ export default function PublicationDetail() {
   const [, navigate] = useLocation();
   const id = parseInt(params.id);
   const { toast } = useToast();
+
+  // Return to wherever the user came from (e.g. the New Publications tab),
+  // falling back to the publications list when there's no in-app history
+  // (direct deep-link / fresh page load).
+  const handleBack = () => {
+    if (window.history.length > 1) {
+      window.history.back();
+    } else {
+      navigate("/publications");
+    }
+  };
   const [isAddAuthorOpen, setIsAddAuthorOpen] = useState(false);
   const [selectedScientist, setSelectedScientist] = useState<string>("");
   const [selectedRole, setSelectedRole] = useState<string>("");
@@ -370,7 +381,7 @@ export default function PublicationDetail() {
     return (
       <div className="space-y-6">
         <div className="flex items-center gap-2">
-          <Button variant="ghost" size="sm" onClick={() => navigate("/publications")}>
+          <Button variant="ghost" size="sm" onClick={handleBack}>
             <ArrowLeft className="h-4 w-4 mr-1" />
             Back
           </Button>
@@ -398,7 +409,7 @@ export default function PublicationDetail() {
     return (
       <div className="space-y-6">
         <div className="flex items-center gap-2">
-          <Button variant="ghost" size="sm" onClick={() => navigate("/publications")}>
+          <Button variant="ghost" size="sm" onClick={handleBack}>
             <ArrowLeft className="h-4 w-4 mr-1" />
             Back
           </Button>
@@ -408,7 +419,7 @@ export default function PublicationDetail() {
           <CardContent className="py-8">
             <div className="text-center">
               <p className="text-lg text-foreground">The publication you're looking for could not be found.</p>
-              <Button className="mt-4" onClick={() => navigate("/publications")}>
+              <Button className="mt-4" onClick={handleBack}>
                 Return to Publications List
               </Button>
             </div>
@@ -422,7 +433,7 @@ export default function PublicationDetail() {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
-          <Button variant="ghost" size="sm" onClick={() => navigate("/publications")}>
+          <Button variant="ghost" size="sm" onClick={handleBack}>
             <ArrowLeft className="h-4 w-4 mr-1" />
             Back
           </Button>
@@ -752,6 +763,7 @@ export default function PublicationDetail() {
                           <TableHead>Scientist</TableHead>
                           <TableHead>Role</TableHead>
                           <TableHead>Position</TableHead>
+                          <TableHead>Link</TableHead>
                           <TableHead className="w-[70px]">Actions</TableHead>
                         </TableRow>
                       </TableHeader>
@@ -790,6 +802,24 @@ export default function PublicationDetail() {
                             </TableCell>
                             <TableCell>
                               {author.authorPosition || 'N/A'}
+                            </TableCell>
+                            <TableCell>
+                              <div className="flex flex-col gap-0.5">
+                                <Badge
+                                  variant="outline"
+                                  className={`w-fit text-xs ${author.linkMethod === 'automatic'
+                                    ? 'border-blue-300 text-blue-700 dark:border-blue-700 dark:text-blue-300'
+                                    : 'border-gray-300 text-gray-700 dark:border-gray-600 dark:text-gray-300'}`}
+                                  data-testid={`badge-link-method-${author.id}`}
+                                >
+                                  {author.linkMethod === 'automatic' ? 'Auto' : 'Manual'}
+                                </Badge>
+                                {author.linkedByName && (
+                                  <span className="text-xs text-muted-foreground" data-testid={`text-linked-by-${author.id}`}>
+                                    by {author.linkedByName}
+                                  </span>
+                                )}
+                              </div>
                             </TableCell>
                             <TableCell>
                               <Button

@@ -3,10 +3,11 @@
 import { useState, useEffect, useRef, useLayoutEffect, useMemo } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { SearchableSelect } from "@/components/ui/searchable-select";
 import { Textarea } from "@/components/ui/textarea";
 import { 
   Table, 
@@ -24,7 +25,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import * as SliderPrimitive from "@radix-ui/react-slider";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
-import { Pencil, Save, X, Upload, Search, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, ChevronDown, ArrowUpDown, ArrowUp, ArrowDown, Star, Shield, FileText, BarChart3, Download, Calendar, User, BookOpen, Award, TrendingUp, CopyCheck } from "lucide-react";
+import { Pencil, Save, X, Upload, Search, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, ChevronDown, ArrowUpDown, ArrowUp, ArrowDown, Star, Shield, FileText, BarChart3, Download, Calendar, User, Users, BookOpen, Award, TrendingUp, CopyCheck, AlertTriangle, UserX, Unlink, CheckCircle2, Sparkles, Loader2, Globe, Plus } from "lucide-react";
 import { UploadingModal } from "@/components/ui/upload-modal";
 import { PublicationDuplicates } from "@/components/PublicationDuplicates";
 import { useToast } from "@/hooks/use-toast";
@@ -59,12 +60,81 @@ interface SidraRanking {
   calculationDetails: any;
 }
 
+// Render an affiliation string with the searched term highlighted, so staff can
+// visually verify the match that triggered the discovery.
+function highlightAffiliation(text: string, term: string) {
+  const clean = (term || "").trim();
+  if (!clean) return <>{text}</>;
+  const tokens = [clean, ...clean.split(/\s+/).filter((w) => w.length >= 4)];
+  const escaped = tokens
+    .map((t) => t.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"))
+    .sort((a, b) => b.length - a.length);
+  const re = new RegExp(`(${escaped.join("|")})`, "ig");
+  const testRe = new RegExp(`^(?:${escaped.join("|")})$`, "i");
+  const parts = text.split(re);
+  return (
+    <>
+      {parts.map((part, i) =>
+        part.trim() && testRe.test(part) ? (
+          <mark
+            key={i}
+            className="bg-yellow-200 text-yellow-900 dark:bg-yellow-500/30 dark:text-yellow-200 rounded px-0.5"
+          >
+            {part}
+          </mark>
+        ) : (
+          <span key={i}>{part}</span>
+        )
+      )}
+    </>
+  );
+}
+
 export default function PublicationOffice() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
   
   // Tab state
   const [activeTab, setActiveTab] = useState("ip-vetting");
+
+  // New Publications tab filters (issue/tag, scientist, publication date range)
+  const [npTagFilter, setNpTagFilter] = useState<string>("all");
+  const [npScientistId, setNpScientistId] = useState<string>("all");
+  const [npDateFrom, setNpDateFrom] = useState<string>("");
+  const [npDateTo, setNpDateTo] = useState<string>("");
+
+  // Auto-connect internal authors dialog: which publication is open, and which
+  // suggested scientist links the user has selected to confirm.
+  const [autoConnectPub, setAutoConnectPub] = useState<Publication | null>(null);
+  const [selectedSuggestionIds, setSelectedSuggestionIds] = useState<Set<number>>(new Set());
+  const [suggestionRoles, setSuggestionRoles] = useState<Record<number, string>>({});
+
+  // Find Papers (multi-source discovery) tab state.
+  const [fpMode, setFpMode] = useState<"institution" | "scientist" | "keyword">("institution");
+  const [fpAffiliation, setFpAffiliation] = useState<string>("Sidra Medicine");
+  const [fpScientistIds, setFpScientistIds] = useState<number[]>([]);
+  const [fpQuery, setFpQuery] = useState<string>("");
+  const [fpYearFrom, setFpYearFrom] = useState<string>(String(new Date().getFullYear()));
+  const [fpYearTo, setFpYearTo] = useState<string>(String(new Date().getFullYear()));
+  const [fpSources, setFpSources] = useState<Record<string, boolean>>({
+    openalex: true,
+    pubmed: true,
+    crossref: true,
+    europepmc: true,
+    orcid: true,
+  });
+  const [fpResults, setFpResults] = useState<Array<{
+    doi: string;
+    title: string;
+    journal: string;
+    year: number | null;
+    authors: string;
+    sources: string[];
+    matchedAffiliation?: string | null;
+    alreadyExists: boolean;
+  }>>([]);
+  const [fpSelectedDois, setFpSelectedDois] = useState<Set<string>>(new Set());
+  const [fpSearched, setFpSearched] = useState(false);
   
   // Export tab state
   const [exportStartDate, setExportStartDate] = useState("");
@@ -411,14 +481,240 @@ export default function PublicationOffice() {
       const response = await fetch('/api/publications');
       if (!response.ok) throw new Error('Failed to fetch publications');
       const publications = await response.json();
-      // Filter publications that have been vetted (Published status)
-      return publications.filter((pub: Publication) => 
-        pub.vettedForSubmissionByIpOffice === true &&
-        pub.status === 'Published'
+      // Surface publications that are NOT yet finalized/vetted by the office so
+      // staff can see records still needing attention (data-quality fixes,
+      // author links, SDR links) before they are marked Published *.
+      // A record is finalized when EITHER the vetted flag is set OR its status
+      // already carries the "*" (Published *) final marker — some records have
+      // the final status without the flag, and those must not reappear here.
+      return publications.filter((pub: Publication) =>
+        pub.vettedForSubmissionByIpOffice !== true &&
+        !pub.status?.includes('*')
       );
     },
     enabled: activeTab === "new-publications"
   });
+
+  // Per-publication internal author counts, used to flag publications with no
+  // linked internal scientist/author records on the New Publications tab.
+  const { data: authorCounts = {} } = useQuery<Record<number, number>>({
+    queryKey: ['/api/publications/author-counts'],
+    enabled: activeTab === "new-publications"
+  });
+
+  // Per-publication linked internal scientists, used to power the "filter by
+  // scientist" control on the New Publications tab.
+  const { data: authorMap = {} } = useQuery<Record<number, Array<{ id: number; name: string }>>>({
+    queryKey: ['/api/publications/author-map'],
+    enabled: activeTab === "new-publications"
+  });
+
+  // Suggested internal-author links for the publication whose auto-connect
+  // dialog is currently open. The backend infers role + position from the
+  // free-text author list and excludes already-linked scientists.
+  const { data: suggestionData, isLoading: suggestionsLoading } = useQuery<{
+    suggestions: Array<{
+      scientistId: number;
+      authorshipType: string;
+      authorPosition: number | null;
+      scientist: { id: number; firstName?: string | null; lastName?: string | null; honorificTitle?: string | null } | null;
+    }>;
+  }>({
+    queryKey: [`/api/publications/${autoConnectPub?.id}/author-suggestions`],
+    enabled: !!autoConnectPub?.id,
+  });
+  const suggestions = suggestionData?.suggestions ?? [];
+
+  // Default every suggestion to selected whenever a new set arrives.
+  useEffect(() => {
+    if (suggestions.length > 0) {
+      setSelectedSuggestionIds(new Set(suggestions.map((s) => s.scientistId)));
+      setSuggestionRoles(
+        Object.fromEntries(suggestions.map((s) => [s.scientistId, s.authorshipType]))
+      );
+    } else {
+      setSelectedSuggestionIds(new Set());
+      setSuggestionRoles({});
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [suggestionData]);
+
+  const confirmAutoConnectMutation = useMutation({
+    mutationFn: async ({ publicationId, links }: { publicationId: number; links: any[] }) => {
+      const response = await fetch(`/api/publications/${publicationId}/authors/bulk`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ links }),
+      });
+      if (!response.ok) throw new Error('Failed to link authors');
+      return response.json();
+    },
+    onSuccess: (data) => {
+      toast({
+        title: "Authors linked",
+        description: `Linked ${data.createdCount} internal author${data.createdCount === 1 ? '' : 's'}.`,
+      });
+      setAutoConnectPub(null);
+      queryClient.invalidateQueries({ queryKey: ['/api/publications', 'new-publications'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/publications/author-counts'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/publications/author-map'] });
+    },
+    onError: () => {
+      toast({ title: "Error", description: "Failed to link internal authors", variant: "destructive" });
+    },
+  });
+
+  // Scientists list, used by the Find Papers "by scientist" mode selector.
+  const { data: allScientistsList = [] } = useQuery<Array<{ id: number; firstName?: string | null; lastName?: string | null; honorificTitle?: string | null }>>({
+    queryKey: ['/api/scientists'],
+    enabled: activeTab === "find-papers",
+  });
+  const fpScientistOptions = useMemo(
+    () =>
+      allScientistsList
+        .map((s) => ({
+          value: String(s.id),
+          label: [s.honorificTitle, s.firstName, s.lastName].filter(Boolean).join(" ").trim() || `Scientist #${s.id}`,
+        }))
+        .sort((a, b) => a.label.localeCompare(b.label)),
+    [allScientistsList],
+  );
+
+  // Multi-source paper discovery search.
+  const discoverMutation = useMutation({
+    mutationFn: async (payload: any) => {
+      const response = await fetch('/api/publications/discover', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      if (!response.ok) {
+        const err = await response.json().catch(() => ({}));
+        throw new Error(err.message || 'Failed to discover papers');
+      }
+      return response.json();
+    },
+    onSuccess: (data) => {
+      setFpResults(data.results || []);
+      // Default-select the importable (not-yet-existing) results.
+      setFpSelectedDois(new Set((data.results || []).filter((r: any) => !r.alreadyExists).map((r: any) => r.doi)));
+      setFpSearched(true);
+      toast({ title: "Search complete", description: `Found ${data.count} unique paper${data.count === 1 ? '' : 's'}.` });
+    },
+    onError: (e: any) => {
+      toast({ title: "Error", description: e.message || "Failed to discover papers", variant: "destructive" });
+    },
+  });
+
+  const importDiscoveredMutation = useMutation({
+    mutationFn: async (papers: any[]) => {
+      const response = await fetch('/api/publications/discover/import', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ papers }),
+      });
+      if (!response.ok) throw new Error('Failed to import papers');
+      return response.json();
+    },
+    onSuccess: (data) => {
+      const linked = (data.created || []).reduce((sum: number, c: any) => sum + (c.linkedAuthors || 0), 0);
+      toast({
+        title: "Import complete",
+        description: `Imported ${data.createdCount} paper${data.createdCount === 1 ? '' : 's'} (${linked} author link${linked === 1 ? '' : 's'}); skipped ${data.skippedCount}.`,
+      });
+      // Mark imported DOIs as existing so the table disables re-import.
+      const importedDois = new Set((data.created || []).map((c: any) => c.doi));
+      setFpResults((prev) => prev.map((r) => (importedDois.has(r.doi) ? { ...r, alreadyExists: true } : r)));
+      setFpSelectedDois(new Set());
+      queryClient.invalidateQueries({ queryKey: ['/api/publications', 'new-publications'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/publications/author-counts'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/publications/author-map'] });
+    },
+    onError: () => {
+      toast({ title: "Error", description: "Failed to import papers", variant: "destructive" });
+    },
+  });
+
+  const handleDiscoverSearch = () => {
+    const sources = Object.entries(fpSources).filter(([, v]) => v).map(([k]) => k);
+    if (sources.length === 0) {
+      toast({ title: "Select a source", description: "Choose at least one source to search.", variant: "destructive" });
+      return;
+    }
+    const payload: any = {
+      mode: fpMode,
+      sources,
+      yearFrom: fpYearFrom ? Number(fpYearFrom) : undefined,
+      yearTo: fpYearTo ? Number(fpYearTo) : undefined,
+    };
+    if (fpMode === "institution") payload.affiliation = fpAffiliation;
+    else if (fpMode === "scientist") payload.scientistIds = fpScientistIds;
+    else payload.query = fpQuery;
+    discoverMutation.mutate(payload);
+  };
+
+  // Shared data-quality / vetting issue computation so the filter and the
+  // rendered badges stay in sync.
+  const getPubIssues = (pub: Publication) => {
+    const missingFields: string[] = [];
+    if (!pub.journal?.trim()) missingFields.push('journal');
+    if (!pub.publicationDate) missingFields.push('publication date');
+    if (!pub.doi?.trim() && !pub.pmid?.trim()) missingFields.push('DOI/PMID');
+    if (!pub.authors?.trim()) missingFields.push('authors');
+    if (!pub.abstract?.trim()) missingFields.push('abstract');
+    const hasInternalAuthors = (authorCounts[pub.id] || 0) > 0;
+    const hasSdr = !!pub.researchActivityId;
+    const isVetted = !!pub.status?.includes('*');
+    const hasIssues = missingFields.length > 0 || !hasInternalAuthors || !hasSdr;
+    return { missingFields, hasInternalAuthors, hasSdr, isVetted, hasIssues };
+  };
+
+  // Scientist options (only those actually linked to current new publications).
+  const npScientistOptions = useMemo(() => {
+    const seen = new Map<number, string>();
+    for (const pub of newPublications) {
+      for (const s of authorMap[pub.id] || []) {
+        if (!seen.has(s.id)) seen.set(s.id, s.name);
+      }
+    }
+    return Array.from(seen.entries())
+      .map(([id, name]) => ({ value: String(id), label: name }))
+      .sort((a, b) => a.label.localeCompare(b.label));
+  }, [newPublications, authorMap]);
+
+  // Apply the New Publications filters (issue/tag, scientist, date range).
+  const filteredNewPublications = useMemo(() => {
+    return newPublications.filter((pub) => {
+      const { missingFields, hasInternalAuthors, hasSdr, isVetted, hasIssues } = getPubIssues(pub);
+
+      if (npTagFilter !== "all") {
+        if (npTagFilter === "missing-data" && missingFields.length === 0) return false;
+        if (npTagFilter === "no-internal-authors" && hasInternalAuthors) return false;
+        if (npTagFilter === "no-sdr" && hasSdr) return false;
+        if (npTagFilter === "not-vetted" && isVetted) return false;
+        if (npTagFilter === "no-issues" && hasIssues) return false;
+      }
+
+      if (npScientistId !== "all") {
+        const ids = (authorMap[pub.id] || []).map((s) => s.id);
+        if (!ids.includes(Number(npScientistId))) return false;
+      }
+
+      if (npDateFrom || npDateTo) {
+        if (!pub.publicationDate) return false;
+        const d = new Date(pub.publicationDate);
+        if (npDateFrom && d < new Date(npDateFrom)) return false;
+        if (npDateTo) {
+          const to = new Date(npDateTo);
+          to.setHours(23, 59, 59, 999);
+          if (d > to) return false;
+        }
+      }
+
+      return true;
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [newPublications, authorCounts, authorMap, npTagFilter, npScientistId, npDateFrom, npDateTo]);
 
   // Export functionality
   const searchExportMutation = useMutation({
@@ -853,7 +1149,7 @@ export default function PublicationOffice() {
       </div>
 
       <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">
-        <TabsList className="grid w-full grid-cols-6">
+        <TabsList className="grid w-full grid-cols-7">
           <TabsTrigger value="ip-vetting" className="flex items-center gap-2">
             <Shield className="h-4 w-4" />
             IP Vetting ({publicationsForIP.length})
@@ -861,6 +1157,10 @@ export default function PublicationOffice() {
           <TabsTrigger value="new-publications" className="flex items-center gap-2">
             <FileText className="h-4 w-4" />
             New Publications ({newPublications.length})
+          </TabsTrigger>
+          <TabsTrigger value="find-papers" className="flex items-center gap-2" data-testid="tab-find-papers">
+            <Globe className="h-4 w-4" />
+            Find Papers
           </TabsTrigger>
           <TabsTrigger value="duplicates" className="flex items-center gap-2" data-testid="tab-duplicates">
             <CopyCheck className="h-4 w-4" />
@@ -953,9 +1253,94 @@ export default function PublicationOffice() {
                   No new publications
                 </div>
               ) : (
+                <>
+                  {/* Filters: focus the list by data-quality/vetting issue,
+                      linked scientist, and publication date range. */}
+                  <div className="flex flex-wrap items-end gap-3 mb-4">
+                    <div className="space-y-1">
+                      <Label className="text-xs">Issue / tag</Label>
+                      <Select value={npTagFilter} onValueChange={setNpTagFilter}>
+                        <SelectTrigger className="w-[210px]" data-testid="select-np-tag">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="all">All publications</SelectItem>
+                          <SelectItem value="not-vetted">Not marked as vetted</SelectItem>
+                          <SelectItem value="missing-data">Missing data</SelectItem>
+                          <SelectItem value="no-internal-authors">No internal users linked</SelectItem>
+                          <SelectItem value="no-sdr">Not linked to an SDR</SelectItem>
+                          <SelectItem value="no-issues">No issues</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="space-y-1">
+                      <Label className="text-xs">Scientist</Label>
+                      <SearchableSelect
+                        options={[{ value: "all", label: "All scientists" }, ...npScientistOptions]}
+                        value={npScientistId}
+                        onChange={setNpScientistId}
+                        placeholder="All scientists"
+                        searchPlaceholder="Search scientists..."
+                        triggerClassName="w-[230px]"
+                        data-testid="select-np-scientist"
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <Label className="text-xs">From date</Label>
+                      <Input
+                        type="date"
+                        value={npDateFrom}
+                        onChange={(e) => setNpDateFrom(e.target.value)}
+                        className="w-[160px]"
+                        data-testid="input-np-date-from"
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <Label className="text-xs">To date</Label>
+                      <Input
+                        type="date"
+                        value={npDateTo}
+                        onChange={(e) => setNpDateTo(e.target.value)}
+                        className="w-[160px]"
+                        data-testid="input-np-date-to"
+                      />
+                    </div>
+                    {(npTagFilter !== "all" || npScientistId !== "all" || npDateFrom || npDateTo) && (
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => {
+                          setNpTagFilter("all");
+                          setNpScientistId("all");
+                          setNpDateFrom("");
+                          setNpDateTo("");
+                        }}
+                        data-testid="button-np-clear-filters"
+                      >
+                        <X className="h-4 w-4 mr-1" />
+                        Clear
+                      </Button>
+                    )}
+                  </div>
+                  <div className="text-sm text-muted-foreground mb-3" data-testid="text-np-result-count">
+                    Showing {filteredNewPublications.length} of {newPublications.length} publications
+                  </div>
+                  {filteredNewPublications.length === 0 ? (
+                    <div className="text-center py-8 text-muted-foreground">
+                      No publications match the current filters
+                    </div>
+                  ) : (
                 <div className="space-y-4">
-                  {newPublications.map((pub: Publication) => (
-                    <div key={pub.id} className="border rounded-lg p-4 space-y-3">
+                  {filteredNewPublications.map((pub: Publication) => {
+                    // Compute data-quality issues so staff can see what each
+                    // record is missing before it gets vetted/finalized.
+                    const { missingFields, hasInternalAuthors, hasSdr, hasIssues } = getPubIssues(pub);
+                    return (
+                    <div
+                      key={pub.id}
+                      className={`border rounded-lg p-4 space-y-3 ${hasIssues ? 'border-amber-300 dark:border-amber-800 bg-amber-50/40 dark:bg-amber-950/20' : 'border-green-300 dark:border-green-800 bg-green-50/40 dark:bg-green-950/20'}`}
+                      data-testid={`row-new-publication-${pub.id}`}
+                    >
                       <div className="flex items-start justify-between">
                         <div className="flex-1">
                           <Link href={`/publications/${pub.id}`}>
@@ -963,9 +1348,9 @@ export default function PublicationOffice() {
                               {pub.title}
                             </h3>
                           </Link>
-                          <p className="text-sm text-gray-600 mt-1 dark:text-gray-300">{pub.authors}</p>
+                          <p className="text-sm text-gray-600 mt-1 dark:text-gray-300">{pub.authors || <span className="italic text-gray-400">No authors listed</span>}</p>
                           <p className="text-sm text-gray-500 dark:text-gray-400">
-                            {pub.journal} • {pub.publicationDate ? format(new Date(pub.publicationDate), 'yyyy') : 'No date'}
+                            {pub.journal || 'No journal'} • {pub.publicationDate ? format(new Date(pub.publicationDate), 'yyyy') : 'No date'}
                           </p>
                         </div>
                         <div className="flex items-center gap-2">
@@ -983,23 +1368,389 @@ export default function PublicationOffice() {
                             )}
                           </Badge>
                           {!pub.status?.includes('*') && (
-                            <Button 
-                              size="sm"
-                              onClick={() => markAsVettedMutation.mutate(pub.id)}
-                              disabled={markAsVettedMutation.isPending}
-                            >
-                              <Star className="h-4 w-4 mr-1" />
-                              Mark as Published *
-                            </Button>
+                            <div className="flex flex-col items-stretch gap-2">
+                              {!hasInternalAuthors && pub.authors?.trim() && (
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  onClick={() => setAutoConnectPub(pub)}
+                                  data-testid={`button-auto-connect-${pub.id}`}
+                                >
+                                  <Users className="h-4 w-4 mr-1" />
+                                  Auto-connect authors
+                                </Button>
+                              )}
+                              <Button 
+                                size="sm"
+                                onClick={() => markAsVettedMutation.mutate(pub.id)}
+                                disabled={markAsVettedMutation.isPending || !hasInternalAuthors}
+                                title={!hasInternalAuthors ? 'Link at least one internal author before marking as published' : undefined}
+                                data-testid={`button-mark-published-${pub.id}`}
+                              >
+                                <Star className="h-4 w-4 mr-1" />
+                                Mark as Published *
+                              </Button>
+                            </div>
                           )}
                         </div>
                       </div>
+                      <div className="flex flex-wrap items-center gap-2" data-testid={`flags-publication-${pub.id}`}>
+                        {!hasIssues ? (
+                          <Badge
+                            variant="secondary"
+                            className="bg-green-100 text-green-800 dark:bg-green-950 dark:text-green-300"
+                            data-testid={`flag-complete-${pub.id}`}
+                          >
+                            <CheckCircle2 className="h-3 w-3 mr-1" />
+                            No issues
+                          </Badge>
+                        ) : (
+                          <>
+                            {missingFields.length > 0 && (
+                              <Badge
+                                variant="secondary"
+                                className="bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300"
+                                data-testid={`flag-missing-data-${pub.id}`}
+                              >
+                                <AlertTriangle className="h-3 w-3 mr-1" />
+                                Missing: {missingFields.join(', ')}
+                              </Badge>
+                            )}
+                            {!hasInternalAuthors && (
+                              <Badge
+                                variant="secondary"
+                                className="bg-red-100 text-red-800 dark:bg-red-950 dark:text-red-300"
+                                data-testid={`flag-no-internal-authors-${pub.id}`}
+                              >
+                                <UserX className="h-3 w-3 mr-1" />
+                                No internal users linked
+                              </Badge>
+                            )}
+                            {!hasSdr && (
+                              <Badge
+                                variant="secondary"
+                                className="bg-orange-100 text-orange-800 dark:bg-orange-950 dark:text-orange-300"
+                                data-testid={`flag-no-sdr-${pub.id}`}
+                              >
+                                <Unlink className="h-3 w-3 mr-1" />
+                                Not linked to an SDR
+                              </Badge>
+                            )}
+                          </>
+                        )}
+                      </div>
                     </div>
-                  ))}
+                    );
+                  })}
                 </div>
+                  )}
+                </>
               )}
             </CardContent>
           </Card>
+        </TabsContent>
+
+        {/* Find Papers Tab — institution-wide multi-source discovery */}
+        <TabsContent value="find-papers" className="space-y-6">
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Globe className="h-5 w-5" />
+                Find Papers
+              </CardTitle>
+              <CardDescription>
+                Search ORCID, OpenAlex, PubMed, Crossref, and Europe PMC for papers,
+                then import the ones missing from the portal. Imported papers auto-link
+                matching internal scientists.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              {/* Search mode */}
+              <div className="flex flex-col gap-4 md:flex-row md:items-end">
+                <div className="space-y-2">
+                  <Label>Search by</Label>
+                  <Select value={fpMode} onValueChange={(v) => setFpMode(v as any)}>
+                    <SelectTrigger className="w-[200px]" data-testid="select-fp-mode">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="institution">Institution / Affiliation</SelectItem>
+                      <SelectItem value="scientist">Scientist(s)</SelectItem>
+                      <SelectItem value="keyword">Keyword / Title / DOI</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                {fpMode === "institution" && (
+                  <div className="flex-1 space-y-2">
+                    <Label>Affiliation</Label>
+                    <Input
+                      placeholder="e.g. Sidra Medicine"
+                      value={fpAffiliation}
+                      onChange={(e) => setFpAffiliation(e.target.value)}
+                      data-testid="input-fp-affiliation"
+                    />
+                  </div>
+                )}
+                {fpMode === "keyword" && (
+                  <div className="flex-1 space-y-2">
+                    <Label>Query</Label>
+                    <Input
+                      placeholder="Keywords, title, author, or DOI"
+                      value={fpQuery}
+                      onChange={(e) => setFpQuery(e.target.value)}
+                      data-testid="input-fp-query"
+                    />
+                  </div>
+                )}
+                {fpMode === "scientist" && (
+                  <div className="flex-1 space-y-2">
+                    <Label>Scientists</Label>
+                    <SearchableSelect
+                      options={fpScientistOptions}
+                      value={fpScientistIds.length ? String(fpScientistIds[fpScientistIds.length - 1]) : ""}
+                      onValueChange={(v) => {
+                        const id = Number(v);
+                        if (!Number.isInteger(id)) return;
+                        setFpScientistIds((prev) => (prev.includes(id) ? prev : [...prev, id]));
+                      }}
+                      placeholder="Add a scientist..."
+                      data-testid="select-fp-scientist"
+                    />
+                    {fpScientistIds.length > 0 && (
+                      <div className="flex flex-wrap gap-1 pt-1">
+                        {fpScientistIds.map((id) => {
+                          const opt = fpScientistOptions.find((o) => o.value === String(id));
+                          return (
+                            <Badge key={id} variant="secondary" className="gap-1" data-testid={`badge-fp-scientist-${id}`}>
+                              {opt?.label || `#${id}`}
+                              <X
+                                className="h-3 w-3 cursor-pointer"
+                                onClick={() => setFpScientistIds((prev) => prev.filter((x) => x !== id))}
+                              />
+                            </Badge>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+
+              {/* Year range + sources */}
+              <div className="flex flex-col gap-4 md:flex-row md:items-end">
+                <div className="space-y-2">
+                  <Label>Year from</Label>
+                  <Input
+                    type="number"
+                    className="w-[120px]"
+                    placeholder="2015"
+                    value={fpYearFrom}
+                    onChange={(e) => setFpYearFrom(e.target.value)}
+                    data-testid="input-fp-year-from"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label>Year to</Label>
+                  <Input
+                    type="number"
+                    className="w-[120px]"
+                    placeholder="2026"
+                    value={fpYearTo}
+                    onChange={(e) => setFpYearTo(e.target.value)}
+                    data-testid="input-fp-year-to"
+                  />
+                </div>
+                <div className="flex-1 space-y-2">
+                  <Label>Sources</Label>
+                  <div className="flex flex-wrap gap-3">
+                    {[
+                      { key: "openalex", label: "OpenAlex" },
+                      { key: "pubmed", label: "PubMed" },
+                      { key: "crossref", label: "Crossref" },
+                      { key: "europepmc", label: "Europe PMC" },
+                      { key: "orcid", label: "ORCID" },
+                    ].map((src) => (
+                      <label key={src.key} className="flex items-center gap-2 text-sm">
+                        <Checkbox
+                          checked={fpSources[src.key]}
+                          onCheckedChange={(c) =>
+                            setFpSources((prev) => ({ ...prev, [src.key]: !!c }))
+                          }
+                          data-testid={`checkbox-source-${src.key}`}
+                        />
+                        {src.label}
+                        {src.key === "orcid" && fpMode !== "scientist" && (
+                          <span className="text-xs text-muted-foreground">(scientist mode)</span>
+                        )}
+                      </label>
+                    ))}
+                  </div>
+                </div>
+              </div>
+
+              <div>
+                <Button
+                  onClick={handleDiscoverSearch}
+                  disabled={discoverMutation.isPending}
+                  data-testid="button-fp-search"
+                >
+                  {discoverMutation.isPending ? (
+                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                  ) : (
+                    <Search className="h-4 w-4 mr-2" />
+                  )}
+                  Search
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* Results */}
+          {fpSearched && (
+            <Card>
+              <CardHeader>
+                <div className="flex items-center justify-between">
+                  <div>
+                    <CardTitle className="text-base">
+                      {fpResults.length} paper{fpResults.length === 1 ? "" : "s"} found
+                    </CardTitle>
+                    <p className="text-xs text-muted-foreground mt-1" data-testid="text-fp-summary">
+                      Showing {fpResults.length} paper{fpResults.length === 1 ? "" : "s"},{" "}
+                      {fpResults.filter((r) => r.alreadyExists).length} already in system
+                    </p>
+                  </div>
+                  <Button
+                    size="sm"
+                    disabled={fpSelectedDois.size === 0 || importDiscoveredMutation.isPending}
+                    onClick={() => {
+                      const papers = fpResults
+                        .filter((r) => fpSelectedDois.has(r.doi) && !r.alreadyExists)
+                        .map((r) => ({ doi: r.doi, title: r.title, journal: r.journal, year: r.year, authors: r.authors }));
+                      if (papers.length > 0) importDiscoveredMutation.mutate(papers);
+                    }}
+                    data-testid="button-fp-import"
+                  >
+                    {importDiscoveredMutation.isPending ? (
+                      <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                    ) : (
+                      <Plus className="h-4 w-4 mr-2" />
+                    )}
+                    Import selected ({fpSelectedDois.size})
+                  </Button>
+                </div>
+              </CardHeader>
+              <CardContent>
+                {fpResults.length === 0 ? (
+                  <div className="text-center py-8 text-muted-foreground">No papers found.</div>
+                ) : (
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead className="w-[40px]">
+                          {(() => {
+                            const importable = fpResults.filter((r) => !r.alreadyExists);
+                            const allSelected =
+                              importable.length > 0 &&
+                              importable.every((r) => fpSelectedDois.has(r.doi));
+                            return (
+                              <Checkbox
+                                checked={allSelected}
+                                disabled={importable.length === 0}
+                                onCheckedChange={(c) =>
+                                  setFpSelectedDois(
+                                    c ? new Set(importable.map((r) => r.doi)) : new Set()
+                                  )
+                                }
+                                data-testid="checkbox-fp-select-all"
+                              />
+                            );
+                          })()}
+                        </TableHead>
+                        <TableHead>Title</TableHead>
+                        <TableHead className="w-[140px]">Journal</TableHead>
+                        <TableHead className="w-[70px]">Year</TableHead>
+                        <TableHead className="w-[160px]">Sources</TableHead>
+                        <TableHead className="w-[100px]">Status</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {fpResults.map((r) => (
+                        <TableRow key={r.doi} data-testid={`row-fp-result-${r.doi}`}>
+                          <TableCell>
+                            <Checkbox
+                              checked={fpSelectedDois.has(r.doi)}
+                              disabled={r.alreadyExists}
+                              onCheckedChange={(c) =>
+                                setFpSelectedDois((prev) => {
+                                  const next = new Set(prev);
+                                  if (c) next.add(r.doi);
+                                  else next.delete(r.doi);
+                                  return next;
+                                })
+                              }
+                              data-testid={`checkbox-fp-${r.doi}`}
+                            />
+                          </TableCell>
+                          <TableCell>
+                            <div className="font-medium">{r.title}</div>
+                            <div className="text-xs text-muted-foreground truncate max-w-[420px]">
+                              {r.authors || "No authors listed"}
+                            </div>
+                            <a
+                              href={`https://doi.org/${r.doi}`}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="text-xs text-blue-600 hover:underline dark:text-blue-400"
+                            >
+                              {r.doi}
+                            </a>
+                            {fpMode === "institution" && (
+                              <div
+                                className="mt-1 text-xs"
+                                data-testid={`text-fp-affiliation-${r.doi}`}
+                              >
+                                {r.matchedAffiliation ? (
+                                  <span className="text-muted-foreground">
+                                    Affiliation:{" "}
+                                    {highlightAffiliation(r.matchedAffiliation, fpAffiliation)}
+                                  </span>
+                                ) : (
+                                  <span className="italic text-amber-600 dark:text-amber-400">
+                                    No affiliation returned — verify manually
+                                  </span>
+                                )}
+                              </div>
+                            )}
+                          </TableCell>
+                          <TableCell className="text-sm">{r.journal || "—"}</TableCell>
+                          <TableCell className="text-sm">{r.year ?? "—"}</TableCell>
+                          <TableCell>
+                            <div className="flex flex-wrap gap-1">
+                              {r.sources.map((s) => (
+                                <Badge key={s} variant="outline" className="text-xs">
+                                  {s}
+                                </Badge>
+                              ))}
+                            </div>
+                          </TableCell>
+                          <TableCell>
+                            {r.alreadyExists ? (
+                              <Badge variant="secondary" className="bg-green-100 text-green-800 dark:bg-green-950 dark:text-green-300">
+                                In portal
+                              </Badge>
+                            ) : (
+                              <Badge variant="outline">New</Badge>
+                            )}
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                )}
+              </CardContent>
+            </Card>
+          )}
         </TabsContent>
 
         {/* Duplicates Tab */}
@@ -1949,6 +2700,126 @@ export default function PublicationOffice() {
           </Card>
         </TabsContent>
       </Tabs>
+
+      {/* Auto-connect internal authors dialog */}
+      <Dialog open={!!autoConnectPub} onOpenChange={(o) => !o && setAutoConnectPub(null)}>
+        <DialogContent className="max-w-2xl max-h-[80vh] overflow-y-auto" data-testid="dialog-auto-connect">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Users className="h-5 w-5" />
+              Auto-connect internal authors
+            </DialogTitle>
+            <DialogDescription>
+              Review the internal scientists matched against this publication's author
+              list. Confirm the ones to link — each link is recorded as an automatic
+              link made by you.
+            </DialogDescription>
+          </DialogHeader>
+
+          {autoConnectPub && (
+            <div className="space-y-4">
+              <div className="text-sm">
+                <div className="font-medium">{autoConnectPub.title}</div>
+                <div className="text-muted-foreground">{autoConnectPub.authors}</div>
+              </div>
+
+              {suggestionsLoading ? (
+                <div className="flex items-center gap-2 py-6 text-muted-foreground">
+                  <Loader2 className="h-4 w-4 animate-spin" /> Matching internal scientists…
+                </div>
+              ) : suggestions.length === 0 ? (
+                <div className="text-center py-6 text-muted-foreground" data-testid="text-no-suggestions">
+                  No internal scientists matched this author list.
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  {suggestions.map((s) => {
+                    const name = [s.scientist?.honorificTitle, s.scientist?.firstName, s.scientist?.lastName]
+                      .filter(Boolean)
+                      .join(" ")
+                      .trim() || `Scientist #${s.scientistId}`;
+                    const checked = selectedSuggestionIds.has(s.scientistId);
+                    const role = suggestionRoles[s.scientistId] ?? s.authorshipType;
+                    return (
+                      <div
+                        key={s.scientistId}
+                        className="flex items-center gap-3 rounded-md border p-3 hover:bg-muted/50"
+                        data-testid={`suggestion-row-${s.scientistId}`}
+                      >
+                        <Checkbox
+                          checked={checked}
+                          onCheckedChange={(c) =>
+                            setSelectedSuggestionIds((prev) => {
+                              const next = new Set(prev);
+                              if (c) next.add(s.scientistId);
+                              else next.delete(s.scientistId);
+                              return next;
+                            })
+                          }
+                          data-testid={`checkbox-suggestion-${s.scientistId}`}
+                        />
+                        <div className="flex-1 min-w-0">
+                          <div className="font-medium truncate">{name}</div>
+                          <div className="text-xs text-muted-foreground">
+                            Suggested: {s.authorshipType}
+                            {s.authorPosition ? ` • position ${s.authorPosition}` : ""}
+                          </div>
+                        </div>
+                        <Select
+                          value={role}
+                          onValueChange={(v) =>
+                            setSuggestionRoles((prev) => ({ ...prev, [s.scientistId]: v }))
+                          }
+                        >
+                          <SelectTrigger
+                            className="w-[180px]"
+                            data-testid={`select-role-${s.scientistId}`}
+                          >
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="First Author">First Author</SelectItem>
+                            <SelectItem value="Contributing Author">Contributing Author</SelectItem>
+                            <SelectItem value="Senior/Last Author">Senior/Last Author</SelectItem>
+                            <SelectItem value="Corresponding Author">Corresponding Author</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+
+              <div className="flex justify-end gap-2 pt-2">
+                <Button variant="outline" onClick={() => setAutoConnectPub(null)} data-testid="button-cancel-auto-connect">
+                  Cancel
+                </Button>
+                <Button
+                  disabled={selectedSuggestionIds.size === 0 || confirmAutoConnectMutation.isPending}
+                  onClick={() => {
+                    const links = suggestions
+                      .filter((s) => selectedSuggestionIds.has(s.scientistId))
+                      .map((s) => ({
+                        scientistId: s.scientistId,
+                        authorshipType: suggestionRoles[s.scientistId] ?? s.authorshipType,
+                        authorPosition: s.authorPosition,
+                      }));
+                    confirmAutoConnectMutation.mutate({ publicationId: autoConnectPub.id, links });
+                  }}
+                  data-testid="button-confirm-auto-connect"
+                >
+                  {confirmAutoConnectMutation.isPending ? (
+                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                  ) : (
+                    <CheckCircle2 className="h-4 w-4 mr-2" />
+                  )}
+                  Link {selectedSuggestionIds.size} author{selectedSuggestionIds.size === 1 ? "" : "s"}
+                </Button>
+              </div>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
 
       {/* Calculation Details Modal */}
       <Dialog open={isDetailsModalOpen} onOpenChange={setIsDetailsModalOpen}>
