@@ -6,3 +6,4 @@ vite.config.ts.*
 *.tar.gz
 attached_assets
 .env
+IRIS_Architecture_Solution_Document.docx

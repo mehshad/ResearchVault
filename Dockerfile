@@ -1,21 +1,31 @@
+# ── Stage 1: build ────────────────────────────────────────────────────────────
+FROM node:20-alpine AS builder
+
+WORKDIR /app
+
+COPY package*.json ./
+
+# NODE_ENV=development ensures npm installs devDependencies (vite, esbuild…)
+RUN NODE_ENV=development npm install
+
+COPY . .
+
+RUN NODE_ENV=development npm run build
+
+# ── Stage 2: runtime ──────────────────────────────────────────────────────────
 FROM node:20-alpine
 
-# postgresql-client provides pg_isready for the entrypoint health check
 RUN apk add --no-cache postgresql-client
 
 WORKDIR /app
 
-# Install dependencies
 COPY package*.json ./
-RUN npm install --include=dev
+RUN NODE_ENV=production npm install --omit=dev
 
-# Copy full source
-COPY . .
+COPY --from=builder /app/dist ./dist
+COPY --from=builder /app/migrations ./migrations
+COPY --from=builder /app/shared ./shared
 
-# Build frontend (Vite → dist/public) and backend (esbuild → dist/index.js)
-RUN npm run build
-
-# Persistent volume mount point for uploaded files
 RUN mkdir -p /data/uploads
 
 EXPOSE 5000
