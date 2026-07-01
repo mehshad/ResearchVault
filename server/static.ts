@@ -15,9 +15,7 @@ export function serveStatic(app: Express) {
     );
   }
 
-  // index: false prevents express.static from serving index.html directly so
-  // the catch-all handler below can inject runtime config into it first.
-  app.use(express.static(distPath, { index: false }));
+  app.use(express.static(distPath));
 
   // Fall through to index.html, injecting runtime config into window globals.
   const indexPath = path.resolve(distPath, "index.html");
