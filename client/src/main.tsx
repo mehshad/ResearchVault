@@ -16,17 +16,26 @@ localStorage.removeItem("theme-mode");
 // APP_BASE_PATH is injected by the server (static.ts) into window.__APP_BASE_PATH__
 // when the app is served under a sub-path (e.g. /demo via nginx). This lets
 // wouter match routes correctly regardless of the URL prefix.
-const basePath = (window as any).__APP_BASE_PATH__ || "";
+// APP_BASE_PATH is injected by the server when the app runs under a sub-path.
+// Only enable the wouter base when it's actually set — an empty string causes
+// wouter to mishandle routes in the production (root-path) deployment.
+const basePath: string = (window as any).__APP_BASE_PATH__ || "";
 
-createRoot(document.getElementById("root")!).render(
+const root = (
   <ThemeProvider
     attribute="class"
     defaultTheme="light"
     enableSystem={false}
     disableTransitionOnChange
   >
-    <Router base={basePath}>
+    {basePath ? (
+      <Router base={basePath}>
+        <App />
+      </Router>
+    ) : (
       <App />
-    </Router>
+    )}
   </ThemeProvider>
 );
+
+createRoot(document.getElementById("root")!).render(root);
