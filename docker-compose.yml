@@ -124,6 +124,9 @@ services:
       DEMO_NAME: Demo User
       DEMO_EMAIL: demo@researchvault.local
       DEMO_ROLE: Management
+      # APP_BASE_PATH: when the demo is served under /demo via nginx,
+      # this injects a <base> tag so browser asset paths resolve correctly.
+      APP_BASE_PATH: ${DEMO_BASE_PATH:-/demo}
     volumes:
       - ${UPLOADS_DATA_DIR:-./data/uploads}:/data/uploads
     depends_on:

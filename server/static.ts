@@ -21,11 +21,15 @@ export function serveStatic(app: Express) {
   const indexPath = path.resolve(distPath, "index.html");
   app.use("*", (_req, res) => {
     const demoPort = process.env.DEMO_PORT || "8080";
+    // APP_BASE_PATH lets nginx serve the app under a sub-path (e.g. /demo)
+    // by injecting a <base> tag so the browser resolves assets correctly.
+    const basePath = process.env.APP_BASE_PATH || "";
     fs.readFile(indexPath, "utf-8", (err, html) => {
       if (err) return res.sendFile(indexPath);
+      const baseTag = basePath ? `<base href="${basePath}/">` : "";
       const injected = html.replace(
         "<head>",
-        `<head><script>window.__DEMO_PORT__="${demoPort}";</script>`
+        `<head>${baseTag}<script>window.__DEMO_PORT__="${demoPort}";window.__APP_BASE_PATH__="${basePath}";</script>`
       );
       res.setHeader("Content-Type", "text/html");
       res.send(injected);
