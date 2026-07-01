@@ -46,6 +46,20 @@ app.set('trust proxy', 1);
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ limit: '50mb', extended: false }));
 
+// When the app is served under a sub-path via nginx (e.g. /demo), nginx passes
+// the full path. Strip the prefix here so all routes and static file serving
+// work without any modification. nginx must NOT strip the prefix itself
+// (no trailing slash on proxy_pass) for this to work correctly.
+const appBasePath = (process.env.APP_BASE_PATH || "").replace(/\/$/, "");
+if (appBasePath) {
+  app.use((req, _res, next) => {
+    if (req.url.startsWith(appBasePath)) {
+      req.url = req.url.slice(appBasePath.length) || "/";
+    }
+    next();
+  });
+}
+
 // Secure cookies require HTTPS. In production behind nginx without TLS
 // (plain HTTP) we must keep secure: false or the browser will never
 // send the cookie back and every request appears unauthenticated.
