@@ -10,6 +10,16 @@ until pg_isready -h "${DB_HOST}" -U "${DB_USER}" > /dev/null 2>&1; do
 done
 echo "==> PostgreSQL is ready."
 
+# Verify we can actually authenticate — pg_isready only checks TCP connectivity.
+if ! psql "$DATABASE_URL" -c "SELECT 1" > /dev/null 2>&1; then
+  echo "==> ERROR: Cannot authenticate to the database."
+  echo "    Check that POSTGRES_PASSWORD in your .env matches the password the"
+  echo "    postgres data volume was initialised with."
+  echo "    To reset the password run:"
+  echo "      docker compose exec postgres psql -U postgres -c \"ALTER USER postgres WITH PASSWORD 'postgres';\""
+  exit 1
+fi
+
 echo "==> Running database migrations..."
 # Run each migration file in order using psql.
 # Files use IF NOT EXISTS / IF EXISTS so they are safe to re-run.

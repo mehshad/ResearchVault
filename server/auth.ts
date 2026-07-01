@@ -4,9 +4,16 @@ import { eq } from "drizzle-orm";
 import { createHash } from "crypto";
 import { type Request, type Response, type NextFunction } from "express";
 import session from "express-session";
+import { log } from "./logger";
 // OIDC and LDAP providers are loaded lazily (dynamic import / require) inside the
 // route handlers below, so they are only initialised when the matching AUTH_MODE
 // is active. No static imports are needed here.
+
+function authLog(msg: string) { log(msg, "auth"); }
+function authError(msg: string, err?: unknown) {
+  const detail = err instanceof Error ? ` — ${err.message}` : err ? ` — ${String(err)}` : "";
+  log(`ERROR ${msg}${detail}`, "auth");
+}
 
 // ── Session types ────────────────────────────────────────────────────────────
 
@@ -45,7 +52,28 @@ export function isSsoEnabled(): boolean {
 export function logAuthStatus(): void {
   const mode = getAuthMode();
   const sso = isSsoEnabled();
-  console.log(`[auth] mode=${mode} sso=${sso}`);
+  authLog(`mode=${mode} sso=${sso}`);
+  if (mode === "ldap") {
+    const ldapUrl    = process.env.LDAP_URL          || "(default ldap://localhost:389)";
+    const bindDN     = process.env.LDAP_BIND_DN      || "(not set)";
+    const searchBase = process.env.LDAP_SEARCH_BASE  || "(not set)";
+    authLog(`LDAP url=${ldapUrl} bindDN=${bindDN} searchBase=${searchBase}`);
+    if (!process.env.LDAP_BIND_DN)     authLog("WARN LDAP_BIND_DN is not set — authentication will fail");
+    if (!process.env.LDAP_SEARCH_BASE) authLog("WARN LDAP_SEARCH_BASE is not set — authentication will fail");
+  }
+  if (mode === "oidc") {
+    const issuer   = process.env.OIDC_ISSUER_URL  || "(not set)";
+    const clientId = process.env.OIDC_CLIENT_ID   || "(not set)";
+    const redirect = process.env.OIDC_REDIRECT_URI || "(derived from APP_URL)";
+    authLog(`OIDC issuer=${issuer} clientId=${clientId} redirectUri=${redirect}`);
+    if (!process.env.OIDC_ISSUER_URL) authLog("WARN OIDC_ISSUER_URL is not set — SSO login will fail");
+    if (!process.env.OIDC_CLIENT_ID)  authLog("WARN OIDC_CLIENT_ID is not set — SSO login will fail");
+  }
+  if (mode === "demo") {
+    authLog(`Demo user: ${process.env.DEMO_NAME || "Demo User"} <${process.env.DEMO_EMAIL || "demo@researchvault.local"}> role=${process.env.DEMO_ROLE || "Management"}`);
+  }
+  const superAdmin = process.env.SUPER_ADMIN_EMAIL?.trim().toLowerCase();
+  if (superAdmin) authLog(`superadmin email=${superAdmin}`);
 }
 
 // ── Password hashing ───────────────────────────────────────────────────────────
@@ -75,18 +103,21 @@ export function demoBannerMiddleware(req: Request, _res: Response, next: NextFun
 export function requireAuth(req: Request, res: Response, next: NextFunction) {
   if (getAuthMode() === "demo") return next(); // demo bypasses auth
   if (req.session?.user) return next();
+  authLog(`401 unauthenticated request: ${req.method} ${req.path}`);
   res.status(401).json({ message: "Unauthorized. Please log in." });
 }
 
 export function requireAdmin(req: Request, res: Response, next: NextFunction) {
   const role = req.session?.user?.role;
   if (role === "admin" || role === "superadmin") return next();
+  authLog(`403 admin required: ${req.method} ${req.path} user=${req.session?.user?.username ?? "anonymous"} role=${role ?? "none"}`);
   res.status(403).json({ message: "Forbidden. Admin access required." });
 }
 
 export function requireContractsOfficer(req: Request, res: Response, next: NextFunction) {
   const role = req.session?.user?.role;
   if (role === "Contracts Officer" || role === "admin" || role === "Management") return next();
+  authLog(`403 contracts officer required: ${req.method} ${req.path} user=${req.session?.user?.username ?? "anonymous"} role=${role ?? "none"}`);
   res.status(403).json({ message: "Forbidden. Contracts officer access required." });
 }
 
@@ -100,6 +131,7 @@ export function requirePublicationOfficer(req: Request, res: Response, next: Nex
   ) {
     return next();
   }
+  authLog(`403 publication officer required: ${req.method} ${req.path} user=${req.session?.user?.username ?? "anonymous"} role=${role ?? "none"}`);
   res.status(403).json({ message: "Forbidden. Publication office access required." });
 }
 
@@ -133,15 +165,22 @@ async function findOrCreateExternalUser(
   const role = resolveRole("user", email);
 
   if (!user) {
+    authLog(`provisioning new user username=${username} email=${email} role=${role}`);
     const [created] = await db
       .insert(users)
       .values({ username, name, email, password: "", role })
       .returning();
     user = created;
+    if (!user) {
+      authError(`failed to provision user username=${username}`);
+      return null;
+    }
+    authLog(`provisioned user id=${user.id} username=${username}`);
   } else {
     // Enforce super admin role if email matches env var
     const expectedRole = resolveRole(user.role, email);
     if (expectedRole !== user.role) {
+      authLog(`escalating role for user id=${user.id} username=${username}: ${user.role} -> ${expectedRole}`);
       const [updated] = await db
         .update(users)
         .set({ role: expectedRole, updatedAt: new Date() })
@@ -193,10 +232,14 @@ export function registerAuthRoutes(app: any) {
   if (mode === "local" || mode === "ldap") {
     app.post("/api/auth/login", async (req: Request, res: Response) => {
       const { username, password } = req.body;
+      const ip = req.ip || req.socket?.remoteAddress || "unknown";
+
       if (!username || !password) {
+        authLog(`login attempt rejected — missing credentials ip=${ip}`);
         return res.status(400).json({ message: "Username and password are required" });
       }
 
+      authLog(`login attempt username=${username} mode=${mode} ip=${ip}`);
       let sessionUser: SessionUser | null = null;
 
       if (mode === "local") {
@@ -205,11 +248,17 @@ export function registerAuthRoutes(app: any) {
           .from(users)
           .where(eq(users.username, username));
 
-        if (!user || user.password !== hashPassword(password)) {
+        if (!user) {
+          authLog(`login failed — user not found username=${username} ip=${ip}`);
+          return res.status(401).json({ message: "Invalid username or password" });
+        }
+        if (user.password !== hashPassword(password)) {
+          authLog(`login failed — wrong password username=${username} ip=${ip}`);
           return res.status(401).json({ message: "Invalid username or password" });
         }
         const resolvedRole = resolveRole(user.role ?? "user", user.email ?? "");
         if (resolvedRole !== user.role) {
+          authLog(`escalating role for user id=${user.id} username=${username}: ${user.role} -> ${resolvedRole}`);
           const [updated] = await db.update(users).set({ role: resolvedRole, updatedAt: new Date() }).where(eq(users.id, user.id)).returning();
           sessionUser = toSessionUser(updated);
         } else {
@@ -221,6 +270,7 @@ export function registerAuthRoutes(app: any) {
         const { authenticateLdap } = await import("./authProviders/ldap");
         const result = await authenticateLdap(username, password);
         if (!result.success || !result.user) {
+          authLog(`login failed — LDAP rejected username=${username} ip=${ip} reason=${result.message || "unknown"}`);
           return res.status(401).json({ message: result.message || "Invalid credentials" });
         }
         sessionUser = await findOrCreateExternalUser(
@@ -229,10 +279,12 @@ export function registerAuthRoutes(app: any) {
           result.user.email,
         );
         if (!sessionUser) {
+          authError(`login failed — could not create session for LDAP user username=${username}`);
           return res.status(500).json({ message: "Failed to create user session" });
         }
       }
 
+      authLog(`login success username=${sessionUser!.username} id=${sessionUser!.id} role=${sessionUser!.role} ip=${ip}`);
       req.session.user = sessionUser;
       return res.json({ user: sessionUser });
     });
@@ -241,36 +293,44 @@ export function registerAuthRoutes(app: any) {
   // ── OIDC flow ──
   if (mode === "oidc") {
     app.get("/api/auth/oidc", async (req: Request, res: Response) => {
+      const ip = req.ip || req.socket?.remoteAddress || "unknown";
+      authLog(`OIDC flow initiated ip=${ip}`);
       try {
         const { startOidcFlow } = await import("./authProviders/oidc");
         await startOidcFlow(req, res);
       } catch (err) {
-        console.error("OIDC start error:", err);
+        authError("failed to start OIDC flow", err);
         res.status(500).json({ message: "Failed to start SSO login" });
       }
     });
 
     app.get("/api/auth/callback", async (req: Request, res: Response) => {
+      const ip = req.ip || req.socket?.remoteAddress || "unknown";
+      authLog(`OIDC callback received ip=${ip}`);
       try {
         const { handleOidcCallback } = await import("./authProviders/oidc");
         const result = await handleOidcCallback(req);
         if (!result.success || !result.user) {
+          authLog(`OIDC callback failed — ${result.message || "unknown reason"} ip=${ip}`);
           return res.redirect(`/login?error=${encodeURIComponent(result.message || "Login failed")}`);
         }
 
+        authLog(`OIDC token validated username=${result.user.username} email=${result.user.email}`);
         const sessionUser = await findOrCreateExternalUser(
           result.user.username,
           result.user.name,
           result.user.email,
         );
         if (!sessionUser) {
+          authError(`OIDC callback — failed to create session for username=${result.user.username}`);
           return res.redirect("/login?error=session_error");
         }
 
+        authLog(`OIDC login success username=${sessionUser.username} id=${sessionUser.id} role=${sessionUser.role} ip=${ip}`);
         req.session.user = sessionUser;
         res.redirect("/");
       } catch (err) {
-        console.error("OIDC callback error:", err);
+        authError("OIDC callback unhandled error", err);
         res.redirect("/login?error=callback_error");
       }
     });
@@ -281,8 +341,13 @@ export function registerAuthRoutes(app: any) {
     if (mode === "demo") {
       return res.json({ message: "Demo mode — logout is a no-op" });
     }
+    const username = req.session?.user?.username ?? "unknown";
     req.session.destroy((err: any) => {
-      if (err) return res.status(500).json({ message: "Failed to log out" });
+      if (err) {
+        authError(`session destroy failed for username=${username}`, err);
+        return res.status(500).json({ message: "Failed to log out" });
+      }
+      authLog(`logout username=${username}`);
       res.clearCookie("rv.sid");
       res.json({ message: "Logged out successfully" });
     });
