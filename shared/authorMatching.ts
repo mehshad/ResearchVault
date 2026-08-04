@@ -108,7 +108,7 @@ export interface MatchableScientist {
 /** A proposed internal-author link inferred from a free-text author list. */
 export interface AuthorSuggestion {
   scientistId: number;
-  /** Inferred role: First Author / Contributing Author / Senior/Last Author. */
+  /** Inferred role: First Author / Contributing Author / Last Author. */
   authorshipType: string;
   /** 1-based position of the matched name in the free-text author list. */
   authorPosition: number;
@@ -124,7 +124,7 @@ export interface AuthorSuggestion {
  * not-yet-suggested internal scientist whose name matches (via
  * `matchesAuthorName`). The author's index drives the inferred role:
  *   - first entry  -> "First Author"
- *   - last entry   -> "Senior/Last Author"
+ *   - last entry   -> "Last Author"
  *   - otherwise    -> "Contributing Author"
  *
  * Scientists in `excludeScientistIds` (already linked) are skipped. A scientist
@@ -149,7 +149,7 @@ export function suggestInternalAuthors(
 
   const roleForIndex = (index: number): string => {
     if (index === 0) return "First Author";
-    if (index === entries.length - 1) return "Senior/Last Author";
+    if (index === entries.length - 1) return "Last Author";
     return "Contributing Author";
   };
 

@@ -40,12 +40,25 @@ interface ScientistPublicationsProps {
 const authorshipColors = {
   'First Author': '#3b82f6', // blue
   'Contributing Author': '#10b981', // green
-  'Senior Author': '#8b5cf6', // purple
-  'Last Author': '#f59e0b', // amber
+  'Second or Second Last Author': '#14b8a6', // teal
+  'Last Author': '#8b5cf6', // purple
+  'Co-Last Author': '#f59e0b', // amber
   'Corresponding Author': '#ef4444', // red
 };
 
-const authorshipOrder = ['First Author', 'Contributing Author', 'Senior Author', 'Last Author', 'Corresponding Author'];
+const authorshipOrder = ['First Author', 'Contributing Author', 'Second or Second Last Author', 'Last Author', 'Co-Last Author', 'Corresponding Author'];
+
+// Normalize legacy senior-author labels to canonical roles
+const normalizeAuthorshipType = (type: string): string => {
+  const t = type.trim();
+  if (t === 'Senior Author' || t === 'Senior/Last Author') return 'Last Author';
+  if (t === 'Co-Senior/Last Author') return 'Co-Last Author';
+  return t;
+};
+
+// Split compound comma-separated authorship strings into normalized roles
+const splitAuthorshipTypes = (value: string | null | undefined): string[] =>
+  (value ?? '').split(',').map(normalizeAuthorshipType).filter(Boolean);
 
 export function ScientistPublications({ scientistId, yearsSince = 5 }: ScientistPublicationsProps) {
   const { data: publications = [], isLoading: pubLoading } = useQuery({
@@ -62,8 +75,9 @@ export function ScientistPublications({ scientistId, yearsSince = 5 }: Scientist
     switch (type) {
       case 'First Author': return 'bg-blue-100 text-blue-800 border-blue-300 dark:bg-blue-950 dark:text-blue-300 dark:border-blue-700';
       case 'Contributing Author': return 'bg-green-100 text-green-800 border-green-300 dark:bg-green-950 dark:text-green-300 dark:border-green-700';
-      case 'Senior Author': return 'bg-purple-100 text-purple-800 border-purple-300 dark:bg-purple-950 dark:text-purple-300 dark:border-purple-700';
-      case 'Last Author': return 'bg-amber-100 text-amber-800 border-amber-300 dark:bg-amber-950 dark:text-amber-300 dark:border-amber-700';
+      case 'Second or Second Last Author': return 'bg-teal-100 text-teal-800 border-teal-300 dark:bg-teal-950 dark:text-teal-300 dark:border-teal-700';
+      case 'Last Author': return 'bg-purple-100 text-purple-800 border-purple-300 dark:bg-purple-950 dark:text-purple-300 dark:border-purple-700';
+      case 'Co-Last Author': return 'bg-amber-100 text-amber-800 border-amber-300 dark:bg-amber-950 dark:text-amber-300 dark:border-amber-700';
       case 'Corresponding Author': return 'bg-red-100 text-red-800 border-red-300 dark:bg-red-950 dark:text-red-300 dark:border-red-700';
       default: return 'bg-gray-100 text-gray-800 border-gray-300 dark:bg-gray-800 dark:text-gray-200 dark:border-gray-600';
     }
@@ -88,15 +102,18 @@ export function ScientistPublications({ scientistId, yearsSince = 5 }: Scientist
     }
   };
 
-  // Transform stats data for chart
+  // Transform stats data for chart (split compound roles, normalize legacy labels)
   const chartData = React.useMemo(() => {
     const yearMap = new Map();
-    
+
     authorshipStats.forEach((stat: AuthorshipStats) => {
       if (!yearMap.has(stat.year)) {
         yearMap.set(stat.year, { year: stat.year });
       }
-      yearMap.get(stat.year)[stat.authorshipType] = stat.count;
+      const row = yearMap.get(stat.year);
+      splitAuthorshipTypes(stat.authorshipType).forEach((type) => {
+        row[type] = (row[type] || 0) + Number(stat.count);
+      });
     });
 
     return Array.from(yearMap.values()).sort((a, b) => a.year - b.year);
@@ -124,7 +141,9 @@ export function ScientistPublications({ scientistId, yearsSince = 5 }: Scientist
 
   const totalPublications = publications.length;
   const authorshipCounts = publications.reduce((acc: Record<string, number>, pub: Publication) => {
-    acc[pub.authorshipType] = (acc[pub.authorshipType] || 0) + 1;
+    splitAuthorshipTypes(pub.authorshipType).forEach((type) => {
+      acc[type] = (acc[type] || 0) + 1;
+    });
     return acc;
   }, {});
 
@@ -217,8 +236,8 @@ export function ScientistPublications({ scientistId, yearsSince = 5 }: Scientist
                       </h3>
                       
                       <div className="flex items-center gap-2 mb-2">
-                        <Badge className={getAuthorshipBadgeColor(pub.authorshipType)}>
-                          {pub.authorshipType}
+                        <Badge className={getAuthorshipBadgeColor(splitAuthorshipTypes(pub.authorshipType)[0] ?? '')}>
+                          {splitAuthorshipTypes(pub.authorshipType).join(', ')}
                           {pub.authorPosition && ` (Position ${pub.authorPosition})`}
                         </Badge>
                         <Badge variant="outline">{pub.status}</Badge>

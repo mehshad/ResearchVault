@@ -258,7 +258,7 @@ export const publicationAuthors = pgTable("publication_authors", {
   id: serial("id").primaryKey(),
   publicationId: integer("publication_id").notNull(), // references publications.id
   scientistId: integer("scientist_id").notNull(), // references scientists.id
-  authorshipType: text("authorship_type").notNull(), // First Author, Contributing Author, Senior Author, Last Author, Corresponding Author
+  authorshipType: text("authorship_type").notNull(), // First Author, Co-First Author, Contributing Author, Second or Second Last Author, Last Author, Co-Last Author, Corresponding Author (comma-separated combinations allowed)
   authorPosition: integer("author_position"), // Position in author list (1, 2, 3, etc.)
   // Attribution: who created this link and whether it was made manually (on the
   // detail page) or automatically (auto-connect / discovery import). Nullable so

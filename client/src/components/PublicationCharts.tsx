@@ -56,12 +56,14 @@ interface PublicationChartsProps {
 const authorshipColors = {
   'First Author': '#3b82f6', // blue
   'Contributing Author': '#10b981', // green
-  'Senior/Last Author': '#8b5cf6', // purple
+  'Second or Second Last Author': '#14b8a6', // teal
+  'Last Author': '#8b5cf6', // purple
+  'Co-Last Author': '#a78bfa', // light purple
   'Corresponding Author': '#ef4444', // red
 };
 
-const authorshipOrder = ['First Author', 'Contributing Author', 'Senior/Last Author', 'Corresponding Author'];
-const chartAuthorshipOrder = ['First Author', 'Contributing Author', 'Senior/Last Author']; // Exclude Corresponding Author from chart to avoid overlap
+const authorshipOrder = ['First Author', 'Contributing Author', 'Second or Second Last Author', 'Last Author', 'Co-Last Author', 'Corresponding Author'];
+const chartAuthorshipOrder = ['First Author', 'Contributing Author', 'Second or Second Last Author', 'Last Author', 'Co-Last Author']; // Exclude Corresponding Author from chart to avoid overlap
 
 export function PublicationCharts({ scientistId, yearsSince = 5 }: PublicationChartsProps) {
   const { data: publications = [], isLoading: pubLoading } = useQuery<Publication[]>({
@@ -139,8 +141,9 @@ export function PublicationCharts({ scientistId, yearsSince = 5 }: PublicationCh
       // Handle compound authorship types by splitting on comma
       const types = stat.authorshipType.split(',').map(type => type.trim());
       types.forEach(type => {
-        // Combine Senior Author and Last Author into Senior/Last Author
-        const mappedType = (type === 'Senior Author' || type === 'Last Author') ? 'Senior/Last Author' : type;
+        // Normalize legacy senior-author labels into Last Author
+        const mappedType = (type === 'Senior Author' || type === 'Senior/Last Author') ? 'Last Author'
+          : type === 'Co-Senior/Last Author' ? 'Co-Last Author' : type;
         const currentCount = yearMap.get(stat.year)[mappedType] || 0;
         yearMap.get(stat.year)[mappedType] = currentCount + parseInt(stat.count.toString());
       });
@@ -172,12 +175,10 @@ export function PublicationCharts({ scientistId, yearsSince = 5 }: PublicationCh
     // Handle compound authorship types by splitting on comma and trimming
     const types = pub.authorshipType.split(',').map(type => type.trim());
     types.forEach(type => {
-      // Combine Senior Author and Last Author into Senior/Last Author
-      if (type === 'Senior Author' || type === 'Last Author') {
-        acc['Senior/Last Author'] = (acc['Senior/Last Author'] || 0) + 1;
-      } else {
-        acc[type] = (acc[type] || 0) + 1;
-      }
+      // Normalize legacy senior-author labels into Last Author
+      const mappedType = (type === 'Senior Author' || type === 'Senior/Last Author') ? 'Last Author'
+        : type === 'Co-Senior/Last Author' ? 'Co-Last Author' : type;
+      acc[mappedType] = (acc[mappedType] || 0) + 1;
     });
     return acc;
   }, {});

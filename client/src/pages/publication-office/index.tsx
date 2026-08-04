@@ -153,6 +153,7 @@ export default function PublicationOffice() {
   const [sidraEndMonth, setSidraEndMonth] = useState(""); // YYYY-MM
   const [firstAuthorMultiplier, setFirstAuthorMultiplier] = useState(2);
   const [lastAuthorMultiplier, setLastAuthorMultiplier] = useState(2);
+  const [secondAuthorMultiplier, setSecondAuthorMultiplier] = useState(1.5);
   const [correspondingAuthorMultiplier, setCorrespondingAuthorMultiplier] = useState(2);
   const [impactFactorYear, setImpactFactorYear] = useState("publication"); // "prior", "publication", "latest"
   const [sidraRankings, setSidraRankings] = useState<SidraRanking[]>([]);
@@ -816,9 +817,7 @@ export default function PublicationOffice() {
         multipliers: {
           'First Author': firstAuthorMultiplier,
           'Last Author': lastAuthorMultiplier,
-          // "Senior Author" and "Last Author" are the same role — apply the
-          // same multiplier to legacy records tagged "Senior Author".
-          'Senior Author': lastAuthorMultiplier,
+          'Second or Second Last Author': secondAuthorMultiplier,
           'Corresponding Author': correspondingAuthorMultiplier
         }
       };
@@ -2041,7 +2040,18 @@ export default function PublicationOffice() {
                     </div>
 
                     <div className="space-y-2">
-                      <Label className="text-sm text-gray-600 dark:text-gray-300">Last/Senior Author</Label>
+                      <Label className="text-sm text-gray-600 dark:text-gray-300">Second or Second Last Author</Label>
+                      <Input
+                        type="number"
+                        step="0.1"
+                        min="0"
+                        value={secondAuthorMultiplier}
+                        onChange={(e) => setSecondAuthorMultiplier(parseFloat(e.target.value) || 0)}
+                      />
+                    </div>
+
+                    <div className="space-y-2">
+                      <Label className="text-sm text-gray-600 dark:text-gray-300">Last Author</Label>
                       <Input
                         type="number"
                         step="0.1"
@@ -2102,7 +2112,8 @@ export default function PublicationOffice() {
                         Sum of journal impact factors for publications {sidraRangeMode === "custom" && sidraStartMonth && sidraEndMonth ? `from ${sidraStartMonth} to ${sidraEndMonth}` : `in the last ${sidraYears} years`}, 
                         using {impactFactorYear === "prior" ? "year prior" : impactFactorYear === "publication" ? "publication year" : "latest available"} impact factors.
                         Multipliers: First Author (×{firstAuthorMultiplier}), 
-                        Last/Senior Author (×{lastAuthorMultiplier}), 
+                        Second or Second Last Author (×{secondAuthorMultiplier}), 
+                        Last Author (×{lastAuthorMultiplier}), 
                         Corresponding Author (×{correspondingAuthorMultiplier})
                       </p>
                     </div>
@@ -2818,7 +2829,8 @@ export default function PublicationOffice() {
                           <SelectContent>
                             <SelectItem value="First Author">First Author</SelectItem>
                             <SelectItem value="Contributing Author">Contributing Author</SelectItem>
-                            <SelectItem value="Senior/Last Author">Senior/Last Author</SelectItem>
+                            <SelectItem value="Second or Second Last Author">Second or Second Last Author</SelectItem>
+                            <SelectItem value="Last Author">Last Author</SelectItem>
                             <SelectItem value="Corresponding Author">Corresponding Author</SelectItem>
                           </SelectContent>
                         </Select>

@@ -2875,12 +2875,22 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).json({ error: "startMonth must not be after endMonth" });
       }
       
-      // Default multipliers
+      // Default multipliers (canonical roles)
       const defaultMultipliers = {
         'First Author': 2,
+        'Second or Second Last Author': 1.5,
         'Last Author': 2,
-        'Senior Author': 2,
         'Corresponding Author': 2
+      };
+
+      // Normalize stored/legacy authorship labels to canonical multiplier keys.
+      // Co- variants share the same weight as the base role; old senior-author
+      // labels are the same role as Last Author.
+      const normalizeAuthorshipType = (type: string): string => {
+        const t = type.trim();
+        if (t === 'Senior Author' || t === 'Senior/Last Author' || t === 'Co-Senior/Last Author' || t === 'Co-Last Author') return 'Last Author';
+        if (t === 'Co-First Author') return 'First Author';
+        return t;
       };
       
       const finalMultipliers = { ...defaultMultipliers, ...multipliers };
@@ -3008,7 +3018,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
             publicationsCount++;
 
-            const authorshipTypes = authorshipTypeStr.split(',').map(t => t.trim());
+            const authorshipTypes = authorshipTypeStr.split(',').map(t => normalizeAuthorshipType(t));
             let multiplier = 1;
             let appliedMultipliers: string[] = [];
             for (const type of authorshipTypes) {
