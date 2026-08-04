@@ -23,10 +23,12 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuCheckboxItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { EnhancedPublication } from "@/lib/types";
-import { Plus, Search, MoreHorizontal, CalendarRange, Bookmark, FileText, Download, Star, ArrowUpDown, ArrowUp, ArrowDown, X } from "lucide-react";
+import { formatFullName } from "@/utils/nameUtils";
+import { Plus, Search, MoreHorizontal, CalendarRange, Bookmark, FileText, Download, Star, ArrowUpDown, ArrowUp, ArrowDown, X, ChevronDown } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
@@ -44,7 +46,7 @@ export default function PublicationsList() {
 
   // Advanced (horizontal) filter bar state
   const [journalFilter, setJournalFilter] = useState("");
-  const [statusFilter, setStatusFilter] = useState("all");
+  const [statusFilters, setStatusFilters] = useState<string[]>([]);
   const [authorFilter, setAuthorFilter] = useState("");
   const [startDateFilter, setStartDateFilter] = useState("");
   const [endDateFilter, setEndDateFilter] = useState("");
@@ -54,7 +56,8 @@ export default function PublicationsList() {
     filters: {
       searchQuery: string;
       journalFilter: string;
-      statusFilter: string;
+      statusFilter?: string; // legacy single-status saved searches
+      statusFilters?: string[];
       authorFilter: string;
       startDateFilter: string;
       endDateFilter: string;
@@ -87,7 +90,7 @@ export default function PublicationsList() {
   const hasActiveFilters =
     !!searchQuery ||
     !!journalFilter ||
-    (statusFilter && statusFilter !== "all") ||
+    statusFilters.length > 0 ||
     !!authorFilter ||
     !!startDateFilter ||
     !!endDateFilter;
@@ -95,7 +98,7 @@ export default function PublicationsList() {
   const handleClearFilters = () => {
     setSearchQuery("");
     setJournalFilter("");
-    setStatusFilter("all");
+    setStatusFilters([]);
     setAuthorFilter("");
     setStartDateFilter("");
     setEndDateFilter("");
@@ -108,7 +111,7 @@ export default function PublicationsList() {
       filters: {
         searchQuery,
         journalFilter,
-        statusFilter,
+        statusFilters,
         authorFilter,
         startDateFilter,
         endDateFilter,
@@ -123,7 +126,13 @@ export default function PublicationsList() {
   const handleLoadSearch = (search: SavedPublicationSearch) => {
     setSearchQuery(search.filters.searchQuery ?? "");
     setJournalFilter(search.filters.journalFilter ?? "");
-    setStatusFilter(search.filters.statusFilter ?? "all");
+    // Support both new (array) and legacy (single string) saved searches
+    setStatusFilters(
+      search.filters.statusFilters ??
+        (search.filters.statusFilter && search.filters.statusFilter !== "all"
+          ? [search.filters.statusFilter]
+          : [])
+    );
     setAuthorFilter(search.filters.authorFilter ?? "");
     setStartDateFilter(search.filters.startDateFilter ?? "");
     setEndDateFilter(search.filters.endDateFilter ?? "");
@@ -150,6 +159,22 @@ export default function PublicationsList() {
     queryKey: ['/api/publications'],
   });
   
+  // Scientists list for author search suggestions
+  const { data: scientists } = useQuery<any[]>({
+    queryKey: ['/api/scientists'],
+  });
+
+  const scientistNameSuggestions = (() => {
+    if (!scientists) return [];
+    const names = new Set<string>();
+    for (const s of scientists) {
+      const full = formatFullName(s, false);
+      if (full) names.add(full);
+      if (s.lastName) names.add(s.lastName);
+    }
+    return Array.from(names).sort((a, b) => a.localeCompare(b));
+  })();
+
   // Get research activity details if we're filtering by one
   const { data: researchActivity } = useQuery({
     queryKey: ['/api/research-activities', filterResearchActivityId],
@@ -191,9 +216,9 @@ export default function PublicationsList() {
       if (!j.includes(journalFilter.toLowerCase().trim())) return false;
     }
 
-    // Advanced filter bar: status (exact match, "all" = no filter)
-    if (statusFilter && statusFilter !== "all") {
-      if ((publication.status ?? '') !== statusFilter) return false;
+    // Advanced filter bar: status (multi-select, empty = no filter)
+    if (statusFilters.length > 0) {
+      if (!statusFilters.includes(publication.status ?? '')) return false;
     }
 
     // Advanced filter bar: author/scientist (case-insensitive substring)
@@ -426,17 +451,46 @@ export default function PublicationsList() {
 
             <div className="flex flex-col gap-1.5 min-w-[170px]">
               <Label htmlFor="filter-status" className="text-xs text-muted-foreground">Status</Label>
-              <Select value={statusFilter} onValueChange={setStatusFilter}>
-                <SelectTrigger id="filter-status" data-testid="select-filter-status">
-                  <SelectValue placeholder="All statuses" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">All statuses</SelectItem>
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button
+                    id="filter-status"
+                    variant="outline"
+                    className="justify-between font-normal"
+                    data-testid="select-filter-status"
+                  >
+                    <span className="truncate">
+                      {statusFilters.length === 0
+                        ? "All statuses"
+                        : statusFilters.length === 1
+                          ? statusFilters[0]
+                          : `${statusFilters.length} statuses`}
+                    </span>
+                    <ChevronDown className="ml-2 h-4 w-4 opacity-50 shrink-0" />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="start" className="w-56">
                   {PUBLICATION_STATUS_OPTIONS.map((status) => (
-                    <SelectItem key={status} value={status}>{status}</SelectItem>
+                    <DropdownMenuCheckboxItem
+                      key={status}
+                      checked={statusFilters.includes(status)}
+                      onCheckedChange={(checked) =>
+                        setStatusFilters((prev) =>
+                          checked ? [...prev, status] : prev.filter((s) => s !== status)
+                        )
+                      }
+                      onSelect={(e) => e.preventDefault()}
+                    >
+                      {status}
+                    </DropdownMenuCheckboxItem>
                   ))}
-                </SelectContent>
-              </Select>
+                  {statusFilters.length > 0 && (
+                    <DropdownMenuItem onSelect={() => setStatusFilters([])}>
+                      Clear selection
+                    </DropdownMenuItem>
+                  )}
+                </DropdownMenuContent>
+              </DropdownMenu>
             </div>
 
             <div className="flex flex-col gap-1.5 min-w-[150px] flex-1">
@@ -446,8 +500,14 @@ export default function PublicationsList() {
                 placeholder="Author name..."
                 value={authorFilter}
                 onChange={(e) => setAuthorFilter(e.target.value)}
+                list="scientist-name-suggestions"
                 data-testid="input-filter-author"
               />
+              <datalist id="scientist-name-suggestions">
+                {scientistNameSuggestions.map((name) => (
+                  <option key={name} value={name} />
+                ))}
+              </datalist>
             </div>
 
             <div className="flex flex-col gap-1.5">
