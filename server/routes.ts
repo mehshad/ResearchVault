@@ -2862,7 +2862,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Sidra Score calculation for all scientists
   app.post('/api/scientists/sidra-scores', async (req: Request, res: Response) => {
     try {
-      const { years = 5, impactFactorYear = "publication", multipliers = {} } = req.body;
+      const { years = 5, impactFactorYear = "publication", multipliers = {}, startMonth, endMonth } = req.body;
+
+      // Optional custom month range (YYYY-MM). When provided, it overrides `years`.
+      const monthRe = /^\d{4}-(0[1-9]|1[0-2])$/;
+      const useCustomRange = typeof startMonth === 'string' && typeof endMonth === 'string'
+        && monthRe.test(startMonth) && monthRe.test(endMonth);
+      if ((startMonth || endMonth) && !useCustomRange) {
+        return res.status(400).json({ error: "startMonth and endMonth must both be provided in YYYY-MM format" });
+      }
+      if (useCustomRange && startMonth > endMonth) {
+        return res.status(400).json({ error: "startMonth must not be after endMonth" });
+      }
       
       // Default multipliers
       const defaultMultipliers = {
@@ -2884,8 +2895,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       const scientificIds = scientificScientists.map(s => s.id);
       const currentYear = new Date().getFullYear();
-      const cutoffDate = new Date();
-      cutoffDate.setFullYear(cutoffDate.getFullYear() - years);
+      let cutoffDate: Date;
+      let rangeEndDate: Date | null = null;
+      if (useCustomRange) {
+        const [sy, sm] = startMonth.split('-').map(Number);
+        const [ey, em] = endMonth.split('-').map(Number);
+        cutoffDate = new Date(sy, sm - 1, 1);
+        // End of the last day of the end month (inclusive)
+        rangeEndDate = new Date(ey, em, 0, 23, 59, 59, 999);
+      } else {
+        cutoffDate = new Date();
+        cutoffDate.setFullYear(cutoffDate.getFullYear() - years);
+      }
 
       // Batched: all publications, authorships for scientific staff, and all
       // journal IF metrics — fetched once instead of per-(scientist × publication).
@@ -2955,6 +2976,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
             const pubDate = new Date(publication.publicationDate);
             if (pubDate < cutoffDate) continue;
+            if (rangeEndDate && pubDate > rangeEndDate) continue;
             if (!publication.status || !['published', 'published *', 'accepted/in press', 'in press'].includes(publication.status.toLowerCase())) continue;
             if (!publication.journal || publication.journal.trim() === '') continue;
 

@@ -148,10 +148,12 @@ export default function PublicationOffice() {
   
   // Sidra Score tab state
   const [sidraYears, setSidraYears] = useState(5);
+  const [sidraRangeMode, setSidraRangeMode] = useState<"years" | "custom">("years");
+  const [sidraStartMonth, setSidraStartMonth] = useState(""); // YYYY-MM
+  const [sidraEndMonth, setSidraEndMonth] = useState(""); // YYYY-MM
   const [firstAuthorMultiplier, setFirstAuthorMultiplier] = useState(2);
   const [lastAuthorMultiplier, setLastAuthorMultiplier] = useState(2);
   const [correspondingAuthorMultiplier, setCorrespondingAuthorMultiplier] = useState(2);
-  const [seniorAuthorMultiplier, setSeniorAuthorMultiplier] = useState(2);
   const [impactFactorYear, setImpactFactorYear] = useState("publication"); // "prior", "publication", "latest"
   const [sidraRankings, setSidraRankings] = useState<SidraRanking[]>([]);
   const [selectedScientistDetails, setSelectedScientistDetails] = useState<SidraRanking | null>(null);
@@ -807,11 +809,16 @@ export default function PublicationOffice() {
     mutationFn: async () => {
       const config = {
         years: sidraYears,
+        ...(sidraRangeMode === "custom" && sidraStartMonth && sidraEndMonth
+          ? { startMonth: sidraStartMonth, endMonth: sidraEndMonth }
+          : {}),
         impactFactorYear: impactFactorYear,
         multipliers: {
           'First Author': firstAuthorMultiplier,
           'Last Author': lastAuthorMultiplier,
-          'Senior Author': seniorAuthorMultiplier,
+          // "Senior Author" and "Last Author" are the same role — apply the
+          // same multiplier to legacy records tagged "Senior Author".
+          'Senior Author': lastAuthorMultiplier,
           'Corresponding Author': correspondingAuthorMultiplier
         }
       };
@@ -1950,17 +1957,54 @@ export default function PublicationOffice() {
                 </CardHeader>
                 <CardContent className="space-y-4">
                   <div className="space-y-2">
-                    <Label>Time Period (Years)</Label>
-                    <Select value={sidraYears.toString()} onValueChange={(value) => setSidraYears(parseInt(value))}>
+                    <Label>Time Period</Label>
+                    <Select
+                      value={sidraRangeMode === "custom" ? "custom" : sidraYears.toString()}
+                      onValueChange={(value) => {
+                        if (value === "custom") {
+                          setSidraRangeMode("custom");
+                        } else {
+                          setSidraRangeMode("years");
+                          setSidraYears(parseInt(value));
+                        }
+                      }}
+                    >
                       <SelectTrigger>
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="3">3 years</SelectItem>
-                        <SelectItem value="5">5 years</SelectItem>
-                        <SelectItem value="10">10 years</SelectItem>
+                        <SelectItem value="3">Last 3 years</SelectItem>
+                        <SelectItem value="5">Last 5 years</SelectItem>
+                        <SelectItem value="10">Last 10 years</SelectItem>
+                        <SelectItem value="custom">Custom range...</SelectItem>
                       </SelectContent>
                     </Select>
+                    {sidraRangeMode === "custom" && (
+                      <div className="flex items-center gap-2 pt-1">
+                        <div className="flex-1 space-y-1">
+                          <Label className="text-xs text-gray-500 dark:text-gray-400">From</Label>
+                          <Input
+                            type="month"
+                            value={sidraStartMonth}
+                            onChange={(e) => setSidraStartMonth(e.target.value)}
+                          />
+                        </div>
+                        <div className="flex-1 space-y-1">
+                          <Label className="text-xs text-gray-500 dark:text-gray-400">To</Label>
+                          <Input
+                            type="month"
+                            value={sidraEndMonth}
+                            onChange={(e) => setSidraEndMonth(e.target.value)}
+                          />
+                        </div>
+                      </div>
+                    )}
+                    {sidraRangeMode === "custom" && (!sidraStartMonth || !sidraEndMonth) && (
+                      <p className="text-xs text-amber-600 dark:text-amber-400">Select both "From" and "To" months.</p>
+                    )}
+                    {sidraRangeMode === "custom" && sidraStartMonth && sidraEndMonth && sidraStartMonth > sidraEndMonth && (
+                      <p className="text-xs text-red-600 dark:text-red-400">"From" must be before "To".</p>
+                    )}
                   </div>
 
                   <div className="space-y-2">
@@ -1997,24 +2041,13 @@ export default function PublicationOffice() {
                     </div>
 
                     <div className="space-y-2">
-                      <Label className="text-sm text-gray-600 dark:text-gray-300">Last Author</Label>
+                      <Label className="text-sm text-gray-600 dark:text-gray-300">Last/Senior Author</Label>
                       <Input
                         type="number"
                         step="0.1"
                         min="0"
                         value={lastAuthorMultiplier}
                         onChange={(e) => setLastAuthorMultiplier(parseFloat(e.target.value) || 0)}
-                      />
-                    </div>
-
-                    <div className="space-y-2">
-                      <Label className="text-sm text-gray-600 dark:text-gray-300">Senior Author</Label>
-                      <Input
-                        type="number"
-                        step="0.1"
-                        min="0"
-                        value={seniorAuthorMultiplier}
-                        onChange={(e) => setSeniorAuthorMultiplier(parseFloat(e.target.value) || 0)}
                       />
                     </div>
 
@@ -2034,7 +2067,11 @@ export default function PublicationOffice() {
                     className="w-full flex items-center gap-2" 
                     variant="outline"
                     onClick={handleCalculateSidraScores}
-                    disabled={calculateSidraScoresMutation.isPending}
+                    disabled={
+                      calculateSidraScoresMutation.isPending ||
+                      (sidraRangeMode === "custom" &&
+                        (!sidraStartMonth || !sidraEndMonth || sidraStartMonth > sidraEndMonth))
+                    }
                   >
                     <TrendingUp className="h-4 w-4" />
                     {calculateSidraScoresMutation.isPending ? 'Calculating...' : 'Calculate Scores'}
@@ -2052,7 +2089,9 @@ export default function PublicationOffice() {
                     Scientist Rankings
                   </CardTitle>
                   <p className="text-sm text-gray-600 dark:text-gray-300">
-                    Based on publication impact factors from the last {sidraYears} years
+                    {sidraRangeMode === "custom" && sidraStartMonth && sidraEndMonth
+                      ? `Based on publication impact factors from ${sidraStartMonth} to ${sidraEndMonth}`
+                      : `Based on publication impact factors from the last ${sidraYears} years`}
                   </p>
                 </CardHeader>
                 <CardContent>
@@ -2060,11 +2099,10 @@ export default function PublicationOffice() {
                     <div className="bg-blue-50 p-4 rounded-lg dark:bg-blue-950">
                       <h4 className="font-medium text-blue-900 mb-2 dark:text-blue-200">Calculation Formula</h4>
                       <p className="text-sm text-blue-800 dark:text-blue-300">
-                        Sum of journal impact factors for publications in the last {sidraYears} years, 
+                        Sum of journal impact factors for publications {sidraRangeMode === "custom" && sidraStartMonth && sidraEndMonth ? `from ${sidraStartMonth} to ${sidraEndMonth}` : `in the last ${sidraYears} years`}, 
                         using {impactFactorYear === "prior" ? "year prior" : impactFactorYear === "publication" ? "publication year" : "latest available"} impact factors.
                         Multipliers: First Author (×{firstAuthorMultiplier}), 
-                        Last Author (×{lastAuthorMultiplier}), 
-                        Senior Author (×{seniorAuthorMultiplier}), 
+                        Last/Senior Author (×{lastAuthorMultiplier}), 
                         Corresponding Author (×{correspondingAuthorMultiplier})
                       </p>
                     </div>
