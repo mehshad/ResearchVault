@@ -229,6 +229,10 @@ export const publications = pgTable("publications", {
   vettedForSubmissionByIpOffice: boolean("vetted_for_submission_by_ip_office").default(false),
   prepublicationUrl: text("prepublication_url"), // URL/DOI for prepublication
   prepublicationSite: text("prepublication_site"), // bioRxiv, arXiv, etc.
+  // Other DOIs that identify this same work (e.g. a repository or book-chapter
+  // DOI merged away as a duplicate). Kept so ORCID/Scholar re-syncs never
+  // resurface a merged-away record as a "missing" publication.
+  alternateDois: text("alternate_dois").array(),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 });

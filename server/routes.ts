@@ -189,7 +189,7 @@ function preprintLinkToDoi(url: string | null | undefined): string | null {
 // ORCID/Scholar re-sync never resurfaces a preprint that was merged into its
 // published version and now survives only as that record's preprint link.
 function buildExistingWorkDois(
-  pubs: { doi?: string | null; prepublicationUrl?: string | null }[]
+  pubs: { doi?: string | null; prepublicationUrl?: string | null; alternateDois?: string[] | null }[]
 ): Set<string> {
   const set = new Set<string>();
   for (const p of pubs) {
@@ -197,6 +197,12 @@ function buildExistingWorkDois(
     if (primary) set.add(primary);
     const preprint = preprintLinkToDoi(p.prepublicationUrl);
     if (preprint) set.add(preprint);
+    // Alternate DOIs recorded when duplicates were merged away (repository
+    // copies, book-chapter DOIs, etc.) also represent works already present.
+    for (const alt of p.alternateDois ?? []) {
+      const a = canonicalDoi(alt);
+      if (a) set.add(a);
+    }
   }
   return set;
 }
