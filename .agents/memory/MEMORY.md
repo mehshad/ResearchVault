@@ -5,4 +5,6 @@
 - [Publications route ordering](publications-route-ordering.md) — literal /api/publications/<name> routes must be registered before /:id or the param route swallows them (400 "Invalid publication ID").
 - [drizzle-kit push + post-merge](drizzle-push-postmerge.md) — DB names must match Drizzle (`_key`→`_unique`, FKs `_fk`, ownership_overrides index) or `push --force` hangs on TTY prompt; post-merge timeout 180s.
 - [session table dropped by push](session-table-drizzle-push.md) — connect-pg-simple `session` table isn't in schema; drizzle-kit push drops it → "relation session does not exist"; recreate it + restart.
+- [Preprint classification](preprint-classification.md) — never use prepublicationSite/Url to decide a record is a preprint; merges copy them onto published survivors.
+- [Demo mode bypasses auth guards](demo-mode-open-access.md) — AUTH_MODE=demo injects a Management session; anonymous curl 200 doesn't mean a route guard is missing.
 - [Server code needs manual restart](server-no-hot-reload.md) — `tsx` runs without --watch; backend edits don't reload, new API routes return Vite HTML (200) until `restart_workflow`.

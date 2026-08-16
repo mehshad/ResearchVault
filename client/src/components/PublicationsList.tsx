@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/button";
 import { ExternalLink, FileText, ChevronRight, ArrowRight, AlertTriangle, ChevronsDownUp, ChevronsUpDown, Copy, Check } from "lucide-react";
 import { format } from "date-fns";
 import { useToast } from "@/hooks/use-toast";
+import { isPreprintRecord } from "@shared/publicationDeduplication";
 
 interface JournalImpactFactor {
   id: number;
@@ -225,8 +226,14 @@ function PublicationRow({ pub, isOpen, onToggle }: { pub: Publication; isOpen: b
   );
 }
 
+type YearsMode = "3" | "5" | "all";
+
 export function PublicationsList({ scientistId, yearsSince = 5, embedded = false }: PublicationsListProps) {
   const [expandedIds, setExpandedIds] = React.useState<Set<number>>(new Set());
+  const [yearsMode, setYearsMode] = React.useState<YearsMode>(
+    yearsSince === 3 ? "3" : "5"
+  );
+  const yearsParam = yearsMode === "all" ? 100 : parseInt(yearsMode, 10);
   const toggleExpanded = (id: number) => {
     setExpandedIds((prev) => {
       const next = new Set(prev);
@@ -235,7 +242,7 @@ export function PublicationsList({ scientistId, yearsSince = 5, embedded = false
     });
   };
   const { data: publications = [], isLoading } = useQuery({
-    queryKey: [`/api/scientists/${scientistId}/publications?years=${yearsSince}`],
+    queryKey: [`/api/scientists/${scientistId}/publications?years=${yearsParam}`],
   });
 
   const { toast } = useToast();
@@ -304,6 +311,65 @@ export function PublicationsList({ scientistId, yearsSince = 5, embedded = false
     }
   };
 
+  // Split preprints out on top, then group the rest by publication year (desc).
+  // NOTE: prepublicationSite is deliberately blanked before classification — a
+  // published record that absorbed a merged preprint retains the preprint's
+  // site/link for provenance, and that retained linkage must not reclassify
+  // the published survivor as a preprint. DOI prefix, publication type, and
+  // journal text are sufficient to identify true preprint records.
+  const preprints = publications.filter((p: Publication) =>
+    isPreprintRecord({ ...p, prepublicationSite: null, prepublicationUrl: null })
+  );
+  const preprintIds = new Set(preprints.map((p: Publication) => p.id));
+  const yearGroups = React.useMemo(() => {
+    const groups = new Map<string, Publication[]>();
+    for (const pub of publications as Publication[]) {
+      if (preprintIds.has(pub.id)) continue;
+      let key = "No date";
+      if (pub.publicationDate) {
+        const d = new Date(pub.publicationDate);
+        if (!isNaN(d.getTime())) key = String(d.getFullYear());
+      }
+      (groups.get(key) ?? groups.set(key, []).get(key)!).push(pub);
+    }
+    return Array.from(groups.entries()).sort((a, b) => {
+      if (a[0] === "No date") return 1;
+      if (b[0] === "No date") return -1;
+      return parseInt(b[0], 10) - parseInt(a[0], 10);
+    });
+  }, [publications]);
+
+  const yearsToggle = (
+    <div
+      className="inline-flex rounded-md border overflow-hidden dark:border-gray-700"
+      role="group"
+      aria-label="Publication time range"
+    >
+      {([
+        ["3", "3 yrs"],
+        ["5", "5 yrs"],
+        ["all", "All"],
+      ] as [YearsMode, string][]).map(([mode, label]) => (
+        <button
+          key={mode}
+          type="button"
+          onClick={() => setYearsMode(mode)}
+          data-testid={`button-publications-years-${mode}`}
+          className={`px-2.5 py-1 text-xs font-medium transition-colors ${
+            yearsMode === mode
+              ? "bg-primary text-primary-foreground"
+              : "bg-transparent text-muted-foreground hover:bg-muted"
+          }`}
+        >
+          {label}
+        </button>
+      ))}
+    </div>
+  );
+
+  const titleLabel =
+    yearsMode === "all" ? "Publications (All Years)" : `Publications (Last ${yearsMode} Years)`;
+
   const headerActions = publications.length > 0 ? (
     <div className="flex items-center gap-2 shrink-0">
       <Button
@@ -341,19 +407,53 @@ export function PublicationsList({ scientistId, yearsSince = 5, embedded = false
     </div>
   );
 
+  const sectionHeader = (label: string, count: number) => (
+    <div
+      key={`header-${label}`}
+      className="flex items-center gap-2 pt-3 first:pt-0"
+      data-testid={`section-publications-${label.toLowerCase().replace(/\s+/g, "-")}`}
+    >
+      <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+        {label}
+      </span>
+      <span className="text-xs text-muted-foreground">({count})</span>
+      <div className="flex-1 border-t dark:border-gray-700" />
+    </div>
+  );
+
   const listBody = (
         <div className="space-y-2">
           {publications.length === 0 ? (
             <p className="text-gray-600 text-center py-8 dark:text-gray-300">No publications found for the selected time period.</p>
           ) : (
-            publications.map((pub: Publication) => (
-              <PublicationRow
-                key={pub.id}
-                pub={pub}
-                isOpen={expandedIds.has(pub.id)}
-                onToggle={() => toggleExpanded(pub.id)}
-              />
-            ))
+            <>
+              {preprints.length > 0 && (
+                <>
+                  {sectionHeader("Pre-publications", preprints.length)}
+                  {preprints.map((pub: Publication) => (
+                    <PublicationRow
+                      key={pub.id}
+                      pub={pub}
+                      isOpen={expandedIds.has(pub.id)}
+                      onToggle={() => toggleExpanded(pub.id)}
+                    />
+                  ))}
+                </>
+              )}
+              {yearGroups.map(([year, pubs]) => (
+                <React.Fragment key={year}>
+                  {sectionHeader(year, pubs.length)}
+                  {pubs.map((pub: Publication) => (
+                    <PublicationRow
+                      key={pub.id}
+                      pub={pub}
+                      isOpen={expandedIds.has(pub.id)}
+                      onToggle={() => toggleExpanded(pub.id)}
+                    />
+                  ))}
+                </React.Fragment>
+              ))}
+            </>
           )}
         </div>
   );
@@ -363,10 +463,13 @@ export function PublicationsList({ scientistId, yearsSince = 5, embedded = false
       <div data-testid="section-publications-recent">
         <div className="mb-3 flex items-start justify-between gap-3">
           <div>
-            <h3 className="font-semibold flex items-center gap-2">
-              <FileText className="h-4 w-4" />
-              Publications (Last {yearsSince} Years)
-            </h3>
+            <div className="flex items-center gap-3 flex-wrap">
+              <h3 className="font-semibold flex items-center gap-2">
+                <FileText className="h-4 w-4" />
+                {titleLabel}
+              </h3>
+              {yearsToggle}
+            </div>
             {!isLoading && (
               <p className="text-sm text-muted-foreground">
                 {publications.length} publications (Published or In Press only) with external collaborator tracking
@@ -386,7 +489,7 @@ export function PublicationsList({ scientistId, yearsSince = 5, embedded = false
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
             <FileText className="h-5 w-5" />
-            Publications (Last {yearsSince} Years)
+            {titleLabel}
           </CardTitle>
         </CardHeader>
         <CardContent>{loadingBody}</CardContent>
@@ -399,10 +502,13 @@ export function PublicationsList({ scientistId, yearsSince = 5, embedded = false
       <CardHeader>
         <div className="flex items-start justify-between gap-3">
           <div>
-            <CardTitle className="flex items-center gap-2">
-              <FileText className="h-5 w-5" />
-              Publications (Last {yearsSince} Years)
-            </CardTitle>
+            <div className="flex items-center gap-3 flex-wrap">
+              <CardTitle className="flex items-center gap-2">
+                <FileText className="h-5 w-5" />
+                {titleLabel}
+              </CardTitle>
+              {yearsToggle}
+            </div>
             <CardDescription>
               {publications.length} publications (Published or In Press only) with external collaborator tracking
             </CardDescription>

@@ -55,7 +55,7 @@ interface DuplicateGroup {
 const REASON_LABELS: Record<string, string> = {
   doi: "Same DOI",
   pmid: "Same PMID",
-  metadata: "Same title, year & author",
+  metadata: "Same title & year (plus author overlap when both records list authors)",
   "preprint-pair": "Preprint ↔ published",
 };
 
@@ -203,6 +203,11 @@ function MergeDialog({
                   )}
                 </div>
                 <p className="text-sm font-medium line-clamp-2">{p.title}</p>
+                {p.journal && (
+                  <p className="text-xs text-muted-foreground mt-0.5 line-clamp-1" data-testid={`text-survivor-journal-${p.id}`}>
+                    {p.journal}
+                  </p>
+                )}
                 <div className="flex flex-wrap gap-1 mt-1">
                   {p.status && <Badge variant="outline" className="text-xs">{p.status}</Badge>}
                   {p.doi && <Badge variant="secondary" className="text-xs">DOI</Badge>}

@@ -14,6 +14,29 @@ interface MissingPaper {
   journal: string;
   year: number | null;
   source: string;
+  isPreprint?: boolean;
+}
+
+/**
+ * Group missing papers into a "Pre-publications" section (preprints on top)
+ * followed by one section per year, newest first; undated works go last.
+ */
+function groupMissingPapers(missing: MissingPaper[]): [string, MissingPaper[]][] {
+  const preprints = missing.filter((m) => m.isPreprint);
+  const rest = missing.filter((m) => !m.isPreprint);
+  const byYear = new Map<string, MissingPaper[]>();
+  for (const paper of rest) {
+    const key = paper.year ? String(paper.year) : "No date";
+    (byYear.get(key) ?? byYear.set(key, []).get(key)!).push(paper);
+  }
+  const yearSections = Array.from(byYear.entries()).sort((a, b) => {
+    if (a[0] === "No date") return 1;
+    if (b[0] === "No date") return -1;
+    return parseInt(b[0], 10) - parseInt(a[0], 10);
+  });
+  const sections: [string, MissingPaper[]][] = [];
+  if (preprints.length > 0) sections.push(["Pre-publications", preprints]);
+  return sections.concat(yearSections);
 }
 
 interface MissingPapersResponse {
@@ -197,7 +220,19 @@ export function MissingPapers({ scientistId, hasOrcid, hasScholar, embedded = fa
                 </div>
 
                 <div className="space-y-2">
-                  {missing.map((paper) => (
+                  {groupMissingPapers(missing).map(([label, papers]) => (
+                    <React.Fragment key={label}>
+                      <div
+                        className="flex items-center gap-2 pt-3 first:pt-0"
+                        data-testid={`section-missing-${label.toLowerCase().replace(/\s+/g, "-")}`}
+                      >
+                        <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                          {label}
+                        </span>
+                        <span className="text-xs text-muted-foreground">({papers.length})</span>
+                        <div className="flex-1 border-t dark:border-gray-700" />
+                      </div>
+                  {papers.map((paper) => (
                     <div
                       key={paper.doi}
                       className="flex items-start gap-3 border rounded-lg p-3 hover:bg-gray-50 transition-colors dark:hover:bg-gray-900"
@@ -233,6 +268,8 @@ export function MissingPapers({ scientistId, hasOrcid, hasScholar, embedded = fa
                         </a>
                       </div>
                     </div>
+                  ))}
+                    </React.Fragment>
                   ))}
                 </div>
               </>
