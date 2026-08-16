@@ -29,7 +29,10 @@ export default function Sidebar({ mobile = false, onClose, onCollapsedChange }: 
   const { themeName, currentLabels, isSectionVisible } = useTheme();
   const { authConfig, logout, user: authUser } = useAuth();
   const { currentUser, setCurrentUser } = useCurrentUser();
-  const ssoEnabled = authConfig.ssoEnabled;
+  // True for any mode with real authenticated users (ldap or oidc).
+  // ssoEnabled on authConfig only means "browser SSO redirect" (oidc only) and
+  // must not be used here — LDAP also has real session users.
+  const ssoEnabled = authConfig.mode === 'ldap' || authConfig.mode === 'oidc';
   // Expose the Super Admin test identity in the role selector only in demo mode.
   const availableUsers = authConfig.mode === 'demo'
     ? [...DUMMY_USERS, SUPER_ADMIN_USER]
