@@ -53,7 +53,7 @@ import {
   teamMembers, TeamMember, InsertTeamMember,
   ownershipOverrides, OwnershipOverride, InsertOwnershipOverride
 } from "@shared/schema";
-import { isPreprintRecord, preprintServerName, preprintLink } from "@shared/publicationDeduplication";
+import { isPreprintRecord, preprintServerName, preprintLink, normalizeDoi } from "@shared/publicationDeduplication";
 
 /**
  * Normalize a journal name for tolerant matching across the slightly different
@@ -699,6 +699,42 @@ export class DatabaseStorage implements IStorage {
           updateData.prepublicationSite = prepubSite;
         }
       }
+      // Preserve every other DOI identity: any merged-away record's DOI that
+      // differs from the survivor's effective DOI (and isn't already covered
+      // by the preprint link) is kept as an alternate DOI, so a later
+      // ORCID/Scholar re-sync can't resurface the merged record as "missing".
+      const normalize = (v: string | null | undefined) => normalizeDoi(v) ?? "";
+      const survivorDoi = normalize(effectiveSurvivor.doi);
+      // Start from the survivor's existing alternates, but drop any that now
+      // equal the effective primary DOI (e.g. the officer promoted a recorded
+      // alternate to be the surviving DOI).
+      const alternates = new Set<string>(
+        (survivor.alternateDois ?? [])
+          .map(normalize)
+          .filter((d) => d && d !== survivorDoi),
+      );
+      for (const t of targets) {
+        const d = normalize(t.doi);
+        if (d && d !== survivorDoi) alternates.add(d);
+        for (const extra of t.alternateDois ?? []) {
+          const e = normalize(extra);
+          if (e && e !== survivorDoi) alternates.add(e);
+        }
+      }
+      // The survivor's old DOI also stays reachable if the officer picked the
+      // other record's DOI as the surviving value.
+      const originalSurvivorDoi = normalize(survivor.doi);
+      if (originalSurvivorDoi && originalSurvivorDoi !== survivorDoi) {
+        alternates.add(originalSurvivorDoi);
+      }
+      const previous = (survivor.alternateDois ?? []).map(normalize).filter(Boolean);
+      const changed =
+        alternates.size !== previous.length ||
+        !previous.every((d) => alternates.has(d));
+      if (changed) {
+        updateData.alternateDois = Array.from(alternates);
+      }
+
       if (Object.keys(updateData).length > 0) {
         await tx
           .update(publications)

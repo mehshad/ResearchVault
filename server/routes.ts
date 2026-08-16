@@ -189,7 +189,7 @@ function preprintLinkToDoi(url: string | null | undefined): string | null {
 // ORCID/Scholar re-sync never resurfaces a preprint that was merged into its
 // published version and now survives only as that record's preprint link.
 function buildExistingWorkDois(
-  pubs: { doi?: string | null; prepublicationUrl?: string | null }[]
+  pubs: { doi?: string | null; prepublicationUrl?: string | null; alternateDois?: string[] | null }[]
 ): Set<string> {
   const set = new Set<string>();
   for (const p of pubs) {
@@ -197,6 +197,12 @@ function buildExistingWorkDois(
     if (primary) set.add(primary);
     const preprint = preprintLinkToDoi(p.prepublicationUrl);
     if (preprint) set.add(preprint);
+    // Alternate DOIs recorded when duplicates were merged away (repository
+    // copies, book-chapter DOIs, etc.) also represent works already present.
+    for (const alt of p.alternateDois ?? []) {
+      const a = canonicalDoi(alt);
+      if (a) set.add(a);
+    }
   }
   return set;
 }
@@ -269,24 +275,60 @@ async function fetchOrcidWorks(orcidId: string): Promise<MissingPaperMeta[]> {
   const seen = new Set<string>();
 
   for (const group of groups) {
-    const extIds: any[] = group?.["external-ids"]?.["external-id"] ?? [];
-    const doiEntry = extIds.find(
-      (e) => (e?.["external-id-type"] ?? "").toLowerCase() === "doi"
-    );
-    const rawDoi = doiEntry?.["external-id-value"];
-    const norm = normalizeDoi(rawDoi);
-    if (!norm || seen.has(norm)) continue;
+    // ORCID can merge a preprint and its published journal version into ONE
+    // group when they share an id (e.g. the same PMC id). Examine every
+    // work-summary and every DOI in the group, and prefer the published
+    // version over a preprint DOI so the journal article isn't hidden behind
+    // its bioRxiv/Research Square copy.
+    const summaries: any[] = Array.isArray(group?.["work-summary"])
+      ? group["work-summary"]
+      : [];
 
-    const summary: any = group?.["work-summary"]?.[0] ?? {};
+    type Candidate = { doi: string; summary: any };
+    const candidates: Candidate[] = [];
+    const candidateDois = new Set<string>();
+
+    const collectDois = (extIds: any[], summary: any) => {
+      for (const e of extIds) {
+        if ((e?.["external-id-type"] ?? "").toLowerCase() !== "doi") continue;
+        const norm = normalizeDoi(e?.["external-id-value"]);
+        if (!norm || candidateDois.has(norm)) continue;
+        candidateDois.add(norm);
+        candidates.push({ doi: norm, summary });
+      }
+    };
+
+    // Per-summary DOIs first: they pair each DOI with its own title/journal.
+    for (const summary of summaries) {
+      collectDois(summary?.["external-ids"]?.["external-id"] ?? [], summary);
+    }
+    // Group-level DOIs as a fallback (paired with the first summary).
+    collectDois(group?.["external-ids"]?.["external-id"] ?? [], summaries[0] ?? {});
+
+    if (candidates.length === 0) continue;
+
+    const isPreprintDoi = (doi: string) =>
+      isPreprintRecord({ id: 0, doi, title: null, journal: null });
+    const chosen =
+      candidates.find((c) => !isPreprintDoi(c.doi)) ?? candidates[0];
+
+    // Mark every DOI in the group as seen BEFORE the duplicate check, so an
+    // overlapping group (e.g. one that repeats an already-emitted published
+    // DOI alongside its preprint DOI) can't leak its other DOIs as separate
+    // rows via a later group.
+    const alreadyEmitted = seen.has(chosen.doi);
+    for (const doi of Array.from(candidateDois)) seen.add(doi);
+    if (alreadyEmitted) continue;
+
+    const summary: any = chosen.summary ?? {};
     const title: string =
       summary?.title?.title?.value ?? "Untitled work";
     const journal: string = summary?.["journal-title"]?.value ?? "";
     const yearRaw = summary?.["publication-date"]?.year?.value;
     const year = yearRaw ? parseInt(yearRaw, 10) : null;
 
-    seen.add(norm);
     results.push({
-      doi: norm,
+      doi: chosen.doi,
       title,
       journal,
       year: Number.isFinite(year as number) ? (year as number) : null,
