@@ -103,6 +103,12 @@ export default function PublicationOffice() {
   const [npDateFrom, setNpDateFrom] = useState<string>("");
   const [npDateTo, setNpDateTo] = useState<string>("");
 
+  // Import Links dialog: bulk-link publications to SDRs / staff via Excel upload.
+  const [linkImportOpen, setLinkImportOpen] = useState(false);
+  const [linkImportRows, setLinkImportRows] = useState<any[] | null>(null);
+  const [linkImportBusy, setLinkImportBusy] = useState(false);
+  const linkImportFileRef = useRef<HTMLInputElement>(null);
+
   // Auto-connect internal authors dialog: which publication is open, and which
   // suggested scientist links the user has selected to confirm.
   const [autoConnectPub, setAutoConnectPub] = useState<Publication | null>(null);
@@ -1258,10 +1264,21 @@ export default function PublicationOffice() {
         <TabsContent value="new-publications" className="space-y-6">
           <Card>
             <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <FileText className="h-5 w-5" />
-                New Publications
-              </CardTitle>
+              <div className="flex items-center justify-between gap-2">
+                <CardTitle className="flex items-center gap-2">
+                  <FileText className="h-5 w-5" />
+                  New Publications
+                </CardTitle>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => { setLinkImportOpen(true); setLinkImportRows(null); }}
+                  data-testid="button-import-links"
+                >
+                  <Upload className="h-4 w-4 mr-2" />
+                  Import Links
+                </Button>
+              </div>
             </CardHeader>
             <CardContent>
               {newPublicationsLoading ? (
@@ -2763,6 +2780,205 @@ export default function PublicationOffice() {
       </Tabs>
 
       {/* Auto-connect internal authors dialog */}
+      {/* Import Links dialog: bulk-link publications to SDRs / staff via Excel template */}
+      <Dialog open={linkImportOpen} onOpenChange={(o) => { setLinkImportOpen(o); if (!o) setLinkImportRows(null); }}>
+        <DialogContent className="max-w-3xl max-h-[85vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Import Links</DialogTitle>
+            <DialogDescription>
+              Bulk-link publications to SDRs or internal staff from an Excel file.
+            </DialogDescription>
+          </DialogHeader>
+
+          {!linkImportRows ? (
+            <div className="space-y-4">
+              <div className="text-sm space-y-2">
+                <p>How it works:</p>
+                <ol className="list-decimal ml-5 space-y-1">
+                  <li>Download the template below. It has 4 columns:
+                    <span className="font-medium"> Publication ID</span> (DOI or PMID),
+                    <span className="font-medium"> Publication ID Type</span> (DOI / PMID),
+                    <span className="font-medium"> Link Type</span> (SDR / Staff), and
+                    <span className="font-medium"> Link</span> — an SDR number like SDR200079, or a staff name like John Smith.</li>
+                  <li>Fill in one row per link and save the file.</li>
+                  <li>Upload it here. You'll get a preview of every link found — with the SDR title or staff job title as confirmation of the match — plus anything that couldn't be matched, before anything is saved.</li>
+                </ol>
+              </div>
+              <div className="flex items-center gap-2">
+                <Button
+                  variant="outline"
+                  onClick={() => { window.location.href = '/api/publications/link-import/template'; }}
+                  data-testid="button-download-link-template"
+                >
+                  <Download className="h-4 w-4 mr-2" />
+                  Download Template
+                </Button>
+                <Button
+                  onClick={() => linkImportFileRef.current?.click()}
+                  disabled={linkImportBusy}
+                  data-testid="button-upload-link-file"
+                >
+                  {linkImportBusy ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Upload className="h-4 w-4 mr-2" />}
+                  Upload Filled File
+                </Button>
+                <input
+                  ref={linkImportFileRef}
+                  type="file"
+                  accept=".xlsx,.csv"
+                  className="hidden"
+                  onChange={async (e) => {
+                    const file = e.target.files?.[0];
+                    e.target.value = '';
+                    if (!file) return;
+                    setLinkImportBusy(true);
+                    try {
+                      const buf = await file.arrayBuffer();
+                      let binary = '';
+                      const bytes = new Uint8Array(buf);
+                      for (let i = 0; i < bytes.length; i += 0x8000) {
+                        binary += String.fromCharCode.apply(null, bytes.subarray(i, i + 0x8000) as any);
+                      }
+                      const res = await fetch('/api/publications/link-import/preview', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        credentials: 'include',
+                        body: JSON.stringify({ fileBase64: btoa(binary), fileName: file.name }),
+                      });
+                      if (!res.ok) {
+                        const err = await res.json().catch(() => ({}));
+                        throw new Error(err.message || 'Failed to parse the file');
+                      }
+                      const data = await res.json();
+                      setLinkImportRows(data.rows ?? []);
+                    } catch (err: any) {
+                      toast({ title: 'Upload failed', description: err.message, variant: 'destructive' });
+                    } finally {
+                      setLinkImportBusy(false);
+                    }
+                  }}
+                />
+              </div>
+            </div>
+          ) : (
+            <div className="space-y-4">
+              {(() => {
+                const toApply = linkImportRows.filter((r) => r.status === 'matched' && !r.alreadyLinked);
+                const alreadyLinked = linkImportRows.filter((r) => r.status === 'matched' && r.alreadyLinked);
+                const ignored = linkImportRows.filter((r) => r.status === 'ignored');
+                return (
+                  <>
+                    <div className="text-sm text-muted-foreground">
+                      {toApply.length} link{toApply.length === 1 ? '' : 's'} ready to import
+                      {alreadyLinked.length > 0 && <> · {alreadyLinked.length} already linked</>}
+                      {ignored.length > 0 && <> · {ignored.length} ignored</>}
+                    </div>
+
+                    {toApply.length > 0 && (
+                      <div className="space-y-2">
+                        <div className="font-medium text-sm">Links found</div>
+                        {toApply.map((r) => (
+                          <div key={r.row} className="border rounded-md p-2 text-sm" data-testid={`row-link-matched-${r.row}`}>
+                            <div className="font-medium line-clamp-1">{r.publicationTitle}</div>
+                            {r.researchActivityId ? (
+                              <div className="text-muted-foreground">
+                                → SDR <span className="font-medium">{r.sdrNumber}</span>: {r.sdrTitle}
+                                {r.reason && <span className="text-amber-600 dark:text-amber-400"> — {r.reason}</span>}
+                              </div>
+                            ) : (
+                              <div className="text-muted-foreground">
+                                → Staff <span className="font-medium">{r.scientistName}</span>
+                                {r.scientistJobTitle && <> ({r.scientistJobTitle})</>}
+                              </div>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    )}
+
+                    {alreadyLinked.length > 0 && (
+                      <div className="space-y-2">
+                        <div className="font-medium text-sm">Already linked (skipped)</div>
+                        {alreadyLinked.map((r) => (
+                          <div key={r.row} className="border rounded-md p-2 text-sm opacity-70" data-testid={`row-link-existing-${r.row}`}>
+                            <div className="line-clamp-1">{r.publicationTitle}</div>
+                            <div className="text-muted-foreground">
+                              {r.researchActivityId ? <>SDR {r.sdrNumber}: {r.sdrTitle}</> : <>{r.scientistName}{r.scientistJobTitle && <> ({r.scientistJobTitle})</>}</>}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+
+                    {ignored.length > 0 && (
+                      <div className="space-y-2">
+                        <div className="font-medium text-sm flex items-center gap-1">
+                          <AlertTriangle className="h-4 w-4 text-amber-500" />
+                          Ignored / unmatched
+                        </div>
+                        {ignored.map((r) => (
+                          <div key={r.row} className="border border-amber-200 dark:border-amber-900 rounded-md p-2 text-sm" data-testid={`row-link-ignored-${r.row}`}>
+                            <div className="line-clamp-1">
+                              Row {r.row}: {r.idValue || '(no ID)'} — {r.linkType || '?'} → {r.linkValue || '(no link)'}
+                            </div>
+                            <div className="text-amber-600 dark:text-amber-400">{r.reason}</div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+
+                    <div className="flex justify-end gap-2 pt-2">
+                      <Button variant="outline" onClick={() => setLinkImportRows(null)} data-testid="button-link-import-back">
+                        Upload Different File
+                      </Button>
+                      <Button
+                        disabled={toApply.length === 0 || linkImportBusy}
+                        onClick={async () => {
+                          setLinkImportBusy(true);
+                          try {
+                            const res = await fetch('/api/publications/link-import/apply', {
+                              method: 'POST',
+                              headers: { 'Content-Type': 'application/json' },
+                              credentials: 'include',
+                              body: JSON.stringify({
+                                links: toApply.map((r) => ({
+                                  publicationId: r.publicationId,
+                                  researchActivityId: r.researchActivityId,
+                                  scientistId: r.scientistId,
+                                })),
+                              }),
+                            });
+                            if (!res.ok) {
+                              const err = await res.json().catch(() => ({}));
+                              throw new Error(err.message || 'Import failed');
+                            }
+                            const result = await res.json();
+                            toast({
+                              title: 'Links imported',
+                              description: `${result.sdrLinks} SDR link${result.sdrLinks === 1 ? '' : 's'} and ${result.staffLinks} staff link${result.staffLinks === 1 ? '' : 's'} created${result.skipped?.length ? `, ${result.skipped.length} skipped` : ''}.`,
+                            });
+                            queryClient.invalidateQueries({ queryKey: ['/api/publications'] });
+                            setLinkImportOpen(false);
+                            setLinkImportRows(null);
+                          } catch (err: any) {
+                            toast({ title: 'Import failed', description: err.message, variant: 'destructive' });
+                          } finally {
+                            setLinkImportBusy(false);
+                          }
+                        }}
+                        data-testid="button-confirm-link-import"
+                      >
+                        {linkImportBusy && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
+                        Import {toApply.length} Link{toApply.length === 1 ? '' : 's'}
+                      </Button>
+                    </div>
+                  </>
+                );
+              })()}
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
+
       <Dialog open={!!autoConnectPub} onOpenChange={(o) => !o && setAutoConnectPub(null)}>
         <DialogContent className="max-w-2xl max-h-[80vh] overflow-y-auto" data-testid="dialog-auto-connect">
           <DialogHeader>

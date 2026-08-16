@@ -96,6 +96,60 @@ export function normalizeTitle(title: string | null | undefined): string {
   return (title || "").toLowerCase().replace(/[^a-z0-9]+/g, "");
 }
 
+/**
+ * Fuzzy title similarity via Dice coefficient on character bigrams of the
+ * normalized titles (0..1). Catches journals lightly rewording a preprint's
+ * title on publication (e.g. "Molecular Classifying Accuracy" →
+ * "Accuracy of Molecular Classification").
+ */
+export function titleSimilarity(a: string | null | undefined, b: string | null | undefined): number {
+  const ta = normalizeTitle(a);
+  const tb = normalizeTitle(b);
+  if (!ta || !tb) return 0;
+  if (ta === tb) return 1;
+  if (ta.length < 10 || tb.length < 10) return 0;
+  const bigrams = (s: string) => {
+    const m = new Map<string, number>();
+    for (let i = 0; i < s.length - 1; i++) {
+      const g = s.slice(i, i + 2);
+      m.set(g, (m.get(g) ?? 0) + 1);
+    }
+    return m;
+  };
+  const ma = bigrams(ta);
+  const mb = bigrams(tb);
+  let inter = 0;
+  for (const [g, ca] of ma) inter += Math.min(ca, mb.get(g) ?? 0);
+  return (2 * inter) / (ta.length - 1 + tb.length - 1);
+}
+
+/** Similarity threshold for treating two titles as "the same work, reworded". */
+export const PREPRINT_TITLE_SIMILARITY_THRESHOLD = 0.75;
+
+/**
+ * Serial/version marker in a title, e.g. "Part I", "Part 2", "Chapter III",
+ * "Study 1", "Paper II". Distinct installments of a series produce nearly
+ * identical bigram profiles, so a fuzzy match must never bridge different
+ * markers — "… Part I" and "… Part II" are different works.
+ */
+export function titleSeriesMarker(title: string | null | undefined): string | null {
+  const t = (title || "").toLowerCase();
+  const m = t.match(/\b(part|chapter|study|paper|volume|vol)\s*[.:]?\s*([ivxlcdm]+|\d+)\b/);
+  if (m) return `${m[1]}-${m[2]}`;
+  // Bare trailing roman numeral or number ("… carcinogenesis II", "… 2")
+  const tail = t.match(/\b([ivxlcdm]{1,4}|\d{1,2})\s*[.)]?\s*$/);
+  return tail ? `tail-${tail[1]}` : null;
+}
+
+/** Do two titles carry conflicting series/version markers? */
+export function hasSeriesConflict(a: string | null | undefined, b: string | null | undefined): boolean {
+  const ma = titleSeriesMarker(a);
+  const mb = titleSeriesMarker(b);
+  // Any mismatch (including marker vs no marker) blocks a fuzzy pairing;
+  // exact-equal titles never reach this check.
+  return ma !== mb;
+}
+
 function normalizePmid(pmid: string | null | undefined): string | null {
   const p = (pmid || "").trim();
   return p ? p : null;
@@ -291,10 +345,16 @@ function isPreprintPairDuplicate(
   p: DedupPublication,
   q: DedupPublication,
 ): boolean {
-  const tp = normalizeTitle(p.title);
-  const tq = normalizeTitle(q.title);
-  if (!tp || tp !== tq) return false;
   if (isPreprintRecord(p) === isPreprintRecord(q)) return false;
+  // Journals often reword a preprint's title on publication, so a fuzzy
+  // match is used here (exact equality still passes as similarity 1) —
+  // except when the titles carry different series markers ("Part I" vs
+  // "Part II"), which are distinct works despite near-identical wording.
+  const exact = normalizeTitle(p.title) === normalizeTitle(q.title) && !!normalizeTitle(p.title);
+  if (!exact) {
+    if (hasSeriesConflict(p.title, q.title)) return false;
+    if (titleSimilarity(p.title, q.title) < PREPRINT_TITLE_SIMILARITY_THRESHOLD) return false;
+  }
   return authorsOverlap(p.authors, q.authors);
 }
 
@@ -345,6 +405,49 @@ export function detectDuplicateGroups(
         if (isMetadataDuplicate(p, q) || isPreprintPairDuplicate(p, q)) {
           uf.union(p.id, q.id);
         }
+      }
+    }
+  }
+
+  // Rule 4b: fuzzy preprint <-> published pass. Reworded titles land in
+  // different title buckets, so preprints are compared against published
+  // records directly. Kept cheap by precomputing normalized titles / bigram
+  // maps once per record and prefiltering on title-length ratio before the
+  // full similarity computation.
+  const preprints = publications.filter((p) => isPreprintRecord(p));
+  if (preprints.length > 0) {
+    const published = publications.filter((p) => !isPreprintRecord(p));
+    const bigrams = (s: string) => {
+      const m = new Map<string, number>();
+      for (let i = 0; i < s.length - 1; i++) {
+        const g = s.slice(i, i + 2);
+        m.set(g, (m.get(g) ?? 0) + 1);
+      }
+      return m;
+    };
+    const prep = (p: DedupPublication) => {
+      const t = normalizeTitle(p.title);
+      return { p, t, grams: t.length >= 10 ? bigrams(t) : null };
+    };
+    const pre = preprints.map(prep);
+    const pub = published.map(prep);
+    for (const a of pre) {
+      if (!a.grams) continue;
+      for (const b of pub) {
+        if (!b.grams) continue;
+        // Length-band prefilter: a Dice score >= threshold is impossible when
+        // the shorter title is under ~60% of the longer one.
+        const lo = Math.min(a.t.length, b.t.length);
+        const hi = Math.max(a.t.length, b.t.length);
+        if (a.t !== b.t) {
+          if (lo / hi < 0.6) continue;
+          if (hasSeriesConflict(a.p.title, b.p.title)) continue;
+          let inter = 0;
+          for (const [g, ca] of a.grams) inter += Math.min(ca, b.grams.get(g) ?? 0);
+          const dice = (2 * inter) / (a.t.length - 1 + b.t.length - 1);
+          if (dice < PREPRINT_TITLE_SIMILARITY_THRESHOLD) continue;
+        }
+        if (authorsOverlap(a.p.authors, b.p.authors)) uf.union(a.p.id, b.p.id);
       }
     }
   }

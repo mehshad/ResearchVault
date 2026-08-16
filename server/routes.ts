@@ -63,6 +63,7 @@ import { resolveOwnershipAccess, maxAccess, type AccessLevel as OwnershipAccessL
 import { matchesAuthorName, isLinkedAuthorInAuthorsText, suggestInternalAuthors } from "@shared/authorMatching";
 import { detectDuplicateGroups, pickDefaultSurvivorId, normalizeDoi as canonicalDoi, isPreprintRecord } from "@shared/publicationDeduplication";
 import { getObjectAclPolicy, ObjectPermission } from "./objectAcl";
+import { buildLinkImportTemplate, previewLinkImport } from "./publicationLinksImport";
 
 const isLocalStorage = process.env.STORAGE_TYPE === "local";
 
@@ -4160,6 +4161,119 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Publications
+  // ----- Bulk "Import Links" (Outcome Office) -----
+  // Template download: 4-column Excel file officers fill in and re-upload.
+  app.get('/api/publications/link-import/template', requirePublicationOfficer, async (_req: Request, res: Response) => {
+    try {
+      const buf = await buildLinkImportTemplate();
+      res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+      res.setHeader('Content-Disposition', 'attachment; filename="publication-links-template.xlsx"');
+      res.send(buf);
+    } catch (error) {
+      console.error("Error building link-import template:", error);
+      res.status(500).json({ message: "Failed to build template" });
+    }
+  });
+
+  // Parse an uploaded template and report, per row, what would be linked
+  // (with SDR title / staff job title as match evidence) or why it was ignored.
+  app.post('/api/publications/link-import/preview', requirePublicationOfficer, async (req: Request, res: Response) => {
+    try {
+      const { fileBase64, fileName } = req.body ?? {};
+      if (typeof fileBase64 !== 'string' || !fileBase64) {
+        return res.status(400).json({ message: "Provide fileBase64 and fileName" });
+      }
+      const [pubs, ras, scis, allAuthors] = await Promise.all([
+        storage.getPublications(),
+        storage.getResearchActivities(),
+        storage.getScientists(),
+        db.select({
+          publicationId: publicationAuthors.publicationId,
+          scientistId: publicationAuthors.scientistId,
+        }).from(publicationAuthors),
+      ]);
+      const authorMap = new Map<number, Set<number>>();
+      for (const a of allAuthors) {
+        if (!authorMap.has(a.publicationId)) authorMap.set(a.publicationId, new Set());
+        authorMap.get(a.publicationId)!.add(a.scientistId);
+      }
+      const rows = await previewLinkImport(fileBase64, String(fileName ?? 'upload.xlsx'), {
+        publications: pubs,
+        researchActivities: ras,
+        scientists: scis,
+        publicationAuthors: authorMap,
+      });
+      res.json({ rows });
+    } catch (error) {
+      console.error("Error previewing link import:", error);
+      res.status(400).json({ message: error instanceof Error ? error.message : "Failed to parse file" });
+    }
+  });
+
+  // Apply the confirmed links from a preview.
+  app.post('/api/publications/link-import/apply', requirePublicationOfficer, async (req: Request, res: Response) => {
+    try {
+      const actorId = (req.session as any)?.user?.id ?? null;
+      const rawLinks: unknown = req.body?.links;
+      if (!Array.isArray(rawLinks) || rawLinks.length === 0) {
+        return res.status(400).json({ message: "Provide a non-empty list of links." });
+      }
+      if (rawLinks.length > 2000) {
+        return res.status(400).json({ message: "Too many links in one request (max 2000)." });
+      }
+      let sdrLinks = 0, staffLinks = 0;
+      const skipped: { publicationId: number; reason: string }[] = [];
+      // Defend against conflicting/duplicate entries regardless of what the
+      // client sends: one SDR link per publication, one row per staff pair.
+      const sdrSeen = new Set<number>();
+      const staffSeen = new Set<string>();
+      for (const raw of rawLinks) {
+        const publicationId = Number((raw as any)?.publicationId);
+        if (!Number.isInteger(publicationId)) { skipped.push({ publicationId, reason: "invalid publication id" }); continue; }
+        const pub = await storage.getPublication(publicationId);
+        if (!pub) { skipped.push({ publicationId, reason: "publication not found" }); continue; }
+
+        const researchActivityId = Number((raw as any)?.researchActivityId);
+        const scientistId = Number((raw as any)?.scientistId);
+        if (Number.isInteger(researchActivityId) && researchActivityId > 0) {
+          if (sdrSeen.has(publicationId)) { skipped.push({ publicationId, reason: "conflicting SDR link earlier in this request" }); continue; }
+          sdrSeen.add(publicationId);
+          const ra = await storage.getResearchActivity(researchActivityId);
+          if (!ra) { skipped.push({ publicationId, reason: "SDR not found" }); continue; }
+          if (pub.researchActivityId === ra.id) { skipped.push({ publicationId, reason: "already linked to SDR" }); continue; }
+          await storage.updatePublication(publicationId, { researchActivityId: ra.id });
+          sdrLinks++;
+        } else if (Number.isInteger(scientistId) && scientistId > 0) {
+          const pairKey = `${publicationId}:${scientistId}`;
+          if (staffSeen.has(pairKey)) { skipped.push({ publicationId, reason: "duplicate staff link earlier in this request" }); continue; }
+          staffSeen.add(pairKey);
+          const scientist = await storage.getScientist(scientistId);
+          if (!scientist) { skipped.push({ publicationId, reason: "staff member not found" }); continue; }
+          const existing = await storage.getPublicationAuthors(publicationId);
+          if (existing.some((a) => a.scientistId === scientistId)) {
+            skipped.push({ publicationId, reason: "staff member already linked" });
+            continue;
+          }
+          await storage.addPublicationAuthor({
+            publicationId,
+            scientistId,
+            authorshipType: 'Contributing Author',
+            authorPosition: null,
+            linkedByUserId: actorId,
+            linkMethod: 'automatic',
+          } as any);
+          staffLinks++;
+        } else {
+          skipped.push({ publicationId, reason: "link is missing an SDR or staff target" });
+        }
+      }
+      res.json({ sdrLinks, staffLinks, skipped });
+    } catch (error) {
+      console.error("Error applying link import:", error);
+      res.status(500).json({ message: "Failed to apply links" });
+    }
+  });
+
   app.get('/api/publications', async (req: Request, res: Response) => {
     try {
       const researchActivityId = req.query.researchActivityId ? parseInt(req.query.researchActivityId as string) : undefined;

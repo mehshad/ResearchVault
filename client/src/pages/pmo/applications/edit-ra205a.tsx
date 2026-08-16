@@ -190,7 +190,7 @@ export default function EditRA205AApplication() {
 
   const updateMutation = useMutation({
     mutationFn: async (data: RA205AFormData) => {
-      return apiRequest(`/api/ra205a-applications/${applicationId}`, "PUT", {
+      return apiRequest("PUT", `/api/ra205a-applications/${applicationId}`, {
         title: data.newTitle || data.currentTitle, // Use new title if provided, otherwise current
         sdrNumber: data.sdrNumber,
         currentTitle: data.currentTitle,

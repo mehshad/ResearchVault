@@ -174,7 +174,7 @@ export default function EditRa200() {
   }, [application]);
 
   const updateApplicationMutation = useMutation({
-    mutationFn: (data: any) => apiRequest(`/api/ra200-applications/${applicationId}`, 'PUT', data),
+    mutationFn: (data: any) => apiRequest('PUT', `/api/ra200-applications/${applicationId}`, data),
     onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ['/api/ra200-applications'] });
       toast({ title: "RA-200 application updated successfully!" });

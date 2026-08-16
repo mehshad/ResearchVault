@@ -122,7 +122,7 @@ export default function CreateRa200() {
   });
 
   const createApplicationMutation = useMutation({
-    mutationFn: (data: any) => apiRequest('/api/ra200-applications', 'POST', data),
+    mutationFn: (data: any) => apiRequest('POST', '/api/ra200-applications', data),
     onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ['/api/pmo-applications'] });
       toast({ title: "RA-200 application created successfully!" });

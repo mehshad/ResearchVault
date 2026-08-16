@@ -74,13 +74,7 @@ export default function CreateGrant() {
         .filter(line => line.length > 0);
 
       const payload = { ...data, collaborators };
-      return apiRequest(`/api/grants`, {
-        method: "POST",
-        headers: {
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify(payload),
-      });
+      return apiRequest("POST", `/api/grants`, payload);
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['/api/grants'] });
