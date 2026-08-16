@@ -4782,7 +4782,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (error instanceof ZodError) {
         return res.status(400).json({ message: fromZodError(error).message });
       }
-      res.status(500).json({ message: "Failed to add publication author" });
+      console.error("Failed to add publication author:", error);
+      res.status(500).json({ message: "Failed to add publication author", detail: error instanceof Error ? error.message : String(error) });
     }
   });
 
