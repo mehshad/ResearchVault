@@ -802,6 +802,8 @@ export class DatabaseStorage implements IStorage {
         publicationDate: publications.publicationDate,
         publicationType: publications.publicationType,
         status: publications.status,
+        prepublicationSite: publications.prepublicationSite,
+        prepublicationUrl: publications.prepublicationUrl,
         createdAt: publications.createdAt,
         updatedAt: publications.updatedAt,
         authorshipType: publicationAuthors.authorshipType,

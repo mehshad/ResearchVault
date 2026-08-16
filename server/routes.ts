@@ -61,7 +61,7 @@ import {
 import { requireAuth, requireAdmin, requireContractsOfficer, requireContractsRead, requirePublicationOfficer, getAuthMode } from "./auth";
 import { resolveOwnershipAccess, maxAccess, type AccessLevel as OwnershipAccessLevel } from "./ownershipResolver";
 import { matchesAuthorName, isLinkedAuthorInAuthorsText, suggestInternalAuthors } from "@shared/authorMatching";
-import { detectDuplicateGroups, pickDefaultSurvivorId, normalizeDoi as canonicalDoi } from "@shared/publicationDeduplication";
+import { detectDuplicateGroups, pickDefaultSurvivorId, normalizeDoi as canonicalDoi, isPreprintRecord } from "@shared/publicationDeduplication";
 import { getObjectAclPolicy, ObjectPermission } from "./objectAcl";
 
 const isLocalStorage = process.env.STORAGE_TYPE === "local";
@@ -213,6 +213,43 @@ interface MissingPaperMeta {
   journal: string;
   year: number | null;
   source: string;
+  isPreprint?: boolean;
+}
+
+// Figshare DOIs are dataset/figure deposits, not publications — they should
+// never be offered for import as missing papers.
+function isFigshareWork(w: MissingPaperMeta): boolean {
+  const doi = (w.doi || "").toLowerCase();
+  if (doi.startsWith("10.6084/")) return true;
+  const text = `${w.journal || ""} ${w.title || ""}`.toLowerCase();
+  return text.includes("figshare");
+}
+
+// Publisher platforms whose ORCID summaries frequently omit the journal title.
+// Maps DOI prefix → the journal/server name to display.
+const DOI_PREFIX_JOURNALS: [string, string][] = [
+  ["10.12688/f1000research", "F1000Research"],
+  ["10.12688/wellcomeopenres", "Wellcome Open Research"],
+  ["10.12688/gatesopenres", "Gates Open Research"],
+  ["10.12688/hrbopenres", "HRB Open Research"],
+  ["10.12688/amrcopenres", "AMRC Open Research"],
+  ["10.1101/", "bioRxiv / medRxiv"],
+  ["10.48550/", "arXiv"],
+  ["10.21203/", "Research Square"],
+  ["10.26434/", "ChemRxiv"],
+  ["10.31234/", "PsyArXiv"],
+  ["10.31219/", "OSF Preprints"],
+  ["10.22541/", "Authorea"],
+];
+
+// When ORCID gives no journal title, infer a display name from well-known DOI
+// prefixes so the row isn't blank (e.g. F1000 works).
+function inferJournalFromDoi(doi: string): string {
+  const d = (doi || "").toLowerCase();
+  for (const [prefix, name] of DOI_PREFIX_JOURNALS) {
+    if (d.startsWith(prefix)) return name;
+  }
+  return "";
 }
 
 // Fetch a researcher's works from the ORCID public API and return one entry
@@ -8257,17 +8294,23 @@ export async function registerRoutes(app: Express): Promise<Server> {
       for (const w of orcidWorks) {
         const key = workDoiIdentity(w.doi);
         if (!key || existingDois.has(key) || byDoi.has(key)) continue;
+        if (isFigshareWork(w)) continue;
         byDoi.set(key, w);
       }
       for (const w of scholarWorks) {
         const key = workDoiIdentity(w.doi);
         if (!key || existingDois.has(key) || byDoi.has(key)) continue;
+        if (isFigshareWork(w)) continue;
         byDoi.set(key, w);
       }
 
-      const missing = Array.from(byDoi.values()).sort(
-        (a, b) => (b.year ?? 0) - (a.year ?? 0)
-      );
+      const missing = Array.from(byDoi.values())
+        .map((w) => ({
+          ...w,
+          journal: w.journal || inferJournalFromDoi(w.doi),
+          isPreprint: isPreprintRecord({ id: 0, doi: w.doi, journal: w.journal, title: w.title }),
+        }))
+        .sort((a, b) => (b.year ?? 0) - (a.year ?? 0));
 
       let message: string | undefined;
       if (orcidAttempted && !orcidAvailable) {

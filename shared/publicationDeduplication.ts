@@ -54,6 +54,7 @@ const PREPRINT_DOI_PREFIXES = [
   "10.26434/", // ChemRxiv
   "10.31234/", // PsyArXiv
   "10.31219/", // OSF preprints
+  "10.22541/", // Authorea
 ];
 
 const PREPRINT_KEYWORDS = [
@@ -83,7 +84,9 @@ export function normalizeDoi(doi: string | null | undefined): string | null {
   d = d.trim();
   if (!d) return null;
   if (PREPRINT_DOI_PREFIXES.some((p) => d.startsWith(p))) {
-    d = d.replace(/v\d+$/, "");
+    // Strip a trailing version marker, including an Authorea-style "/vN" path
+    // segment, so v1/v2 of the same preprint collapse to one identity.
+    d = d.replace(/\/?v\d+$/, "");
   }
   return d || null;
 }
