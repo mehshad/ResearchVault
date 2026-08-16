@@ -62,8 +62,9 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
           setAuthConfig({
             ...DEFAULT_AUTH_CONFIG,
             ...raw,
-            // ssoEnabled = any mode that has a real identity provider (ldap or oidc)
-            ssoEnabled: raw.mode === 'ldap' || raw.mode === 'oidc',
+            // ssoEnabled = only OIDC, which redirects the browser to an external IDP.
+            // LDAP uses a regular username/password form on the login page.
+            ssoEnabled: raw.ssoEnabled ?? raw.mode === 'oidc',
             providerName: raw.oidcProviderName ?? null,
           });
         }
