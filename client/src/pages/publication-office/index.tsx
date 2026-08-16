@@ -1527,7 +1527,7 @@ export default function PublicationOffice() {
                     <SearchableSelect
                       options={fpScientistOptions}
                       value={fpScientistIds.length ? String(fpScientistIds[fpScientistIds.length - 1]) : ""}
-                      onValueChange={(v) => {
+                      onChange={(v) => {
                         const id = Number(v);
                         if (!Number.isInteger(id)) return;
                         setFpScientistIds((prev) => (prev.includes(id) ? prev : [...prev, id]));
