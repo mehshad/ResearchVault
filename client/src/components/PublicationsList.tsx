@@ -79,7 +79,9 @@ interface PublicationsListProps {
 const authorshipColors = {
   'First Author': 'bg-blue-100 text-blue-800 dark:bg-blue-950 dark:text-blue-300',
   'Contributing Author': 'bg-green-100 text-green-800 dark:bg-green-950 dark:text-green-300',
-  'Senior/Last Author': 'bg-purple-100 text-purple-800 dark:bg-purple-950 dark:text-purple-300',
+  'Second or Second Last Author': 'bg-teal-100 text-teal-800 dark:bg-teal-950 dark:text-teal-300',
+  'Last Author': 'bg-purple-100 text-purple-800 dark:bg-purple-950 dark:text-purple-300',
+  'Co-Last Author': 'bg-purple-100 text-purple-800 dark:bg-purple-950 dark:text-purple-300',
   'Corresponding Author': 'bg-red-100 text-red-800 dark:bg-red-950 dark:text-red-300',
 };
 
@@ -103,7 +105,9 @@ function PublicationRow({ pub, isOpen, onToggle }: { pub: Publication; isOpen: b
   const year = pub.publicationDate ? format(new Date(pub.publicationDate), 'yyyy') : null;
   const displayAuthorship = (pub.authorshipType ?? '').split(',').map(type => {
     const trimmed = type.trim();
-    return (trimmed === 'Senior Author' || trimmed === 'Last Author') ? 'Senior/Last Author' : trimmed;
+    if (trimmed === 'Senior Author' || trimmed === 'Senior/Last Author') return 'Last Author';
+    if (trimmed === 'Co-Senior/Last Author') return 'Co-Last Author';
+    return trimmed;
   }).filter(Boolean).join(', ');
 
   // Whether this journal has ANY impact factor on record (used to flag "No IF").

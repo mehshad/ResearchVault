@@ -241,9 +241,9 @@ export default function PublicationDetail() {
       return;
     }
 
-    // Apply "Co-" prefix if shared position is checked (only for First Author and Senior/Last Author)
+    // Apply "Co-" prefix if shared position is checked (only for First Author and Last Author)
     let baseRole = selectedRole;
-    if (isSharedPosition && (selectedRole === "First Author" || selectedRole === "Senior/Last Author")) {
+    if (isSharedPosition && (selectedRole === "First Author" || selectedRole === "Last Author")) {
       baseRole = `Co-${selectedRole}`;
     }
 
@@ -340,8 +340,9 @@ export default function PublicationDetail() {
     'First Author': 'bg-blue-100 text-blue-800 dark:bg-blue-950 dark:text-blue-300',
     'Co-First Author': 'bg-blue-100 text-blue-800 dark:bg-blue-950 dark:text-blue-300',
     'Contributing Author': 'bg-green-100 text-green-800 dark:bg-green-950 dark:text-green-300',
-    'Senior/Last Author': 'bg-purple-100 text-purple-800 dark:bg-purple-950 dark:text-purple-300',
-    'Co-Senior/Last Author': 'bg-purple-100 text-purple-800 dark:bg-purple-950 dark:text-purple-300',
+    'Second or Second Last Author': 'bg-teal-100 text-teal-800 dark:bg-teal-950 dark:text-teal-300',
+    'Last Author': 'bg-purple-100 text-purple-800 dark:bg-purple-950 dark:text-purple-300',
+    'Co-Last Author': 'bg-purple-100 text-purple-800 dark:bg-purple-950 dark:text-purple-300',
     'Corresponding Author': 'bg-red-100 text-red-800 dark:bg-red-950 dark:text-red-300',
   };
 
@@ -783,19 +784,23 @@ export default function PublicationDetail() {
                             <TableCell>
                               <Badge 
                                 className={`${(() => {
-                                  // Map Senior Author and Last Author to Senior/Last Author for display
+                                  // Normalize legacy senior-author labels to Last Author
                                   const displayType = author.authorshipType.split(',').map(type => {
                                     const trimmed = type.trim();
-                                    return (trimmed === 'Senior Author' || trimmed === 'Last Author') ? 'Senior/Last Author' : trimmed;
+                                    if (trimmed === 'Senior Author' || trimmed === 'Senior/Last Author') return 'Last Author';
+                                    if (trimmed === 'Co-Senior/Last Author') return 'Co-Last Author';
+                                    return trimmed;
                                   }).join(', ');
                                   return authorshipTypeColors[displayType as keyof typeof authorshipTypeColors] || 'bg-gray-100 text-gray-800';
                                 })()} text-xs`}
                               >
                                 {(() => {
-                                  // Display combined authorship type
+                                  // Display combined authorship type (legacy labels normalized)
                                   return author.authorshipType.split(',').map(type => {
                                     const trimmed = type.trim();
-                                    return (trimmed === 'Senior Author' || trimmed === 'Last Author') ? 'Senior/Last Author' : trimmed;
+                                    if (trimmed === 'Senior Author' || trimmed === 'Senior/Last Author') return 'Last Author';
+                                    if (trimmed === 'Co-Senior/Last Author') return 'Co-Last Author';
+                                    return trimmed;
                                   }).join(', ');
                                 })()}
                               </Badge>
@@ -899,7 +904,8 @@ export default function PublicationDetail() {
                           <SelectContent>
                             <SelectItem value="First Author">First Author</SelectItem>
                             <SelectItem value="Contributing Author">Contributing Author</SelectItem>
-                            <SelectItem value="Senior/Last Author">Senior/Last Author</SelectItem>
+                            <SelectItem value="Second or Second Last Author">Second or Second Last Author</SelectItem>
+                            <SelectItem value="Last Author">Last Author</SelectItem>
                           </SelectContent>
                         </Select>
                       </div>
@@ -915,7 +921,7 @@ export default function PublicationDetail() {
                         </Label>
                       </div>
 
-                      {(selectedRole === "First Author" || selectedRole === "Senior/Last Author") && (
+                      {(selectedRole === "First Author" || selectedRole === "Last Author") && (
                         <div className="flex items-center space-x-2">
                           <Checkbox
                             id="shared-position"
