@@ -7,3 +7,9 @@ vite.config.ts.*
 attached_assets
 .env
 IRIS_Architecture_Solution_Document.docx
+ArchitectIQ_On_Prem_QBRIDGE.docx
+QBridge_eRMS_Architecture_Solution_Document.docx
+QBridge_Infrastructure_Diagram.png
+QBridge_Infrastructure_Diagram.svg
+QBridge_UserFlow_Diagram.png
+QBridge_UserFlow_Diagram.svg
