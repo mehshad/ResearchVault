@@ -55,7 +55,7 @@ interface DuplicateGroup {
 const REASON_LABELS: Record<string, string> = {
   doi: "Same DOI",
   pmid: "Same PMID",
-  metadata: "Same title, year & author",
+  metadata: "Same title & year (plus author overlap when both records list authors)",
   "preprint-pair": "Preprint ↔ published",
 };
 

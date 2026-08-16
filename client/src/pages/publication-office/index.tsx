@@ -474,8 +474,12 @@ export default function PublicationOffice() {
   });
 
   // Count of duplicate publication groups for the Duplicates tab badge.
-  const { data: duplicateCount = { count: 0 } } = useQuery<{ count: number }>({
+  // staleTime 0 (overriding the app-wide Infinity) so the badge re-syncs with
+  // the panel whenever the page mounts instead of showing a stale count after
+  // records are edited, deleted, or imported elsewhere.
+  const { data: duplicateCount = { count: 0 }, refetch: refetchDuplicateCount } = useQuery<{ count: number }>({
     queryKey: ['/api/publications/duplicates/count'],
+    staleTime: 0,
   });
 
   const { data: newPublications = [], isLoading: newPublicationsLoading } = useQuery<Publication[]>({
@@ -1154,7 +1158,15 @@ export default function PublicationOffice() {
         <h1 className="text-2xl font-semibold text-foreground">Outcome Office</h1>
       </div>
 
-      <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">
+      <Tabs
+        value={activeTab}
+        onValueChange={(tab) => {
+          setActiveTab(tab);
+          // Keep the badge in sync with the panel when the Duplicates tab opens.
+          if (tab === "duplicates") refetchDuplicateCount();
+        }}
+        className="space-y-6"
+      >
         <TabsList className="grid w-full grid-cols-7">
           <TabsTrigger value="ip-vetting" className="flex items-center gap-2">
             <Shield className="h-4 w-4" />

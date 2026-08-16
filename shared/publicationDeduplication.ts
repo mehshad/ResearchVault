@@ -277,6 +277,12 @@ function isMetadataDuplicate(p: DedupPublication, q: DedupPublication): boolean 
   const yp = yearOf(p.publicationDate);
   const yq = yearOf(q.publicationDate);
   if (yp === null || yq === null || yp !== yq) return false;
+  // When one record has no author data at all, the author-overlap check can
+  // never pass — but an exact normalized-title match in the same year is
+  // already strong evidence, so flag the pair instead of silently skipping it.
+  const pHasAuthors = !!p.authors?.trim();
+  const qHasAuthors = !!q.authors?.trim();
+  if (!pHasAuthors || !qHasAuthors) return true;
   return authorsOverlap(p.authors, q.authors);
 }
 
