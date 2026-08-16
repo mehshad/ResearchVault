@@ -140,7 +140,7 @@ export default function CreateRA205AApplication() {
 
   const createMutation = useMutation({
     mutationFn: async (data: RA205AFormData) => {
-      return apiRequest("/api/pmo-applications", "POST", {
+      return apiRequest("POST", "/api/pmo-applications", {
         formType: "RA-205A",
         title: data.newTitle || data.currentTitle, // Use new title if provided, otherwise current
         sdrNumber: data.sdrNumber,

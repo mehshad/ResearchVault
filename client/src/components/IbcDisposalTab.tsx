@@ -70,10 +70,7 @@ export function IbcDisposalTab({ applicationId, application, isReadOnly = false 
     
     setIsLoading(true);
     try {
-      await apiRequest(`/api/ibc-applications/${applicationId}`, {
-        method: 'PATCH',
-        body: { disposal: disposalData }
-      });
+      await apiRequest('PATCH', `/api/ibc-applications/${applicationId}`, { disposal: disposalData });
       
       toast({
         title: "Success",
