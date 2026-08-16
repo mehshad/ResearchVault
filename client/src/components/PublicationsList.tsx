@@ -89,6 +89,14 @@ const authorshipColors = {
 /** Compute the data-quality issues for a publication record. */
 function getPublicationIssues(pub: Publication, ifChecked: boolean, hasImpactFactor: boolean): string[] {
   const issues: string[] = [];
+  // Preprints have no impact factor and no volume/issue/pages by nature, so
+  // those checks don't apply. Deliberately NOT passing prepublicationSite:
+  // merges copy it onto published survivors, which would misclassify them.
+  const isPreprint = isPreprintRecord({
+    doi: pub.doi,
+    publicationType: pub.publicationType,
+    journal: pub.journal,
+  });
   if (!pub.researchActivityId) issues.push('No linked SDR');
   if (!pub.journal) issues.push('Missing journal');
   if (!pub.publicationDate) issues.push('Missing publication date');
@@ -96,8 +104,8 @@ function getPublicationIssues(pub: Publication, ifChecked: boolean, hasImpactFac
   if (!pub.doi) issues.push('Missing DOI');
   // Only flag a missing IF once the lookup has actually finished, so a still-loading
   // query doesn't produce a false "No impact factor" while data is in flight.
-  if (pub.journal && ifChecked && !hasImpactFactor) issues.push('No impact factor on record');
-  if (!pub.volume || !pub.issue || !pub.pages) issues.push('Incomplete citation (volume/issue/pages)');
+  if (!isPreprint && pub.journal && ifChecked && !hasImpactFactor) issues.push('No impact factor on record');
+  if (!isPreprint && (!pub.volume || !pub.issue || !pub.pages)) issues.push('Incomplete citation (volume/issue/pages)');
   return issues;
 }
 
