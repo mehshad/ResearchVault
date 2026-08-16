@@ -4848,7 +4848,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // list. Returns one suggestion per matched internal scientist (excluding those
   // already linked) with an inferred authorship type + position. This is the
   // shared matcher (suggestInternalAuthors) reused by the auto-connect dialog.
-  app.get('/api/publications/:id/author-suggestions', async (req: Request, res: Response) => {
+  app.get('/api/publications/:id/author-suggestions', requirePublicationOfficer, async (req: Request, res: Response) => {
     try {
       const publicationId = parseInt(req.params.id);
       if (isNaN(publicationId)) {
@@ -4890,7 +4890,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Bulk-confirm a set of suggested internal-author links for one publication.
   // Each link is marked automatic and attributed to the acting session user.
   // Used by the auto-connect confirmation dialog.
-  app.post('/api/publications/:id/authors/bulk', requireAuth, async (req: Request, res: Response) => {
+  app.post('/api/publications/:id/authors/bulk', requirePublicationOfficer, async (req: Request, res: Response) => {
     try {
       const publicationId = parseInt(req.params.id);
       if (isNaN(publicationId)) {

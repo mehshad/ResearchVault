@@ -12,6 +12,23 @@
  * Returns `false` when there is no author text or the names are missing, since
  * a genuine match cannot be established in those cases.
  */
+/**
+ * Lowercase + strip diacritics + trim, so "Jérôme" matches "Jerome" and
+ * stray whitespace in stored names never blocks a match.
+ */
+function foldName(value: string | null | undefined): string {
+  return (value ?? '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .trim();
+}
+
+/** Strip honorific/title prefixes such as "Dr." or "Prof." from a name. */
+function stripTitles(value: string): string {
+  return value.replace(/^(dr\.?|prof\.?|professor|mr\.?|ms\.?|mrs\.?|phd\.?|md\.?)\s+/i, '').trim();
+}
+
 export function matchesAuthorName(
   authorsText: string | null | undefined,
   firstName: string | null | undefined,
@@ -19,11 +36,21 @@ export function matchesAuthorName(
 ): boolean {
   if (!authorsText) return false;
 
-  const authorNames = authorsText.split(',').map(name => name.trim().toLowerCase());
-  const scientistLastName = lastName?.toLowerCase() || '';
-  const scientistFirstName = firstName?.toLowerCase() || '';
+  const authorNames = foldName(authorsText).split(',').map(name => name.trim());
+  const scientistLastName = stripTitles(foldName(lastName));
+  const scientistFirstName = stripTitles(foldName(firstName));
 
-  if (!scientistLastName || !scientistFirstName) return false;
+  if (!scientistLastName) return false;
+
+  // Tolerate a scientist record with no first name (data-quality edge seen in
+  // some environments): fall back to an exact last-name word match, mirroring
+  // the manual "Add Internal Author" smart filter.
+  if (!scientistFirstName) {
+    const lastNameToken = new RegExp(
+      `(^|[\\s.])${scientistLastName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}($|[\\s.])`,
+    );
+    return authorNames.some(authorName => lastNameToken.test(stripTitles(authorName)));
+  }
 
   const firstInitial = scientistFirstName.charAt(0);
 

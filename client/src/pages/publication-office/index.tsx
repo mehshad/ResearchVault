@@ -519,7 +519,7 @@ export default function PublicationOffice() {
   // Suggested internal-author links for the publication whose auto-connect
   // dialog is currently open. The backend infers role + position from the
   // free-text author list and excludes already-linked scientists.
-  const { data: suggestionData, isLoading: suggestionsLoading } = useQuery<{
+  const { data: suggestionData, isLoading: suggestionsLoading, isError: suggestionsError } = useQuery<{
     suggestions: Array<{
       scientistId: number;
       authorshipType: string;
@@ -2787,6 +2787,11 @@ export default function PublicationOffice() {
               {suggestionsLoading ? (
                 <div className="flex items-center gap-2 py-6 text-muted-foreground">
                   <Loader2 className="h-4 w-4 animate-spin" /> Matching internal scientists…
+                </div>
+              ) : suggestionsError ? (
+                <div className="text-center py-6 text-destructive" data-testid="text-suggestions-error">
+                  Couldn't load author suggestions — the matching request failed. Please
+                  try again; if it keeps failing, the server may need to be redeployed.
                 </div>
               ) : suggestions.length === 0 ? (
                 <div className="text-center py-6 text-muted-foreground" data-testid="text-no-suggestions">
