@@ -59,8 +59,11 @@ export const queryClient = new QueryClient({
     queries: {
       queryFn: getQueryFn({ on401: "throw" }),
       refetchInterval: false,
-      refetchOnWindowFocus: false,
-      staleTime: Infinity,
+      refetchOnWindowFocus: true,
+      // Data is considered fresh for 30s; after that, navigating to a page
+      // (or refocusing the tab) silently refetches in the background while
+      // the cached copy stays on screen — no spinners, no manual refresh.
+      staleTime: 30_000,
       retry: false,
     },
     mutations: {
