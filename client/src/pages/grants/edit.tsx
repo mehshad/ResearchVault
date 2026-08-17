@@ -182,31 +182,34 @@ export default function EditGrant() {
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     
-    const collaborators = Array.isArray(grant?.collaborators) 
-      ? grant.collaborators 
-      : formData.collaborators 
-        ? formData.collaborators.split('\n').filter(line => line.trim())
-        : [];
+    // The form state is the single source of truth — it was seeded from the
+    // loaded grant, so whatever is in the fields is exactly what gets saved.
+    const collaborators = formData.collaborators
+      ? formData.collaborators.split('\n').map((line) => line.trim()).filter(Boolean)
+      : [];
+
+    const toIntOrNull = (v: string) => (v && String(v).trim() ? parseInt(String(v)) : null);
 
     const payload = {
-      projectNumber: formData.projectNumber || grant?.projectNumber,
-      title: formData.title || grant?.title,
-      description: formData.description || grant?.description,
-      cycle: formData.cycle || grant?.cycle,
-      status: formData.status || grant?.status,
-      grantType: formData.grantType || grant?.grantType,
-      fundingAgency: formData.fundingAgency || grant?.fundingAgency,
-      investigatorType: formData.investigatorType || grant?.investigatorType,
-      lpiId: grant?.lpiId || (formData.lpiId && formData.lpiId.trim() ? parseInt(formData.lpiId) : null),
-      requestedAmount: grant?.requestedAmount || formData.requestedAmount || null,
-      awardedAmount: grant?.awardedAmount || formData.awardedAmount || null,
-      submittedYear: grant?.submittedYear || (formData.submittedYear && formData.submittedYear.trim() ? parseInt(formData.submittedYear) : null),
-      awardedYear: grant?.awardedYear || (formData.awardedYear && formData.awardedYear.trim() ? parseInt(formData.awardedYear) : null),
-      awarded: grant?.awarded !== undefined ? grant.awarded : formData.awarded,
-      runningTimeYears: grant?.runningTimeYears || (formData.runningTimeYears && formData.runningTimeYears.trim() ? parseInt(formData.runningTimeYears) : null),
-      currentGrantYear: grant?.currentGrantYear || formData.currentGrantYear || null, // Keep as string!
-      startDate: grant?.startDate ? grant.startDate.split('T')[0] : formData.startDate || null,
-      endDate: grant?.endDate ? grant.endDate.split('T')[0] : formData.endDate || null,
+      projectNumber: formData.projectNumber,
+      title: formData.title,
+      description: formData.description || null,
+      cycle: formData.cycle || null,
+      status: formData.status,
+      grantType: formData.grantType || null,
+      fundingAgency: formData.fundingAgency || null,
+      investigatorType: formData.investigatorType || null,
+      lpiId: formData.lpiId && formData.lpiId.trim() ? parseInt(formData.lpiId) : null,
+      requestedAmount: formData.requestedAmount || null,
+      awardedAmount: formData.awardedAmount || null,
+      submittedYear: toIntOrNull(formData.submittedYear),
+      awardedYear: toIntOrNull(formData.awardedYear),
+      awarded: formData.awarded,
+      runningTimeYears: toIntOrNull(formData.runningTimeYears),
+      currentGrantYear: formData.currentGrantYear || null, // Keep as string!
+      startDate: formData.startDate || null,
+      endDate: formData.endDate || null,
+      reportingIntervalMonths: toIntOrNull(String(formData.reportingIntervalMonths ?? "")),
       collaborators,
     };
 
@@ -440,7 +443,7 @@ export default function EditGrant() {
                   Project Number
                 </label>
                 <Input
-                  value={grant?.projectNumber || ""}
+                  value={formData.projectNumber}
                   onChange={(e) => setFormData({...formData, projectNumber: e.target.value})}
                   placeholder="e.g., NIH-R01-123456"
                   required
@@ -452,13 +455,14 @@ export default function EditGrant() {
                   Project Status
                 </label>
                 <Select
-                  value={grant?.status || "submitted"}
+                  value={formData.status}
                   onValueChange={(value) => setFormData({...formData, status: value})}
                 >
                   <SelectTrigger>
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
+                    <SelectItem value="submitted">Submitted</SelectItem>
                     <SelectItem value="pending">Pending</SelectItem>
                     <SelectItem value="in_review">In Review</SelectItem>
                     <SelectItem value="active">Active</SelectItem>
@@ -492,7 +496,7 @@ export default function EditGrant() {
                   Funding Agency
                 </label>
                 <Input
-                  value={grant?.fundingAgency || ""}
+                  value={formData.fundingAgency}
                   onChange={(e) => setFormData({...formData, fundingAgency: e.target.value})}
                   placeholder="e.g., NIH, NSF, DOE"
                 />
@@ -505,7 +509,7 @@ export default function EditGrant() {
                 Project Title
               </label>
               <Input
-                value={grant?.title || ""}
+                value={formData.title}
                 onChange={(e) => setFormData({...formData, title: e.target.value})}
                 placeholder="Grant title"
                 required
@@ -519,7 +523,7 @@ export default function EditGrant() {
                   Lead Investigator
                 </label>
                 <Select
-                  value={grant?.lpiId?.toString() || ""}
+                  value={formData.lpiId}
                   onValueChange={(value) => setFormData({...formData, lpiId: value})}
                 >
                   <SelectTrigger>
@@ -559,7 +563,7 @@ export default function EditGrant() {
                 </label>
                 <Input
                   type="number"
-                  value={grant?.runningTimeYears?.toString() || ""}
+                  value={formData.runningTimeYears}
                   onChange={(e) => setFormData({...formData, runningTimeYears: e.target.value})}
                   placeholder="3"
                 />
@@ -570,7 +574,7 @@ export default function EditGrant() {
                   Current Year
                 </label>
                 <Input
-                  value={grant?.currentGrantYear?.toString() || ""}
+                  value={formData.currentGrantYear}
                   onChange={(e) => setFormData({...formData, currentGrantYear: e.target.value})}
                   placeholder="Year 3 of 4"
                 />
@@ -584,7 +588,7 @@ export default function EditGrant() {
                   Awarded Amount
                 </label>
                 <Input
-                  value={grant?.awardedAmount || ""}
+                  value={formData.awardedAmount}
                   onChange={(e) => setFormData({...formData, awardedAmount: e.target.value})}
                   placeholder="$626,565.00"
                 />
@@ -596,7 +600,7 @@ export default function EditGrant() {
                 </label>
                 <Input
                   type="date"
-                  value={grant?.startDate ? grant.startDate.split('T')[0] : ""}
+                  value={formData.startDate}
                   onChange={(e) => setFormData({...formData, startDate: e.target.value})}
                 />
               </div>
@@ -607,7 +611,7 @@ export default function EditGrant() {
                 </label>
                 <Input
                   type="date"
-                  value={grant?.endDate ? grant.endDate.split('T')[0] : ""}
+                  value={formData.endDate}
                   onChange={(e) => setFormData({...formData, endDate: e.target.value})}
                 />
               </div>
@@ -617,7 +621,7 @@ export default function EditGrant() {
                   Cycle
                 </label>
                 <Input
-                  value={grant?.cycle || ""}
+                  value={formData.cycle}
                   onChange={(e) => setFormData({...formData, cycle: e.target.value})}
                   placeholder="e.g., 2024-1"
                   required
@@ -631,7 +635,7 @@ export default function EditGrant() {
                 Description
               </label>
               <Textarea
-                value={grant?.description || ""}
+                value={formData.description}
                 onChange={(e) => setFormData({...formData, description: e.target.value})}
                 placeholder="Brief description of the grant"
                 rows={3}
@@ -652,7 +656,7 @@ export default function EditGrant() {
                   Requested Amount
                 </label>
                 <Input
-                  value={grant?.requestedAmount || ""}
+                  value={formData.requestedAmount}
                   onChange={(e) => setFormData({...formData, requestedAmount: e.target.value})}
                   placeholder="$0.00"
                 />
@@ -664,7 +668,7 @@ export default function EditGrant() {
                 </label>
                 <Input
                   type="number"
-                  value={grant?.submittedYear?.toString() || ""}
+                  value={formData.submittedYear}
                   onChange={(e) => setFormData({...formData, submittedYear: e.target.value})}
                   placeholder="2024"
                 />
@@ -676,7 +680,7 @@ export default function EditGrant() {
                 </label>
                 <Input
                   type="number"
-                  value={grant?.awardedYear?.toString() || ""}
+                  value={formData.awardedYear}
                   onChange={(e) => setFormData({...formData, awardedYear: e.target.value})}
                   placeholder="2024"
                 />
@@ -688,13 +692,13 @@ export default function EditGrant() {
                 <label className="text-sm font-medium">Grant Awarded</label>
               </div>
               <Switch
-                checked={grant?.awarded || false}
+                checked={formData.awarded}
                 onCheckedChange={(checked) => setFormData({...formData, awarded: checked})}
               />
             </div>
 
             {/* SDR Linking Section - Only show when grant is awarded */}
-            {grant?.awarded && (
+            {formData.awarded && (
               <div className="mt-6 border-t pt-4">
                 <h3 className="text-lg font-medium mb-4">Linked Research Activities (SDRs)</h3>
                 <div className="space-y-2 max-h-64 overflow-y-auto">
@@ -741,8 +745,8 @@ export default function EditGrant() {
                   type="number"
                   min="1"
                   max="60"
-                  value={grant?.reportingIntervalMonths || ""}
-                  onChange={(e) => setFormData({...formData, reportingIntervalMonths: parseInt(e.target.value) || null})}
+                  value={formData.reportingIntervalMonths}
+                  onChange={(e) => setFormData({...formData, reportingIntervalMonths: e.target.value})}
                   placeholder="e.g., 12 for annual reports"
                 />
               </div>
@@ -753,7 +757,7 @@ export default function EditGrant() {
                 Collaborators (one per line)
               </label>
               <Textarea
-                value={Array.isArray(grant?.collaborators) ? grant.collaborators.join('\n') : ""}
+                value={formData.collaborators}
                 onChange={(e) => setFormData({...formData, collaborators: e.target.value})}
                 placeholder="Dr. John Smith, University of Example&#10;Dr. Jane Doe, Research Institute&#10;..."
                 rows={3}
