@@ -1160,10 +1160,10 @@ export default function PublicationOffice() {
   });
   const sealedPublications = useMemo(() => {
     const q = revertSearch.trim().toLowerCase();
+    if (!q) return []; // show nothing until the officer types a search
     return (allPublicationsForRevert as Publication[])
       .filter((p) => p.status === 'Published *')
-      .filter((p) => !q
-        || p.title?.toLowerCase().includes(q)
+      .filter((p) => p.title?.toLowerCase().includes(q)
         || p.doi?.toLowerCase().includes(q)
         || p.journal?.toLowerCase().includes(q));
   }, [allPublicationsForRevert, revertSearch]);
@@ -2038,7 +2038,7 @@ export default function PublicationOffice() {
               />
               {sealedPublications.length === 0 ? (
                 <p className="text-sm text-gray-500 dark:text-gray-400">
-                  {revertSearch ? 'No sealed publications match your search.' : 'No sealed (Published *) publications found.'}
+                  {revertSearch.trim() ? 'No sealed publications match your search.' : 'Type a title, DOI, or journal to find a sealed publication.'}
                 </p>
               ) : (
                 <div className="space-y-2 max-h-80 overflow-y-auto">
