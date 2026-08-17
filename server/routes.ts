@@ -64,6 +64,7 @@ import { matchesAuthorName, isLinkedAuthorInAuthorsText, suggestInternalAuthors 
 import { detectDuplicateGroups, pickDefaultSurvivorId, normalizeDoi as canonicalDoi, isPreprintRecord } from "@shared/publicationDeduplication";
 import { getObjectAclPolicy, ObjectPermission } from "./objectAcl";
 import { buildLinkImportTemplate, previewLinkImport } from "./publicationLinksImport";
+import { GRANT_COLUMNS, grantsToRows, buildGrantsWorkbookBuffer, buildGrantsTemplateBuffer, previewGrantRows } from "./grantsImportExport";
 
 const isLocalStorage = process.env.STORAGE_TYPE === "local";
 
@@ -8927,61 +8928,122 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // CSV export for grants
-  app.get('/api/grants/export/csv', async (req: Request, res: Response) => {
+  // Grants export. Same column list as the import template so exported files
+  // can be edited and re-imported. ?format=xlsx (default) or ?format=csv.
+  app.get('/api/grants/export/csv', requireAuth, async (req: Request, res: Response) => {
     try {
-      const grants = await storage.getGrants();
-      
-      // Enhance grants with scientist information for CSV
-      const enhancedGrants = await Promise.all(grants.map(async (grant) => {
-        const lpi = grant.lpiId ? await storage.getScientist(grant.lpiId) : null;
-        const researcher = grant.researcherId ? await storage.getScientist(grant.researcherId) : null;
-        
-        return {
-          ...grant,
-          lpiName: lpi ? `${lpi.honorificTitle} ${lpi.firstName} ${lpi.lastName}` : '',
-          researcherName: researcher ? `${researcher.honorificTitle} ${researcher.firstName} ${researcher.lastName}` : '',
-          collaboratorsString: grant.collaborators ? grant.collaborators.join('; ') : ''
-        };
-      }));
+      const format = req.query.format === 'xlsx' ? 'xlsx' : 'csv';
+      const [grants, scientists] = await Promise.all([storage.getGrants(), storage.getScientists()]);
+      const scientistById = new Map(scientists.map((s: any) => [s.id, s]));
+      const rows = grantsToRows(grants, scientistById);
+      const stamp = new Date().toISOString().slice(0, 10);
 
-      // Create CSV content
-      const csvHeaders = [
-        'Cycle', 'Project Number', 'LPI', 'Researcher', 'Title', 
-        'Requested Amount', 'Awarded Amount', 'Submitted Year', 'Awarded Year',
-        'Current Year', 'Status', 'Start Date', 'End Date', 'Collaborators',
-        'Description', 'Funding Agency'
-      ];
-      
-      const csvRows = enhancedGrants.map(grant => [
-        grant.cycle || '',
-        grant.projectNumber,
-        grant.lpiName,
-        grant.researcherName,
-        grant.title,
-        grant.requestedAmount || '',
-        grant.awardedAmount || '',
-        grant.submittedYear || '',
-        grant.awardedYear || '',
-        grant.currentYear || '',
-        grant.status,
-        grant.startDate || '',
-        grant.endDate || '',
-        grant.collaboratorsString,
-        grant.description || '',
-        grant.fundingAgency || ''
-      ]);
+      if (format === 'xlsx') {
+        const buffer = await buildGrantsWorkbookBuffer(rows);
+        res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+        res.setHeader('Content-Disposition', `attachment; filename=grants-export-${stamp}.xlsx`);
+        return res.send(buffer);
+      }
 
-      const csvContent = [csvHeaders, ...csvRows]
-        .map(row => row.map(field => `"${String(field).replace(/"/g, '""')}"`).join(','))
+      const headers = GRANT_COLUMNS.map((c) => c.header);
+      const csvContent = [headers, ...rows.map((r) => headers.map((h) => r[h]))]
+        .map(row => row.map(field => `"${String(field ?? '').replace(/"/g, '""')}"`).join(','))
         .join('\n');
-
       res.setHeader('Content-Type', 'text/csv');
-      res.setHeader('Content-Disposition', 'attachment; filename=grants.csv');
+      res.setHeader('Content-Disposition', `attachment; filename=grants-export-${stamp}.csv`);
       res.send(csvContent);
     } catch (error) {
-      console.error('Error exporting grants to CSV:', error);
+      console.error('Error exporting grants:', error);
       res.status(500).json({ message: "Failed to export grants" });
+    }
+  });
+
+  // Grants Excel import: template download, dry-run preview, and apply.
+  app.get('/api/grants/import/template', requireAuth, async (_req: Request, res: Response) => {
+    try {
+      const buffer = await buildGrantsTemplateBuffer();
+      res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+      res.setHeader('Content-Disposition', 'attachment; filename=grants-import-template.xlsx');
+      res.send(buffer);
+    } catch (error) {
+      console.error('Error building grants import template:', error);
+      res.status(500).json({ message: "Failed to build template" });
+    }
+  });
+
+  // Shared by preview and apply: parse the uploaded file and compute
+  // create/update/skip decisions against current DB state.
+  async function computeGrantImportPreview(fileBase64: string, fileName: string) {
+    if (fileBase64.length > 15_000_000) throw new Error("File too large (max ~10 MB)");
+    const rawRows = await parseUploadedFile(fileBase64, fileName);
+    if (rawRows.length > 2000) throw new Error("Too many rows in one import (max 2000)");
+    const [grants, scientists] = await Promise.all([storage.getGrants(), storage.getScientists()]);
+    const existingByProjectNumber = new Map(grants.map((g: any) => [String(g.projectNumber).toLowerCase(), g]));
+    const scientistByEmail = new Map(scientists.filter((s: any) => s.email).map((s: any) => [s.email.toLowerCase(), s]));
+    const scientistByName = new Map(scientists.map((s: any) => [
+      `${s.firstName} ${s.lastName}`.toLowerCase().replace(/\s+/g, ' '), s,
+    ]));
+    return previewGrantRows(rawRows, existingByProjectNumber, scientistByEmail, scientistByName);
+  }
+
+  app.post('/api/grants/import/preview', requireAuth, async (req: Request, res: Response) => {
+    try {
+      const { fileBase64, fileName } = req.body ?? {};
+      if (typeof fileBase64 !== 'string' || !fileBase64 || typeof fileName !== 'string') {
+        return res.status(400).json({ message: "Provide fileBase64 and fileName" });
+      }
+      const previews = await computeGrantImportPreview(fileBase64, fileName);
+      res.json({
+        rows: previews,
+        summary: {
+          create: previews.filter((p) => p.action === 'create').length,
+          update: previews.filter((p) => p.action === 'update').length,
+          skip: previews.filter((p) => p.action === 'skip').length,
+        },
+      });
+    } catch (error) {
+      console.error('Error previewing grants import:', error);
+      res.status(400).json({ message: error instanceof Error ? error.message : "Failed to parse file" });
+    }
+  });
+
+  app.post('/api/grants/import/apply', requireAuth, async (req: Request, res: Response) => {
+    try {
+      const { fileBase64, fileName } = req.body ?? {};
+      if (typeof fileBase64 !== 'string' || !fileBase64 || typeof fileName !== 'string') {
+        return res.status(400).json({ message: "Provide fileBase64 and fileName" });
+      }
+      // Re-run the preview server-side so the applied changes always reflect
+      // the uploaded file + current DB state, not client-editable data.
+      const previews = await computeGrantImportPreview(fileBase64, fileName);
+      let created = 0, updated = 0;
+      const failed: { rowNumber: number; projectNumber: string; reason: string }[] = [];
+      for (const p of previews) {
+        if (p.action === 'skip' || !p.data) continue;
+        try {
+          if (p.action === 'create') {
+            await storage.createGrant(insertGrantSchema.parse(p.data));
+            created++;
+          } else {
+            const existing = await storage.getGrants().then((gs: any[]) =>
+              gs.find((g) => String(g.projectNumber).toLowerCase() === p.projectNumber.toLowerCase()));
+            if (!existing) { failed.push({ rowNumber: p.rowNumber, projectNumber: p.projectNumber, reason: "Grant disappeared during import" }); continue; }
+            await storage.updateGrant(existing.id, insertGrantSchema.partial().parse(p.data));
+            updated++;
+          }
+        } catch (err) {
+          failed.push({
+            rowNumber: p.rowNumber,
+            projectNumber: p.projectNumber,
+            reason: err instanceof ZodError ? fromZodError(err).message : (err instanceof Error ? err.message : "Failed to save"),
+          });
+        }
+      }
+      const skipped = previews.filter((p) => p.action === 'skip').map((p) => ({ rowNumber: p.rowNumber, projectNumber: p.projectNumber, reason: p.reason }));
+      res.json({ created, updated, skipped, failed });
+    } catch (error) {
+      console.error('Error applying grants import:', error);
+      res.status(400).json({ message: error instanceof Error ? error.message : "Failed to import grants" });
     }
   });
 

@@ -25,7 +25,16 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Grant } from "@shared/schema";
-import { Plus, Search, MoreHorizontal, Download, Filter, DollarSign, Calendar, ArrowUpDown, Link as LinkIcon } from "lucide-react";
+import { Plus, Search, MoreHorizontal, Download, Filter, DollarSign, Calendar, ArrowUpDown, Link as LinkIcon, Upload, FileSpreadsheet, Loader2 } from "lucide-react";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { apiRequest } from "@/lib/queryClient";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
 import { queryClient } from "@/lib/queryClient";
@@ -198,6 +207,65 @@ export default function GrantsList() {
     window.open('/api/grants/export/csv', '_blank');
   };
 
+  const handleExportExcel = () => {
+    window.open('/api/grants/export/csv?format=xlsx', '_blank');
+  };
+
+  // ---- Excel import (template -> preview -> apply) ----
+  const [importOpen, setImportOpen] = useState(false);
+  const [importFile, setImportFile] = useState<{ base64: string; name: string } | null>(null);
+  const [importPreview, setImportPreview] = useState<any | null>(null);
+  const [importResult, setImportResult] = useState<any | null>(null);
+
+  const resetImport = () => {
+    setImportFile(null);
+    setImportPreview(null);
+    setImportResult(null);
+  };
+
+  const handleImportFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      const base64 = String(reader.result).split(',')[1] ?? '';
+      setImportFile({ base64, name: file.name });
+      setImportPreview(null);
+      setImportResult(null);
+      previewMutation.mutate({ base64, name: file.name });
+    };
+    reader.readAsDataURL(file);
+    e.target.value = '';
+  };
+
+  const previewMutation = useMutation({
+    mutationFn: async ({ base64, name }: { base64: string; name: string }) => {
+      const res = await apiRequest('POST', '/api/grants/import/preview', { fileBase64: base64, fileName: name });
+      return res.json();
+    },
+    onSuccess: (data) => setImportPreview(data),
+    onError: (err: any) => {
+      toast({ title: 'Could not read file', description: err?.message ?? 'Failed to parse file', variant: 'destructive' });
+      resetImport();
+    },
+  });
+
+  const applyMutation = useMutation({
+    mutationFn: async () => {
+      if (!importFile) throw new Error('No file selected');
+      const res = await apiRequest('POST', '/api/grants/import/apply', { fileBase64: importFile.base64, fileName: importFile.name });
+      return res.json();
+    },
+    onSuccess: (data) => {
+      setImportResult(data);
+      queryClient.invalidateQueries({ queryKey: ['/api/grants'] });
+      toast({ title: 'Import complete', description: `${data.created} created, ${data.updated} updated, ${data.skipped?.length ?? 0} skipped${data.failed?.length ? `, ${data.failed.length} failed` : ''}.` });
+    },
+    onError: (err: any) => {
+      toast({ title: 'Import failed', description: err?.message ?? 'Failed to import grants', variant: 'destructive' });
+    },
+  });
+
   // Get unique years and statuses for filters
   const years = [...new Set(grants?.map(g => g.submittedYear).filter(Boolean))].sort((a, b) => (b || 0) - (a || 0));
   const statuses = [...new Set(grants?.map(g => g.status))].sort();
@@ -226,13 +294,34 @@ export default function GrantsList() {
             <p className="text-gray-600 mt-1 dark:text-gray-300">Manage research grants and funding applications</p>
           </div>
           <div className="flex gap-2">
-            <Button 
-              onClick={handleExportCSV}
-              variant="outline"
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="outline">
+                  <Download className="h-4 w-4 mr-2" />
+                  Export
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                <DropdownMenuItem onClick={handleExportExcel}>
+                  <FileSpreadsheet className="h-4 w-4 mr-2" />
+                  Excel (.xlsx)
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={handleExportCSV}>
+                  <Download className="h-4 w-4 mr-2" />
+                  CSV
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+            <PermissionWrapper 
+              requiredPermissions={['canAdd']} 
+              currentUserRole={currentUser.role} 
+              navigationItem="grants"
             >
-              <Download className="h-4 w-4 mr-2" />
-              Export CSV
-            </Button>
+              <Button variant="outline" onClick={() => { resetImport(); setImportOpen(true); }}>
+                <Upload className="h-4 w-4 mr-2" />
+                Import
+              </Button>
+            </PermissionWrapper>
             <PermissionWrapper 
               requiredPermissions={['canAdd']} 
               currentUserRole={currentUser.role} 
@@ -442,6 +531,102 @@ export default function GrantsList() {
         </CardContent>
         </Card>
       </div>
+
+      <Dialog open={importOpen} onOpenChange={(open) => { setImportOpen(open); if (!open) resetImport(); }}>
+        <DialogContent className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>Import Grants from Excel</DialogTitle>
+            <DialogDescription>
+              Upload an Excel (.xlsx) or CSV file. Grants are matched by Project Number:
+              existing grants are updated, new project numbers create new grants.
+              For existing grants, blank cells leave the current value unchanged —
+              type CLEAR in a cell to erase a field. Exported files can be edited and re-imported directly.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4">
+            <div className="flex items-center gap-2">
+              <Button variant="outline" size="sm" onClick={() => window.open('/api/grants/import/template', '_blank')}>
+                <FileSpreadsheet className="h-4 w-4 mr-2" />
+                Download Template
+              </Button>
+              <label className="cursor-pointer">
+                <span className="inline-flex items-center px-3 py-1.5 text-sm border rounded-md hover:bg-accent">
+                  <Upload className="h-4 w-4 mr-2" />
+                  {importFile ? importFile.name : 'Choose File'}
+                </span>
+                <input type="file" accept=".xlsx,.csv" className="hidden" onChange={handleImportFileChange} />
+              </label>
+              {previewMutation.isPending && <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />}
+            </div>
+
+            {importPreview && !importResult && (
+              <div className="space-y-2">
+                <div className="flex gap-2 text-sm">
+                  <Badge className="bg-green-100 text-green-800 hover:bg-green-100">{importPreview.summary.create} new</Badge>
+                  <Badge className="bg-blue-100 text-blue-800 hover:bg-blue-100">{importPreview.summary.update} updates</Badge>
+                  <Badge variant="secondary">{importPreview.summary.skip} skipped</Badge>
+                </div>
+                <div className="max-h-64 overflow-y-auto border rounded-md divide-y text-sm">
+                  {importPreview.rows.map((row: any) => (
+                    <div key={row.rowNumber} className="px-3 py-2 flex items-start gap-2">
+                      <Badge
+                        variant={row.action === 'skip' ? 'secondary' : 'default'}
+                        className={row.action === 'create' ? 'bg-green-600' : row.action === 'update' ? 'bg-blue-600' : ''}
+                      >
+                        {row.action}
+                      </Badge>
+                      <div className="min-w-0">
+                        <div className="font-medium truncate">{row.projectNumber || `Row ${row.rowNumber}`} — {row.title || 'Untitled'}</div>
+                        {row.reason && <div className="text-muted-foreground">{row.reason}</div>}
+                        {row.changes && row.changes.length > 0 && (
+                          <div className="text-muted-foreground">Changes: {row.changes.join(', ')}</div>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                  {importPreview.rows.length === 0 && (
+                    <div className="px-3 py-4 text-muted-foreground">No data rows found in this file.</div>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {importResult && (
+              <div className="space-y-2 text-sm">
+                <div className="font-medium">
+                  Import complete: {importResult.created} created, {importResult.updated} updated,
+                  {' '}{importResult.skipped?.length ?? 0} skipped{importResult.failed?.length ? `, ${importResult.failed.length} failed` : ''}.
+                </div>
+                {importResult.failed?.length > 0 && (
+                  <div className="max-h-40 overflow-y-auto border border-red-200 rounded-md divide-y">
+                    {importResult.failed.map((f: any, i: number) => (
+                      <div key={i} className="px-3 py-2 text-red-700">
+                        Row {f.rowNumber} ({f.projectNumber}): {f.reason}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => { setImportOpen(false); resetImport(); }}>
+              {importResult ? 'Close' : 'Cancel'}
+            </Button>
+            {!importResult && (
+              <Button
+                onClick={() => applyMutation.mutate()}
+                disabled={!importPreview || applyMutation.isPending || (importPreview.summary.create + importPreview.summary.update === 0)}
+              >
+                {applyMutation.isPending && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
+                Apply Import
+              </Button>
+            )}
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
     </PermissionWrapper>
   );
