@@ -7,4 +7,5 @@
 - [session table dropped by push](session-table-drizzle-push.md) — connect-pg-simple `session` table isn't in schema; drizzle-kit push drops it → "relation session does not exist"; recreate it + restart.
 - [Preprint classification](preprint-classification.md) — never use prepublicationSite/Url to decide a record is a preprint; merges copy them onto published survivors.
 - [Demo mode bypasses auth guards](demo-mode-open-access.md) — AUTH_MODE=demo injects a Management session; anonymous curl 200 doesn't mean a route guard is missing.
+- [Sealed publications](sealed-publications.md) — `Published *` is sealed; every publication-mutating route must 403/skip sealed records; only the officer revert route unseals.
 - [Server code needs manual restart](server-no-hot-reload.md) — `tsx` runs without --watch; backend edits don't reload, new API routes return Vite HTML (200) until `restart_workflow`.

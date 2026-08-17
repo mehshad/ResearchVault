@@ -2942,7 +2942,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Sidra Score calculation for all scientists
   app.post('/api/scientists/sidra-scores', async (req: Request, res: Response) => {
     try {
-      const { years = 5, impactFactorYear = "publication", multipliers = {}, startMonth, endMonth } = req.body;
+      const { years = 5, impactFactorYear = "publication", multipliers = {}, startMonth, endMonth, includeNonVetted = false } = req.body;
 
       // Optional custom month range (YYYY-MM). When provided, it overrides `years`.
       const monthRe = /^\d{4}-(0[1-9]|1[0-2])$/;
@@ -3055,6 +3055,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
         let totalScore = 0;
         let publicationsCount = 0;
         const missingImpactFactorPublications: string[] = [];
+        // Publications that were otherwise eligible but not counted, with the
+        // reason and journal so the office can chase them down.
+        const excludedPublications: { title: string; journal: string | null; reason: string }[] = [];
         const calculationDetails: any[] = [];
 
         const authorshipMap = authorshipByScientist.get(scientist.id);
@@ -3067,8 +3070,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
             const pubDate = new Date(publication.publicationDate);
             if (pubDate < cutoffDate) continue;
             if (rangeEndDate && pubDate > rangeEndDate) continue;
-            if (!publication.status || !['published', 'published *', 'accepted/in press', 'in press'].includes(publication.status.toLowerCase())) continue;
+            const statusLc = (publication.status || '').toLowerCase();
+            if (!['published', 'published *', 'accepted/in press', 'in press'].includes(statusLc)) continue;
             if (!publication.journal || publication.journal.trim() === '') continue;
+            // Default: only fully vetted ("Published *") publications count.
+            if (!includeNonVetted && statusLc !== 'published *') {
+              excludedPublications.push({
+                title: publication.title,
+                journal: publication.journal,
+                reason: `Not vetted (status: ${publication.status})`,
+              });
+              continue;
+            }
 
             const pubYear = pubDate.getFullYear();
             let targetYear: number;
@@ -3093,6 +3106,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
             if (ifValue == null || !Number.isFinite(ifValue)) {
               missingImpactFactorPublications.push(publication.title);
+              excludedPublications.push({
+                title: publication.title,
+                journal: publication.journal,
+                reason: 'No impact factor on record',
+              });
               continue;
             }
 
@@ -3138,6 +3156,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           publicationsCount,
           sidraScore: totalScore,
           missingImpactFactorPublications,
+          excludedPublications,
           calculationDetails,
         };
       });
@@ -4232,6 +4251,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         if (!Number.isInteger(publicationId)) { skipped.push({ publicationId, reason: "invalid publication id" }); continue; }
         const pub = await storage.getPublication(publicationId);
         if (!pub) { skipped.push({ publicationId, reason: "publication not found" }); continue; }
+        if (pub.status === 'Published *') { skipped.push({ publicationId, reason: "publication is sealed (Published *)" }); continue; }
 
         const researchActivityId = Number((raw as any)?.researchActivityId);
         const scientistId = Number((raw as any)?.scientistId);
@@ -4583,6 +4603,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }
       }
 
+      // Sealed publications cannot participate in a merge — revert first.
+      const involved = await Promise.all([survivorId, ...targetIds].map((pid) => storage.getPublication(pid)));
+      const sealed = involved.filter((p) => p?.status === 'Published *');
+      if (sealed.length > 0) {
+        return res.status(403).json({
+          message: `Cannot merge: publication(s) ${sealed.map((p) => p!.id).join(', ')} are sealed (Published *). Revert the final approval first.`,
+        });
+      }
+
       const changedBy = req.session?.user?.id || 1;
 
       const survivor = await storage.mergePublications(
@@ -4689,7 +4718,47 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       const validateData = insertPublicationSchema.partial().parse(req.body);
-      
+
+      const existing = await storage.getPublication(id);
+      if (!existing) {
+        return res.status(404).json({ message: "Publication not found" });
+      }
+
+      // Sealed records: once the Outcome Office marks a publication
+      // "Published *" it is final and read-only. The office must use the
+      // revert function before any further edits.
+      if (existing.status === 'Published *') {
+        return res.status(403).json({
+          message: "This publication is sealed (Published *). Revert the final approval in the Outcome Office before editing.",
+        });
+      }
+
+      // Final Outcome Office step: officer-only, and only allowed when the
+      // record has no unresolved issues. Mirrors the office's issue checklist.
+      if (validateData.status === 'Published *') {
+        const role = req.session?.user?.role;
+        const isOfficer = role === "Outcome Officer" || role === "admin" || role === "superadmin" || role === "Management";
+        if (!isOfficer) {
+          return res.status(403).json({ message: "Only the Outcome Office can mark a publication as Published *." });
+        }
+        const merged = { ...existing, ...validateData };
+        const issues: string[] = [];
+        if (!merged.journal?.trim()) issues.push('missing journal');
+        if (!merged.publicationDate) issues.push('missing publication date');
+        if (!merged.doi?.trim() && !merged.pmid?.trim()) issues.push('missing DOI/PMID');
+        if (!merged.authors?.trim()) issues.push('missing authors');
+        if (!merged.abstract?.trim()) issues.push('missing abstract');
+        if (!merged.researchActivityId) issues.push('no linked SDR');
+        const internalAuthors = await storage.getPublicationAuthors(id);
+        if (internalAuthors.length === 0) issues.push('no linked internal authors');
+        if (issues.length > 0) {
+          return res.status(400).json({
+            message: `Cannot mark as Published *: unresolved issues (${issues.join(', ')}).`,
+            issues,
+          });
+        }
+      }
+
       // Check if research activity exists if researchActivityId is provided
       if (validateData.researchActivityId) {
         const researchActivity = await storage.getResearchActivity(validateData.researchActivityId);
@@ -4718,6 +4787,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const id = parseInt(req.params.id);
       if (isNaN(id)) {
         return res.status(400).json({ message: "Invalid publication ID" });
+      }
+
+      const sealedCheck = await storage.getPublication(id);
+      if (sealedCheck?.status === 'Published *') {
+        return res.status(403).json({
+          message: "This publication is sealed (Published *). Revert the final approval in the Outcome Office before deleting.",
+        });
       }
 
       const success = await storage.deletePublication(id);
@@ -4834,12 +4910,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
         'Under review': ['Accepted/In Press', 'Submitted for review with pre-publication', 'Submitted for review without pre-publication', 'Rejected', 'Withdrawn'],
         'Accepted/In Press': ['Published', 'Under review', 'Withdrawn'],
         'Published': ['Accepted/In Press'],
-        'Published *': ['Published'],
+        // Sealed: only the Outcome Office revert route can leave this state.
+        'Published *': [],
         'Rejected': ['Under review', 'Vetted for submission'],
         'Withdrawn': ['Concept'],
       };
 
       const currentStatus = currentPublication.status || 'Concept';
+      if (currentStatus === 'Published *') {
+        return res.status(403).json({
+          message: "This publication is sealed (Published *). Only the Outcome Office can revert the final approval.",
+        });
+      }
       if (!validTransitions[currentStatus]?.includes(status)) {
         return res.status(400).json({ 
           message: `Invalid status transition from "${currentStatus}" to "${status}"` 
@@ -4906,6 +4988,33 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Outcome Office: revert the final "Published *" approval (unseals the record).
+  app.post('/api/publications/:id/revert-final', requirePublicationOfficer, async (req: Request, res: Response) => {
+    try {
+      const id = parseInt(req.params.id);
+      if (isNaN(id)) {
+        return res.status(400).json({ message: "Invalid publication ID" });
+      }
+      // `== null` (not falsy) — the demo-mode user has id 0.
+      const sessionUserId = req.session?.user?.id;
+      if (sessionUserId == null) {
+        return res.status(401).json({ message: "You must be signed in." });
+      }
+      const publication = await storage.getPublication(id);
+      if (!publication) {
+        return res.status(404).json({ message: "Publication not found" });
+      }
+      if (publication.status !== 'Published *') {
+        return res.status(400).json({ message: "This publication is not in the final Published * state." });
+      }
+      const updated = await storage.updatePublicationStatus(id, 'Published', sessionUserId);
+      res.json(updated);
+    } catch (error) {
+      console.error('Error reverting final approval:', error);
+      res.status(500).json({ message: "Failed to revert final approval" });
+    }
+  });
+
   // Publication Authors
   app.get('/api/publications/:id/authors', async (req: Request, res: Response) => {
     try {
@@ -4933,6 +5042,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
         ...req.body,
         publicationId
       });
+
+      const targetPub = await storage.getPublication(publicationId);
+      if (!targetPub) {
+        return res.status(404).json({ message: "Publication not found" });
+      }
+      if (targetPub.status === 'Published *') {
+        return res.status(403).json({ message: "This publication is sealed (Published *). Revert the final approval before changing author links." });
+      }
 
       // Attribution: this endpoint is the manual linking flow (detail page), so
       // every link/update it makes is stamped as a manual link by the acting
@@ -4986,6 +5103,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
       
       if (isNaN(publicationId) || isNaN(scientistId)) {
         return res.status(400).json({ message: "Invalid publication or scientist ID" });
+      }
+
+      const targetPub = await storage.getPublication(publicationId);
+      if (targetPub?.status === 'Published *') {
+        return res.status(403).json({ message: "This publication is sealed (Published *). Revert the final approval before changing author links." });
       }
 
       const success = await storage.removePublicationAuthor(publicationId, scientistId);
@@ -5056,6 +5178,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const publication = await storage.getPublication(publicationId);
       if (!publication) {
         return res.status(404).json({ message: "Publication not found" });
+      }
+      if (publication.status === 'Published *') {
+        return res.status(403).json({ message: "This publication is sealed (Published *). Revert the final approval before changing author links." });
       }
 
       const actorId = (req.session as any)?.user?.id ?? null;

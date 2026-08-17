@@ -440,13 +440,20 @@ export default function PublicationDetail() {
           </Button>
           <h1 className="text-2xl font-semibold text-foreground">{publication.title}</h1>
         </div>
-        <Button 
-          className="bg-sidra-teal hover:bg-sidra-teal-dark text-white font-medium px-4 py-2 shadow-sm"
-          onClick={() => navigate(`/publications/${publication.id}/edit`)}
-        >
-          <Edit className="h-4 w-4 mr-2" />
-          Edit
-        </Button>
+        {publication.status === 'Published *' ? (
+          <Badge className="bg-green-600 text-white hover:bg-green-700 px-3 py-1.5">
+            <CheckCircle className="h-4 w-4 mr-1.5" />
+            Sealed — contact the Outcome Office to edit
+          </Badge>
+        ) : (
+          <Button 
+            className="bg-sidra-teal hover:bg-sidra-teal-dark text-white font-medium px-4 py-2 shadow-sm"
+            onClick={() => navigate(`/publications/${publication.id}/edit`)}
+          >
+            <Edit className="h-4 w-4 mr-2" />
+            Edit
+          </Button>
+        )}
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
@@ -1278,7 +1285,8 @@ function StatusUpdateForm({
       'Under review': ['Accepted/In Press', 'Submitted for review with pre-publication', 'Submitted for review without pre-publication', 'Rejected', 'Withdrawn'],
       'Accepted/In Press': ['Published', 'Under review', 'Withdrawn'],
       'Published': ['Accepted/In Press'],
-      'Published *': ['Published'],
+      // Sealed — only the Outcome Office can revert the final approval.
+      'Published *': [],
       'Rejected': ['Under review', 'Vetted for submission'],
       'Withdrawn': ['Concept'],
     };
@@ -1287,6 +1295,19 @@ function StatusUpdateForm({
 
   const nextStatuses = getNextStatuses(currentStatus);
   
+  if (currentStatus === 'Published *') {
+    return (
+      <div className="text-center py-6">
+        <CheckCircle className="h-12 w-12 text-green-500 mx-auto mb-3" />
+        <p className="text-lg font-medium">Publication Complete &amp; Sealed</p>
+        <p className="text-sm text-gray-600 dark:text-gray-300">
+          This publication passed the final Outcome Office review and is sealed.
+          Contact the Outcome Office if it needs to be reopened.
+        </p>
+      </div>
+    );
+  }
+
   if (nextStatuses.length === 0 && currentStatus === 'Published') {
     return (
       <div className="text-center py-6">
