@@ -225,6 +225,22 @@ interface MissingPaperMeta {
 
 // Figshare DOIs are dataset/figure deposits, not publications — they should
 // never be offered for import as missing papers.
+/** Convert empty strings to null in a plain object so numeric/date DB columns
+ *  don't receive "" which Postgres rejects as invalid input syntax. */
+function nullifyEmptyStrings(obj: Record<string, any>): Record<string, any> {
+  const result: Record<string, any> = {};
+  for (const [key, value] of Object.entries(obj)) {
+    if (value === "") {
+      result[key] = null;
+    } else if (value !== null && typeof value === "object" && !Array.isArray(value) && !(value instanceof Date)) {
+      result[key] = nullifyEmptyStrings(value);
+    } else {
+      result[key] = value;
+    }
+  }
+  return result;
+}
+
 function isFigshareWork(w: MissingPaperMeta): boolean {
   const doi = (w.doi || "").toLowerCase();
   if (doi.startsWith("10.6084/")) return true;
@@ -8741,7 +8757,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.post('/api/grants', async (req: Request, res: Response) => {
     try {
-      const validatedData = insertGrantSchema.parse(req.body);
+      const validatedData = insertGrantSchema.parse(nullifyEmptyStrings(req.body));
       const grant = await storage.createGrant(validatedData);
       res.status(201).json(grant);
     } catch (error) {
@@ -8763,7 +8779,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).json({ message: "Invalid grant ID" });
       }
 
-      const validatedData = insertGrantSchema.partial().parse(req.body);
+      const validatedData = insertGrantSchema.partial().parse(nullifyEmptyStrings(req.body));
       const grant = await storage.updateGrant(id, validatedData);
       
       if (!grant) {

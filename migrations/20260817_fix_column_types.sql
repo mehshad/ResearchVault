@@ -11,7 +11,8 @@ ALTER TABLE ibc_applications
   ALTER COLUMN hazardous_procedures TYPE json USING CASE WHEN hazardous_procedures IS NULL THEN NULL ELSE to_json(hazardous_procedures) END,
   ALTER COLUMN synthetic_experiments TYPE json USING CASE WHEN synthetic_experiments IS NULL THEN NULL ELSE to_json(synthetic_experiments) END;
 
--- ibc_applications: boolean → json
+-- ibc_applications: boolean → json (drop default first to allow type change)
+ALTER TABLE ibc_applications ALTER COLUMN dual_use_agents_and_toxins DROP DEFAULT;
 ALTER TABLE ibc_applications
   ALTER COLUMN dual_use_agents_and_toxins TYPE json USING CASE WHEN dual_use_agents_and_toxins IS NULL THEN NULL ELSE to_json(dual_use_agents_and_toxins) END;
 
