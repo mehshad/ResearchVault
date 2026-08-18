@@ -73,11 +73,15 @@ export default function PublicationDetail() {
   const id = parseInt(params.id);
   const { toast } = useToast();
 
-  // Return to wherever the user came from (e.g. the New Publications tab),
-  // falling back to the publications list when there's no in-app history
-  // (direct deep-link / fresh page load).
+  // Return to wherever the user came from. A `from` query param (set by e.g.
+  // the Outcome Office tabs) takes priority — it survives detours through the
+  // edit page, unlike history.back(). Fall back to history, then to the list.
+  const fromParam = new URLSearchParams(window.location.search).get("from");
+  const safeFrom = fromParam && fromParam.startsWith("/") ? fromParam : null;
   const handleBack = () => {
-    if (window.history.length > 1) {
+    if (safeFrom) {
+      navigate(safeFrom);
+    } else if (window.history.length > 1) {
       window.history.back();
     } else {
       navigate("/publications");
@@ -448,7 +452,7 @@ export default function PublicationDetail() {
         ) : (
           <Button 
             className="bg-sidra-teal hover:bg-sidra-teal-dark text-white font-medium px-4 py-2 shadow-sm"
-            onClick={() => navigate(`/publications/${publication.id}/edit`)}
+            onClick={() => navigate(`/publications/${publication.id}/edit${safeFrom ? `?from=${encodeURIComponent(safeFrom)}` : ''}`)}
           >
             <Edit className="h-4 w-4 mr-2" />
             Edit

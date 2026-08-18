@@ -97,7 +97,11 @@ export default function PublicationOffice() {
   const queryClient = useQueryClient();
   
   // Tab state
-  const [activeTab, setActiveTab] = useState("ip-vetting");
+  // Restore the tab from the URL (e.g. /outcome-office?tab=new-publications)
+  // so returning from a publication lands back on the tab being worked on.
+  const [activeTab, setActiveTab] = useState(() =>
+    new URLSearchParams(window.location.search).get("tab") || "ip-vetting"
+  );
 
   // New Publications tab filters (issue/tag, scientist, publication date range)
   const [npTagFilter, setNpTagFilter] = useState<string>("all");
@@ -1277,7 +1281,7 @@ export default function PublicationOffice() {
                     <div key={pub.id} className="border rounded-lg p-4 space-y-3">
                       <div className="flex items-start justify-between">
                         <div className="flex-1">
-                          <Link href={`/publications/${pub.id}`}>
+                          <Link href={`/publications/${pub.id}?from=${encodeURIComponent('/outcome-office?tab=ip-vetting')}`}>
                             <h3 className="font-semibold text-blue-600 hover:text-blue-800 cursor-pointer dark:text-blue-400 dark:hover:text-blue-300">
                               {pub.title}
                             </h3>
@@ -1424,7 +1428,7 @@ export default function PublicationOffice() {
                     >
                       <div className="flex items-start justify-between">
                         <div className="flex-1">
-                          <Link href={`/publications/${pub.id}`}>
+                          <Link href={`/publications/${pub.id}?from=${encodeURIComponent('/outcome-office?tab=new-publications')}`}>
                             <h3 className="font-semibold text-blue-600 hover:text-blue-800 cursor-pointer dark:text-blue-400 dark:hover:text-blue-300">
                               {pub.title}
                             </h3>

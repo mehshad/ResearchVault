@@ -24,6 +24,10 @@ import React from "react";
 export default function PublicationEdit() {
   const { id } = useParams();
   const [, navigate] = useLocation();
+  // Where the user came from (e.g. an Outcome Office tab) — return there
+  // after saving instead of stranding them on the detail page.
+  const fromParam = new URLSearchParams(window.location.search).get("from");
+  const safeFrom = fromParam && fromParam.startsWith("/") ? fromParam : null;
   const { toast } = useToast();
   const queryClient = useQueryClient();
 
@@ -96,7 +100,7 @@ export default function PublicationEdit() {
       queryClient.invalidateQueries({ queryKey: ['/api/publications'] });
       queryClient.invalidateQueries({ queryKey: [`/api/publications/${id}`] });
       queryClient.invalidateQueries({ queryKey: [`/api/publications/${id}/authors`] });
-      navigate(`/publications/${id}`);
+      navigate(safeFrom || `/publications/${id}`);
     },
     onError: (error: any) => {
       toast({
@@ -168,7 +172,7 @@ export default function PublicationEdit() {
   return (
     <div className="space-y-6">
       <div className="flex items-center gap-2">
-        <Button variant="ghost" size="sm" onClick={() => navigate(`/publications/${id}`)}>
+        <Button variant="ghost" size="sm" onClick={() => navigate(`/publications/${id}${safeFrom ? `?from=${encodeURIComponent(safeFrom)}` : ''}`)}>
           <ArrowLeft className="h-4 w-4 mr-1" />
           Back
         </Button>
