@@ -189,16 +189,23 @@ export class DatabaseStorage implements IStorage {
   }
 
   async getScientistsWithActivityCount(): Promise<(Scientist & { activeResearchActivities: number })[]> {
-    // Single query: LEFT JOIN project_members and GROUP BY scientist. Avoids the
-    // N+1 pattern of issuing one COUNT(*) per scientist.
+    // Single query with a scalar subquery per scientist: counts distinct SDRs
+    // where the scientist is either a team member OR the budget holder (PI),
+    // so PIs who aren't explicitly in project_members are still counted.
     const rows = await db
       .select({
         scientist: scientists,
-        count: sql<number>`count(${projectMembers.id})`.mapWith(Number),
+        count: sql<number>`(
+          select count(*) from (
+            select research_activity_id as ra_id from project_members
+              where scientist_id = ${scientists.id}
+            union
+            select id as ra_id from research_activities
+              where budget_holder_id = ${scientists.id}
+          ) t
+        )`.mapWith(Number),
       })
       .from(scientists)
-      .leftJoin(projectMembers, eq(projectMembers.scientistId, scientists.id))
-      .groupBy(scientists.id)
       .orderBy(scientists.lastName, scientists.firstName);
 
     return rows.map((r) => ({

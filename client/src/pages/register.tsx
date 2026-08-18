@@ -25,6 +25,7 @@ const JOB_TITLES = [
   "IBC Officer",
   "Grant Officer",
   "Contracts Officer",
+  "IT Officer",
   "Management",
   "Other",
 ];

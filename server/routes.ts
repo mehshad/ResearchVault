@@ -3547,6 +3547,22 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const validatedData = insertResearchActivitySchema.parse(req.body);
       const newActivity = await storage.createResearchActivity(validatedData);
+
+      // Automatically add the Principal Investigator/Budget Holder to the
+      // research team so the SDR starts with its PI as a member.
+      if (newActivity.budgetHolderId) {
+        try {
+          await storage.addProjectMember({
+            researchActivityId: newActivity.id,
+            scientistId: newActivity.budgetHolderId,
+            role: "Principal Investigator",
+          });
+        } catch (memberError) {
+          // Don't fail SDR creation if the auto-add fails; log for diagnosis.
+          console.error("Failed to auto-add PI as team member:", memberError);
+        }
+      }
+
       res.status(201).json(newActivity);
     } catch (error) {
       if (error instanceof ZodError) {
@@ -3652,8 +3668,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
           ...member,
           scientist: scientist ? {
             id: scientist.id,
-            name: scientist.name,
-            title: scientist.title,
+            name: `-e `,
+            title: scientist.jobTitle,
             profileImageInitials: scientist.profileImageInitials
           } : null
         };
@@ -3785,8 +3801,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
             researchActivityTitle: activity.title,
             scientist: scientist ? {
               id: scientist.id,
-              name: scientist.name,
-              title: scientist.title,
+              name: `-e `,
+              title: scientist.jobTitle,
               profileImageInitials: scientist.profileImageInitials
             } : null
           };
@@ -3857,8 +3873,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         researchActivityTitle: researchActivity.title,
         scientist: {
           id: scientist.id,
-          name: scientist.name,
-          title: scientist.title,
+          name: `-e `,
+          title: scientist.jobTitle,
           profileImageInitials: scientist.profileImageInitials
         }
       };
@@ -3969,7 +3985,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
       
       // Validate role assignment: Only Investigators can be Principal Investigators
-      if (validateData.role === "Principal Investigator" && scientist.title !== "Investigator") {
+      if (validateData.role === "Principal Investigator" && scientist.jobTitle !== "Investigator") {
         return res.status(400).json({ 
           message: "Only scientists with the job title 'Investigator' can be assigned the role of Principal Investigator" 
         });
@@ -4010,8 +4026,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         ...member,
         scientist: {
           id: scientist.id,
-          name: scientist.name,
-          title: scientist.title,
+          name: `-e `,
+          title: scientist.jobTitle,
           email: scientist.email,
           staffId: scientist.staffId,
           profileImageInitials: scientist.profileImageInitials
@@ -6320,7 +6336,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
                   honorificTitle: scientist.honorificTitle,
                   firstName: scientist.firstName,
                   lastName: scientist.lastName,
-                  name: scientist.name,
+                  name: `-e `,
                   email: scientist.email,
                   department: scientist.department,
                   jobTitle: scientist.jobTitle,
@@ -9964,7 +9980,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     const allowedRoles = ['user', 'admin', 'Management', 'Investigator', 'Staff Scientist',
       'Lab Manager', 'Postdoctoral Researcher', 'PhD Student', 'IRB Board Member',
       'IBC Board Member', 'Outcome Officer', 'PMO Officer', 'IRB Officer',
-      'IBC Officer', 'Grant Officer', 'Contracts Officer', 'Physician'];
+      'IBC Officer', 'Grant Officer', 'Contracts Officer', 'IT Officer', 'Physician'];
     // superadmin role can only be set via SUPER_ADMIN_EMAIL env var — never by UI
     if (!role || !allowedRoles.includes(role)) {
       return res.status(400).json({ message: 'Invalid role' });

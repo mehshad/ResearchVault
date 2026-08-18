@@ -40,7 +40,8 @@ const JOB_TITLES = [
   "IBC Officer",
   "Outcome Officer",
   "Grant Officer",
-  "Contracts Officer"
+  "Contracts Officer",
+  "IT Officer"
 ];
 
 const NAVIGATION_ITEMS = [

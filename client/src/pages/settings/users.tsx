@@ -27,6 +27,7 @@ const ASSIGNABLE_ROLES = [
   "IBC Officer",
   "Grant Officer",
   "Contracts Officer",
+  "IT Officer",
 ];
 
 interface AppUser {

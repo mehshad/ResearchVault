@@ -224,9 +224,9 @@ export default function CreateScientist() {
                       'Management', 'Investigator', 'Physician', 'Staff Scientist',
                       'Research Specialist', 'Research Associate', 'Research Assistant',
                       'PhD Student', 'Post-doctoral Fellow', 'Lab Manager',
-                      'PMO Officer', 'IRB Officer', 'IBC Officer', 'Outcome Officer', 'Grant Officer',
+                      'PMO Officer', 'IRB Officer', 'IBC Officer', 'Outcome Officer', 'Grant Officer', 'IT Officer',
                     ];
-                    const administrativeRoles = ['Management', 'PMO Officer', 'IRB Officer', 'IBC Officer', 'Lab Manager', 'Outcome Officer', 'Grant Officer'];
+                    const administrativeRoles = ['Management', 'PMO Officer', 'IRB Officer', 'IBC Officer', 'Lab Manager', 'Outcome Officer', 'Grant Officer', 'IT Officer'];
                     return (
                       <FormItem>
                         <FormLabel>Job Title</FormLabel>
