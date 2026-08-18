@@ -25,6 +25,44 @@ export const TOGGLEABLE_SECTIONS = [
   'Outcomes & Reports',
 ] as const;
 
+// Individual sidebar pages inside each toggleable section. Page visibility is
+// stored in the same visibility map as sections, under a "page:<href>" key.
+export const TOGGLEABLE_PAGES: Record<string, { href: string; label: string }[]> = {
+  'Research Management': [
+    { href: '/scientists', label: 'Scientists & Staff' },
+    { href: '/facilities', label: 'Facilities' },
+    { href: '/certifications', label: 'Certifications' },
+  ],
+  'PMO Office': [
+    { href: '/pmo/programs', label: 'Programs (PRM)' },
+    { href: '/pmo/projects', label: 'Projects (PRJ)' },
+    { href: '/pmo/research-activities', label: 'Research Activities (SDR)' },
+    { href: '/pmo/applications', label: 'PMO Applications' },
+    { href: '/pmo/office', label: 'PMO Office Review' },
+  ],
+  'IRB Compliance': [
+    { href: '/irb', label: 'IRB Applications' },
+    { href: '/irb-office', label: 'IRB Office' },
+    { href: '/irb-reviewer', label: 'IRB Reviewer' },
+  ],
+  'IBC Compliance': [
+    { href: '/ibc', label: 'IBC Applications' },
+    { href: '/ibc-office', label: 'IBC Office' },
+    { href: '/ibc-reviewer', label: 'IBC Reviewer' },
+  ],
+  'Research Data Management': [
+    { href: '/data-management', label: 'Data Management Plans' },
+    { href: '/contracts', label: 'Research Contracts' },
+    { href: '/grants', label: 'Grants Office' },
+  ],
+  'Outcomes & Reports': [
+    { href: '/publications', label: 'Publications' },
+    { href: '/outcome-office', label: 'Outcome Office' },
+    { href: '/patents', label: 'Patents' },
+    { href: '/reports', label: 'Reports' },
+  ],
+};
+
 export type SectionVisibility = Record<string, boolean>;
 
 export const defaultInstitutionLabels: InstitutionConfig = {
@@ -40,6 +78,8 @@ interface ThemeContextType {
   sectionVisibility: SectionVisibility;
   isSectionVisible: (sectionTitle: string) => boolean;
   setSectionVisible: (sectionTitle: string, visible: boolean) => void;
+  isPageVisible: (href: string) => boolean;
+  setPageVisible: (href: string, visible: boolean) => void;
   setTheme: (theme: ThemeName) => void;
   setInstitutionLabels: (labels: InstitutionConfig) => void;
   /** Persists all current settings to the server. Returns true on success. */
@@ -255,6 +295,15 @@ export function ThemeProvider({ children }: ThemeProviderProps) {
     [sectionVisibility]
   );
 
+  const setPageVisible = useCallback((href: string, visible: boolean) => {
+    setSectionVisibility(prev => ({ ...prev, [`page:${href}`]: visible }));
+  }, []);
+
+  const isPageVisible = useCallback(
+    (href: string) => sectionVisibility[`page:${href}`] !== false,
+    [sectionVisibility]
+  );
+
   const currentLabels = institutionLabels[themeName] || defaultInstitutionLabels.sidra;
 
   const value: ThemeContextType = {
@@ -264,6 +313,8 @@ export function ThemeProvider({ children }: ThemeProviderProps) {
     sectionVisibility,
     isSectionVisible,
     setSectionVisible,
+    isPageVisible,
+    setPageVisible,
     setTheme,
     setInstitutionLabels,
     saveSettings,

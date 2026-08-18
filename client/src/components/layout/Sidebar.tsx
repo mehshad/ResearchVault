@@ -26,7 +26,7 @@ interface SidebarProps {
 export default function Sidebar({ mobile = false, onClose, onCollapsedChange }: SidebarProps) {
   const [location, navigate] = useLocation();
   const { isHidden, isReadOnly } = usePermissions();
-  const { themeName, currentLabels, isSectionVisible } = useTheme();
+  const { themeName, currentLabels, isSectionVisible, isPageVisible } = useTheme();
   const { authConfig, logout, user: authUser } = useAuth();
   const { currentUser, setCurrentUser } = useCurrentUser();
   const ssoEnabled = authConfig.ssoEnabled;
@@ -426,7 +426,7 @@ export default function Sidebar({ mobile = false, onClose, onCollapsedChange }: 
                   {section.items
                     .filter((item) => {
                       const navItemId = getNavigationItemId(item.href);
-                      return !isHidden(currentUser.role, navItemId);
+                      return !isHidden(currentUser.role, navItemId) && isPageVisible(item.href);
                     })
                     .map((item) => {
                       const navItemId = getNavigationItemId(item.href);
