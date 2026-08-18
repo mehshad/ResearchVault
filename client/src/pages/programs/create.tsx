@@ -181,9 +181,9 @@ export default function CreateProgram() {
                           </SelectTrigger>
                         </FormControl>
                         <SelectContent>
-                          {scientists.filter(scientist => scientist.title === 'Investigator').map((scientist) => (
+                          {scientists.filter(scientist => scientist.jobTitle === 'Investigator').map((scientist) => (
                             <SelectItem key={scientist.id} value={scientist.id.toString()}>
-                              {scientist.name} - {scientist.title || 'No title'}
+                              {[scientist.honorificTitle, scientist.firstName, scientist.lastName].filter(Boolean).join(' ')} - {scientist.jobTitle || 'No title'}
                             </SelectItem>
                           ))}
                         </SelectContent>
@@ -209,9 +209,9 @@ export default function CreateProgram() {
                           </SelectTrigger>
                         </FormControl>
                         <SelectContent>
-                          {scientists.filter(scientist => scientist.title === 'Investigator' || scientist.title === 'Staff Scientist').map((scientist) => (
+                          {scientists.filter(scientist => scientist.jobTitle === 'Investigator' || scientist.jobTitle === 'Staff Scientist').map((scientist) => (
                             <SelectItem key={scientist.id} value={scientist.id.toString()}>
-                              {scientist.name} - {scientist.title || 'No title'}
+                              {[scientist.honorificTitle, scientist.firstName, scientist.lastName].filter(Boolean).join(' ')} - {scientist.jobTitle || 'No title'}
                             </SelectItem>
                           ))}
                         </SelectContent>
@@ -237,9 +237,9 @@ export default function CreateProgram() {
                           </SelectTrigger>
                         </FormControl>
                         <SelectContent>
-                          {scientists.filter(scientist => scientist.title === 'Physician').map((scientist) => (
+                          {scientists.filter(scientist => scientist.jobTitle === 'Physician').map((scientist) => (
                             <SelectItem key={scientist.id} value={scientist.id.toString()}>
-                              {scientist.name} - {scientist.title || 'No title'}
+                              {[scientist.honorificTitle, scientist.firstName, scientist.lastName].filter(Boolean).join(' ')} - {scientist.jobTitle || 'No title'}
                             </SelectItem>
                           ))}
                         </SelectContent>
@@ -265,9 +265,9 @@ export default function CreateProgram() {
                           </SelectTrigger>
                         </FormControl>
                         <SelectContent>
-                          {scientists.filter(scientist => scientist.title === 'Physician').map((scientist) => (
+                          {scientists.filter(scientist => scientist.jobTitle === 'Physician').map((scientist) => (
                             <SelectItem key={scientist.id} value={scientist.id.toString()}>
-                              {scientist.name} - {scientist.title || 'No title'}
+                              {[scientist.honorificTitle, scientist.firstName, scientist.lastName].filter(Boolean).join(' ')} - {scientist.jobTitle || 'No title'}
                             </SelectItem>
                           ))}
                         </SelectContent>

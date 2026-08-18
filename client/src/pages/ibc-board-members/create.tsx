@@ -2,6 +2,7 @@
 // Most errors here stem from untyped `useQuery` results (data inferred as `unknown`), drifted shared/schema field renames, and form values typed as `unknown`. They are not known runtime bugs but should be fixed file-by-file as each is next touched: remove this directive, run `npx tsc --noEmit`, and resolve what surfaces.
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { formatFullName } from "@/utils/nameUtils";
 import { useLocation } from "wouter";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -176,8 +177,8 @@ export default function CreateIbcBoardMember() {
                           {scientists.map((scientist: Scientist) => (
                             <SelectItem key={scientist.id} value={scientist.id.toString()}>
                               <div>
-                                <div className="font-medium">{scientist.name}</div>
-                                <div className="text-sm text-gray-500 dark:text-gray-400">{scientist.title}</div>
+                                <div className="font-medium">{formatFullName(scientist)}</div>
+                                <div className="text-sm text-gray-500 dark:text-gray-400">{scientist.jobTitle}</div>
                               </div>
                             </SelectItem>
                           ))}

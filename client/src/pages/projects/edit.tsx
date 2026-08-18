@@ -2,6 +2,7 @@
 // Most errors here stem from untyped `useQuery` results (data inferred as `unknown`), drifted shared/schema field renames, and form values typed as `unknown`. They are not known runtime bugs but should be fixed file-by-file as each is next touched: remove this directive, run `npx tsc --noEmit`, and resolve what surfaces.
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useLocation, useParams } from "wouter";
+import { formatFullName } from "@/utils/nameUtils";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
@@ -221,9 +222,9 @@ export default function ProjectEdit() {
                           </SelectTrigger>
                         </FormControl>
                         <SelectContent>
-                          {scientists?.filter(scientist => scientist.title === 'Investigator').map((scientist) => (
+                          {scientists?.filter(scientist => scientist.jobTitle === 'Investigator').map((scientist) => (
                             <SelectItem key={scientist.id} value={scientist.id.toString()}>
-                              {scientist.name} - {scientist.title}
+                              {formatFullName(scientist)} - {scientist.jobTitle}
                             </SelectItem>
                           ))}
                         </SelectContent>

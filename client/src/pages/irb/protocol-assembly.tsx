@@ -308,8 +308,8 @@ export default function ProtocolAssembly() {
       const newMember: ProtocolMember = {
         id: Date.now(), // Temporary ID
         scientistId,
-        name: projectMember.scientist.name,
-        email: projectMember.scientist.email || `${projectMember.scientist.name.toLowerCase().replace(/\s+/g, '.')}@sidra.org`,
+        name: formatFullName(projectMember.scientist),
+        email: projectMember.scientist.email || `${[projectMember.scientist.firstName, projectMember.scientist.lastName].filter(Boolean).join('.').toLowerCase()}@sidra.org`,
         roles,
         hasAccess: true,
         hasSigned: false,

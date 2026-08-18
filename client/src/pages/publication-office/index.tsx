@@ -22,6 +22,7 @@ import { Badge } from "@/components/ui/badge";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Checkbox } from "@/components/ui/checkbox";
+import { Switch } from "@/components/ui/switch";
 import * as SliderPrimitive from "@radix-ui/react-slider";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
@@ -57,6 +58,7 @@ interface SidraRanking {
   publicationsCount: number;
   sidraScore: number;
   missingImpactFactorPublications: string[];
+  excludedPublications?: { title: string; journal: string | null; reason: string }[];
   calculationDetails: any;
 }
 
@@ -162,6 +164,7 @@ export default function PublicationOffice() {
   const [secondAuthorMultiplier, setSecondAuthorMultiplier] = useState(1.5);
   const [correspondingAuthorMultiplier, setCorrespondingAuthorMultiplier] = useState(2);
   const [impactFactorYear, setImpactFactorYear] = useState("publication"); // "prior", "publication", "latest"
+  const [sidraIncludeNonVetted, setSidraIncludeNonVetted] = useState(false);
   const [sidraRankings, setSidraRankings] = useState<SidraRanking[]>([]);
   const [selectedScientistDetails, setSelectedScientistDetails] = useState<SidraRanking | null>(null);
   const [isDetailsModalOpen, setIsDetailsModalOpen] = useState(false);
@@ -824,6 +827,7 @@ export default function PublicationOffice() {
           ? { startMonth: sidraStartMonth, endMonth: sidraEndMonth }
           : {}),
         impactFactorYear: impactFactorYear,
+        includeNonVetted: sidraIncludeNonVetted,
         multipliers: {
           'First Author': firstAuthorMultiplier,
           'Last Author': lastAuthorMultiplier,
@@ -1132,15 +1136,57 @@ export default function PublicationOffice() {
         credentials: 'include',
         body: JSON.stringify({ vettedForSubmissionByIpOffice: true, status: 'Published *' }),
       });
-      if (!response.ok) throw new Error('Failed to mark as vetted');
+      if (!response.ok) {
+        const body = await response.json().catch(() => null);
+        throw new Error(body?.message || 'Failed to mark as vetted');
+      }
       return response.json();
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['/api/publications'] });
-      toast({ title: "Success", description: "Publication marked as vetted" });
+      toast({ title: "Success", description: "Publication marked as Published * and sealed" });
     },
-    onError: () => {
-      toast({ title: "Error", description: "Failed to mark publication as vetted", variant: "destructive" });
+    onError: (error: Error) => {
+      toast({ title: "Error", description: error.message, variant: "destructive" });
+    },
+  });
+
+  // Revert final approval (Export tab, rarely used)
+  const [revertSearch, setRevertSearch] = useState("");
+  const [revertConfirmId, setRevertConfirmId] = useState<number | null>(null);
+  const { data: allPublicationsForRevert = [] } = useQuery<Publication[]>({
+    queryKey: ['/api/publications'],
+    enabled: activeTab === 'export',
+  });
+  const sealedPublications = useMemo(() => {
+    const q = revertSearch.trim().toLowerCase();
+    if (!q) return []; // show nothing until the officer types a search
+    return (allPublicationsForRevert as Publication[])
+      .filter((p) => p.status === 'Published *')
+      .filter((p) => p.title?.toLowerCase().includes(q)
+        || p.doi?.toLowerCase().includes(q)
+        || p.journal?.toLowerCase().includes(q));
+  }, [allPublicationsForRevert, revertSearch]);
+
+  const revertFinalMutation = useMutation({
+    mutationFn: async (id: number) => {
+      const response = await fetch(`/api/publications/${id}/revert-final`, {
+        method: 'POST',
+        credentials: 'include',
+      });
+      if (!response.ok) {
+        const body = await response.json().catch(() => null);
+        throw new Error(body?.message || 'Failed to revert final approval');
+      }
+      return response.json();
+    },
+    onSuccess: () => {
+      setRevertConfirmId(null);
+      queryClient.invalidateQueries({ queryKey: ['/api/publications'] });
+      toast({ title: "Reverted", description: "The publication is unsealed and back in Published status." });
+    },
+    onError: (error: Error) => {
+      toast({ title: "Error", description: error.message, variant: "destructive" });
     },
   });
 
@@ -1418,8 +1464,10 @@ export default function PublicationOffice() {
                               <Button 
                                 size="sm"
                                 onClick={() => markAsVettedMutation.mutate(pub.id)}
-                                disabled={markAsVettedMutation.isPending || !hasInternalAuthors}
-                                title={!hasInternalAuthors ? 'Link at least one internal author before marking as published' : undefined}
+                                disabled={markAsVettedMutation.isPending || hasIssues}
+                                title={hasIssues
+                                  ? `Resolve all issues first${missingFields.length ? ` (missing: ${missingFields.join(', ')})` : ''}${!hasSdr ? ' (no linked SDR)' : ''}${!hasInternalAuthors ? ' (no linked internal authors)' : ''}`
+                                  : 'Finalize and seal this publication'}
                                 data-testid={`button-mark-published-${pub.id}`}
                               >
                                 <Star className="h-4 w-4 mr-1" />
@@ -1969,6 +2017,76 @@ export default function PublicationOffice() {
               </Card>
             </div>
           </div>
+
+          {/* Revert Final Approval (rarely used) */}
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2 text-base">
+                <Shield className="h-5 w-5" />
+                Revert Final Approval
+              </CardTitle>
+              <CardDescription>
+                Unseal a finalized (Published *) publication so it can be edited again. Use sparingly — the record returns to Published status and must be re-vetted.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              <Input
+                placeholder="Search sealed publications by title, DOI, or journal..."
+                value={revertSearch}
+                onChange={(e) => setRevertSearch(e.target.value)}
+                data-testid="input-revert-search"
+              />
+              {sealedPublications.length === 0 ? (
+                <p className="text-sm text-gray-500 dark:text-gray-400">
+                  {revertSearch.trim() ? 'No sealed publications match your search.' : 'Type a title, DOI, or journal to find a sealed publication.'}
+                </p>
+              ) : (
+                <div className="space-y-2 max-h-80 overflow-y-auto">
+                  {sealedPublications.slice(0, 20).map((pub) => (
+                    <div key={pub.id} className="flex items-center justify-between gap-3 border rounded-lg p-3">
+                      <div className="min-w-0">
+                        <p className="text-sm font-medium truncate">{pub.title}</p>
+                        <p className="text-xs text-gray-500 dark:text-gray-400 truncate">
+                          {pub.journal || 'No journal'}{pub.doi ? ` • ${pub.doi}` : ''}
+                        </p>
+                      </div>
+                      {revertConfirmId === pub.id ? (
+                        <div className="flex items-center gap-2 shrink-0">
+                          <Button
+                            size="sm"
+                            variant="destructive"
+                            onClick={() => revertFinalMutation.mutate(pub.id)}
+                            disabled={revertFinalMutation.isPending}
+                            data-testid={`button-confirm-revert-${pub.id}`}
+                          >
+                            Confirm revert
+                          </Button>
+                          <Button size="sm" variant="ghost" onClick={() => setRevertConfirmId(null)}>
+                            Cancel
+                          </Button>
+                        </div>
+                      ) : (
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="shrink-0"
+                          onClick={() => setRevertConfirmId(pub.id)}
+                          data-testid={`button-revert-${pub.id}`}
+                        >
+                          Revert
+                        </Button>
+                      )}
+                    </div>
+                  ))}
+                  {sealedPublications.length > 20 && (
+                    <p className="text-xs text-gray-500 dark:text-gray-400">
+                      Showing first 20 of {sealedPublications.length} — refine your search.
+                    </p>
+                  )}
+                </div>
+              )}
+            </CardContent>
+          </Card>
         </TabsContent>
 
         {/* Sidra Score Tab */}
@@ -2051,6 +2169,23 @@ export default function PublicationOffice() {
                       {impactFactorYear === "prior" && "Uses impact factor from year before publication (what authors saw when selecting journal)"}
                       {impactFactorYear === "publication" && "Uses impact factor from the same year as publication"}
                       {impactFactorYear === "latest" && "Uses the most recent impact factor available for the journal"}
+                    </p>
+                  </div>
+
+                  <div className="space-y-2 border-t pt-4">
+                    <div className="flex items-center justify-between">
+                      <Label htmlFor="include-non-vetted">Include non-vetted publications</Label>
+                      <Switch
+                        id="include-non-vetted"
+                        checked={sidraIncludeNonVetted}
+                        onCheckedChange={setSidraIncludeNonVetted}
+                        data-testid="switch-include-non-vetted"
+                      />
+                    </div>
+                    <p className="text-xs text-gray-500 dark:text-gray-400">
+                      {sidraIncludeNonVetted
+                        ? "Counting all eligible publications, including those not yet fully vetted (Published, Accepted/In Press)."
+                        : "Only fully vetted publications (Published *) count toward the score."}
                     </p>
                   </div>
 
@@ -3198,16 +3333,34 @@ export default function PublicationOffice() {
                 </CardContent>
               </Card>
 
-              {/* Missing Impact Factor Publications */}
-              {selectedScientistDetails.missingImpactFactorPublications.length > 0 && (
+              {/* Publications excluded from the score (missing IF, not vetted) */}
+              {(selectedScientistDetails.excludedPublications?.length ?? 0) > 0 ? (
                 <Card>
                   <CardHeader>
-                    <CardTitle className="text-lg text-red-600 dark:text-red-400">Publications Without Impact Factor Data</CardTitle>
+                    <CardTitle className="text-lg text-red-600 dark:text-red-400">Publications Not Included</CardTitle>
                   </CardHeader>
                   <CardContent>
                     <div className="text-sm text-gray-600 mb-2 dark:text-gray-300">
                       These publications were not included in the score calculation:
                     </div>
+                    <ul className="space-y-2">
+                      {selectedScientistDetails.excludedPublications!.map((pub, index) => (
+                        <li key={index} className="text-sm p-2 bg-red-50 rounded border-l-4 border-red-200 dark:bg-red-950 dark:border-red-800">
+                          <div className="font-medium">{pub.title}</div>
+                          <div className="text-xs text-gray-600 dark:text-gray-300">
+                            {pub.journal || 'No journal'} — {pub.reason}
+                          </div>
+                        </li>
+                      ))}
+                    </ul>
+                  </CardContent>
+                </Card>
+              ) : selectedScientistDetails.missingImpactFactorPublications.length > 0 && (
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="text-lg text-red-600 dark:text-red-400">Publications Without Impact Factor Data</CardTitle>
+                  </CardHeader>
+                  <CardContent>
                     <ul className="space-y-2">
                       {selectedScientistDetails.missingImpactFactorPublications.map((title, index) => (
                         <li key={index} className="text-sm p-2 bg-red-50 rounded border-l-4 border-red-200 dark:bg-red-950 dark:border-red-800">

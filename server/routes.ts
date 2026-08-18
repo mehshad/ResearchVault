@@ -64,6 +64,7 @@ import { matchesAuthorName, isLinkedAuthorInAuthorsText, suggestInternalAuthors 
 import { detectDuplicateGroups, pickDefaultSurvivorId, normalizeDoi as canonicalDoi, isPreprintRecord } from "@shared/publicationDeduplication";
 import { getObjectAclPolicy, ObjectPermission } from "./objectAcl";
 import { buildLinkImportTemplate, previewLinkImport } from "./publicationLinksImport";
+import { GRANT_COLUMNS, grantsToRows, buildGrantsWorkbookBuffer, buildGrantsTemplateBuffer, previewGrantRows } from "./grantsImportExport";
 
 const isLocalStorage = process.env.STORAGE_TYPE === "local";
 
@@ -2958,7 +2959,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Sidra Score calculation for all scientists
   app.post('/api/scientists/sidra-scores', async (req: Request, res: Response) => {
     try {
-      const { years = 5, impactFactorYear = "publication", multipliers = {}, startMonth, endMonth } = req.body;
+      const { years = 5, impactFactorYear = "publication", multipliers = {}, startMonth, endMonth, includeNonVetted = false } = req.body;
 
       // Optional custom month range (YYYY-MM). When provided, it overrides `years`.
       const monthRe = /^\d{4}-(0[1-9]|1[0-2])$/;
@@ -3071,6 +3072,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
         let totalScore = 0;
         let publicationsCount = 0;
         const missingImpactFactorPublications: string[] = [];
+        // Publications that were otherwise eligible but not counted, with the
+        // reason and journal so the office can chase them down.
+        const excludedPublications: { title: string; journal: string | null; reason: string }[] = [];
         const calculationDetails: any[] = [];
 
         const authorshipMap = authorshipByScientist.get(scientist.id);
@@ -3083,8 +3087,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
             const pubDate = new Date(publication.publicationDate);
             if (pubDate < cutoffDate) continue;
             if (rangeEndDate && pubDate > rangeEndDate) continue;
-            if (!publication.status || !['published', 'published *', 'accepted/in press', 'in press'].includes(publication.status.toLowerCase())) continue;
+            const statusLc = (publication.status || '').toLowerCase();
+            if (!['published', 'published *', 'accepted/in press', 'in press'].includes(statusLc)) continue;
             if (!publication.journal || publication.journal.trim() === '') continue;
+            // Default: only fully vetted ("Published *") publications count.
+            if (!includeNonVetted && statusLc !== 'published *') {
+              excludedPublications.push({
+                title: publication.title,
+                journal: publication.journal,
+                reason: `Not vetted (status: ${publication.status})`,
+              });
+              continue;
+            }
 
             const pubYear = pubDate.getFullYear();
             let targetYear: number;
@@ -3109,6 +3123,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
             if (ifValue == null || !Number.isFinite(ifValue)) {
               missingImpactFactorPublications.push(publication.title);
+              excludedPublications.push({
+                title: publication.title,
+                journal: publication.journal,
+                reason: 'No impact factor on record',
+              });
               continue;
             }
 
@@ -3154,6 +3173,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           publicationsCount,
           sidraScore: totalScore,
           missingImpactFactorPublications,
+          excludedPublications,
           calculationDetails,
         };
       });
@@ -4248,6 +4268,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         if (!Number.isInteger(publicationId)) { skipped.push({ publicationId, reason: "invalid publication id" }); continue; }
         const pub = await storage.getPublication(publicationId);
         if (!pub) { skipped.push({ publicationId, reason: "publication not found" }); continue; }
+        if (pub.status === 'Published *') { skipped.push({ publicationId, reason: "publication is sealed (Published *)" }); continue; }
 
         const researchActivityId = Number((raw as any)?.researchActivityId);
         const scientistId = Number((raw as any)?.scientistId);
@@ -4599,6 +4620,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }
       }
 
+      // Sealed publications cannot participate in a merge — revert first.
+      const involved = await Promise.all([survivorId, ...targetIds].map((pid) => storage.getPublication(pid)));
+      const sealed = involved.filter((p) => p?.status === 'Published *');
+      if (sealed.length > 0) {
+        return res.status(403).json({
+          message: `Cannot merge: publication(s) ${sealed.map((p) => p!.id).join(', ')} are sealed (Published *). Revert the final approval first.`,
+        });
+      }
+
       const changedBy = req.session?.user?.id || 1;
 
       const survivor = await storage.mergePublications(
@@ -4705,7 +4735,47 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       const validateData = insertPublicationSchema.partial().parse(req.body);
-      
+
+      const existing = await storage.getPublication(id);
+      if (!existing) {
+        return res.status(404).json({ message: "Publication not found" });
+      }
+
+      // Sealed records: once the Outcome Office marks a publication
+      // "Published *" it is final and read-only. The office must use the
+      // revert function before any further edits.
+      if (existing.status === 'Published *') {
+        return res.status(403).json({
+          message: "This publication is sealed (Published *). Revert the final approval in the Outcome Office before editing.",
+        });
+      }
+
+      // Final Outcome Office step: officer-only, and only allowed when the
+      // record has no unresolved issues. Mirrors the office's issue checklist.
+      if (validateData.status === 'Published *') {
+        const role = req.session?.user?.role;
+        const isOfficer = role === "Outcome Officer" || role === "admin" || role === "superadmin" || role === "Management";
+        if (!isOfficer) {
+          return res.status(403).json({ message: "Only the Outcome Office can mark a publication as Published *." });
+        }
+        const merged = { ...existing, ...validateData };
+        const issues: string[] = [];
+        if (!merged.journal?.trim()) issues.push('missing journal');
+        if (!merged.publicationDate) issues.push('missing publication date');
+        if (!merged.doi?.trim() && !merged.pmid?.trim()) issues.push('missing DOI/PMID');
+        if (!merged.authors?.trim()) issues.push('missing authors');
+        if (!merged.abstract?.trim()) issues.push('missing abstract');
+        if (!merged.researchActivityId) issues.push('no linked SDR');
+        const internalAuthors = await storage.getPublicationAuthors(id);
+        if (internalAuthors.length === 0) issues.push('no linked internal authors');
+        if (issues.length > 0) {
+          return res.status(400).json({
+            message: `Cannot mark as Published *: unresolved issues (${issues.join(', ')}).`,
+            issues,
+          });
+        }
+      }
+
       // Check if research activity exists if researchActivityId is provided
       if (validateData.researchActivityId) {
         const researchActivity = await storage.getResearchActivity(validateData.researchActivityId);
@@ -4734,6 +4804,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const id = parseInt(req.params.id);
       if (isNaN(id)) {
         return res.status(400).json({ message: "Invalid publication ID" });
+      }
+
+      const sealedCheck = await storage.getPublication(id);
+      if (sealedCheck?.status === 'Published *') {
+        return res.status(403).json({
+          message: "This publication is sealed (Published *). Revert the final approval in the Outcome Office before deleting.",
+        });
       }
 
       const success = await storage.deletePublication(id);
@@ -4850,12 +4927,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
         'Under review': ['Accepted/In Press', 'Submitted for review with pre-publication', 'Submitted for review without pre-publication', 'Rejected', 'Withdrawn'],
         'Accepted/In Press': ['Published', 'Under review', 'Withdrawn'],
         'Published': ['Accepted/In Press'],
-        'Published *': ['Published'],
+        // Sealed: only the Outcome Office revert route can leave this state.
+        'Published *': [],
         'Rejected': ['Under review', 'Vetted for submission'],
         'Withdrawn': ['Concept'],
       };
 
       const currentStatus = currentPublication.status || 'Concept';
+      if (currentStatus === 'Published *') {
+        return res.status(403).json({
+          message: "This publication is sealed (Published *). Only the Outcome Office can revert the final approval.",
+        });
+      }
       if (!validTransitions[currentStatus]?.includes(status)) {
         return res.status(400).json({ 
           message: `Invalid status transition from "${currentStatus}" to "${status}"` 
@@ -4922,6 +5005,33 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Outcome Office: revert the final "Published *" approval (unseals the record).
+  app.post('/api/publications/:id/revert-final', requirePublicationOfficer, async (req: Request, res: Response) => {
+    try {
+      const id = parseInt(req.params.id);
+      if (isNaN(id)) {
+        return res.status(400).json({ message: "Invalid publication ID" });
+      }
+      // `== null` (not falsy) — the demo-mode user has id 0.
+      const sessionUserId = req.session?.user?.id;
+      if (sessionUserId == null) {
+        return res.status(401).json({ message: "You must be signed in." });
+      }
+      const publication = await storage.getPublication(id);
+      if (!publication) {
+        return res.status(404).json({ message: "Publication not found" });
+      }
+      if (publication.status !== 'Published *') {
+        return res.status(400).json({ message: "This publication is not in the final Published * state." });
+      }
+      const updated = await storage.updatePublicationStatus(id, 'Published', sessionUserId);
+      res.json(updated);
+    } catch (error) {
+      console.error('Error reverting final approval:', error);
+      res.status(500).json({ message: "Failed to revert final approval" });
+    }
+  });
+
   // Publication Authors
   app.get('/api/publications/:id/authors', async (req: Request, res: Response) => {
     try {
@@ -4949,6 +5059,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
         ...req.body,
         publicationId
       });
+
+      const targetPub = await storage.getPublication(publicationId);
+      if (!targetPub) {
+        return res.status(404).json({ message: "Publication not found" });
+      }
+      if (targetPub.status === 'Published *') {
+        return res.status(403).json({ message: "This publication is sealed (Published *). Revert the final approval before changing author links." });
+      }
 
       // Attribution: this endpoint is the manual linking flow (detail page), so
       // every link/update it makes is stamped as a manual link by the acting
@@ -5003,6 +5121,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
       
       if (isNaN(publicationId) || isNaN(scientistId)) {
         return res.status(400).json({ message: "Invalid publication or scientist ID" });
+      }
+
+      const targetPub = await storage.getPublication(publicationId);
+      if (targetPub?.status === 'Published *') {
+        return res.status(403).json({ message: "This publication is sealed (Published *). Revert the final approval before changing author links." });
       }
 
       const success = await storage.removePublicationAuthor(publicationId, scientistId);
@@ -5073,6 +5196,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const publication = await storage.getPublication(publicationId);
       if (!publication) {
         return res.status(404).json({ message: "Publication not found" });
+      }
+      if (publication.status === 'Published *') {
+        return res.status(403).json({ message: "This publication is sealed (Published *). Revert the final approval before changing author links." });
       }
 
       const actorId = (req.session as any)?.user?.id ?? null;
@@ -8819,61 +8945,122 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // CSV export for grants
-  app.get('/api/grants/export/csv', async (req: Request, res: Response) => {
+  // Grants export. Same column list as the import template so exported files
+  // can be edited and re-imported. ?format=xlsx (default) or ?format=csv.
+  app.get('/api/grants/export/csv', requireAuth, async (req: Request, res: Response) => {
     try {
-      const grants = await storage.getGrants();
-      
-      // Enhance grants with scientist information for CSV
-      const enhancedGrants = await Promise.all(grants.map(async (grant) => {
-        const lpi = grant.lpiId ? await storage.getScientist(grant.lpiId) : null;
-        const researcher = grant.researcherId ? await storage.getScientist(grant.researcherId) : null;
-        
-        return {
-          ...grant,
-          lpiName: lpi ? `${lpi.honorificTitle} ${lpi.firstName} ${lpi.lastName}` : '',
-          researcherName: researcher ? `${researcher.honorificTitle} ${researcher.firstName} ${researcher.lastName}` : '',
-          collaboratorsString: grant.collaborators ? grant.collaborators.join('; ') : ''
-        };
-      }));
+      const format = req.query.format === 'xlsx' ? 'xlsx' : 'csv';
+      const [grants, scientists] = await Promise.all([storage.getGrants(), storage.getScientists()]);
+      const scientistById = new Map(scientists.map((s: any) => [s.id, s]));
+      const rows = grantsToRows(grants, scientistById);
+      const stamp = new Date().toISOString().slice(0, 10);
 
-      // Create CSV content
-      const csvHeaders = [
-        'Cycle', 'Project Number', 'LPI', 'Researcher', 'Title', 
-        'Requested Amount', 'Awarded Amount', 'Submitted Year', 'Awarded Year',
-        'Current Year', 'Status', 'Start Date', 'End Date', 'Collaborators',
-        'Description', 'Funding Agency'
-      ];
-      
-      const csvRows = enhancedGrants.map(grant => [
-        grant.cycle || '',
-        grant.projectNumber,
-        grant.lpiName,
-        grant.researcherName,
-        grant.title,
-        grant.requestedAmount || '',
-        grant.awardedAmount || '',
-        grant.submittedYear || '',
-        grant.awardedYear || '',
-        grant.currentYear || '',
-        grant.status,
-        grant.startDate || '',
-        grant.endDate || '',
-        grant.collaboratorsString,
-        grant.description || '',
-        grant.fundingAgency || ''
-      ]);
+      if (format === 'xlsx') {
+        const buffer = await buildGrantsWorkbookBuffer(rows);
+        res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+        res.setHeader('Content-Disposition', `attachment; filename=grants-export-${stamp}.xlsx`);
+        return res.send(buffer);
+      }
 
-      const csvContent = [csvHeaders, ...csvRows]
-        .map(row => row.map(field => `"${String(field).replace(/"/g, '""')}"`).join(','))
+      const headers = GRANT_COLUMNS.map((c) => c.header);
+      const csvContent = [headers, ...rows.map((r) => headers.map((h) => r[h]))]
+        .map(row => row.map(field => `"${String(field ?? '').replace(/"/g, '""')}"`).join(','))
         .join('\n');
-
       res.setHeader('Content-Type', 'text/csv');
-      res.setHeader('Content-Disposition', 'attachment; filename=grants.csv');
+      res.setHeader('Content-Disposition', `attachment; filename=grants-export-${stamp}.csv`);
       res.send(csvContent);
     } catch (error) {
-      console.error('Error exporting grants to CSV:', error);
+      console.error('Error exporting grants:', error);
       res.status(500).json({ message: "Failed to export grants" });
+    }
+  });
+
+  // Grants Excel import: template download, dry-run preview, and apply.
+  app.get('/api/grants/import/template', requireAuth, async (_req: Request, res: Response) => {
+    try {
+      const buffer = await buildGrantsTemplateBuffer();
+      res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+      res.setHeader('Content-Disposition', 'attachment; filename=grants-import-template.xlsx');
+      res.send(buffer);
+    } catch (error) {
+      console.error('Error building grants import template:', error);
+      res.status(500).json({ message: "Failed to build template" });
+    }
+  });
+
+  // Shared by preview and apply: parse the uploaded file and compute
+  // create/update/skip decisions against current DB state.
+  async function computeGrantImportPreview(fileBase64: string, fileName: string) {
+    if (fileBase64.length > 15_000_000) throw new Error("File too large (max ~10 MB)");
+    const rawRows = await parseUploadedFile(fileBase64, fileName);
+    if (rawRows.length > 2000) throw new Error("Too many rows in one import (max 2000)");
+    const [grants, scientists] = await Promise.all([storage.getGrants(), storage.getScientists()]);
+    const existingByProjectNumber = new Map(grants.map((g: any) => [String(g.projectNumber).toLowerCase(), g]));
+    const scientistByEmail = new Map(scientists.filter((s: any) => s.email).map((s: any) => [s.email.toLowerCase(), s]));
+    const scientistByName = new Map(scientists.map((s: any) => [
+      `${s.firstName} ${s.lastName}`.toLowerCase().replace(/\s+/g, ' '), s,
+    ]));
+    return previewGrantRows(rawRows, existingByProjectNumber, scientistByEmail, scientistByName);
+  }
+
+  app.post('/api/grants/import/preview', requireAuth, async (req: Request, res: Response) => {
+    try {
+      const { fileBase64, fileName } = req.body ?? {};
+      if (typeof fileBase64 !== 'string' || !fileBase64 || typeof fileName !== 'string') {
+        return res.status(400).json({ message: "Provide fileBase64 and fileName" });
+      }
+      const previews = await computeGrantImportPreview(fileBase64, fileName);
+      res.json({
+        rows: previews,
+        summary: {
+          create: previews.filter((p) => p.action === 'create').length,
+          update: previews.filter((p) => p.action === 'update').length,
+          skip: previews.filter((p) => p.action === 'skip').length,
+        },
+      });
+    } catch (error) {
+      console.error('Error previewing grants import:', error);
+      res.status(400).json({ message: error instanceof Error ? error.message : "Failed to parse file" });
+    }
+  });
+
+  app.post('/api/grants/import/apply', requireAuth, async (req: Request, res: Response) => {
+    try {
+      const { fileBase64, fileName } = req.body ?? {};
+      if (typeof fileBase64 !== 'string' || !fileBase64 || typeof fileName !== 'string') {
+        return res.status(400).json({ message: "Provide fileBase64 and fileName" });
+      }
+      // Re-run the preview server-side so the applied changes always reflect
+      // the uploaded file + current DB state, not client-editable data.
+      const previews = await computeGrantImportPreview(fileBase64, fileName);
+      let created = 0, updated = 0;
+      const failed: { rowNumber: number; projectNumber: string; reason: string }[] = [];
+      for (const p of previews) {
+        if (p.action === 'skip' || !p.data) continue;
+        try {
+          if (p.action === 'create') {
+            await storage.createGrant(insertGrantSchema.parse(p.data));
+            created++;
+          } else {
+            const existing = await storage.getGrants().then((gs: any[]) =>
+              gs.find((g) => String(g.projectNumber).toLowerCase() === p.projectNumber.toLowerCase()));
+            if (!existing) { failed.push({ rowNumber: p.rowNumber, projectNumber: p.projectNumber, reason: "Grant disappeared during import" }); continue; }
+            await storage.updateGrant(existing.id, insertGrantSchema.partial().parse(p.data));
+            updated++;
+          }
+        } catch (err) {
+          failed.push({
+            rowNumber: p.rowNumber,
+            projectNumber: p.projectNumber,
+            reason: err instanceof ZodError ? fromZodError(err).message : (err instanceof Error ? err.message : "Failed to save"),
+          });
+        }
+      }
+      const skipped = previews.filter((p) => p.action === 'skip').map((p) => ({ rowNumber: p.rowNumber, projectNumber: p.projectNumber, reason: p.reason }));
+      res.json({ created, updated, skipped, failed });
+    } catch (error) {
+      console.error('Error applying grants import:', error);
+      res.status(400).json({ message: error instanceof Error ? error.message : "Failed to import grants" });
     }
   });
 
