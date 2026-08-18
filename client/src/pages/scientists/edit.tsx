@@ -195,6 +195,24 @@ export default function EditScientist() {
     updateScientistMutation.mutate(normalizeOptionalScientistFields(data));
   };
 
+  // When validation fails, the errored field may be off-screen — scroll to it
+  // and tell the user something needs fixing so the click never feels dead.
+  const onInvalid = (errors: Record<string, any>) => {
+    const firstField = Object.keys(errors)[0];
+    const el =
+      document.querySelector(`[name="${firstField}"]`) ||
+      document.querySelector('[aria-invalid="true"]');
+    if (el) {
+      el.scrollIntoView({ behavior: "smooth", block: "center" });
+      (el as HTMLElement).focus?.();
+    }
+    toast({
+      title: "Please fix the highlighted fields",
+      description: "Some required fields are missing or invalid.",
+      variant: "destructive",
+    });
+  };
+
   if (isLoading) {
     return (
       <div className="space-y-6">
@@ -256,7 +274,7 @@ export default function EditScientist() {
         </CardHeader>
         <CardContent>
           <Form {...form}>
-            <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
+            <form onSubmit={form.handleSubmit(onSubmit, onInvalid)} className="space-y-6">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 <FormField
                   control={form.control}

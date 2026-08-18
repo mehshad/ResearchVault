@@ -198,10 +198,10 @@ export class DatabaseStorage implements IStorage {
         count: sql<number>`(
           select count(*) from (
             select research_activity_id as ra_id from project_members
-              where scientist_id = ${scientists.id}
+              where scientist_id = "scientists"."id"
             union
             select id as ra_id from research_activities
-              where budget_holder_id = ${scientists.id}
+              where budget_holder_id = "scientists"."id"
           ) t
         )`.mapWith(Number),
       })
