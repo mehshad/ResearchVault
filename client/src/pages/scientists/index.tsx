@@ -33,7 +33,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { Scientist } from "@shared/schema";
+import { Scientist, Department, Section } from "@shared/schema";
 import { Plus, Search, MoreHorizontal, Mail, Phone, ChevronDown, ChevronUp, ArrowUpDown, Download, Upload, AlertCircle, Loader2 } from "lucide-react";
 import { UploadingModal } from "@/components/ui/upload-modal";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -370,6 +370,26 @@ export default function StaffList() {
     queryFn: () => fetch('/api/scientists?includeActivityCount=true').then(res => res.json()),
   });
 
+  // Structured org data — used to display department/section names
+  const { data: departments } = useQuery<Department[]>({
+    queryKey: ['/api/departments'],
+    queryFn: () => fetch('/api/departments').then(res => res.json()),
+  });
+  const { data: sections } = useQuery<Section[]>({
+    queryKey: ['/api/sections'],
+    queryFn: () => fetch('/api/sections').then(res => res.json()),
+  });
+
+  // Structured department/section name with legacy free-text fallback
+  const getDepartmentDisplay = (person: Scientist): string => {
+    const dept = person.departmentId ? departments?.find(d => d.id === person.departmentId) : undefined;
+    const sec = person.sectionId ? sections?.find(s => s.id === person.sectionId) : undefined;
+    if (dept && sec) return `${dept.name} / ${sec.name}`;
+    if (dept) return dept.name;
+    if (sec) return sec.name;
+    return person.department || "";
+  };
+
   // Fetch IRB board members
   const { data: irbMembers } = useQuery({
     queryKey: ['/api/irb-board-members'],
@@ -386,7 +406,7 @@ export default function StaffList() {
     const fullName = formatFullName(person).toLowerCase();
     const matchesSearch = fullName.includes(searchQuery.toLowerCase()) ||
                          (person.email?.toLowerCase().includes(searchQuery.toLowerCase())) ||
-                         (person.department?.toLowerCase().includes(searchQuery.toLowerCase())) ||
+                         (getDepartmentDisplay(person).toLowerCase().includes(searchQuery.toLowerCase())) ||
                          (person.staffId?.toLowerCase().includes(searchQuery.toLowerCase()));
     
     if (activeTab === "all") return matchesSearch;
@@ -428,6 +448,11 @@ export default function StaffList() {
       const lastNameA = getLastName(a);
       const lastNameB = getLastName(b);
       const comparison = lastNameA.localeCompare(lastNameB);
+      return sortDirection === 'asc' ? comparison : -comparison;
+    } else if (sortField === 'department') {
+      fieldA = getDepartmentDisplay(a);
+      fieldB = getDepartmentDisplay(b);
+      const comparison = fieldA.localeCompare(fieldB);
       return sortDirection === 'asc' ? comparison : -comparison;
     } else {
       fieldA = a[sortField] || '';
@@ -667,7 +692,7 @@ export default function StaffList() {
                             </div>
                           </div>
                         </TableCell>
-                        <TableCell>{person.department || "—"}</TableCell>
+                        <TableCell>{getDepartmentDisplay(person) || "—"}</TableCell>
                         <TableCell>{person.jobTitle || "No title"}</TableCell>
                         <TableCell>
                           <Badge 

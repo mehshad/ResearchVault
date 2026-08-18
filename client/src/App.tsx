@@ -25,6 +25,7 @@ import FacilitiesList from "@/pages/facilities";
 import CreateBuilding from "@/pages/facilities/buildings/create";
 import EditBuilding from "@/pages/facilities/buildings/edit";
 import CreateRoom from "@/pages/facilities/rooms/create";
+import OrganizationStructure from "@/pages/facilities/organization";
 import EditRoom from "@/pages/facilities/rooms/edit";
 
 // Programs (PRM)
@@ -183,6 +184,7 @@ function AppRouter() {
 
         {/* Facilities */}
         <Route path="/facilities" component={FacilitiesList} />
+        <Route path="/facilities/organization" component={OrganizationStructure} />
         <Route path="/facilities/buildings/create" component={CreateBuilding} />
         <Route path="/facilities/buildings/edit/:id" component={EditBuilding} />
         <Route path="/facilities/rooms/create" component={CreateRoom} />

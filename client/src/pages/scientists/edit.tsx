@@ -33,7 +33,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { queryClient, apiRequest, invalidateScientistLists } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
-import { insertScientistSchema, type Scientist } from "@shared/schema";
+import { insertScientistSchema, type Scientist, type Department, type Section } from "@shared/schema";
 import { ArrowLeft, Loader2, Trash2 } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
 import React, { useEffect, useState } from "react";
@@ -44,6 +44,8 @@ const editScientistSchema = insertScientistSchema.extend({
   lastName: z.string().min(1, "Last name is required"),
   email: z.string().email("Please enter a valid email address"),
   honorificTitle: z.string().min(1, "Honorific title is required"),
+  departmentId: z.number().nullable().optional(),
+  sectionId: z.number().nullable().optional(),
   staffType: z.enum(["scientific", "administrative"]).default("scientific"),
 });
 
@@ -68,6 +70,16 @@ export default function EditScientist() {
     queryFn: () => fetch('/api/scientists').then(res => res.json()),
   });
 
+  // Structured org data for Department + Section dropdowns
+  const { data: departments = [] } = useQuery<Department[]>({
+    queryKey: ['/api/departments'],
+    queryFn: () => fetch('/api/departments').then(res => res.json()),
+  });
+  const { data: sections = [] } = useQuery<Section[]>({
+    queryKey: ['/api/sections'],
+    queryFn: () => fetch('/api/sections').then(res => res.json()),
+  });
+
   const form = useForm<EditScientistFormValues>({
     resolver: zodResolver(editScientistSchema),
     defaultValues: {
@@ -78,6 +90,8 @@ export default function EditScientist() {
       email: "",
       staffId: "",
       department: "",
+      departmentId: null,
+      sectionId: null,
       bio: "",
       profileImageInitials: "",
       supervisorId: null,
@@ -100,6 +114,8 @@ export default function EditScientist() {
         email: scientist.email || "",
         staffId: scientist.staffId || "",
         department: scientist.department || "",
+        departmentId: scientist.departmentId ?? null,
+        sectionId: scientist.sectionId ?? null,
         bio: scientist.bio || "",
         profileImageInitials: scientist.profileImageInitials || "",
         supervisorId: scientist.supervisorId || null,
@@ -432,16 +448,77 @@ export default function EditScientist() {
                 
                 <FormField
                   control={form.control}
-                  name="department"
+                  name="departmentId"
                   render={({ field }) => (
                     <FormItem>
                       <FormLabel>Department</FormLabel>
                       <FormControl>
-                        <Input placeholder="Molecular Biology" autoComplete="off" data-1p-ignore="true" data-lpignore="true" {...field} value={field.value || ""} />
+                        <SearchableSelect
+                          options={departments.map((d) => ({
+                            value: d.id.toString(),
+                            label: d.name,
+                            searchText: d.name,
+                          }))}
+                          value={field.value?.toString() || ""}
+                          onChange={(value) => {
+                            field.onChange(value ? parseInt(value) : null);
+                            // Section belongs to a department — clear it on change
+                            form.setValue("sectionId", null);
+                          }}
+                          placeholder="Select department (optional)"
+                          searchPlaceholder="Search departments..."
+                          emptyMessage="No departments found. Managers can add them under Facilities → Organization."
+                          data-testid="select-department"
+                        />
                       </FormControl>
+                      {!field.value && scientist?.department && (
+                        <FormDescription>
+                          Legacy department (free text): {scientist.department}
+                        </FormDescription>
+                      )}
                       <FormMessage />
                     </FormItem>
                   )}
+                />
+
+                <FormField
+                  control={form.control}
+                  name="sectionId"
+                  render={({ field }) => {
+                    const deptId = form.watch("departmentId");
+                    const available = sections.filter((s) => !deptId || s.departmentId === deptId);
+                    return (
+                      <FormItem>
+                        <FormLabel>Section</FormLabel>
+                        <FormControl>
+                          <SearchableSelect
+                            options={available.map((s) => ({
+                              value: s.id.toString(),
+                              label: `${s.name} — ${s.type}`,
+                              searchText: `${s.name} ${s.type}`,
+                            }))}
+                            value={field.value?.toString() || ""}
+                            onChange={(value) => {
+                              field.onChange(value ? parseInt(value) : null);
+                              // Selecting a section also sets its department
+                              if (value) {
+                                const sec = sections.find((s) => s.id === parseInt(value));
+                                if (sec) form.setValue("departmentId", sec.departmentId);
+                              }
+                            }}
+                            placeholder="Select section (optional)"
+                            searchPlaceholder="Search sections..."
+                            emptyMessage="No sections found for this department."
+                            data-testid="select-section"
+                          />
+                        </FormControl>
+                        <FormDescription>
+                          Lab, office, or core within the department
+                        </FormDescription>
+                        <FormMessage />
+                      </FormItem>
+                    );
+                  }}
                 />
                 
                 <FormField

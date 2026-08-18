@@ -51,7 +51,10 @@ import {
   ra200Applications, Ra200Application, InsertRa200Application,
   ra205aApplications, Ra205aApplication, InsertRa205aApplication,
   teamMembers, TeamMember, InsertTeamMember,
-  ownershipOverrides, OwnershipOverride, InsertOwnershipOverride
+  ownershipOverrides, OwnershipOverride, InsertOwnershipOverride,
+  branches, Branch, InsertBranch,
+  departments, Department, InsertDepartment,
+  sections, Section, InsertSection
 } from "@shared/schema";
 import { isPreprintRecord, preprintServerName, preprintLink, normalizeDoi } from "@shared/publicationDeduplication";
 
@@ -3102,6 +3105,106 @@ export class DatabaseStorage implements IStorage {
   async deleteOwnershipOverride(id: number): Promise<boolean> {
     const result = await db.delete(ownershipOverrides).where(eq(ownershipOverrides.id, id));
     return result.rowCount !== null && result.rowCount > 0;
+  }
+
+  // ── Organizational structure (Branch → Department → Section) ──────────────
+
+  async getBranches(): Promise<Branch[]> {
+    return await db.select().from(branches).orderBy(asc(branches.name));
+  }
+
+  async createBranch(data: InsertBranch): Promise<Branch> {
+    const [row] = await db.insert(branches).values(data).returning();
+    return row;
+  }
+
+  async updateBranch(id: number, updates: Partial<InsertBranch>): Promise<Branch | undefined> {
+    const [row] = await db
+      .update(branches)
+      .set({ ...updates, updatedAt: sql`now()` })
+      .where(eq(branches.id, id))
+      .returning();
+    return row;
+  }
+
+  /** Returns true if deleted; returns a string reason if blocked. */
+  async deleteBranch(id: number): Promise<true | string> {
+    const [{ count: deptCount }] = await db
+      .select({ count: sql<number>`count(*)::int` })
+      .from(departments)
+      .where(eq(departments.branchId, id));
+    if (deptCount > 0) {
+      return `Branch has ${deptCount} department(s). Move or delete them first.`;
+    }
+    const result = await db.delete(branches).where(eq(branches.id, id));
+    return result.rowCount !== null && result.rowCount > 0 ? true : "Branch not found.";
+  }
+
+  async getDepartments(): Promise<Department[]> {
+    return await db.select().from(departments).orderBy(asc(departments.name));
+  }
+
+  async createDepartment(data: InsertDepartment): Promise<Department> {
+    const [row] = await db.insert(departments).values(data).returning();
+    return row;
+  }
+
+  async updateDepartment(id: number, updates: Partial<InsertDepartment>): Promise<Department | undefined> {
+    const [row] = await db
+      .update(departments)
+      .set({ ...updates, updatedAt: sql`now()` })
+      .where(eq(departments.id, id))
+      .returning();
+    return row;
+  }
+
+  async deleteDepartment(id: number): Promise<true | string> {
+    const [{ count: sectionCount }] = await db
+      .select({ count: sql<number>`count(*)::int` })
+      .from(sections)
+      .where(eq(sections.departmentId, id));
+    if (sectionCount > 0) {
+      return `Department has ${sectionCount} section(s). Move or delete them first.`;
+    }
+    const [{ count: staffCount }] = await db
+      .select({ count: sql<number>`count(*)::int` })
+      .from(scientists)
+      .where(eq(scientists.departmentId, id));
+    if (staffCount > 0) {
+      return `Department has ${staffCount} staff member(s) assigned. Reassign them first.`;
+    }
+    const result = await db.delete(departments).where(eq(departments.id, id));
+    return result.rowCount !== null && result.rowCount > 0 ? true : "Department not found.";
+  }
+
+  async getSections(): Promise<Section[]> {
+    return await db.select().from(sections).orderBy(asc(sections.name));
+  }
+
+  async createSection(data: InsertSection): Promise<Section> {
+    const [row] = await db.insert(sections).values(data).returning();
+    return row;
+  }
+
+  async updateSection(id: number, updates: Partial<InsertSection>): Promise<Section | undefined> {
+    const [row] = await db
+      .update(sections)
+      .set({ ...updates, updatedAt: sql`now()` })
+      .where(eq(sections.id, id))
+      .returning();
+    return row;
+  }
+
+  async deleteSection(id: number): Promise<true | string> {
+    const [{ count: staffCount }] = await db
+      .select({ count: sql<number>`count(*)::int` })
+      .from(scientists)
+      .where(eq(scientists.sectionId, id));
+    if (staffCount > 0) {
+      return `Section has ${staffCount} staff member(s) assigned. Reassign them first.`;
+    }
+    const result = await db.delete(sections).where(eq(sections.id, id));
+    return result.rowCount !== null && result.rowCount > 0 ? true : "Section not found.";
   }
 }
 

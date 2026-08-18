@@ -12,7 +12,7 @@ import {
 } from "./objectStorage";
 import { LocalObjectStorageService } from "./localObjectStorage";
 import { db } from "./db";
-import { scientists, publicationAuthors, journals, journalImpactFactorMetrics, manuscriptHistory, users } from "@shared/schema";
+import { scientists, publicationAuthors, journals, journalImpactFactorMetrics, manuscriptHistory, users, branches, departments, sections } from "@shared/schema";
 import { eq, inArray, desc, sql } from "drizzle-orm";
 import {
   buildExportBuffer,
@@ -56,7 +56,10 @@ import {
   insertFeatureRequestSchema,
   insertRa200ApplicationSchema,
   insertRa205aApplicationSchema,
-  insertTeamMemberSchema
+  insertTeamMemberSchema,
+  insertBranchSchema,
+  insertDepartmentSchema,
+  insertSectionSchema
 } from "@shared/schema";
 import { requireAuth, requireAdmin, requireContractsOfficer, requireContractsRead, requirePublicationOfficer, getAuthMode } from "./auth";
 import { resolveOwnershipAccess, maxAccess, type AccessLevel as OwnershipAccessLevel } from "./ownershipResolver";
@@ -3328,9 +3331,42 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post('/api/scientists', async (req: Request, res: Response) => {
+  // Validate structured org assignment: referenced department/section must
+  // exist and the section must belong to the (possibly derived) department.
+  // Returns an error message or null; may mutate data to derive departmentId.
+  const validateOrgAssignment = async (
+    data: { departmentId?: number | null; sectionId?: number | null },
+    existing?: { departmentId: number | null; sectionId: number | null }
+  ): Promise<string | null> => {
+    const deptTouched = data.departmentId !== undefined;
+    const secTouched = data.sectionId !== undefined;
+    if (!deptTouched && !secTouched) return null;
+
+    const deptId = deptTouched ? data.departmentId : existing?.departmentId ?? null;
+    const secId = secTouched ? data.sectionId : existing?.sectionId ?? null;
+
+    if (deptId != null) {
+      const [dept] = await db.select().from(departments).where(eq(departments.id, deptId));
+      if (!dept) return `Department ${deptId} does not exist`;
+    }
+    if (secId != null) {
+      const [sec] = await db.select().from(sections).where(eq(sections.id, secId));
+      if (!sec) return `Section ${secId} does not exist`;
+      if (deptId == null) {
+        // Derive department from the chosen section
+        data.departmentId = sec.departmentId;
+      } else if (sec.departmentId !== deptId) {
+        return `Section ${secId} does not belong to department ${deptId}`;
+      }
+    }
+    return null;
+  };
+
+  app.post('/api/scientists', requireAuth, async (req: Request, res: Response) => {
     try {
       const validateData = insertScientistSchema.parse(normalizeScientistPayload(req.body));
+      const orgError = await validateOrgAssignment(validateData);
+      if (orgError) return res.status(400).json({ message: orgError });
       const scientist = await storage.createScientist(validateData);
       res.status(201).json(scientist);
     } catch (error) {
@@ -3347,7 +3383,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.patch('/api/scientists/:id', async (req: Request, res: Response) => {
+  app.patch('/api/scientists/:id', requireAuth, async (req: Request, res: Response) => {
     try {
       const id = parseInt(req.params.id);
       if (isNaN(id)) {
@@ -3355,6 +3391,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       const validateData = insertScientistSchema.partial().parse(normalizeScientistPayload(req.body));
+      if (validateData.departmentId !== undefined || validateData.sectionId !== undefined) {
+        const existing = await storage.getScientist(id);
+        if (!existing) return res.status(404).json({ message: "Scientist not found" });
+        const orgError = await validateOrgAssignment(validateData, existing);
+        if (orgError) return res.status(400).json({ message: orgError });
+      }
       const scientist = await storage.updateScientist(id, validateData);
       
       if (!scientist) {
@@ -7818,6 +7860,217 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       console.error('Error deleting IRB board member:', error);
       res.status(500).json({ message: "Failed to delete IRB board member", error: error.message });
+    }
+  });
+
+  // ── Organizational structure (Branch → Department → Section) ──────────────
+  const requireOrgManager = (req: Request, res: Response): boolean => {
+    const role = (req.session as any)?.user?.role;
+    if (role !== 'Management' && role !== 'admin' && role !== 'superadmin') {
+      res.status(403).json({ message: 'Only management or administrators can modify the organization structure' });
+      return false;
+    }
+    return true;
+  };
+
+  app.get('/api/branches', async (_req: Request, res: Response) => {
+    try {
+      res.json(await storage.getBranches());
+    } catch (error) {
+      console.error('Error fetching branches:', error);
+      res.status(500).json({ message: 'Failed to fetch branches' });
+    }
+  });
+
+  app.post('/api/branches', requireAuth, async (req: Request, res: Response) => {
+    if (!requireOrgManager(req, res)) return;
+    try {
+      const data = insertBranchSchema.parse(req.body);
+      res.status(201).json(await storage.createBranch(data));
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ message: 'Invalid branch data', errors: error.errors });
+      }
+      console.error('Error creating branch:', error);
+      res.status(500).json({ message: 'Failed to create branch' });
+    }
+  });
+
+  app.patch('/api/branches/:id', requireAuth, async (req: Request, res: Response) => {
+    if (!requireOrgManager(req, res)) return;
+    const id = parseInt(req.params.id);
+    if (isNaN(id)) return res.status(400).json({ message: 'Invalid branch ID' });
+    try {
+      const data = insertBranchSchema.partial().parse(req.body);
+      const updated = await storage.updateBranch(id, data);
+      if (!updated) return res.status(404).json({ message: 'Branch not found' });
+      res.json(updated);
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ message: 'Invalid branch data', errors: error.errors });
+      }
+      console.error('Error updating branch:', error);
+      res.status(500).json({ message: 'Failed to update branch' });
+    }
+  });
+
+  app.delete('/api/branches/:id', requireAuth, async (req: Request, res: Response) => {
+    if (!requireOrgManager(req, res)) return;
+    const id = parseInt(req.params.id);
+    if (isNaN(id)) return res.status(400).json({ message: 'Invalid branch ID' });
+    try {
+      const result = await storage.deleteBranch(id);
+      if (result !== true) {
+        const status = result === 'Branch not found.' ? 404 : 409;
+        return res.status(status).json({ message: result });
+      }
+      res.json({ message: 'Branch deleted successfully' });
+    } catch (error) {
+      console.error('Error deleting branch:', error);
+      res.status(500).json({ message: 'Failed to delete branch' });
+    }
+  });
+
+  app.get('/api/departments', async (_req: Request, res: Response) => {
+    try {
+      res.json(await storage.getDepartments());
+    } catch (error) {
+      console.error('Error fetching departments:', error);
+      res.status(500).json({ message: 'Failed to fetch departments' });
+    }
+  });
+
+  app.post('/api/departments', requireAuth, async (req: Request, res: Response) => {
+    if (!requireOrgManager(req, res)) return;
+    try {
+      const data = insertDepartmentSchema.parse(req.body);
+      const [branch] = await db.select().from(branches).where(eq(branches.id, data.branchId));
+      if (!branch) return res.status(400).json({ message: `Branch ${data.branchId} does not exist` });
+      res.status(201).json(await storage.createDepartment(data));
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ message: 'Invalid department data', errors: error.errors });
+      }
+      console.error('Error creating department:', error);
+      res.status(500).json({ message: 'Failed to create department' });
+    }
+  });
+
+  app.patch('/api/departments/:id', requireAuth, async (req: Request, res: Response) => {
+    if (!requireOrgManager(req, res)) return;
+    const id = parseInt(req.params.id);
+    if (isNaN(id)) return res.status(400).json({ message: 'Invalid department ID' });
+    try {
+      const data = insertDepartmentSchema.partial().parse(req.body);
+      if (data.branchId !== undefined) {
+        const [branch] = await db.select().from(branches).where(eq(branches.id, data.branchId));
+        if (!branch) return res.status(400).json({ message: `Branch ${data.branchId} does not exist` });
+      }
+      const updated = await storage.updateDepartment(id, data);
+      if (!updated) return res.status(404).json({ message: 'Department not found' });
+      res.json(updated);
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ message: 'Invalid department data', errors: error.errors });
+      }
+      console.error('Error updating department:', error);
+      res.status(500).json({ message: 'Failed to update department' });
+    }
+  });
+
+  app.delete('/api/departments/:id', requireAuth, async (req: Request, res: Response) => {
+    if (!requireOrgManager(req, res)) return;
+    const id = parseInt(req.params.id);
+    if (isNaN(id)) return res.status(400).json({ message: 'Invalid department ID' });
+    try {
+      const result = await storage.deleteDepartment(id);
+      if (result !== true) {
+        const status = result === 'Department not found.' ? 404 : 409;
+        return res.status(status).json({ message: result });
+      }
+      res.json({ message: 'Department deleted successfully' });
+    } catch (error) {
+      console.error('Error deleting department:', error);
+      res.status(500).json({ message: 'Failed to delete department' });
+    }
+  });
+
+  app.get('/api/sections', async (_req: Request, res: Response) => {
+    try {
+      res.json(await storage.getSections());
+    } catch (error) {
+      console.error('Error fetching sections:', error);
+      res.status(500).json({ message: 'Failed to fetch sections' });
+    }
+  });
+
+  app.post('/api/sections', requireAuth, async (req: Request, res: Response) => {
+    if (!requireOrgManager(req, res)) return;
+    try {
+      const data = insertSectionSchema.parse(req.body);
+      const [dept] = await db.select().from(departments).where(eq(departments.id, data.departmentId));
+      if (!dept) return res.status(400).json({ message: `Department ${data.departmentId} does not exist` });
+      res.status(201).json(await storage.createSection(data));
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ message: 'Invalid section data', errors: error.errors });
+      }
+      console.error('Error creating section:', error);
+      res.status(500).json({ message: 'Failed to create section' });
+    }
+  });
+
+  app.patch('/api/sections/:id', requireAuth, async (req: Request, res: Response) => {
+    if (!requireOrgManager(req, res)) return;
+    const id = parseInt(req.params.id);
+    if (isNaN(id)) return res.status(400).json({ message: 'Invalid section ID' });
+    try {
+      const data = insertSectionSchema.partial().parse(req.body);
+      if (data.departmentId !== undefined) {
+        const [dept] = await db.select().from(departments).where(eq(departments.id, data.departmentId));
+        if (!dept) return res.status(400).json({ message: `Department ${data.departmentId} does not exist` });
+        // Reparenting a section with staff assigned would leave those staff
+        // pointing at a section owned by a different department — block it.
+        const [current] = await db.select().from(sections).where(eq(sections.id, id));
+        if (!current) return res.status(404).json({ message: 'Section not found' });
+        if (current.departmentId !== data.departmentId) {
+          const [{ count: staffCount }] = await db
+            .select({ count: sql<number>`count(*)::int` })
+            .from(scientists)
+            .where(eq(scientists.sectionId, id));
+          if (staffCount > 0) {
+            return res.status(409).json({
+              message: `Cannot move this section to another department: ${staffCount} staff member(s) are assigned to it. Reassign them first.`,
+            });
+          }
+        }
+      }
+      const updated = await storage.updateSection(id, data);
+      if (!updated) return res.status(404).json({ message: 'Section not found' });
+      res.json(updated);
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ message: 'Invalid section data', errors: error.errors });
+      }
+      console.error('Error updating section:', error);
+      res.status(500).json({ message: 'Failed to update section' });
+    }
+  });
+
+  app.delete('/api/sections/:id', requireAuth, async (req: Request, res: Response) => {
+    if (!requireOrgManager(req, res)) return;
+    const id = parseInt(req.params.id);
+    if (isNaN(id)) return res.status(400).json({ message: 'Invalid section ID' });
+    try {
+      const result = await storage.deleteSection(id);
+      if (result !== true) {
+        const status = result === 'Section not found.' ? 404 : 409;
+        return res.status(status).json({ message: result });
+      }
+      res.json({ message: 'Section deleted successfully' });
+    } catch (error) {
+      console.error('Error deleting section:', error);
+      res.status(500).json({ message: 'Failed to delete section' });
     }
   });
 

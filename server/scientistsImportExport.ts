@@ -378,6 +378,9 @@ const SCIENTIST_REF_COLUMNS: Array<{ table: string; column: string }> = [
   { table: "ra205a_applications", column: "current_pi_id" },
   { table: "ra205a_applications", column: "new_pi_id" },
   { table: "ra205a_applications", column: "submitted_by" },
+  { table: "branches", column: "head_id" },
+  { table: "departments", column: "head_id" },
+  { table: "sections", column: "head_id" },
 ];
 
 let cachedRefColumns: Array<{ table: string; column: string }> | null = null;

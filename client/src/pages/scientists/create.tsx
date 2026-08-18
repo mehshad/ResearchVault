@@ -25,7 +25,7 @@ import { useQuery, useMutation } from "@tanstack/react-query";
 import { queryClient, apiRequest, invalidateScientistLists } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { insertScientistSchema } from "@shared/schema";
-import { Scientist } from "@shared/schema";
+import { Scientist, Department, Section } from "@shared/schema";
 import { ArrowLeft } from "lucide-react";
 
 // Extend the insert schema with additional validations
@@ -35,6 +35,8 @@ const createScientistSchema = insertScientistSchema.extend({
   lastName: z.string().min(1, "Last name is required"),
   honorificTitle: z.string().min(1, "Honorific title is required"),
   supervisorId: z.number().nullable().optional(),
+  departmentId: z.number().nullable().optional(),
+  sectionId: z.number().nullable().optional(),
   staffType: z.enum(["scientific", "administrative"]).default("scientific"),
 });
 
@@ -50,6 +52,16 @@ export default function CreateScientist() {
     queryFn: () => fetch('/api/scientists').then(res => res.json()),
   });
 
+  // Structured org data for Department + Section dropdowns
+  const { data: departments = [] } = useQuery<Department[]>({
+    queryKey: ['/api/departments'],
+    queryFn: () => fetch('/api/departments').then(res => res.json()),
+  });
+  const { data: sections = [] } = useQuery<Section[]>({
+    queryKey: ['/api/sections'],
+    queryFn: () => fetch('/api/sections').then(res => res.json()),
+  });
+
   // Default form values  
   const defaultValues: Partial<CreateScientistFormValues> = {
     honorificTitle: "",
@@ -59,6 +71,8 @@ export default function CreateScientist() {
     email: "",
     staffId: "",
     department: "",
+    departmentId: null,
+    sectionId: null,
     bio: "",
     profileImageInitials: "",
     supervisorId: null,
@@ -300,16 +314,72 @@ export default function CreateScientist() {
                 
                 <FormField
                   control={form.control}
-                  name="department"
+                  name="departmentId"
                   render={({ field }) => (
                     <FormItem>
                       <FormLabel>Department</FormLabel>
                       <FormControl>
-                        <Input placeholder="Molecular Biology" autoComplete="off" data-1p-ignore="true" data-lpignore="true" {...field} value={field.value || ""} />
+                        <SearchableSelect
+                          options={departments.map((d) => ({
+                            value: d.id.toString(),
+                            label: d.name,
+                            searchText: d.name,
+                          }))}
+                          value={field.value?.toString() || ""}
+                          onChange={(value) => {
+                            field.onChange(value ? parseInt(value) : null);
+                            // Section belongs to a department — clear it on change
+                            form.setValue("sectionId", null);
+                          }}
+                          placeholder="Select department (optional)"
+                          searchPlaceholder="Search departments..."
+                          emptyMessage="No departments found. Managers can add them under Facilities → Organization."
+                          data-testid="select-department"
+                        />
                       </FormControl>
                       <FormMessage />
                     </FormItem>
                   )}
+                />
+
+                <FormField
+                  control={form.control}
+                  name="sectionId"
+                  render={({ field }) => {
+                    const deptId = form.watch("departmentId");
+                    const available = sections.filter((s) => !deptId || s.departmentId === deptId);
+                    return (
+                      <FormItem>
+                        <FormLabel>Section</FormLabel>
+                        <FormControl>
+                          <SearchableSelect
+                            options={available.map((s) => ({
+                              value: s.id.toString(),
+                              label: `${s.name} — ${s.type}`,
+                              searchText: `${s.name} ${s.type}`,
+                            }))}
+                            value={field.value?.toString() || ""}
+                            onChange={(value) => {
+                              field.onChange(value ? parseInt(value) : null);
+                              // Selecting a section also sets its department
+                              if (value) {
+                                const sec = sections.find((s) => s.id === parseInt(value));
+                                if (sec) form.setValue("departmentId", sec.departmentId);
+                              }
+                            }}
+                            placeholder="Select section (optional)"
+                            searchPlaceholder="Search sections..."
+                            emptyMessage="No sections found for this department."
+                            data-testid="select-section"
+                          />
+                        </FormControl>
+                        <FormDescription>
+                          Lab, office, or core within the department
+                        </FormDescription>
+                        <FormMessage />
+                      </FormItem>
+                    );
+                  }}
                 />
                 
 
