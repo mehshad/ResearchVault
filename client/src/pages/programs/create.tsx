@@ -25,8 +25,9 @@ import { insertProgramSchema } from "@shared/schema";
 import { ArrowLeft } from "lucide-react";
 import type { Scientist } from "@shared/schema";
 
-// Extend the insert schema with additional validations
-const createProgramSchema = insertProgramSchema.extend({
+// Extend the insert schema with additional validations.
+// programId (PRM number) is omitted — it is auto-generated on submit.
+const createProgramSchema = insertProgramSchema.omit({ programId: true }).extend({
   name: z.string().min(3, "Program name must be at least 3 characters"),
   description: z.string().optional(),
   category: z.string({
@@ -46,6 +47,11 @@ export default function CreateProgram() {
     queryFn: () => fetch('/api/scientists').then(res => res.json()),
   });
 
+  // Fetch existing programs so we can auto-assign the next PRM number
+  const { data: programs = [] } = useQuery<{ programId: string }[]>({
+    queryKey: ['/api/programs'],
+  });
+
   // Default form values
   const defaultValues: Partial<CreateProgramFormValues> = {
     category: "Cancer",
@@ -58,7 +64,13 @@ export default function CreateProgram() {
 
   const createProgramMutation = useMutation({
     mutationFn: async (data: CreateProgramFormValues) => {
-      const response = await apiRequest("POST", "/api/programs", data);
+      // Auto-generate the next PRM number from existing programs
+      const maxNum = programs.reduce((max, p) => {
+        const m = /^PRM-(\d+)$/.exec(p.programId || "");
+        return m ? Math.max(max, parseInt(m[1], 10)) : max;
+      }, 0);
+      const programId = `PRM-${String(maxNum + 1).padStart(3, '0')}`;
+      const response = await apiRequest("POST", "/api/programs", { ...data, programId });
       return response.json();
     },
     onSuccess: () => {
