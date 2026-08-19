@@ -11,3 +11,4 @@
 - [Server code needs manual restart](server-no-hot-reload.md) — `tsx` runs without --watch; backend edits don't reload, new API routes return Vite HTML (200) until `restart_workflow`.
 - [Publication correction authorization](publication-correction-authorization.md) — researcher-facing fix links must be backed by record-level server authorization, not UI visibility alone.
 - [IP vetting workflow stage](ip-vetting-workflow.md) — Complete Draft is the active IP queue; imported Published records stay in the year-based backlog until they enter the workflow.
+- [Role changes and active sessions](role-session-refresh.md) — Settings updates the database role; `/api/auth/me` must refresh the serialized session so new access takes effect after reload.
