@@ -109,10 +109,9 @@ export interface EnhancedResearchContract extends ResearchContract {
 
 // Dashboard types
 export interface DashboardStats {
-  activeProjects: number;
+  activeResearchActivities: number;
   publications: number;
   patents: number;
-  pendingApplications: number;
 }
 
 export interface Deadline {

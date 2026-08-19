@@ -1,8 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
-import { Link } from "wouter";
-import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
-import { ChevronRight } from "lucide-react";
+import { CalendarClock } from "lucide-react";
 import { Deadline } from "@/lib/types";
 
 export default function UpcomingDeadlines() {
@@ -77,10 +75,7 @@ export default function UpcomingDeadlines() {
   return (
     <div className="bg-white rounded-lg shadow-sm dark:bg-card">
       <div className="p-6 border-b border-neutral-100">
-        <div className="flex items-center justify-between">
-          <h2 className="font-medium text-lg">Upcoming Deadlines</h2>
-          <Button variant="link" className="text-primary-500 px-0">View Calendar</Button>
-        </div>
+        <h2 className="font-medium text-lg">Upcoming Contract Deadlines</h2>
       </div>
       
       {isLoading ? (
@@ -98,7 +93,12 @@ export default function UpcomingDeadlines() {
         </div>
       ) : (
         <div className="p-6 divide-y divide-neutral-100">
-          {deadlines?.map((deadline) => {
+          {!deadlines?.length ? (
+            <div className="py-8 text-center text-muted-foreground">
+              <CalendarClock className="mx-auto mb-2 h-8 w-8" />
+              <p>No contract deadlines in the next 30 days</p>
+            </div>
+          ) : deadlines.map((deadline) => {
             const { month, day } = formatDate(deadline.dueDate);
             const statusColor = getStatusColor(deadline.dueDate);
             const remainingText = getRemainingDaysText(deadline.dueDate);
@@ -116,12 +116,9 @@ export default function UpcomingDeadlines() {
                   </div>
                 </div>
                 <div className="flex items-center">
-                  <span className={`px-2 py-1 text-xs rounded-full ${statusColor} mr-2`}>
+                  <span className={`px-2 py-1 text-xs rounded-full ${statusColor}`}>
                     {remainingText}
                   </span>
-                  <Button variant="ghost" size="icon" className="text-primary-500">
-                    <ChevronRight className="h-4 w-4" />
-                  </Button>
                 </div>
               </div>
             );

@@ -1524,7 +1524,6 @@ export class DatabaseStorage implements IStorage {
     activeResearchActivities: number;
     publications: number;
     patents: number;
-    pendingApplications: number;
   }> {
     const activeActivities = await db
       .select({ count: sql<number>`count(*)` })
@@ -1539,21 +1538,10 @@ export class DatabaseStorage implements IStorage {
       .select({ count: sql<number>`count(*)` })
       .from(patents);
     
-    const pendingIrbCount = await db
-      .select({ count: sql<number>`count(*)` })
-      .from(irbApplications)
-      .where(eq(irbApplications.status, "Submitted"));
-    
-    const pendingIbcCount = await db
-      .select({ count: sql<number>`count(*)` })
-      .from(ibcApplications)
-      .where(eq(ibcApplications.status, "Submitted"));
-    
     return {
-      activeResearchActivities: activeActivities[0].count,
-      publications: publicationCount[0].count,
-      patents: patentCount[0].count,
-      pendingApplications: pendingIrbCount[0].count + pendingIbcCount[0].count,
+      activeResearchActivities: Number(activeActivities[0].count),
+      publications: Number(publicationCount[0].count),
+      patents: Number(patentCount[0].count),
     };
   }
 
@@ -1569,39 +1557,6 @@ export class DatabaseStorage implements IStorage {
     const now = new Date();
     const thirtyDaysFromNow = new Date();
     thirtyDaysFromNow.setDate(now.getDate() + 30);
-    
-    // Get IRB applications expiring in the next 30 days
-    const irbDeadlines = await db
-      .select({
-        id: irbApplications.id,
-        type: sql<string>`'IRB'`,
-        title: irbApplications.title,
-        expirationDate: irbApplications.expirationDate,
-        researchActivityId: irbApplications.researchActivityId
-      })
-      .from(irbApplications)
-      .where(
-        and(
-          sql`${irbApplications.expirationDate} >= ${now.toISOString()}`,
-          sql`${irbApplications.expirationDate} <= ${thirtyDaysFromNow.toISOString()}`
-        )
-      );
-    
-    // Get IBC applications expiring in the next 30 days
-    const ibcDeadlines = await db
-      .select({
-        id: ibcApplications.id,
-        type: sql<string>`'IBC'`,
-        title: ibcApplications.title,
-        expirationDate: ibcApplications.expirationDate
-      })
-      .from(ibcApplications)
-      .where(
-        and(
-          sql`${ibcApplications.expirationDate} >= ${now.toISOString()}`,
-          sql`${ibcApplications.expirationDate} <= ${thirtyDaysFromNow.toISOString()}`
-        )
-      );
     
     // Get research contracts ending in the next 30 days
     const contractDeadlines = await db
@@ -1620,8 +1575,16 @@ export class DatabaseStorage implements IStorage {
         )
       );
     
-    return [...irbDeadlines, ...ibcDeadlines, ...contractDeadlines]
-      .sort((a, b) => new Date(a.expirationDate).getTime() - new Date(b.expirationDate).getTime());
+    return contractDeadlines
+      .map((deadline) => ({
+        id: deadline.id,
+        title: deadline.title,
+        description: "Research contract",
+        dueDate: deadline.expirationDate,
+        projectId: deadline.researchActivityId,
+        type: deadline.type,
+      }))
+      .sort((a, b) => new Date(a.dueDate!).getTime() - new Date(b.dueDate!).getTime());
   }
 
   // IRB Board Members
@@ -3057,11 +3020,9 @@ export class DatabaseStorage implements IStorage {
   // Recent activity feed — aggregated from real records across the app
   async getRecentActivity(limit: number = 8): Promise<Array<{ id: string; type: string; title: string; description: string; date: Date | null }>> {
     const perTable = Math.max(limit, 5);
-    const [proj, pubs, irbs, ibcs, sdrs, sci, ra200, ra205a] = await Promise.all([
+    const [proj, pubs, sdrs, sci, ra200, ra205a] = await Promise.all([
       db.select({ id: projects.id, title: projects.name, date: projects.createdAt }).from(projects).orderBy(desc(projects.createdAt)).limit(perTable),
       db.select({ id: publications.id, title: publications.title, date: publications.createdAt }).from(publications).orderBy(desc(publications.createdAt)).limit(perTable),
-      db.select({ id: irbApplications.id, title: irbApplications.title, date: irbApplications.createdAt }).from(irbApplications).orderBy(desc(irbApplications.createdAt)).limit(perTable),
-      db.select({ id: ibcApplications.id, title: ibcApplications.title, date: ibcApplications.createdAt }).from(ibcApplications).orderBy(desc(ibcApplications.createdAt)).limit(perTable),
       db.select({ id: researchActivities.id, title: researchActivities.title, date: researchActivities.createdAt }).from(researchActivities).orderBy(desc(researchActivities.createdAt)).limit(perTable),
       db.select({ id: scientists.id, first: scientists.firstName, last: scientists.lastName, date: scientists.createdAt }).from(scientists).orderBy(desc(scientists.createdAt)).limit(perTable),
       db.select({ id: ra200Applications.id, title: ra200Applications.title, date: ra200Applications.createdAt }).from(ra200Applications).orderBy(desc(ra200Applications.createdAt)).limit(perTable),
@@ -3071,8 +3032,6 @@ export class DatabaseStorage implements IStorage {
     const items = [
       ...proj.map(r => ({ id: `project-${r.id}`, type: 'project_added', title: r.title, description: 'New project added', date: r.date })),
       ...pubs.map(r => ({ id: `publication-${r.id}`, type: 'publication_added', title: r.title, description: 'New publication added', date: r.date })),
-      ...irbs.map(r => ({ id: `irb-${r.id}`, type: 'irb_submission', title: r.title, description: 'IRB application created', date: r.date })),
-      ...ibcs.map(r => ({ id: `ibc-${r.id}`, type: 'ibc_submission', title: r.title, description: 'IBC application created', date: r.date })),
       ...sdrs.map(r => ({ id: `sdr-${r.id}`, type: 'activity_added', title: r.title, description: 'New research activity', date: r.date })),
       ...sci.map(r => ({ id: `scientist-${r.id}`, type: 'staff_added', title: `${r.first} ${r.last}`, description: 'New staff member added', date: r.date })),
       ...ra200.map(r => ({ id: `ra200-${r.id}`, type: 'pmo_submission', title: r.title, description: 'RA-200 application created', date: r.date })),

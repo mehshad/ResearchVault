@@ -1,13 +1,9 @@
 import { useQuery } from "@tanstack/react-query";
-import { Link } from "wouter";
-import { Button } from "@/components/ui/button";
-import { Plus } from "lucide-react";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { PauseCircle } from "lucide-react";
 import StatsCard from "@/components/dashboard/StatsCard";
 import RecentProjects from "@/components/dashboard/RecentProjects";
 import RecentActivity from "@/components/dashboard/RecentActivity";
 import UpcomingDeadlines from "@/components/dashboard/UpcomingDeadlines";
-import QuickLinks from "@/components/dashboard/QuickLinks";
 import { DashboardStats } from "@/lib/types";
 
 export default function Dashboard() {
@@ -18,59 +14,40 @@ export default function Dashboard() {
   return (
     <div className="space-y-6">
       {/* Page Title */}
-      <div className="flex items-center justify-between">
+      <div>
         <h1 className="text-2xl font-semibold text-foreground">Dashboard</h1>
-        <div className="flex space-x-3">
-          <Select defaultValue="30days">
-            <SelectTrigger className="w-[160px]" data-testid="select-time-period">
-              <SelectValue placeholder="Time period" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="30days" data-testid="select-30days">Last 30 Days</SelectItem>
-              <SelectItem value="quarter" data-testid="select-quarter">This Quarter</SelectItem>
-              <SelectItem value="year" data-testid="select-year">This Year</SelectItem>
-              <SelectItem value="all" data-testid="select-all">All Time</SelectItem>
-            </SelectContent>
-          </Select>
-          
-          <Link href="/research-activities/create">
-            <Button className="bg-primary text-primary-foreground hover:bg-primary/90" data-testid="button-new-research-activity">
-              <Plus className="h-4 w-4 mr-1" /> New Research Activity
-            </Button>
-          </Link>
+      </div>
+
+      <div
+        className="flex items-start gap-3 rounded-lg border border-amber-200 bg-amber-50 p-4 text-amber-950 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-100"
+        role="status"
+        data-testid="notice-compliance-on-hold"
+      >
+        <PauseCircle className="mt-0.5 h-5 w-5 shrink-0" />
+        <div>
+          <p className="font-medium">IRB and IBC services are currently on hold</p>
+          <p className="mt-1 text-sm text-amber-800 dark:text-amber-200">
+            Applications and compliance workflows for these modules are temporarily unavailable.
+          </p>
         </div>
       </div>
 
-      {/* Quick Links */}
-      <div className="mb-2">
-        <QuickLinks />
-      </div>
-
       {/* Stats Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
         <StatsCard 
-          title="Active Projects" 
-          value={statsLoading ? 0 : stats?.activeProjects || 0} 
-          change={8.3} 
+          title="Active Research Activities"
+          value={statsLoading ? 0 : stats?.activeResearchActivities || 0}
           type="projects" 
         />
         <StatsCard 
           title="Publications" 
           value={statsLoading ? 0 : stats?.publications || 0} 
-          change={12.1} 
           type="publications" 
         />
         <StatsCard 
           title="Patents" 
           value={statsLoading ? 0 : stats?.patents || 0} 
-          change={0} 
           type="patents" 
-        />
-        <StatsCard 
-          title="Pending Applications" 
-          value={statsLoading ? 0 : stats?.pendingApplications || 0} 
-          change={-3.2} 
-          type="applications" 
         />
       </div>
 
