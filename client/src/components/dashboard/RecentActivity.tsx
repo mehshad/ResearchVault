@@ -5,6 +5,7 @@ import {
   FileText, CheckCircle, BookOpen, UserPlus,
   FolderPlus, FlaskConical, ClipboardList, Bell
 } from "lucide-react";
+import { formatActivityDate } from "@/lib/activityDate";
 
 interface ActivityItem {
   id: string;
@@ -57,37 +58,6 @@ export default function RecentActivity() {
     }
   };
 
-  const formatDate = (date: Date | string) => {
-    const activityDate = new Date(date);
-    const now = new Date();
-    const diffMs = now.getTime() - activityDate.getTime();
-    const diffHrs = Math.floor(diffMs / (1000 * 60 * 60));
-    const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
-
-    const hours = activityDate.getHours();
-    const minutes = activityDate.getMinutes();
-    const ampm = hours >= 12 ? 'PM' : 'AM';
-    const formattedHours = hours % 12 || 12;
-    const formattedMinutes = minutes < 10 ? `0${minutes}` : minutes;
-    const timeString = `${formattedHours}:${formattedMinutes} ${ampm}`;
-
-    if (diffHrs < 24) {
-      return `Today, ${timeString}`;
-    } else if (diffDays === 1) {
-      return `Yesterday, ${timeString}`;
-    } else if (diffDays < 7) {
-      return `${diffDays} days ago`;
-    } else {
-      const options: Intl.DateTimeFormatOptions = {
-        month: 'short',
-        day: 'numeric',
-        hour: '2-digit',
-        minute: '2-digit'
-      };
-      return activityDate.toLocaleDateString('en-US', options);
-    }
-  };
-
   if (isLoading) {
     return (
       <div className="bg-white rounded-lg shadow-sm dark:bg-card">
@@ -131,7 +101,7 @@ export default function RecentActivity() {
               <div>
                 <p className="font-medium">{activity.description}</p>
                 <p className="text-sm text-muted-foreground">{activity.title}</p>
-                <p className="text-xs text-muted-foreground mt-1">{formatDate(activity.date)}</p>
+                <p className="text-xs text-muted-foreground mt-1">{formatActivityDate(activity.date)}</p>
               </div>
             </div>
           ))
