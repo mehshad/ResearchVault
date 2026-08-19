@@ -80,6 +80,60 @@ export function hasManagementRole(req: Request): boolean {
   return role === "Management" || role === "admin" || role === "superadmin";
 }
 
+/**
+ * Researchers may edit an unsealed publication only when their linked
+ * scientist profile is already an internal author. Outcome Office and
+ * management roles may correct any publication.
+ */
+export function canEditPublicationForLinkedScientists(
+  req: Request,
+  linkedScientistIds: Iterable<number>
+): boolean {
+  if (hasPublicationOfficerRole(req)) return true;
+  const scientistId = req.session?.user?.scientistId;
+  if (scientistId == null) return false;
+  return new Set(linkedScientistIds).has(scientistId);
+}
+
+/**
+ * A researcher may add/update only their own internal-author link. A new
+ * self-link additionally requires a matching name in the publication's author
+ * text; an existing self-link may still be corrected when the text is wrong.
+ */
+export function canManagePublicationAuthorLink(
+  req: Request,
+  targetScientistId: number,
+  hasExistingLink: boolean,
+  authorNameMatches: boolean
+): boolean {
+  if (hasPublicationOfficerRole(req)) return true;
+  const scientistId = req.session?.user?.scientistId;
+  return (
+    scientistId != null &&
+    scientistId === targetScientistId &&
+    (hasExistingLink || authorNameMatches)
+  );
+}
+
+/**
+ * Researchers may create a publication only against an SDR where they are the
+ * budget holder or a project member. Outcome Office and management may create
+ * records for any SDR.
+ */
+export function canCreatePublicationForResearchActivity(
+  req: Request,
+  budgetHolderId: number | null | undefined,
+  projectMemberScientistIds: Iterable<number>
+): boolean {
+  if (hasPublicationOfficerRole(req)) return true;
+  const scientistId = req.session?.user?.scientistId;
+  if (scientistId == null) return false;
+  return (
+    budgetHolderId === scientistId ||
+    new Set(projectMemberScientistIds).has(scientistId)
+  );
+}
+
 // ── Route registration ─────────────────────────────────────────────────────────
 
 export function registerSidraScoreRoutes(app: Express): void {

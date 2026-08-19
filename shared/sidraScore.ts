@@ -90,16 +90,42 @@ export const SIDRA_SCORE_SETTINGS_KEY = "sidra_score_settings";
 
 /** A single publication that was excluded from the score calculation. */
 export interface SidraExcludedPublication {
+  publicationId: number;
   title: string;
   journal: string | null;
+  status: string | null;
+  isSealed: boolean;
   /** Human-readable explanation for exclusion. */
   reason: string;
-  /** Actionable suggestion for the publication office. */
+  /** Actionable next step for the researcher or Outcome Office. */
   action: string;
+}
+
+export type SidraPublicationIssueCode =
+  | "missing_sdr_link"
+  | "missing_internal_author_link"
+  | "author_text_mismatch";
+
+/** A single fix needed on an internal publication record. */
+export interface SidraPublicationIssueDetail {
+  code: SidraPublicationIssueCode;
+  reason: string;
+  action: string;
+}
+
+/** Internal data-quality issues grouped by publication for corrective action. */
+export interface SidraPublicationIssue {
+  publicationId: number;
+  title: string;
+  journal: string | null;
+  status: string | null;
+  isSealed: boolean;
+  issues: SidraPublicationIssueDetail[];
 }
 
 /** A single publication that contributed to the score, with per-row details. */
 export interface SidraIncludedPublication {
+  publicationId: number;
   title: string;
   journal: string | null;
   publicationDate: string | null;
@@ -125,6 +151,8 @@ export interface SidraScoreResult {
   sidraScore: number;
   /** Back-compat: titles of publications with no IF on record. */
   missingImpactFactorPublications: string[];
+  /** Internal publication records needing SDR or author-link corrections. */
+  publicationIssues: SidraPublicationIssue[];
   excludedPublications: SidraExcludedPublication[];
   calculationDetails: SidraIncludedPublication[];
   /** The settings used to produce this result. */

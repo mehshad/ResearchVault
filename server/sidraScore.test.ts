@@ -8,8 +8,17 @@ import test from "node:test";
 
 // ── Import pure helpers ────────────────────────────────────────────────────────
 import { normalizeAuthorshipType, calculateScientistScore, lookupIf } from "./sidraScoreService";
-import { isOwnScientistProfile, isDemo, hasManagementRole, hasPublicationOfficerRole } from "./sidraScoreRoutes";
+import {
+  isOwnScientistProfile,
+  isDemo,
+  hasManagementRole,
+  hasPublicationOfficerRole,
+  canEditPublicationForLinkedScientists,
+  canManagePublicationAuthorLink,
+  canCreatePublicationForResearchActivity,
+} from "./sidraScoreRoutes";
 import { sidraScoreSettingsSchema, DEFAULT_SIDRA_SCORE_SETTINGS } from "@shared/sidraScore";
+import { isUnambiguousAuthorMatch } from "@shared/authorMatching";
 
 // ── Helper: build a minimal fake Request ──────────────────────────────────────
 function fakeReq(role: string | null, scientistId: number | null): any {
@@ -93,6 +102,89 @@ test("hasPublicationOfficerRole: true for Outcome Officer, Management, admin, su
 test("hasPublicationOfficerRole: false for user, Contracts Officer", () => {
   assert.equal(hasPublicationOfficerRole(fakeReq("user", null)), false);
   assert.equal(hasPublicationOfficerRole(fakeReq("Contracts Officer", null)), false);
+});
+
+test("publication correction authorization: researcher edits only linked publications", () => {
+  const researcher = fakeReq("user", 42);
+  assert.equal(
+    canEditPublicationForLinkedScientists(researcher, [11, 42]),
+    true
+  );
+  assert.equal(
+    canEditPublicationForLinkedScientists(researcher, [11, 12]),
+    false
+  );
+  assert.equal(
+    canEditPublicationForLinkedScientists(fakeReq("Outcome Officer", null), []),
+    true
+  );
+});
+
+test("publication author-link authorization: researcher manages only their own verified link", () => {
+  const researcher = fakeReq("user", 42);
+  assert.equal(
+    canManagePublicationAuthorLink(researcher, 42, false, true),
+    true
+  );
+  assert.equal(
+    canManagePublicationAuthorLink(researcher, 42, false, false),
+    false
+  );
+  assert.equal(
+    canManagePublicationAuthorLink(researcher, 99, true, true),
+    false
+  );
+  assert.equal(
+    canManagePublicationAuthorLink(
+      fakeReq("Outcome Officer", null),
+      99,
+      false,
+      false
+    ),
+    true
+  );
+});
+
+test("publication creation authorization: researcher must belong to the selected SDR", () => {
+  const researcher = fakeReq("user", 42);
+  assert.equal(
+    canCreatePublicationForResearchActivity(researcher, 42, []),
+    true
+  );
+  assert.equal(
+    canCreatePublicationForResearchActivity(researcher, 11, [12, 42]),
+    true
+  );
+  assert.equal(
+    canCreatePublicationForResearchActivity(researcher, 11, [12, 13]),
+    false
+  );
+  assert.equal(
+    canCreatePublicationForResearchActivity(
+      fakeReq("Outcome Officer", null),
+      null,
+      []
+    ),
+    true
+  );
+});
+
+test("author matching: abbreviated self-link is rejected when citation identity is ambiguous", () => {
+  const alice = { id: 1, firstName: "Alice", lastName: "Smith" };
+  const alicia = { id: 2, firstName: "Alicia", lastName: "Smith" };
+
+  assert.equal(
+    isUnambiguousAuthorMatch("Smith A, Jones B", alice, [alice, alicia]),
+    false
+  );
+  assert.equal(
+    isUnambiguousAuthorMatch("Alice Smith, Jones B", alice, [alice, alicia]),
+    true
+  );
+  assert.equal(
+    isUnambiguousAuthorMatch("Smith A, Jones B", alice, [alice]),
+    true
+  );
 });
 
 test("isDemo: reflects AUTH_MODE without changing authorization in real modes", () => {
@@ -200,14 +292,18 @@ function makeBundle(authorshipStr: string, ifYear?: number, ifValue?: number) {
 function makePub(overrides: Partial<{
   id: number;
   title: string;
+  authors: string | null;
   journal: string | null;
+  researchActivityId: number | null;
   publicationDate: string | null;
   status: string | null;
 }> = {}) {
   return {
     id: 99,
     title: "Test Publication",
+    authors: "Alice Smith, Bob Jones",
     journal: "Nature",
+    researchActivityId: 12,
     publicationDate: "2023-06-01",
     status: "Published *",
     ...overrides,
@@ -306,15 +402,115 @@ test("calculateScientistScore: settings are echoed back in result", () => {
   assert.deepEqual(result.settings, settings);
 });
 
-test("calculateScientistScore: publication not linked to scientist is silently skipped", () => {
+test("calculateScientistScore: unrelated publication not linked to scientist is silently skipped", () => {
   // The authorshipByScientist map has scientist 1 → pub 99.
   // Scientist 2 has no entries → 0 publications, no exclusions.
   const scientist2 = { id: 2, firstName: "Bob", lastName: "Jones" };
   const bundle = makeBundle("First Author", 2023, 10);
-  const pub = makePub();
+  const pub = makePub({ authors: "Alice Smith" });
   const result = calculateScientistScore(scientist2, [pub], bundle, BASE_SETTINGS);
   assert.equal(result.publicationsCount, 0);
   assert.equal(result.excludedPublications.length, 0);
+  assert.equal(result.publicationIssues.length, 0);
+});
+
+test("calculateScientistScore: linked publication without SDR is reported for correction", () => {
+  const bundle = makeBundle("First Author", 2023, 10);
+  const pub = makePub({
+    researchActivityId: null,
+    status: "Published",
+  });
+  const result = calculateScientistScore(SCIENTIST, [pub], bundle, {
+    ...BASE_SETTINGS,
+    includeNonVetted: true,
+  });
+
+  assert.equal(result.publicationIssues.length, 1);
+  assert.equal(result.publicationIssues[0].publicationId, 99);
+  assert.deepEqual(
+    result.publicationIssues[0].issues.map((issue) => issue.code),
+    ["missing_sdr_link"]
+  );
+  assert.match(result.publicationIssues[0].issues[0].action, /Open the publication/);
+  assert.match(result.publicationIssues[0].issues[0].action, /final approval/);
+});
+
+test("calculateScientistScore: likely publication without scientist link is reported instead of silently disappearing", () => {
+  const bundle = {
+    authorshipByScientist: new Map<number, Map<number, string>>(),
+    ifByJournalYear: new Map<string, Map<number, number>>(),
+    currentYear: 2024,
+  };
+  const pub = makePub({ authors: "Smith A, Jones B" });
+  const result = calculateScientistScore(SCIENTIST, [pub], bundle, BASE_SETTINGS);
+
+  assert.equal(result.publicationsCount, 0);
+  assert.equal(result.excludedPublications.length, 0);
+  assert.equal(result.publicationIssues.length, 1);
+  assert.deepEqual(
+    result.publicationIssues[0].issues.map((issue) => issue.code),
+    ["missing_internal_author_link"]
+  );
+  assert.match(result.publicationIssues[0].issues[0].reason, /not linked as an internal author/);
+});
+
+test("calculateScientistScore: linked scientist missing from author text is reported as a mismatch", () => {
+  const bundle = makeBundle("First Author", 2023, 10);
+  const pub = makePub({ authors: "Bob Jones, Carol White" });
+  const result = calculateScientistScore(SCIENTIST, [pub], bundle, BASE_SETTINGS);
+
+  assert.equal(result.publicationIssues.length, 1);
+  assert.deepEqual(
+    result.publicationIssues[0].issues.map((issue) => issue.code),
+    ["author_text_mismatch"]
+  );
+});
+
+test("calculateScientistScore: blank author text is treated as unverifiable, not a mismatch", () => {
+  const bundle = makeBundle("First Author", 2023, 10);
+  const pub = makePub({ authors: "" });
+  const result = calculateScientistScore(SCIENTIST, [pub], bundle, BASE_SETTINGS);
+
+  assert.equal(result.publicationIssues.length, 0);
+});
+
+test("calculateScientistScore: correctly linked publication with SDR has no internal issues", () => {
+  const bundle = makeBundle("First Author", 2023, 10);
+  const result = calculateScientistScore(
+    SCIENTIST,
+    [makePub()],
+    bundle,
+    BASE_SETTINGS
+  );
+
+  assert.equal(result.publicationIssues.length, 0);
+});
+
+test("calculateScientistScore: unrelated similar-name publication is not reported", () => {
+  const bundle = {
+    authorshipByScientist: new Map<number, Map<number, string>>(),
+    ifByJournalYear: new Map<string, Map<number, number>>(),
+    currentYear: 2024,
+  };
+  const pub = makePub({
+    authors: "Bob Smith, Carol White",
+    researchActivityId: null,
+  });
+  const result = calculateScientistScore(SCIENTIST, [pub], bundle, BASE_SETTINGS);
+
+  assert.equal(result.publicationIssues.length, 0);
+});
+
+test("calculateScientistScore: sealed issue directs the researcher to Outcome Office", () => {
+  const bundle = makeBundle("First Author", 2023, 10);
+  const pub = makePub({ researchActivityId: null, status: "Published *" });
+  const result = calculateScientistScore(SCIENTIST, [pub], bundle, BASE_SETTINGS);
+  const issue = result.publicationIssues[0].issues[0];
+
+  assert.equal(result.publicationIssues[0].isSealed, true);
+  assert.match(issue.action, /finally approved and sealed/);
+  assert.match(issue.action, /Outcome Office/);
+  assert.match(issue.action, /revert final approval/);
 });
 
 test("calculateScientistScore: prior-year IF mode selects year-1", () => {

@@ -64,12 +64,21 @@ import {
 } from "@shared/schema";
 import { requireAuth, requireAdmin, requireContractsOfficer, requireContractsRead, requirePublicationOfficer, getAuthMode } from "./auth";
 import { resolveOwnershipAccess, maxAccess, type AccessLevel as OwnershipAccessLevel } from "./ownershipResolver";
-import { matchesAuthorName, isLinkedAuthorInAuthorsText, suggestInternalAuthors } from "@shared/authorMatching";
+import { matchesAuthorName, isLinkedAuthorInAuthorsText, isUnambiguousAuthorMatch, suggestInternalAuthors } from "@shared/authorMatching";
 import { detectDuplicateGroups, pickDefaultSurvivorId, normalizeDoi as canonicalDoi, isPreprintRecord } from "@shared/publicationDeduplication";
 import { getObjectAclPolicy, ObjectPermission } from "./objectAcl";
 import { buildLinkImportTemplate, previewLinkImport } from "./publicationLinksImport";
 import { GRANT_COLUMNS, grantsToRows, buildGrantsWorkbookBuffer, buildGrantsTemplateBuffer, previewGrantRows } from "./grantsImportExport";
-import { registerSidraScoreRoutes, isOwnScientistProfile, isDemo, hasManagementRole, hasPublicationOfficerRole } from "./sidraScoreRoutes";
+import {
+  registerSidraScoreRoutes,
+  isOwnScientistProfile,
+  isDemo,
+  hasManagementRole,
+  hasPublicationOfficerRole,
+  canEditPublicationForLinkedScientists,
+  canManagePublicationAuthorLink,
+  canCreatePublicationForResearchActivity,
+} from "./sidraScoreRoutes";
 import { SIDRA_SCORE_SETTINGS_KEY } from "@shared/sidraScore";
 
 const isLocalStorage = process.env.STORAGE_TYPE === "local";
@@ -4496,7 +4505,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post('/api/publications', async (req: Request, res: Response) => {
+  app.post('/api/publications', requireAuth, async (req: Request, res: Response) => {
     try {
       // Create a validation schema that makes authors optional for concept status
       const createPublicationSchema = insertPublicationSchema.extend({
@@ -4511,11 +4520,35 @@ export async function registerRoutes(app: Express): Promise<Server> {
         status: validateData.status || "Concept"
       };
       
-      // Check if research activity exists if researchActivityId is provided
+      // Check the SDR and enforce record ownership for researcher-created
+      // publications. Outcome Office/management may create across all SDRs.
+      let researchActivity = null;
       if (publicationData.researchActivityId) {
-        const researchActivity = await storage.getResearchActivity(publicationData.researchActivityId);
+        researchActivity = await storage.getResearchActivity(publicationData.researchActivityId);
         if (!researchActivity) {
           return res.status(404).json({ message: "Research activity not found" });
+        }
+      }
+
+      if (!hasPublicationOfficerRole(req)) {
+        if (!researchActivity) {
+          return res.status(403).json({
+            message:
+              "Researchers must choose an SDR where they are the budget holder or a project member.",
+          });
+        }
+        const projectMembers = await storage.getProjectMembers(researchActivity.id);
+        if (
+          !canCreatePublicationForResearchActivity(
+            req,
+            researchActivity.budgetHolderId,
+            projectMembers.map((member) => member.scientistId)
+          )
+        ) {
+          return res.status(403).json({
+            message:
+              "You may only create publications for an SDR where you are the budget holder or a project member.",
+          });
         }
       }
       
@@ -4542,7 +4575,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.patch('/api/publications/:id', async (req: Request, res: Response) => {
+  app.patch('/api/publications/:id', requireAuth, async (req: Request, res: Response) => {
     try {
       const id = parseInt(req.params.id);
       if (isNaN(id)) {
@@ -4562,6 +4595,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (existing.status === 'Published *') {
         return res.status(403).json({
           message: "This publication is sealed (Published *). Revert the final approval in the Outcome Office before editing.",
+        });
+      }
+
+      const linkedAuthors = await storage.getPublicationAuthors(id);
+      if (
+        !canEditPublicationForLinkedScientists(
+          req,
+          linkedAuthors.map((author) => author.scientistId)
+        )
+      ) {
+        return res.status(403).json({
+          message:
+            "You may only edit publications linked to your scientist profile. Add or confirm your own internal-author link first, or ask Outcome Office for help.",
         });
       }
 
@@ -4614,7 +4660,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.delete('/api/publications/:id', async (req: Request, res: Response) => {
+  app.delete('/api/publications/:id', requireAuth, requirePublicationOfficer, async (req: Request, res: Response) => {
     try {
       const id = parseInt(req.params.id);
       if (isNaN(id)) {
@@ -4701,7 +4747,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Publication Status Management
-  app.patch('/api/publications/:id/status', async (req: Request, res: Response) => {
+  app.patch('/api/publications/:id/status', requireAuth, async (req: Request, res: Response) => {
     try {
       const id = parseInt(req.params.id);
       if (isNaN(id)) {
@@ -4717,7 +4763,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Resolve the acting user from the session — never trust the client to
       // attribute a status change to someone else.
       const sessionUserId = req.session?.user?.id;
-      if (!sessionUserId) {
+      if (sessionUserId == null) {
         return res.status(401).json({ message: "You must be signed in to change publication status." });
       }
       const changedBy = sessionUserId;
@@ -4727,6 +4773,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
       
       if (!currentPublication) {
         return res.status(404).json({ message: "Publication not found" });
+      }
+
+      const linkedAuthors = await storage.getPublicationAuthors(id);
+      if (
+        !canEditPublicationForLinkedScientists(
+          req,
+          linkedAuthors.map((author) => author.scientistId)
+        )
+      ) {
+        return res.status(403).json({
+          message:
+            "You may only change the status of publications linked to your scientist profile, or ask Outcome Office for help.",
+        });
       }
 
       // Status validation logic. Each entry lists every status reachable from
@@ -4863,7 +4922,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post('/api/publications/:id/authors', async (req: Request, res: Response) => {
+  app.post('/api/publications/:id/authors', requireAuth, async (req: Request, res: Response) => {
     try {
       const publicationId = parseInt(req.params.id);
       if (isNaN(publicationId)) {
@@ -4883,14 +4942,38 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(403).json({ message: "This publication is sealed (Published *). Revert the final approval before changing author links." });
       }
 
+      // Check if scientist is already an author before authorizing the action.
+      // Researchers may manage only their own link; new self-links must also
+      // match the free-text author list. Outcome Office may manage any link.
+      const existingAuthors = await storage.getPublicationAuthors(publicationId);
+      const existingAuthor = existingAuthors.find(author => author.scientistId === validateData.scientistId);
+      const targetScientist = existingAuthor?.scientist ?? await storage.getScientist(validateData.scientistId);
+      const allScientists = existingAuthor ? [] : await storage.getScientists();
+      const authorNameMatches = targetScientist
+        ? isUnambiguousAuthorMatch(
+            targetPub.authors,
+            targetScientist,
+            existingAuthor ? [targetScientist] : allScientists
+          )
+        : false;
+      if (
+        !canManagePublicationAuthorLink(
+          req,
+          validateData.scientistId,
+          Boolean(existingAuthor),
+          authorNameMatches
+        )
+      ) {
+        return res.status(403).json({
+          message:
+            "You may only add or update your own matching internal-author link. Ask Outcome Office to correct other author links.",
+        });
+      }
+
       // Attribution: this endpoint is the manual linking flow (detail page), so
       // every link/update it makes is stamped as a manual link by the acting
       // session user. linkedByUserId is nullable for legacy rows; we set it here.
       const actorId = (req.session as any)?.user?.id ?? null;
-
-      // Check if scientist is already an author
-      const existingAuthors = await storage.getPublicationAuthors(publicationId);
-      const existingAuthor = existingAuthors.find(author => author.scientistId === validateData.scientistId);
 
       if (existingAuthor) {
         // Update existing author by combining authorship types
@@ -4928,7 +5011,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.delete('/api/publications/:publicationId/authors/:scientistId', async (req: Request, res: Response) => {
+  app.delete('/api/publications/:publicationId/authors/:scientistId', requireAuth, async (req: Request, res: Response) => {
     try {
       const publicationId = parseInt(req.params.publicationId);
       const scientistId = parseInt(req.params.scientistId);
@@ -4940,6 +5023,22 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const targetPub = await storage.getPublication(publicationId);
       if (targetPub?.status === 'Published *') {
         return res.status(403).json({ message: "This publication is sealed (Published *). Revert the final approval before changing author links." });
+      }
+
+      const existingAuthors = await storage.getPublicationAuthors(publicationId);
+      const existingAuthor = existingAuthors.find(author => author.scientistId === scientistId);
+      if (
+        !canManagePublicationAuthorLink(
+          req,
+          scientistId,
+          Boolean(existingAuthor),
+          false
+        )
+      ) {
+        return res.status(403).json({
+          message:
+            "You may only remove your own internal-author link. Ask Outcome Office to correct other author links.",
+        });
       }
 
       const success = await storage.removePublicationAuthor(publicationId, scientistId);

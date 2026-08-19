@@ -11,10 +11,16 @@ import {
   SidraScoreResult,
   SidraExcludedPublication,
   SidraIncludedPublication,
+  SidraPublicationIssue,
+  SidraPublicationIssueDetail,
   DEFAULT_SIDRA_SCORE_SETTINGS,
   SIDRA_SCORE_SETTINGS_KEY,
   sidraScoreSettingsSchema,
 } from "@shared/sidraScore";
+import {
+  isLinkedAuthorInAuthorsText,
+  matchesAuthorName,
+} from "@shared/authorMatching";
 
 // ── Authorship normalization ───────────────────────────────────────────────────
 
@@ -183,12 +189,19 @@ const QUALIFYING_STATUSES = [
 ];
 
 function makeExcluded(
-  title: string,
-  journal: string | null | undefined,
+  publication: PublicationLike,
   reason: string,
   action: string
 ): SidraExcludedPublication {
-  return { title, journal: journal ?? null, reason, action };
+  return {
+    publicationId: publication.id,
+    title: publication.title,
+    journal: publication.journal ?? null,
+    status: publication.status ?? null,
+    isSealed: publication.status === "Published *",
+    reason,
+    action,
+  };
 }
 
 // ── Per-scientist score calculation ───────────────────────────────────────────
@@ -205,10 +218,107 @@ export interface ScientistLike {
 export interface PublicationLike {
   id: number;
   title: string;
+  authors?: string | null;
   journal?: string | null;
+  researchActivityId?: number | null;
   /** Accepts both a Date object (from Drizzle ORM) or an ISO string. */
   publicationDate?: Date | string | null;
   status?: string | null;
+}
+
+function correctionAction(
+  publication: PublicationLike,
+  researcherAction: string,
+  officeAction: string
+): string {
+  if (publication.status === "Published *") {
+    return `This record is finally approved and sealed. Ask Outcome Office to revert final approval and ${officeAction}.`;
+  }
+  return `${researcherAction} Outcome Office gives final approval and can also help with the correction.`;
+}
+
+/**
+ * Find SDR and scientist-specific author-link issues for publications that are
+ * either internally linked to the scientist or strongly matched by author text.
+ */
+export function findPublicationIssues(
+  scientist: ScientistLike,
+  allPublications: PublicationLike[],
+  authorshipMap?: Map<number, string>
+): SidraPublicationIssue[] {
+  const publicationIssues: SidraPublicationIssue[] = [];
+
+  for (const publication of allPublications) {
+    const isLinked = authorshipMap?.has(publication.id) ?? false;
+    const nameMatches = matchesAuthorName(
+      publication.authors,
+      scientist.firstName,
+      scientist.lastName
+    );
+
+    // Do not surface unrelated publications. A publication can qualify through
+    // either its explicit internal link or a strong free-text author match.
+    if (!isLinked && !nameMatches) continue;
+
+    const issues: SidraPublicationIssueDetail[] = [];
+
+    if (publication.researchActivityId == null) {
+      issues.push({
+        code: "missing_sdr_link",
+        reason: "No SDR is linked to this publication.",
+        action: correctionAction(
+          publication,
+          "Open the publication, choose the appropriate SDR in Edit, and save it.",
+          "link the appropriate SDR"
+        ),
+      });
+    }
+
+    if (!isLinked && nameMatches) {
+      issues.push({
+        code: "missing_internal_author_link",
+        reason:
+          "This may be one of your publications: the author list matches your name, but your scientist profile is not linked as an internal author.",
+        action: correctionAction(
+          publication,
+          "Review the publication. If it is yours, add yourself under Internal Authors with the correct authorship role; if the abbreviated name is ambiguous, ask Outcome Office to confirm the link.",
+          "add or correct your internal-author link"
+        ),
+      });
+    } else if (
+      isLinked &&
+      !isLinkedAuthorInAuthorsText(
+        publication.authors,
+        scientist.firstName,
+        scientist.lastName
+      )
+    ) {
+      issues.push({
+        code: "author_text_mismatch",
+        reason: publication.authors?.trim()
+          ? "Your internal-author link does not match the publication's author list."
+          : "The publication has no author list, so your internal-author link cannot be verified.",
+        action: correctionAction(
+          publication,
+          "Open the publication and correct the author list or your internal-author link.",
+          "correct the author list or internal-author link"
+        ),
+      });
+    }
+
+    if (issues.length > 0) {
+      publicationIssues.push({
+        publicationId: publication.id,
+        title: publication.title,
+        journal: publication.journal ?? null,
+        status: publication.status ?? null,
+        isSealed: publication.status === "Published *",
+        issues,
+      });
+    }
+  }
+
+  return publicationIssues;
 }
 
 /**
@@ -262,6 +372,11 @@ export function calculateScientistScore(
   const calculationDetails: SidraIncludedPublication[] = [];
 
   const authorshipMap = authorshipByScientist.get(scientist.id);
+  const publicationIssues = findPublicationIssues(
+    scientist,
+    allPublications,
+    authorshipMap
+  );
   if (authorshipMap) {
     for (const pub of allPublications) {
       const authorshipTypeStr = authorshipMap.get(pub.id);
@@ -272,10 +387,13 @@ export function calculateScientistScore(
       if (!pub.publicationDate) {
         excludedPublications.push(
           makeExcluded(
-            pub.title,
-            pub.journal,
+            pub,
             "Missing publication date",
-            "Check the manuscript details and ask the Outcome Office to add its publication date."
+            correctionAction(
+              pub,
+              "Open the publication and add its publication date.",
+              "correct the publication date"
+            )
           )
         );
         continue;
@@ -287,10 +405,13 @@ export function calculateScientistScore(
       if (Number.isNaN(pubDate.getTime())) {
         excludedPublications.push(
           makeExcluded(
-            pub.title,
-            pub.journal,
+            pub,
             "Invalid publication date",
-            "Check the date on this manuscript and ask the Outcome Office to correct the publication record."
+            correctionAction(
+              pub,
+              "Open the publication and correct its publication date.",
+              "correct the publication date"
+            )
           )
         );
         continue;
@@ -300,8 +421,7 @@ export function calculateScientistScore(
       if (pubDate < cutoffDate) {
         excludedPublications.push(
           makeExcluded(
-            pub.title,
-            pub.journal,
+            pub,
             `Published before the scoring window (${pubDate.toISOString().slice(0, 10)})`,
             "No action needed — publication is outside the scoring period."
           )
@@ -311,8 +431,7 @@ export function calculateScientistScore(
       if (rangeEndDate && pubDate > rangeEndDate) {
         excludedPublications.push(
           makeExcluded(
-            pub.title,
-            pub.journal,
+            pub,
             `Published after the scoring window end (${pubDate.toISOString().slice(0, 10)})`,
             "No action needed — publication is outside the scoring period."
           )
@@ -325,10 +444,13 @@ export function calculateScientistScore(
       if (!QUALIFYING_STATUSES.includes(statusLc)) {
         excludedPublications.push(
           makeExcluded(
-            pub.title,
-            pub.journal,
+            pub,
             `Unsupported status: "${pub.status}"`,
-            "Ask the Outcome Office to review and correct the publication status if it is inaccurate."
+            correctionAction(
+              pub,
+              "Open the publication and correct its status if it is inaccurate.",
+              "correct the publication status"
+            )
           )
         );
         continue;
@@ -338,10 +460,13 @@ export function calculateScientistScore(
       if (!pub.journal || pub.journal.trim() === "") {
         excludedPublications.push(
           makeExcluded(
-            pub.title,
-            pub.journal,
+            pub,
             "Missing journal name",
-            "Check the manuscript details and ask the Outcome Office to add its journal."
+            correctionAction(
+              pub,
+              "Open the publication and add its journal.",
+              "add the journal"
+            )
           )
         );
         continue;
@@ -351,8 +476,7 @@ export function calculateScientistScore(
       if (!includeNonVetted && statusLc !== "published *") {
         excludedPublications.push(
           makeExcluded(
-            pub.title,
-            pub.journal,
+            pub,
             `Not vetted (status: ${pub.status})`,
             "Ask the Outcome Office to verify the manuscript and mark it as 'Published *' when appropriate."
           )
@@ -396,8 +520,7 @@ export function calculateScientistScore(
         missingImpactFactorPublications.push(pub.title);
         excludedPublications.push(
           makeExcluded(
-            pub.title,
-            pub.journal,
+            pub,
             "No impact factor on record",
             `Ask the Outcome Office to add the impact factor for "${pub.journal}" (year ${targetYear}).`
           )
@@ -431,6 +554,7 @@ export function calculateScientistScore(
       totalScore += publicationScore;
 
       calculationDetails.push({
+        publicationId: pub.id,
         title: pub.title,
         journal: pub.journal ?? null,
         publicationDate: pub.publicationDate instanceof Date
@@ -458,6 +582,7 @@ export function calculateScientistScore(
     publicationsCount,
     sidraScore: totalScore,
     missingImpactFactorPublications,
+    publicationIssues,
     excludedPublications,
     calculationDetails,
     settings,

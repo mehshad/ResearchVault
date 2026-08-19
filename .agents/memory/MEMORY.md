@@ -9,3 +9,4 @@
 - [Demo mode bypasses auth guards](demo-mode-open-access.md) — AUTH_MODE=demo injects a Management session; anonymous curl 200 doesn't mean a route guard is missing.
 - [Sealed publications](sealed-publications.md) — `Published *` is sealed; every publication-mutating route must 403/skip sealed records; only the officer revert route unseals.
 - [Server code needs manual restart](server-no-hot-reload.md) — `tsx` runs without --watch; backend edits don't reload, new API routes return Vite HTML (200) until `restart_workflow`.
+- [Publication correction authorization](publication-correction-authorization.md) — researcher-facing fix links must be backed by record-level server authorization, not UI visibility alone.

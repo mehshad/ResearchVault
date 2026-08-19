@@ -22,7 +22,9 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Checkbox } from "@/components/ui/checkbox";
 import { Textarea } from "@/components/ui/textarea";
 import { formatFullName } from "@/utils/nameUtils";
-import { isLinkedAuthorInAuthorsText } from "@shared/authorMatching";
+import { isLinkedAuthorInAuthorsText, isUnambiguousAuthorMatch, matchesAuthorName } from "@shared/authorMatching";
+import { useAuth } from "@/hooks/useAuth";
+import { useCurrentUser } from "@/hooks/useCurrentUser";
 
 // Linear forward order of the publication workflow. Used to tell whether a
 // status change moves the publication forward, sideways, or back. Keep in
@@ -72,6 +74,20 @@ export default function PublicationDetail() {
   const [, navigate] = useLocation();
   const id = parseInt(params.id);
   const { toast } = useToast();
+  const { user, authConfig } = useAuth();
+  const { currentUser } = useCurrentUser();
+  const effectiveRole = authConfig.mode === "demo"
+    ? currentUser.role
+    : (user?.role ?? "user");
+  const effectiveScientistId = authConfig.mode === "demo"
+    ? currentUser.id
+    : user?.scientistId;
+  const canManageAllPublications = [
+    "Outcome Officer",
+    "Management",
+    "admin",
+    "superadmin",
+  ].includes(effectiveRole);
 
   // Return to wherever the user came from. A `from` query param (set by e.g.
   // the Outcome Office tabs) takes priority — it survives detours through the
@@ -157,7 +173,10 @@ export default function PublicationDetail() {
         credentials: 'include',
         body: JSON.stringify(data),
       });
-      if (!response.ok) throw new Error('Failed to add author');
+      if (!response.ok) {
+        const error = await response.json().catch(() => null);
+        throw new Error(error?.message || 'Failed to add author');
+      }
       return response.json();
     },
     onSuccess: () => {
@@ -170,8 +189,8 @@ export default function PublicationDetail() {
       setIsCorrespondingAuthor(false);
       setIsSharedPosition(false);
     },
-    onError: () => {
-      toast({ title: "Error", description: "Failed to add author", variant: "destructive" });
+    onError: (error: Error) => {
+      toast({ title: "Error", description: error.message, variant: "destructive" });
     },
   });
 
@@ -181,14 +200,17 @@ export default function PublicationDetail() {
         method: 'DELETE',
         credentials: 'include',
       });
-      if (!response.ok) throw new Error('Failed to remove author');
+      if (!response.ok) {
+        const error = await response.json().catch(() => null);
+        throw new Error(error?.message || 'Failed to remove author');
+      }
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: [`/api/publications/${id}/authors`] });
       toast({ title: "Success", description: "Author removed successfully" });
     },
-    onError: () => {
-      toast({ title: "Error", description: "Failed to remove author", variant: "destructive" });
+    onError: (error: Error) => {
+      toast({ title: "Error", description: error.message, variant: "destructive" });
     },
   });
 
@@ -264,8 +286,19 @@ export default function PublicationDetail() {
     });
   };
 
+  const isLinkedResearcher = effectiveScientistId != null &&
+    publicationAuthors.some(author => author.scientistId === effectiveScientistId);
+  const canEditPublication = canManageAllPublications || isLinkedResearcher;
+
   const availableScientists = scientists
     .filter(scientist => {
+      if (
+        !canManageAllPublications &&
+        scientist.id !== effectiveScientistId
+      ) {
+        return false;
+      }
+
       // If we're only adding corresponding author role, allow existing authors who don't already have corresponding author role
       const existingAuthor = publicationAuthors.find(author => author.scientistId === scientist.id);
       if (existingAuthor) {
@@ -273,57 +306,17 @@ export default function PublicationDetail() {
         return isCorrespondingAuthor && !existingAuthor.authorshipType.includes('Corresponding Author');
       }
       
-      // Filter by names in the publication's comma-separated author list
-      if (publication?.authors) {
-        const authorNames = publication.authors.split(',').map(name => name.trim().toLowerCase());
-        const scientistLastName = scientist.lastName?.toLowerCase() || '';
-        const scientistFirstName = scientist.firstName?.toLowerCase() || '';
-        
-        // Check if scientist's name appears in the author list
-        return authorNames.some(authorName => {
-          // Remove common titles and clean the author name
-          const cleanAuthorName = authorName.replace(/^(dr\.?|prof\.?|mr\.?|ms\.?|mrs\.?)\s+/i, '').trim();
-          
-          // Handle abbreviated names like "Chen E", "Wilson J", "Ahmed S"
-          const nameParts = cleanAuthorName.split(/\s+/);
-          
-          if (nameParts.length >= 2) {
-            const [lastPart, firstPart] = nameParts;
-            
-            // Check if last name matches and first name/initial matches
-            if (scientistLastName && scientistFirstName) {
-              // Match "LastName FirstInitial" format (e.g., "Chen E")
-              if (lastPart === scientistLastName && 
-                  firstPart.startsWith(scientistFirstName.charAt(0))) {
-                return true;
-              }
-              
-              // Match "FirstInitial LastName" format (e.g., "E Chen")
-              if (firstPart === scientistLastName && 
-                  lastPart.startsWith(scientistFirstName.charAt(0))) {
-                return true;
-              }
-              
-              // Match full names in either order
-              if ((lastPart === scientistLastName && firstPart === scientistFirstName) ||
-                  (firstPart === scientistLastName && lastPart === scientistFirstName)) {
-                return true;
-              }
-            }
-          }
-          
-          // Fallback: check if last name appears anywhere in the author name
-          if (scientistLastName && cleanAuthorName.includes(scientistLastName)) {
-            return true;
-          }
-          
-          // Additional check for full name match
-          const scientistFullName = formatFullName(scientist).toLowerCase().replace(/^(dr\.?|prof\.?|mr\.?|ms\.?|mrs\.?)\s+/i, '');
-          return cleanAuthorName.includes(scientistFullName) || scientistFullName.includes(cleanAuthorName);
-        });
-      }
-      
-      return true; // If no authors list, show all available scientists
+      return canManageAllPublications
+        ? matchesAuthorName(
+            publication?.authors,
+            scientist.firstName,
+            scientist.lastName
+          )
+        : isUnambiguousAuthorMatch(
+            publication?.authors,
+            scientist,
+            scientists
+          );
     })
     .sort((a, b) => {
       // Sort alphabetically by last name, ignoring titles
@@ -449,7 +442,7 @@ export default function PublicationDetail() {
             <CheckCircle className="h-4 w-4 mr-1.5" />
             Sealed — contact the Outcome Office to edit
           </Badge>
-        ) : (
+        ) : canEditPublication ? (
           <Button 
             className="bg-sidra-teal hover:bg-sidra-teal-dark text-white font-medium px-4 py-2 shadow-sm"
             onClick={() => navigate(`/publications/${publication.id}/edit${safeFrom ? `?from=${encodeURIComponent(safeFrom)}` : ''}`)}
@@ -457,6 +450,10 @@ export default function PublicationDetail() {
             <Edit className="h-4 w-4 mr-2" />
             Edit
           </Button>
+        ) : (
+          <Badge variant="outline" className="px-3 py-1.5 text-muted-foreground">
+            Link your profile or ask Outcome Office to edit
+          </Badge>
         )}
       </div>
 
@@ -838,14 +835,17 @@ export default function PublicationDetail() {
                               </div>
                             </TableCell>
                             <TableCell>
-                              <Button
-                                variant="ghost"
-                                size="sm"
-                                onClick={() => removeAuthorMutation.mutate(author.scientistId)}
-                                disabled={removeAuthorMutation.isPending}
-                              >
-                                <Trash2 className="h-4 w-4 text-red-500" />
-                              </Button>
+                              {publication.status !== 'Published *' &&
+                                (canManageAllPublications || author.scientistId === effectiveScientistId) && (
+                                  <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    onClick={() => removeAuthorMutation.mutate(author.scientistId)}
+                                    disabled={removeAuthorMutation.isPending}
+                                  >
+                                    <Trash2 className="h-4 w-4 text-red-500" />
+                                  </Button>
+                                )}
                             </TableCell>
                           </TableRow>
                           );
@@ -855,6 +855,8 @@ export default function PublicationDetail() {
                   </div>
                 )}
 
+                {publication.status !== 'Published *' &&
+                  (canManageAllPublications || availableScientists.length > 0) && (
                 <Dialog open={isAddAuthorOpen} onOpenChange={setIsAddAuthorOpen}>
                   <DialogTrigger asChild>
                     <Button variant="outline" className="w-full">
@@ -970,6 +972,7 @@ export default function PublicationDetail() {
                     </DialogFooter>
                   </DialogContent>
                 </Dialog>
+                )}
               </div>
             </CardContent>
           </Card>
@@ -1083,7 +1086,7 @@ export default function PublicationDetail() {
                     </Badge>
                   </div>
                   
-                  {publication.status !== 'Published' && publication.status !== 'Published *' && (
+                  {canEditPublication && publication.status !== 'Published' && publication.status !== 'Published *' && (
                     <Button
                       onClick={() => {
                         // Pre-populate form with existing values
