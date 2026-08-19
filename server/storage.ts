@@ -31,6 +31,7 @@ import {
   featureRequests, FeatureRequest, InsertFeatureRequest,
   teamMembers, TeamMember, InsertTeamMember
 } from "@shared/schema";
+import { isInvestigatorEligible } from "@shared/investigatorEligibility";
 
 // Storage interface with CRUD operations for all entities
 export interface IStorage {
@@ -216,7 +217,6 @@ export interface IStorage {
     activeResearchActivities: number;
     publications: number;
     patents: number;
-    pendingApplications: number;
   }>;
   getRecentResearchActivities(limit?: number): Promise<ResearchActivity[]>;
   getUpcomingDeadlines(): Promise<any[]>; // More specific type would be created based on deadline structure
@@ -405,7 +405,7 @@ export class MemStorage implements IStorage {
   }
 
   async getPrincipalInvestigators(): Promise<Scientist[]> {
-    return Array.from(this.scientists.values()).filter(scientist => !scientist.isStaff);
+    return Array.from(this.scientists.values()).filter(isInvestigatorEligible);
   }
 
   // Project operations
@@ -822,7 +822,6 @@ export class MemStorage implements IStorage {
     activeResearchActivities: number;
     publications: number;
     patents: number;
-    pendingApplications: number;
   }> {
     const activeProjects = Array.from(this.projects.values())
       .filter(project => project.status === 'active').length;
@@ -831,17 +830,10 @@ export class MemStorage implements IStorage {
     
     const patents = this.patents.size;
     
-    const pendingIrbApplications = Array.from(this.irbApplications.values())
-      .filter(app => app.status === 'submitted' || app.status === 'pending').length;
-    
-    const pendingIbcApplications = Array.from(this.ibcApplications.values())
-      .filter(app => app.status === 'submitted' || app.status === 'pending').length;
-    
     return {
       activeResearchActivities: activeProjects,
       publications,
-      patents,
-      pendingApplications: pendingIrbApplications + pendingIbcApplications
+      patents
     };
   }
 
@@ -853,40 +845,18 @@ export class MemStorage implements IStorage {
 
   async getUpcomingDeadlines(): Promise<any[]> {
     const now = new Date();
-    const threeDaysFromNow = new Date(now);
-    threeDaysFromNow.setDate(now.getDate() + 3);
-
     const tenDaysFromNow = new Date(now);
     tenDaysFromNow.setDate(now.getDate() + 10);
-    
-    const threeWeeksFromNow = new Date(now);
-    threeWeeksFromNow.setDate(now.getDate() + 21);
 
-    // Create sample deadlines (in a real app, these would be computed from various entities)
+    // In-memory fallback mirrors the active dashboard contract deadline feed.
     return [
       {
         id: 1,
-        title: "Grant Proposal Submission",
-        description: "NIH R01 Grant for CRISPR-Cas9 Project",
-        dueDate: threeDaysFromNow,
-        projectId: 1,
-        type: "grant"
-      },
-      {
-        id: 2,
-        title: "Quarterly Progress Report",
-        description: "For Immunotherapy Research Project",
+        title: "Research Agreement Renewal",
+        description: "Research contract",
         dueDate: tenDaysFromNow,
-        projectId: 2,
-        type: "report"
-      },
-      {
-        id: 3,
-        title: "IBC Application Update",
-        description: "For Microbiome Analysis Project",
-        dueDate: threeWeeksFromNow,
-        projectId: 3,
-        type: "application"
+        projectId: 1,
+        type: "Contract"
       }
     ];
   }

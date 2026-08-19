@@ -35,6 +35,8 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from 
 import { PermissionWrapper } from "@/components/PermissionWrapper";
 import { usePermissions } from "@/hooks/usePermissions";
 import { useCurrentUser } from "@/hooks/useCurrentUser";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { ImpactFactorsReadOnly } from "@/components/ImpactFactorsReadOnly";
 import PublicationImport from "./import";
 
 export default function PublicationsList() {
@@ -43,6 +45,7 @@ export default function PublicationsList() {
   const [filterResearchActivityId, setFilterResearchActivityId] = useState<number | null>(null);
   const [filterJournal, setFilterJournal] = useState<string | null>(null);
   const [importDialogOpen, setImportDialogOpen] = useState(false);
+  const [activeTab, setActiveTab] = useState<"publications" | "impact-factors">("publications");
 
   // Advanced (horizontal) filter bar state
   const [journalFilter, setJournalFilter] = useState("");
@@ -361,6 +364,7 @@ export default function PublicationsList() {
             </div>
           )}
         </div>
+        {activeTab === "publications" && (
         <div className="flex gap-2">
           {currentUser && (
             <>
@@ -401,8 +405,15 @@ export default function PublicationsList() {
             </>
           )}
         </div>
+        )}
       </div>
 
+      <Tabs value={activeTab} onValueChange={(value) => setActiveTab(value as "publications" | "impact-factors")} className="space-y-6">
+        <TabsList>
+          <TabsTrigger value="publications">Research Publications</TabsTrigger>
+          <TabsTrigger value="impact-factors" data-testid="tab-publication-impact-factors">Impact Factors</TabsTrigger>
+        </TabsList>
+        <TabsContent value="publications">
       <Card>
         <CardHeader className="pb-3 space-y-4">
           <div className="flex items-center justify-between">
@@ -731,6 +742,16 @@ export default function PublicationsList() {
           )}
         </CardContent>
       </Card>
+        </TabsContent>
+        <TabsContent value="impact-factors">
+          <ImpactFactorsReadOnly
+            onViewJournalPublications={(journalName) => {
+              setActiveTab("publications");
+              navigate(`/publications?journal=${encodeURIComponent(journalName)}`);
+            }}
+          />
+        </TabsContent>
+      </Tabs>
     </div>
   );
 }

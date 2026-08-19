@@ -4,6 +4,7 @@ import type { Express, Request, Response, NextFunction } from "express";
 import { createServer, type Server } from "http";
 import { createHmac, timingSafeEqual } from "crypto";
 import { storage, normalizeJournalName } from "./databaseStorage";
+import { resolveAuthorCheckSubject } from "./authorCheckSubject";
 import { ZodError, z } from "zod";
 import { fromZodError } from "zod-validation-error";
 import {
@@ -12,7 +13,7 @@ import {
 } from "./objectStorage";
 import { LocalObjectStorageService } from "./localObjectStorage";
 import { db } from "./db";
-import { scientists, publicationAuthors, journals, journalImpactFactorMetrics, manuscriptHistory, users } from "@shared/schema";
+import { scientists, publicationAuthors, journals, journalImpactFactorMetrics, manuscriptHistory, users, branches, departments, sections } from "@shared/schema";
 import { eq, inArray, desc, sql } from "drizzle-orm";
 import {
   buildExportBuffer,
@@ -56,15 +57,41 @@ import {
   insertFeatureRequestSchema,
   insertRa200ApplicationSchema,
   insertRa205aApplicationSchema,
-  insertTeamMemberSchema
+  insertTeamMemberSchema,
+  insertBranchSchema,
+  insertDepartmentSchema,
+  insertSectionSchema
 } from "@shared/schema";
 import { requireAuth, requireAdmin, requireContractsOfficer, requireContractsRead, requirePublicationOfficer, getAuthMode } from "./auth";
 import { resolveOwnershipAccess, maxAccess, type AccessLevel as OwnershipAccessLevel } from "./ownershipResolver";
-import { matchesAuthorName, isLinkedAuthorInAuthorsText, suggestInternalAuthors } from "@shared/authorMatching";
+import { matchesAuthorName, isLinkedAuthorInAuthorsText, isUnambiguousAuthorMatch, suggestInternalAuthors } from "@shared/authorMatching";
 import { detectDuplicateGroups, pickDefaultSurvivorId, normalizeDoi as canonicalDoi, isPreprintRecord } from "@shared/publicationDeduplication";
 import { getObjectAclPolicy, ObjectPermission } from "./objectAcl";
 import { buildLinkImportTemplate, previewLinkImport } from "./publicationLinksImport";
 import { GRANT_COLUMNS, grantsToRows, buildGrantsWorkbookBuffer, buildGrantsTemplateBuffer, previewGrantRows } from "./grantsImportExport";
+import {
+  registerSidraScoreRoutes,
+  isOwnScientistProfile,
+  isDemo,
+  hasManagementRole,
+  hasPublicationOfficerRole,
+  canEditPublicationForLinkedScientists,
+  canManagePublicationAuthorLink,
+  canCreatePublicationForResearchActivity,
+} from "./sidraScoreRoutes";
+import { SIDRA_SCORE_SETTINGS_KEY } from "@shared/sidraScore";
+import {
+  rejectGenericPublicationWorkflowMutation,
+  rejectPublicationCreateWorkflowMutation,
+  rejectProtectedPublicationStatusFields,
+  getStatusTransitionWorkflowViolation,
+} from "./publicationMutationPolicy";
+import { createIpVettingHandler } from "./publicationWorkflowRoutes";
+import {
+  isInvestigatorEligible,
+  isInvestigatorRoleAssignmentAllowed,
+} from "@shared/investigatorEligibility";
+import { requireInvestigatorDesignationManager } from "./investigatorDesignationPolicy";
 
 const isLocalStorage = process.env.STORAGE_TYPE === "local";
 
@@ -147,6 +174,35 @@ function scientistUniqueConflictMessage(error: any): string | undefined {
     return "A staff member with this Staff ID already exists.";
   }
   return "A staff member with these details already exists.";
+}
+
+type InvestigatorAssignmentError = {
+  status: 400 | 404;
+  message: string;
+};
+
+async function getInvestigatorAssignmentError(
+  scientistId: number | null | undefined,
+  roleLabel: string
+): Promise<InvestigatorAssignmentError | null> {
+  if (scientistId == null) return null;
+
+  const scientist = await storage.getScientist(scientistId);
+  if (!scientist) {
+    return {
+      status: 404,
+      message: `${roleLabel} staff member not found.`,
+    };
+  }
+
+  if (!isInvestigatorEligible(scientist)) {
+    return {
+      status: 400,
+      message: `${roleLabel} must have an eligible Investigator designation.`,
+    };
+  }
+
+  return null;
 }
 
 // ── ORCID / Google Scholar missing-paper import helpers ──────────────────────
@@ -1035,6 +1091,11 @@ const DISCOVERY_FETCHERS: Record<
 export async function registerRoutes(app: Express): Promise<Server> {
   // Set up API routes
   const apiRouter = app.route('/api');
+
+  // Sidra Score settings + per-scientist endpoints (registered early so literal
+  // routes beat the /api/scientists/:id param route). Also registers
+  // /api/scientists/sidra-scores (office-wide) and /api/scientists/:id/sidra-score.
+  registerSidraScoreRoutes(app);
 
   // Health check for database connection
   app.get('/api/health/database', async (req: Request, res: Response) => {
@@ -2639,6 +2700,25 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.post('/api/programs', async (req: Request, res: Response) => {
     try {
+      const validateData = insertProgramSchema.parse(req.body);
+      const programDirectorError = await getInvestigatorAssignmentError(
+        validateData.programDirectorId,
+        "Program Director"
+      );
+      if (programDirectorError) {
+        return res
+          .status(programDirectorError.status)
+          .json({ message: programDirectorError.message });
+      }
+      const researchCoLeadError = await getInvestigatorAssignmentError(
+        validateData.researchCoLeadId,
+        "Research Co-Lead"
+      );
+      if (researchCoLeadError) {
+        return res
+          .status(researchCoLeadError.status)
+          .json({ message: researchCoLeadError.message });
+      }
       // Auto-generate a PRM number if the client didn't supply one.
       let body = { ...req.body };
       if (!body.programId) {
@@ -2668,6 +2748,24 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       const validateData = insertProgramSchema.partial().parse(req.body);
+      const programDirectorError = await getInvestigatorAssignmentError(
+        validateData.programDirectorId,
+        "Program Director"
+      );
+      if (programDirectorError) {
+        return res
+          .status(programDirectorError.status)
+          .json({ message: programDirectorError.message });
+      }
+      const researchCoLeadError = await getInvestigatorAssignmentError(
+        validateData.researchCoLeadId,
+        "Research Co-Lead"
+      );
+      if (researchCoLeadError) {
+        return res
+          .status(researchCoLeadError.status)
+          .json({ message: researchCoLeadError.message });
+      }
       const program = await storage.updateProgram(id, validateData);
       
       if (!program) {
@@ -2741,6 +2839,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post('/api/projects', async (req: Request, res: Response) => {
     try {
       const validateData = insertProjectSchema.parse(req.body);
+      const eligibilityError = await getInvestigatorAssignmentError(
+        validateData.principalInvestigatorId,
+        "Project Lead Investigator"
+      );
+      if (eligibilityError) {
+        return res
+          .status(eligibilityError.status)
+          .json({ message: eligibilityError.message });
+      }
       const project = await storage.createProject(validateData);
       res.status(201).json(project);
     } catch (error) {
@@ -2759,6 +2866,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       const validateData = insertProjectSchema.partial().parse(req.body);
+      const eligibilityError = await getInvestigatorAssignmentError(
+        validateData.principalInvestigatorId,
+        "Project Lead Investigator"
+      );
+      if (eligibilityError) {
+        return res
+          .status(eligibilityError.status)
+          .json({ message: eligibilityError.message });
+      }
       const project = await storage.updateProject(id, validateData);
       
       if (!project) {
@@ -2966,237 +3082,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // Sidra Score calculation for all scientists
-  app.post('/api/scientists/sidra-scores', async (req: Request, res: Response) => {
-    try {
-      const { years = 5, impactFactorYear = "publication", multipliers = {}, startMonth, endMonth, includeNonVetted = false } = req.body;
-
-      // Optional custom month range (YYYY-MM). When provided, it overrides `years`.
-      const monthRe = /^\d{4}-(0[1-9]|1[0-2])$/;
-      const useCustomRange = typeof startMonth === 'string' && typeof endMonth === 'string'
-        && monthRe.test(startMonth) && monthRe.test(endMonth);
-      if ((startMonth || endMonth) && !useCustomRange) {
-        return res.status(400).json({ error: "startMonth and endMonth must both be provided in YYYY-MM format" });
-      }
-      if (useCustomRange && startMonth > endMonth) {
-        return res.status(400).json({ error: "startMonth must not be after endMonth" });
-      }
-      
-      // Default multipliers (canonical roles)
-      const defaultMultipliers = {
-        'First Author': 2,
-        'Second or Second Last Author': 1.5,
-        'Last Author': 2,
-        'Corresponding Author': 2
-      };
-
-      // Normalize stored/legacy authorship labels to canonical multiplier keys.
-      // Co- variants share the same weight as the base role; old senior-author
-      // labels are the same role as Last Author.
-      const normalizeAuthorshipType = (type: string): string => {
-        const t = type.trim();
-        if (t === 'Senior Author' || t === 'Senior/Last Author' || t === 'Co-Senior/Last Author' || t === 'Co-Last Author') return 'Last Author';
-        if (t === 'Co-First Author') return 'First Author';
-        return t;
-      };
-      
-      const finalMultipliers = { ...defaultMultipliers, ...multipliers };
-      
-      // Get only scientific staff (exclude administrative staff)
-      const allScientists = await storage.getScientists();
-      const scientificScientists = allScientists.filter(s => s.staffType === 'scientific');
-
-      if (scientificScientists.length === 0) {
-        return res.json([]);
-      }
-
-      const scientificIds = scientificScientists.map(s => s.id);
-      const currentYear = new Date().getFullYear();
-      let cutoffDate: Date;
-      let rangeEndDate: Date | null = null;
-      if (useCustomRange) {
-        const [sy, sm] = startMonth.split('-').map(Number);
-        const [ey, em] = endMonth.split('-').map(Number);
-        cutoffDate = new Date(sy, sm - 1, 1);
-        // End of the last day of the end month (inclusive)
-        rangeEndDate = new Date(ey, em, 0, 23, 59, 59, 999);
-      } else {
-        cutoffDate = new Date();
-        cutoffDate.setFullYear(cutoffDate.getFullYear() - years);
-      }
-
-      // Batched: all publications, authorships for scientific staff, and all
-      // journal IF metrics — fetched once instead of per-(scientist × publication).
-      // Previously this route issued one publication_authors query per
-      // publication and one impact-factor query per publication, which scaled
-      // as O(scientists × publications × authorships).
-      const [allPublications, allAuthorRows, allMetricRows] = await Promise.all([
-        storage.getPublications(),
-        db
-          .select({
-            publicationId: publicationAuthors.publicationId,
-            scientistId: publicationAuthors.scientistId,
-            authorshipType: publicationAuthors.authorshipType,
-          })
-          .from(publicationAuthors)
-          .where(inArray(publicationAuthors.scientistId, scientificIds)),
-        db
-          .select({
-            journalName: journals.journalName,
-            year: journalImpactFactorMetrics.year,
-            impactFactor: journalImpactFactorMetrics.impactFactor,
-          })
-          .from(journalImpactFactorMetrics)
-          .innerJoin(journals, eq(journalImpactFactorMetrics.journalId, journals.id)),
-      ]);
-
-      // scientistId -> publicationId -> combined authorshipType string
-      // (kept as comma-joined to match the existing split(',') multiplier logic)
-      const authorshipByScientist = new Map<number, Map<number, string>>();
-      for (const row of allAuthorRows) {
-        let m = authorshipByScientist.get(row.scientistId);
-        if (!m) { m = new Map(); authorshipByScientist.set(row.scientistId, m); }
-        const existing = m.get(row.publicationId);
-        m.set(row.publicationId, existing ? `${existing},${row.authorshipType}` : row.authorshipType);
-      }
-
-      // normalizeJournalName(journalName) -> year -> impactFactor (numeric)
-      const ifByJournalYear = new Map<string, Map<number, number>>();
-      for (const m of allMetricRows) {
-        const ifVal = m.impactFactor != null ? parseFloat(String(m.impactFactor)) : NaN;
-        if (!Number.isFinite(ifVal)) continue;
-        const key = normalizeJournalName(m.journalName);
-        let yearMap = ifByJournalYear.get(key);
-        if (!yearMap) { yearMap = new Map(); ifByJournalYear.set(key, yearMap); }
-        yearMap.set(m.year, ifVal);
-      }
-
-      const lookupIf = (journalName: string, year: number): number | null => {
-        const yearMap = ifByJournalYear.get(normalizeJournalName(journalName));
-        if (!yearMap) return null;
-        const v = yearMap.get(year);
-        return v != null ? v : null;
-      };
-
-      const rankings = scientificScientists.map((scientist) => {
-        let totalScore = 0;
-        let publicationsCount = 0;
-        const missingImpactFactorPublications: string[] = [];
-        // Publications that were otherwise eligible but not counted, with the
-        // reason and journal so the office can chase them down.
-        const excludedPublications: { title: string; journal: string | null; reason: string }[] = [];
-        const calculationDetails: any[] = [];
-
-        const authorshipMap = authorshipByScientist.get(scientist.id);
-        if (authorshipMap) {
-          for (const publication of allPublications) {
-            const authorshipTypeStr = authorshipMap.get(publication.id);
-            if (!authorshipTypeStr) continue;
-            if (!publication.publicationDate) continue;
-
-            const pubDate = new Date(publication.publicationDate);
-            if (pubDate < cutoffDate) continue;
-            if (rangeEndDate && pubDate > rangeEndDate) continue;
-            const statusLc = (publication.status || '').toLowerCase();
-            if (!['published', 'published *', 'accepted/in press', 'in press'].includes(statusLc)) continue;
-            if (!publication.journal || publication.journal.trim() === '') continue;
-            // Default: only fully vetted ("Published *") publications count.
-            if (!includeNonVetted && statusLc !== 'published *') {
-              excludedPublications.push({
-                title: publication.title,
-                journal: publication.journal,
-                reason: `Not vetted (status: ${publication.status})`,
-              });
-              continue;
-            }
-
-            const pubYear = pubDate.getFullYear();
-            let targetYear: number;
-            if (impactFactorYear === "prior") targetYear = pubYear - 1;
-            else if (impactFactorYear === "publication") targetYear = pubYear;
-            else targetYear = currentYear;
-
-            let ifValue = lookupIf(publication.journal, targetYear);
-            let actualYear = targetYear;
-            let usedFallback = false;
-
-            if (ifValue == null) {
-              usedFallback = true;
-              const fallbackYears = impactFactorYear === "latest"
-                ? Array.from({ length: Math.max(0, currentYear - 1 - 2020 + 1) }, (_, i) => currentYear - 1 - i)
-                : [targetYear + 1, targetYear - 1, targetYear + 2, targetYear - 2].filter(y => y >= 2020);
-              for (const fy of fallbackYears) {
-                const v = lookupIf(publication.journal, fy);
-                if (v != null) { ifValue = v; actualYear = fy; break; }
-              }
-            }
-
-            if (ifValue == null || !Number.isFinite(ifValue)) {
-              missingImpactFactorPublications.push(publication.title);
-              excludedPublications.push({
-                title: publication.title,
-                journal: publication.journal,
-                reason: 'No impact factor on record',
-              });
-              continue;
-            }
-
-            publicationsCount++;
-
-            const authorshipTypes = authorshipTypeStr.split(',').map(t => normalizeAuthorshipType(t));
-            let multiplier = 1;
-            let appliedMultipliers: string[] = [];
-            for (const type of authorshipTypes) {
-              const mul = finalMultipliers[type];
-              if (mul != null && !isNaN(mul)) {
-                if (mul > multiplier) { multiplier = mul; appliedMultipliers = [type]; }
-                else if (mul === multiplier && !appliedMultipliers.includes(type)) { appliedMultipliers.push(type); }
-              }
-            }
-
-            const publicationScore = ifValue * multiplier;
-            totalScore += publicationScore;
-
-            calculationDetails.push({
-              title: publication.title,
-              journal: publication.journal,
-              publicationDate: publication.publicationDate,
-              impactFactor: ifValue,
-              targetYear,
-              actualYear,
-              usedFallback,
-              authorshipTypes,
-              appliedMultipliers,
-              multiplier,
-              publicationScore,
-            });
-          }
-        }
-
-        return {
-          id: scientist.id,
-          honorificTitle: scientist.honorificTitle,
-          firstName: scientist.firstName,
-          lastName: scientist.lastName,
-          jobTitle: scientist.jobTitle,
-          department: scientist.department,
-          publicationsCount,
-          sidraScore: totalScore,
-          missingImpactFactorPublications,
-          excludedPublications,
-          calculationDetails,
-        };
-      });
-
-      // Sort by score descending
-      rankings.sort((a, b) => b.sidraScore - a.sidraScore);
-
-      res.json(rankings);
-    } catch (error) {
-      console.error('Error calculating Sidra scores:', error);
-      res.status(500).json({ message: "Failed to calculate Sidra scores" });
-    }
-  });
+  // NOTE: POST /api/scientists/sidra-scores is now registered by registerSidraScoreRoutes()
+  // above (protected by requirePublicationOfficer and backed by sidraScoreService).
+  // The original inline handler has been removed to avoid duplicate registration.
+  // Legacy marker — do not re-add inline handler here.
 
   // Roughly 8 MB of base64 → ~6 MB decoded file. Plenty for staff lists; blocks runaway payloads.
   const MAX_IMPORT_B64_LEN = 8 * 1024 * 1024;
@@ -3354,9 +3243,46 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post('/api/scientists', async (req: Request, res: Response) => {
+  // Validate structured org assignment: referenced department/section must
+  // exist and the section must belong to the (possibly derived) department.
+  // Returns an error message or null; may mutate data to derive departmentId.
+  const validateOrgAssignment = async (
+    data: { departmentId?: number | null; sectionId?: number | null },
+    existing?: { departmentId: number | null; sectionId: number | null }
+  ): Promise<string | null> => {
+    const deptTouched = data.departmentId !== undefined;
+    const secTouched = data.sectionId !== undefined;
+    if (!deptTouched && !secTouched) return null;
+
+    const deptId = deptTouched ? data.departmentId : existing?.departmentId ?? null;
+    const secId = secTouched ? data.sectionId : existing?.sectionId ?? null;
+
+    if (deptId != null) {
+      const [dept] = await db.select().from(departments).where(eq(departments.id, deptId));
+      if (!dept) return `Department ${deptId} does not exist`;
+    }
+    if (secId != null) {
+      const [sec] = await db.select().from(sections).where(eq(sections.id, secId));
+      if (!sec) return `Section ${secId} does not exist`;
+      if (deptId == null) {
+        // Derive department from the chosen section
+        data.departmentId = sec.departmentId;
+      } else if (sec.departmentId !== deptId) {
+        return `Section ${secId} does not belong to department ${deptId}`;
+      }
+    }
+    return null;
+  };
+
+  app.post(
+    '/api/scientists',
+    requireAuth,
+    requireInvestigatorDesignationManager,
+    async (req: Request, res: Response) => {
     try {
       const validateData = insertScientistSchema.parse(normalizeScientistPayload(req.body));
+      const orgError = await validateOrgAssignment(validateData);
+      if (orgError) return res.status(400).json({ message: orgError });
       const scientist = await storage.createScientist(validateData);
       res.status(201).json(scientist);
     } catch (error) {
@@ -3373,14 +3299,31 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.patch('/api/scientists/:id', async (req: Request, res: Response) => {
+  app.patch(
+    '/api/scientists/:id',
+    requireAuth,
+    requireInvestigatorDesignationManager,
+    async (req: Request, res: Response) => {
     try {
       const id = parseInt(req.params.id);
       if (isNaN(id)) {
         return res.status(400).json({ message: "Invalid scientist ID" });
       }
 
+      // Own-profile or privileged (Management/admin/superadmin). Demo mode passes.
+      if (!isDemo() && !isOwnScientistProfile(req, id) && !hasManagementRole(req)) {
+        return res.status(403).json({
+          message: "Forbidden. You may only edit your own scientist profile, or you need Management/admin access.",
+        });
+      }
+
       const validateData = insertScientistSchema.partial().parse(normalizeScientistPayload(req.body));
+      if (validateData.departmentId !== undefined || validateData.sectionId !== undefined) {
+        const existing = await storage.getScientist(id);
+        if (!existing) return res.status(404).json({ message: "Scientist not found" });
+        const orgError = await validateOrgAssignment(validateData, existing);
+        if (orgError) return res.status(400).json({ message: orgError });
+      }
       const scientist = await storage.updateScientist(id, validateData);
       
       if (!scientist) {
@@ -3402,11 +3345,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.delete('/api/scientists/:id', async (req: Request, res: Response) => {
+  app.delete('/api/scientists/:id', requireAuth, async (req: Request, res: Response) => {
     try {
       const id = parseInt(req.params.id);
       if (isNaN(id)) {
         return res.status(400).json({ message: "Invalid scientist ID" });
+      }
+
+      // Only Management/admin/superadmin may delete scientist profiles.
+      // Demo mode uses DEMO_ROLE=Management so this passes in dev.
+      if (!hasManagementRole(req)) {
+        return res.status(403).json({
+          message: "Forbidden. Management/admin access is required to delete a scientist profile.",
+        });
       }
 
       // Make sure the scientist exists before we go FK-hunting so the
@@ -3572,7 +3523,32 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post('/api/research-activities', async (req: Request, res: Response) => {
     try {
       const validatedData = insertResearchActivitySchema.parse(req.body);
+      const eligibilityError = await getInvestigatorAssignmentError(
+        validatedData.budgetHolderId,
+        "Budget Holder / Principal Investigator"
+      );
+      if (eligibilityError) {
+        return res
+          .status(eligibilityError.status)
+          .json({ message: eligibilityError.message });
+      }
       const newActivity = await storage.createResearchActivity(validatedData);
+
+      // Automatically add the Principal Investigator/Budget Holder to the
+      // research team so the SDR starts with its PI as a member.
+      if (newActivity.budgetHolderId) {
+        try {
+          await storage.addProjectMember({
+            researchActivityId: newActivity.id,
+            scientistId: newActivity.budgetHolderId,
+            role: "Principal Investigator",
+          });
+        } catch (memberError) {
+          // Don't fail SDR creation if the auto-add fails; log for diagnosis.
+          console.error("Failed to auto-add PI as team member:", memberError);
+        }
+      }
+
       res.status(201).json(newActivity);
     } catch (error) {
       if (error instanceof ZodError) {
@@ -3592,6 +3568,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       const validatedData = insertResearchActivitySchema.partial().parse(req.body);
+      const eligibilityError = await getInvestigatorAssignmentError(
+        validatedData.budgetHolderId,
+        "Budget Holder / Principal Investigator"
+      );
+      if (eligibilityError) {
+        return res
+          .status(eligibilityError.status)
+          .json({ message: eligibilityError.message });
+      }
       const updatedActivity = await storage.updateResearchActivity(id, validatedData);
       
       if (!updatedActivity) {
@@ -3678,8 +3663,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
           ...member,
           scientist: scientist ? {
             id: scientist.id,
-            name: scientist.name,
-            title: scientist.title,
+            name: `-e `,
+            title: scientist.jobTitle,
             profileImageInitials: scientist.profileImageInitials
           } : null
         };
@@ -3811,8 +3796,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
             researchActivityTitle: activity.title,
             scientist: scientist ? {
               id: scientist.id,
-              name: scientist.name,
-              title: scientist.title,
+              name: `-e `,
+              title: scientist.jobTitle,
               profileImageInitials: scientist.profileImageInitials
             } : null
           };
@@ -3874,6 +3859,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (!scientist) {
         return res.status(404).json({ message: "Scientist not found" });
       }
+
+      if (!isInvestigatorRoleAssignmentAllowed(validateData.role, scientist)) {
+        return res.status(400).json({
+          message:
+            "Only staff with an eligible Investigator designation can be assigned the role of Principal Investigator",
+        });
+      }
             
       const member = await storage.addProjectMember(validateData);
       
@@ -3883,8 +3875,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         researchActivityTitle: researchActivity.title,
         scientist: {
           id: scientist.id,
-          name: scientist.name,
-          title: scientist.title,
+          name: `-e `,
+          title: scientist.jobTitle,
           profileImageInitials: scientist.profileImageInitials
         }
       };
@@ -3994,10 +3986,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(404).json({ message: "Scientist not found" });
       }
       
-      // Validate role assignment: Only Investigators can be Principal Investigators
-      if (validateData.role === "Principal Investigator" && scientist.title !== "Investigator") {
+      // Principal Investigator is an investigator-only team role.
+      if (!isInvestigatorRoleAssignmentAllowed(validateData.role, scientist)) {
         return res.status(400).json({ 
-          message: "Only scientists with the job title 'Investigator' can be assigned the role of Principal Investigator" 
+          message: "Only staff with an eligible Investigator designation can be assigned the role of Principal Investigator"
         });
       }
       
@@ -4036,8 +4028,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         ...member,
         scientist: {
           id: scientist.id,
-          name: scientist.name,
-          title: scientist.title,
+          name: `-e `,
+          title: scientist.jobTitle,
           email: scientist.email,
           staffId: scientist.staffId,
           profileImageInitials: scientist.profileImageInitials
@@ -4445,51 +4437,28 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // Publications needing author-linking fixes for the current user.
-  // Returns only the logged-in user's likely publications that have a real
+  // Publications needing author-linking fixes for a requested scientist or,
+  // when no scientist is specified, the current user. Returns only that person's
+  // likely publications that have a real
   // author-linking problem: either no internal authors linked, or a linked
   // internal author that does not appear in the free-text author list.
   // Registered before "/api/publications/:id" so the literal path isn't
   // swallowed by the id param route.
   app.get('/api/publications/needs-author-fix', async (req: Request, res: Response) => {
     try {
-      // Resolve the current user's first/last name for author matching.
-      // In demo mode, the feature treats the user as "Dr. Wouter Hendrickx"
-      // (only for this feature; the rest of the demo identity is unchanged).
-      let firstName: string | null = null;
-      let lastName: string | null = null;
-
-      if (getAuthMode() === "demo") {
-        firstName = "Wouter";
-        lastName = "Hendrickx";
-      } else {
-        const sessionUser = req.session.user;
-        if (!sessionUser) {
-          return res.status(401).json({ message: "Not authenticated" });
-        }
-        // Prefer the linked scientist profile for accurate first/last name.
-        if (sessionUser.scientistId) {
-          const scientist = await storage.getScientist(sessionUser.scientistId);
-          if (scientist) {
-            firstName = scientist.firstName;
-            lastName = scientist.lastName;
-          }
-        }
-        // Fall back to parsing the session display name (strip an honorific).
-        if ((!firstName || !lastName) && sessionUser.name) {
-          const cleaned = sessionUser.name
-            .replace(/^(dr\.?|prof\.?|professor|mr\.?|ms\.?|mrs\.?|phd\.?|md\.?)\s+/i, '')
-            .trim();
-          const parts = cleaned.split(/\s+/);
-          if (parts.length >= 2) {
-            firstName = parts[0];
-            lastName = parts[parts.length - 1];
-          }
-        }
+      const subject = await resolveAuthorCheckSubject({
+        requestedScientistId: req.query.scientistId,
+        authMode: getAuthMode(),
+        sessionUser: req.session.user,
+        getScientist: (id) => storage.getScientist(id),
+      });
+      if (!subject.ok) {
+        return res.status(subject.status).json({ message: subject.message });
       }
 
+      const { firstName, lastName } = subject;
       if (!firstName || !lastName) {
-        // Can't determine the user's name, so there's nothing to match.
+        // Can't determine the target person's name, so there's nothing to match.
         return res.json([]);
       }
 
@@ -4507,7 +4476,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       const flagged = allPublications
-        // Only the logged-in user's likely publications.
+        // Only the target scientist/current user's likely publications.
         .filter(pub => matchesAuthorName(pub.authors, firstName, lastName))
         .map(pub => {
           const linkedAuthors = authorsByPublication.get(pub.id) || [];
@@ -4691,7 +4660,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post('/api/publications', async (req: Request, res: Response) => {
+  app.post('/api/publications', requireAuth, rejectPublicationCreateWorkflowMutation, async (req: Request, res: Response) => {
     try {
       // Create a validation schema that makes authors optional for concept status
       const createPublicationSchema = insertPublicationSchema.extend({
@@ -4706,11 +4675,35 @@ export async function registerRoutes(app: Express): Promise<Server> {
         status: validateData.status || "Concept"
       };
       
-      // Check if research activity exists if researchActivityId is provided
+      // Check the SDR and enforce record ownership for researcher-created
+      // publications. Outcome Office/management may create across all SDRs.
+      let researchActivity = null;
       if (publicationData.researchActivityId) {
-        const researchActivity = await storage.getResearchActivity(publicationData.researchActivityId);
+        researchActivity = await storage.getResearchActivity(publicationData.researchActivityId);
         if (!researchActivity) {
           return res.status(404).json({ message: "Research activity not found" });
+        }
+      }
+
+      if (!hasPublicationOfficerRole(req)) {
+        if (!researchActivity) {
+          return res.status(403).json({
+            message:
+              "Researchers must choose an SDR where they are the budget holder or a project member.",
+          });
+        }
+        const projectMembers = await storage.getProjectMembers(researchActivity.id);
+        if (
+          !canCreatePublicationForResearchActivity(
+            req,
+            researchActivity.budgetHolderId,
+            projectMembers.map((member) => member.scientistId)
+          )
+        ) {
+          return res.status(403).json({
+            message:
+              "You may only create publications for an SDR where you are the budget holder or a project member.",
+          });
         }
       }
       
@@ -4737,7 +4730,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.patch('/api/publications/:id', async (req: Request, res: Response) => {
+  app.patch('/api/publications/:id', requireAuth, rejectGenericPublicationWorkflowMutation, async (req: Request, res: Response) => {
     try {
       const id = parseInt(req.params.id);
       if (isNaN(id)) {
@@ -4760,30 +4753,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
         });
       }
 
-      // Final Outcome Office step: officer-only, and only allowed when the
-      // record has no unresolved issues. Mirrors the office's issue checklist.
-      if (validateData.status === 'Published *') {
-        const role = req.session?.user?.role;
-        const isOfficer = role === "Outcome Officer" || role === "admin" || role === "superadmin" || role === "Management";
-        if (!isOfficer) {
-          return res.status(403).json({ message: "Only the Outcome Office can mark a publication as Published *." });
-        }
-        const merged = { ...existing, ...validateData };
-        const issues: string[] = [];
-        if (!merged.journal?.trim()) issues.push('missing journal');
-        if (!merged.publicationDate) issues.push('missing publication date');
-        if (!merged.doi?.trim() && !merged.pmid?.trim()) issues.push('missing DOI/PMID');
-        if (!merged.authors?.trim()) issues.push('missing authors');
-        if (!merged.abstract?.trim()) issues.push('missing abstract');
-        if (!merged.researchActivityId) issues.push('no linked SDR');
-        const internalAuthors = await storage.getPublicationAuthors(id);
-        if (internalAuthors.length === 0) issues.push('no linked internal authors');
-        if (issues.length > 0) {
-          return res.status(400).json({
-            message: `Cannot mark as Published *: unresolved issues (${issues.join(', ')}).`,
-            issues,
-          });
-        }
+      const linkedAuthors = await storage.getPublicationAuthors(id);
+      if (
+        !canEditPublicationForLinkedScientists(
+          req,
+          linkedAuthors.map((author) => author.scientistId)
+        )
+      ) {
+        return res.status(403).json({
+          message:
+            "You may only edit publications linked to your scientist profile. Add or confirm your own internal-author link first, or ask Outcome Office for help.",
+        });
       }
 
       // Check if research activity exists if researchActivityId is provided
@@ -4809,7 +4789,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.delete('/api/publications/:id', async (req: Request, res: Response) => {
+  app.delete('/api/publications/:id', requireAuth, requirePublicationOfficer, async (req: Request, res: Response) => {
     try {
       const id = parseInt(req.params.id);
       if (isNaN(id)) {
@@ -4896,7 +4876,67 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Publication Status Management
-  app.patch('/api/publications/:id/status', async (req: Request, res: Response) => {
+  app.post(
+    '/api/publications/:id/ip-vet',
+    requirePublicationOfficer,
+    createIpVettingHandler(storage)
+  );
+
+  app.post('/api/publications/:id/finalize', requirePublicationOfficer, async (req: Request, res: Response) => {
+    try {
+      const id = parseInt(req.params.id);
+      if (isNaN(id)) {
+        return res.status(400).json({ message: "Invalid publication ID" });
+      }
+
+      const sessionUserId = req.session?.user?.id;
+      if (sessionUserId == null) {
+        return res.status(401).json({ message: "You must be signed in." });
+      }
+
+      const publication = await storage.getPublication(id);
+      if (!publication) {
+        return res.status(404).json({ message: "Publication not found" });
+      }
+      if (publication.status === "Published *") {
+        return res.status(403).json({
+          message:
+            "This publication is already sealed. Revert the final approval before making changes.",
+        });
+      }
+
+      const issues: string[] = [];
+      if (!publication.journal?.trim()) issues.push("missing journal");
+      if (!publication.publicationDate) issues.push("missing publication date");
+      if (!publication.doi?.trim() && !publication.pmid?.trim()) {
+        issues.push("missing DOI/PMID");
+      }
+      if (!publication.authors?.trim()) issues.push("missing authors");
+      if (!publication.abstract?.trim()) issues.push("missing abstract");
+      if (!publication.researchActivityId) issues.push("no linked SDR");
+      const internalAuthors = await storage.getPublicationAuthors(id);
+      if (internalAuthors.length === 0) issues.push("no linked internal authors");
+      if (issues.length > 0) {
+        return res.status(400).json({
+          message: `Cannot mark as Published *: unresolved issues (${issues.join(", ")}).`,
+          issues,
+        });
+      }
+
+      const updated = await storage.updatePublicationStatus(
+        id,
+        "Published *",
+        sessionUserId
+      );
+
+      res.json(updated);
+    } catch (error) {
+      console.error("Error finalizing publication:", error);
+      res.status(500).json({ message: "Failed to finalize publication" });
+    }
+  });
+
+  app.patch('/api/publications/:id/status', requireAuth, rejectProtectedPublicationStatusFields, async (req: Request, res: Response) => {
     try {
       const id = parseInt(req.params.id);
       if (isNaN(id)) {
@@ -4912,7 +4952,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Resolve the acting user from the session — never trust the client to
       // attribute a status change to someone else.
       const sessionUserId = req.session?.user?.id;
-      if (!sessionUserId) {
+      if (sessionUserId == null) {
         return res.status(401).json({ message: "You must be signed in to change publication status." });
       }
       const changedBy = sessionUserId;
@@ -4922,6 +4962,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
       
       if (!currentPublication) {
         return res.status(404).json({ message: "Publication not found" });
+      }
+
+      const linkedAuthors = await storage.getPublicationAuthors(id);
+      if (
+        !canEditPublicationForLinkedScientists(
+          req,
+          linkedAuthors.map((author) => author.scientistId)
+        )
+      ) {
+        return res.status(403).json({
+          message:
+            "You may only change the status of publications linked to your scientist profile, or ask Outcome Office for help.",
+        });
       }
 
       // Status validation logic. Each entry lists every status reachable from
@@ -4944,6 +4997,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
       };
 
       const currentStatus = currentPublication.status || 'Concept';
+      const workflowViolation = getStatusTransitionWorkflowViolation(
+        currentStatus,
+        status
+      );
+      if (workflowViolation) {
+        return res
+          .status(workflowViolation.statusCode)
+          .json({ message: workflowViolation.message });
+      }
       if (currentStatus === 'Published *') {
         return res.status(403).json({
           message: "This publication is sealed (Published *). Only the Outcome Office can revert the final approval.",
@@ -5058,7 +5120,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post('/api/publications/:id/authors', async (req: Request, res: Response) => {
+  app.post('/api/publications/:id/authors', requireAuth, async (req: Request, res: Response) => {
     try {
       const publicationId = parseInt(req.params.id);
       if (isNaN(publicationId)) {
@@ -5078,14 +5140,38 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(403).json({ message: "This publication is sealed (Published *). Revert the final approval before changing author links." });
       }
 
+      // Check if scientist is already an author before authorizing the action.
+      // Researchers may manage only their own link; new self-links must also
+      // match the free-text author list. Outcome Office may manage any link.
+      const existingAuthors = await storage.getPublicationAuthors(publicationId);
+      const existingAuthor = existingAuthors.find(author => author.scientistId === validateData.scientistId);
+      const targetScientist = existingAuthor?.scientist ?? await storage.getScientist(validateData.scientistId);
+      const allScientists = existingAuthor ? [] : await storage.getScientists();
+      const authorNameMatches = targetScientist
+        ? isUnambiguousAuthorMatch(
+            targetPub.authors,
+            targetScientist,
+            existingAuthor ? [targetScientist] : allScientists
+          )
+        : false;
+      if (
+        !canManagePublicationAuthorLink(
+          req,
+          validateData.scientistId,
+          Boolean(existingAuthor),
+          authorNameMatches
+        )
+      ) {
+        return res.status(403).json({
+          message:
+            "You may only add or update your own matching internal-author link. Ask Outcome Office to correct other author links.",
+        });
+      }
+
       // Attribution: this endpoint is the manual linking flow (detail page), so
       // every link/update it makes is stamped as a manual link by the acting
       // session user. linkedByUserId is nullable for legacy rows; we set it here.
       const actorId = (req.session as any)?.user?.id ?? null;
-
-      // Check if scientist is already an author
-      const existingAuthors = await storage.getPublicationAuthors(publicationId);
-      const existingAuthor = existingAuthors.find(author => author.scientistId === validateData.scientistId);
 
       if (existingAuthor) {
         // Update existing author by combining authorship types
@@ -5124,7 +5210,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.delete('/api/publications/:publicationId/authors/:scientistId', async (req: Request, res: Response) => {
+  app.delete('/api/publications/:publicationId/authors/:scientistId', requireAuth, async (req: Request, res: Response) => {
     try {
       const publicationId = parseInt(req.params.publicationId);
       const scientistId = parseInt(req.params.scientistId);
@@ -5136,6 +5222,22 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const targetPub = await storage.getPublication(publicationId);
       if (targetPub?.status === 'Published *') {
         return res.status(403).json({ message: "This publication is sealed (Published *). Revert the final approval before changing author links." });
+      }
+
+      const existingAuthors = await storage.getPublicationAuthors(publicationId);
+      const existingAuthor = existingAuthors.find(author => author.scientistId === scientistId);
+      if (
+        !canManagePublicationAuthorLink(
+          req,
+          scientistId,
+          Boolean(existingAuthor),
+          false
+        )
+      ) {
+        return res.status(403).json({
+          message:
+            "You may only remove your own internal-author link. Ask Outcome Office to correct other author links.",
+        });
       }
 
       const success = await storage.removePublicationAuthor(publicationId, scientistId);
@@ -5889,10 +5991,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(404).json({ message: "Research activity not found" });
       }
       
-      // Check if principal investigator exists
-      const pi = await storage.getScientist(validateData.principalInvestigatorId);
-      if (!pi) {
-        return res.status(404).json({ message: "Principal investigator not found" });
+      const piEligibilityError = await getInvestigatorAssignmentError(
+        validateData.principalInvestigatorId,
+        "IRB Principal Investigator"
+      );
+      if (piEligibilityError) {
+        return res
+          .status(piEligibilityError.status)
+          .json({ message: piEligibilityError.message });
       }
       
       const application = await storage.createIrbApplication(validateData);
@@ -5972,11 +6078,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }
       }
       
-      // Check if principal investigator exists if principalInvestigatorId is provided
+      // Validate investigator eligibility if principalInvestigatorId is provided.
       if (validateData.principalInvestigatorId) {
-        const pi = await storage.getScientist(validateData.principalInvestigatorId);
-        if (!pi) {
-          return res.status(404).json({ message: "Principal investigator not found" });
+        const piEligibilityError = await getInvestigatorAssignmentError(
+          validateData.principalInvestigatorId,
+          "IRB Principal Investigator"
+        );
+        if (piEligibilityError) {
+          return res
+            .status(piEligibilityError.status)
+            .json({ message: piEligibilityError.message });
         }
       }
       
@@ -6117,14 +6228,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const validateData = insertIbcApplicationSchema.parse(dataWithAutoFields);
       console.log("Schema validation successful:", JSON.stringify(validateData, null, 2));
       
-      // Check if principal investigator exists
-      console.log("Checking principal investigator with ID:", validateData.principalInvestigatorId);
-      const pi = await storage.getScientist(validateData.principalInvestigatorId);
-      if (!pi) {
-        console.log("Principal investigator not found");
-        return res.status(404).json({ message: "Principal investigator not found" });
+      console.log("Checking principal investigator eligibility with ID:", validateData.principalInvestigatorId);
+      const piEligibilityError = await getInvestigatorAssignmentError(
+        validateData.principalInvestigatorId,
+        "IBC Principal Investigator"
+      );
+      if (piEligibilityError) {
+        return res
+          .status(piEligibilityError.status)
+          .json({ message: piEligibilityError.message });
       }
-      console.log("Principal investigator found:", pi.name);
       
       // Validate research activities if provided
       if (researchActivityIds && Array.isArray(researchActivityIds)) {
@@ -6217,11 +6330,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }
       }
       
-      // Check if principal investigator exists if provided
+      // Validate investigator eligibility if provided.
       if (validateData.principalInvestigatorId) {
-        const pi = await storage.getScientist(validateData.principalInvestigatorId);
-        if (!pi) {
-          return res.status(404).json({ message: "Principal investigator not found" });
+        const piEligibilityError = await getInvestigatorAssignmentError(
+          validateData.principalInvestigatorId,
+          "IBC Principal Investigator"
+        );
+        if (piEligibilityError) {
+          return res
+            .status(piEligibilityError.status)
+            .json({ message: piEligibilityError.message });
         }
       }
       
@@ -6347,7 +6465,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
                   honorificTitle: scientist.honorificTitle,
                   firstName: scientist.firstName,
                   lastName: scientist.lastName,
-                  name: scientist.name,
+                  name: `-e `,
                   email: scientist.email,
                   department: scientist.department,
                   jobTitle: scientist.jobTitle,
@@ -7832,6 +7950,217 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // ── Organizational structure (Branch → Department → Section) ──────────────
+  const requireOrgManager = (req: Request, res: Response): boolean => {
+    const role = (req.session as any)?.user?.role;
+    if (role !== 'Management' && role !== 'admin' && role !== 'superadmin') {
+      res.status(403).json({ message: 'Only management or administrators can modify the organization structure' });
+      return false;
+    }
+    return true;
+  };
+
+  app.get('/api/branches', async (_req: Request, res: Response) => {
+    try {
+      res.json(await storage.getBranches());
+    } catch (error) {
+      console.error('Error fetching branches:', error);
+      res.status(500).json({ message: 'Failed to fetch branches' });
+    }
+  });
+
+  app.post('/api/branches', requireAuth, async (req: Request, res: Response) => {
+    if (!requireOrgManager(req, res)) return;
+    try {
+      const data = insertBranchSchema.parse(req.body);
+      res.status(201).json(await storage.createBranch(data));
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ message: 'Invalid branch data', errors: error.errors });
+      }
+      console.error('Error creating branch:', error);
+      res.status(500).json({ message: 'Failed to create branch' });
+    }
+  });
+
+  app.patch('/api/branches/:id', requireAuth, async (req: Request, res: Response) => {
+    if (!requireOrgManager(req, res)) return;
+    const id = parseInt(req.params.id);
+    if (isNaN(id)) return res.status(400).json({ message: 'Invalid branch ID' });
+    try {
+      const data = insertBranchSchema.partial().parse(req.body);
+      const updated = await storage.updateBranch(id, data);
+      if (!updated) return res.status(404).json({ message: 'Branch not found' });
+      res.json(updated);
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ message: 'Invalid branch data', errors: error.errors });
+      }
+      console.error('Error updating branch:', error);
+      res.status(500).json({ message: 'Failed to update branch' });
+    }
+  });
+
+  app.delete('/api/branches/:id', requireAuth, async (req: Request, res: Response) => {
+    if (!requireOrgManager(req, res)) return;
+    const id = parseInt(req.params.id);
+    if (isNaN(id)) return res.status(400).json({ message: 'Invalid branch ID' });
+    try {
+      const result = await storage.deleteBranch(id);
+      if (result !== true) {
+        const status = result === 'Branch not found.' ? 404 : 409;
+        return res.status(status).json({ message: result });
+      }
+      res.json({ message: 'Branch deleted successfully' });
+    } catch (error) {
+      console.error('Error deleting branch:', error);
+      res.status(500).json({ message: 'Failed to delete branch' });
+    }
+  });
+
+  app.get('/api/departments', async (_req: Request, res: Response) => {
+    try {
+      res.json(await storage.getDepartments());
+    } catch (error) {
+      console.error('Error fetching departments:', error);
+      res.status(500).json({ message: 'Failed to fetch departments' });
+    }
+  });
+
+  app.post('/api/departments', requireAuth, async (req: Request, res: Response) => {
+    if (!requireOrgManager(req, res)) return;
+    try {
+      const data = insertDepartmentSchema.parse(req.body);
+      const [branch] = await db.select().from(branches).where(eq(branches.id, data.branchId));
+      if (!branch) return res.status(400).json({ message: `Branch ${data.branchId} does not exist` });
+      res.status(201).json(await storage.createDepartment(data));
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ message: 'Invalid department data', errors: error.errors });
+      }
+      console.error('Error creating department:', error);
+      res.status(500).json({ message: 'Failed to create department' });
+    }
+  });
+
+  app.patch('/api/departments/:id', requireAuth, async (req: Request, res: Response) => {
+    if (!requireOrgManager(req, res)) return;
+    const id = parseInt(req.params.id);
+    if (isNaN(id)) return res.status(400).json({ message: 'Invalid department ID' });
+    try {
+      const data = insertDepartmentSchema.partial().parse(req.body);
+      if (data.branchId !== undefined) {
+        const [branch] = await db.select().from(branches).where(eq(branches.id, data.branchId));
+        if (!branch) return res.status(400).json({ message: `Branch ${data.branchId} does not exist` });
+      }
+      const updated = await storage.updateDepartment(id, data);
+      if (!updated) return res.status(404).json({ message: 'Department not found' });
+      res.json(updated);
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ message: 'Invalid department data', errors: error.errors });
+      }
+      console.error('Error updating department:', error);
+      res.status(500).json({ message: 'Failed to update department' });
+    }
+  });
+
+  app.delete('/api/departments/:id', requireAuth, async (req: Request, res: Response) => {
+    if (!requireOrgManager(req, res)) return;
+    const id = parseInt(req.params.id);
+    if (isNaN(id)) return res.status(400).json({ message: 'Invalid department ID' });
+    try {
+      const result = await storage.deleteDepartment(id);
+      if (result !== true) {
+        const status = result === 'Department not found.' ? 404 : 409;
+        return res.status(status).json({ message: result });
+      }
+      res.json({ message: 'Department deleted successfully' });
+    } catch (error) {
+      console.error('Error deleting department:', error);
+      res.status(500).json({ message: 'Failed to delete department' });
+    }
+  });
+
+  app.get('/api/sections', async (_req: Request, res: Response) => {
+    try {
+      res.json(await storage.getSections());
+    } catch (error) {
+      console.error('Error fetching sections:', error);
+      res.status(500).json({ message: 'Failed to fetch sections' });
+    }
+  });
+
+  app.post('/api/sections', requireAuth, async (req: Request, res: Response) => {
+    if (!requireOrgManager(req, res)) return;
+    try {
+      const data = insertSectionSchema.parse(req.body);
+      const [dept] = await db.select().from(departments).where(eq(departments.id, data.departmentId));
+      if (!dept) return res.status(400).json({ message: `Department ${data.departmentId} does not exist` });
+      res.status(201).json(await storage.createSection(data));
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ message: 'Invalid section data', errors: error.errors });
+      }
+      console.error('Error creating section:', error);
+      res.status(500).json({ message: 'Failed to create section' });
+    }
+  });
+
+  app.patch('/api/sections/:id', requireAuth, async (req: Request, res: Response) => {
+    if (!requireOrgManager(req, res)) return;
+    const id = parseInt(req.params.id);
+    if (isNaN(id)) return res.status(400).json({ message: 'Invalid section ID' });
+    try {
+      const data = insertSectionSchema.partial().parse(req.body);
+      if (data.departmentId !== undefined) {
+        const [dept] = await db.select().from(departments).where(eq(departments.id, data.departmentId));
+        if (!dept) return res.status(400).json({ message: `Department ${data.departmentId} does not exist` });
+        // Reparenting a section with staff assigned would leave those staff
+        // pointing at a section owned by a different department — block it.
+        const [current] = await db.select().from(sections).where(eq(sections.id, id));
+        if (!current) return res.status(404).json({ message: 'Section not found' });
+        if (current.departmentId !== data.departmentId) {
+          const [{ count: staffCount }] = await db
+            .select({ count: sql<number>`count(*)::int` })
+            .from(scientists)
+            .where(eq(scientists.sectionId, id));
+          if (staffCount > 0) {
+            return res.status(409).json({
+              message: `Cannot move this section to another department: ${staffCount} staff member(s) are assigned to it. Reassign them first.`,
+            });
+          }
+        }
+      }
+      const updated = await storage.updateSection(id, data);
+      if (!updated) return res.status(404).json({ message: 'Section not found' });
+      res.json(updated);
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ message: 'Invalid section data', errors: error.errors });
+      }
+      console.error('Error updating section:', error);
+      res.status(500).json({ message: 'Failed to update section' });
+    }
+  });
+
+  app.delete('/api/sections/:id', requireAuth, async (req: Request, res: Response) => {
+    if (!requireOrgManager(req, res)) return;
+    const id = parseInt(req.params.id);
+    if (isNaN(id)) return res.status(400).json({ message: 'Invalid section ID' });
+    try {
+      const result = await storage.deleteSection(id);
+      if (result !== true) {
+        const status = result === 'Section not found.' ? 404 : 409;
+        return res.status(status).json({ message: result });
+      }
+      res.json({ message: 'Section deleted successfully' });
+    } catch (error) {
+      console.error('Error deleting section:', error);
+      res.status(500).json({ message: 'Failed to delete section' });
+    }
+  });
+
   // Buildings API routes
   app.get('/api/buildings', async (req: Request, res: Response) => {
     try {
@@ -8657,6 +8986,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).json({ message: "Invalid scientist ID" });
       }
 
+      // Own profile OR publication officer group. Demo mode passes.
+      if (!isDemo() && !isOwnScientistProfile(req, id) && !hasPublicationOfficerRole(req)) {
+        return res.status(403).json({
+          message: "Forbidden. You may only import papers for your own linked profile, or you need Publication Officer access.",
+        });
+      }
+
       const scientist = await storage.getScientist(id);
       if (!scientist) {
         return res.status(404).json({ message: "Scientist not found" });
@@ -9462,6 +9798,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.post('/api/system-configurations', async (req, res) => {
     try {
+      if (req.body?.key === SIDRA_SCORE_SETTINGS_KEY && !hasPublicationOfficerRole(req)) {
+        return res.status(403).json({ error: 'Outcome Office access is required to change Sidra Score settings' });
+      }
       const config = await storage.createSystemConfiguration(req.body);
       res.status(201).json(config);
     } catch (error) {
@@ -9472,6 +9811,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.put('/api/system-configurations/:key', async (req, res) => {
     try {
+      if (req.params.key === SIDRA_SCORE_SETTINGS_KEY && !hasPublicationOfficerRole(req)) {
+        return res.status(403).json({ error: 'Outcome Office access is required to change Sidra Score settings' });
+      }
       const config = await storage.updateSystemConfiguration(req.params.key, req.body);
       if (!config) {
         return res.status(404).json({ error: 'Configuration not found' });
@@ -9485,6 +9827,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.delete('/api/system-configurations/:key', async (req, res) => {
     try {
+      if (req.params.key === SIDRA_SCORE_SETTINGS_KEY && !hasPublicationOfficerRole(req)) {
+        return res.status(403).json({ error: 'Outcome Office access is required to change Sidra Score settings' });
+      }
       const result = await storage.deleteSystemConfiguration(req.params.key);
       if (!result) {
         return res.status(404).json({ error: 'Configuration not found' });
@@ -9991,7 +10336,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     const allowedRoles = ['user', 'admin', 'Management', 'Investigator', 'Staff Scientist',
       'Lab Manager', 'Postdoctoral Researcher', 'PhD Student', 'IRB Board Member',
       'IBC Board Member', 'Outcome Officer', 'PMO Officer', 'IRB Officer',
-      'IBC Officer', 'Grant Officer', 'Contracts Officer', 'Physician'];
+      'IBC Officer', 'Grant Officer', 'Contracts Officer', 'IT Officer', 'Physician'];
     // superadmin role can only be set via SUPER_ADMIN_EMAIL env var — never by UI
     if (!role || !allowedRoles.includes(role)) {
       return res.status(400).json({ message: 'Invalid role' });
@@ -10008,7 +10353,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // POST /api/register — first-time user links their account to a scientist/staff profile
-  app.post('/api/register', requireAuth, async (req: Request, res: Response) => {
+  app.post(
+    '/api/register',
+    requireAuth,
+    requireInvestigatorDesignationManager,
+    async (req: Request, res: Response) => {
     const sessionUser = (req.session as any)?.user;
     if (!sessionUser) return res.status(401).json({ message: 'Not authenticated' });
     if (sessionUser.scientistId) {
@@ -10050,7 +10399,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
       console.error('Error during registration:', err);
       res.status(500).json({ message: 'Failed to create profile' });
     }
-  });
+    }
+  );
 
   // ── Access level helpers ─────────────────────────────────────────────────────
   const ACCESS_LEVEL_ORDER: Record<string, number> = { edit: 3, create: 2, view: 1, hide: 0 };

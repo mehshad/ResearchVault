@@ -117,7 +117,7 @@ const DEMO_PORT = (window as any).__DEMO_PORT__ ?? '8080';
 const DEMO_ORIGIN = `${window.location.protocol}//${window.location.hostname}:${DEMO_PORT}`;
 
 export default function DemoPage() {
-  const { authConfig } = useAuth();
+  const { authConfig, loading } = useAuth();
   const [, navigate] = useLocation();
   const isDemo = authConfig.mode === 'demo';
 
@@ -125,10 +125,10 @@ export default function DemoPage() {
   // instance as soon as the auth config is known — regardless of login state.
   // (Wouter handles /demo client-side so nginx's redirect never fires here.)
   useEffect(() => {
-    if (!isDemo && authConfig.mode !== 'loading') {
+    if (!isDemo && !loading) {
       window.location.replace(`${DEMO_ORIGIN}/app`);
     }
-  }, [isDemo, authConfig.mode]);
+  }, [isDemo, loading]);
 
   const handleLaunch = () => {
     if (isDemo) {

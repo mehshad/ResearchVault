@@ -4,7 +4,7 @@ import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Palette, Settings as SettingsIcon, MessageSquarePlus, Send, Lightbulb, Zap, AlertCircle, CheckCircle, Clock, X, ChevronDown, ChevronUp, ThumbsUp, User, Calendar, Users, ShieldCheck, KeyRound, Layers, Lock, Sun, Moon } from "lucide-react";
-import { useTheme, themes, defaultInstitutionLabels, TOGGLEABLE_SECTIONS, type InstitutionConfig } from "@/contexts/ThemeContext";
+import { useTheme, themes, defaultInstitutionLabels, TOGGLEABLE_SECTIONS, TOGGLEABLE_PAGES, type InstitutionConfig } from "@/contexts/ThemeContext";
 import { useTheme as useColorMode } from "next-themes";
 import { useAuth } from "@/hooks/useAuth";
 import { Button } from "@/components/ui/button";
@@ -71,7 +71,7 @@ const statusOptions = [
 ];
 
 export default function Settings() {
-  const { themeName, setTheme, institutionLabels, setInstitutionLabels, isSectionVisible, setSectionVisible, saveSettings } = useTheme();
+  const { themeName, setTheme, institutionLabels, setInstitutionLabels, isSectionVisible, setSectionVisible, isPageVisible, setPageVisible, saveSettings } = useTheme();
   const { resolvedTheme } = useColorMode();
   const mode = resolvedTheme === 'dark' ? 'dark' : 'light';
   const { authConfig } = useAuth();
@@ -626,8 +626,9 @@ IRIS (Intelligent Research Information Management System) is a research manageme
                 Section Rollout
               </CardTitle>
               <p className="text-sm text-muted-foreground">
-                Turn sections on or off to roll out the portal one area at a time. When a
-                section is off, its title still appears in the sidebar but the links below it are hidden.
+                Turn whole sections or individual pages on and off to roll out the portal one
+                area at a time. When a section is off, all its pages are hidden; within a
+                visible section, each page can be switched separately.
               </p>
             </CardHeader>
             <CardContent>
@@ -635,18 +636,44 @@ IRIS (Intelligent Research Information Management System) is a research manageme
                 {TOGGLEABLE_SECTIONS.map((sectionTitle) => (
                   <div
                     key={sectionTitle}
-                    className="flex items-center justify-between rounded-lg border p-3"
+                    className="rounded-lg border p-3 space-y-2"
                     data-testid={`row-section-${sectionTitle}`}
                   >
-                    <Label htmlFor={`switch-section-${sectionTitle}`} className="cursor-pointer">
-                      {sectionTitle}
-                    </Label>
-                    <Switch
-                      id={`switch-section-${sectionTitle}`}
-                      checked={isSectionVisible(sectionTitle)}
-                      onCheckedChange={(checked) => setSectionVisible(sectionTitle, checked)}
-                      data-testid={`switch-section-${sectionTitle}`}
-                    />
+                    <div className="flex items-center justify-between">
+                      <Label htmlFor={`switch-section-${sectionTitle}`} className="cursor-pointer font-medium">
+                        {sectionTitle}
+                      </Label>
+                      <Switch
+                        id={`switch-section-${sectionTitle}`}
+                        checked={isSectionVisible(sectionTitle)}
+                        onCheckedChange={(checked) => setSectionVisible(sectionTitle, checked)}
+                        data-testid={`switch-section-${sectionTitle}`}
+                      />
+                    </div>
+                    {isSectionVisible(sectionTitle) && (TOGGLEABLE_PAGES[sectionTitle] || []).length > 0 && (
+                      <div className="ml-4 border-l pl-4 space-y-2">
+                        {(TOGGLEABLE_PAGES[sectionTitle] || []).map((page) => (
+                          <div
+                            key={page.href}
+                            className="flex items-center justify-between"
+                            data-testid={`row-page-${page.href}`}
+                          >
+                            <Label
+                              htmlFor={`switch-page-${page.href}`}
+                              className="cursor-pointer text-sm text-muted-foreground"
+                            >
+                              {page.label}
+                            </Label>
+                            <Switch
+                              id={`switch-page-${page.href}`}
+                              checked={isPageVisible(page.href)}
+                              onCheckedChange={(checked) => setPageVisible(page.href, checked)}
+                              data-testid={`switch-page-${page.href}`}
+                            />
+                          </div>
+                        ))}
+                      </div>
+                    )}
                   </div>
                 ))}
               </div>

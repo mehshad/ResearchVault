@@ -66,9 +66,12 @@ export const scientists = pgTable("scientists", {
   firstName: text("first_name").notNull(),
   lastName: text("last_name").notNull(),
   jobTitle: text("job_title"), // Job title (Investigator, Manager, etc.)
+  isInvestigator: boolean("is_investigator").notNull().default(false), // Additional management-controlled investigator designation
   email: text("email").notNull().unique(),
   staffId: text("staff_id").unique(), // 5-digit staff ID for badges
-  department: text("department"),
+  department: text("department"), // legacy free-text department (kept for display)
+  departmentId: integer("department_id"), // references departments.id (structured org)
+  sectionId: integer("section_id"), // references sections.id (structured org)
   bio: text("bio"),
   profileImageInitials: text("profile_image_initials"), // Storing initials for avatar
   supervisorId: integer("supervisor_id"), // Line manager, references scientists.id (optional)
@@ -87,6 +90,68 @@ export const insertScientistSchema = createInsertSchema(scientists).omit({
   createdAt: true,
   updatedAt: true,
 });
+
+// Organizational structure: Branch → Department → Section
+export const branches = pgTable("branches", {
+  id: serial("id").primaryKey(),
+  name: text("name").notNull(),
+  description: text("description"),
+  headId: integer("head_id"), // references scientists.id (optional)
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+export const insertBranchSchema = createInsertSchema(branches).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export const departments = pgTable("departments", {
+  id: serial("id").primaryKey(),
+  branchId: integer("branch_id").notNull(), // references branches.id
+  name: text("name").notNull(),
+  description: text("description"),
+  headId: integer("head_id"), // references scientists.id (optional)
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+export const insertDepartmentSchema = createInsertSchema(departments).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export const SECTION_TYPES = ["Laboratory", "Office", "Core", "Clinic"] as const;
+
+export const sections = pgTable("sections", {
+  id: serial("id").primaryKey(),
+  departmentId: integer("department_id").notNull(), // references departments.id
+  name: text("name").notNull(),
+  type: text("type").notNull(), // Laboratory | Office | Core
+  description: text("description"),
+  headId: integer("head_id"), // references scientists.id (optional)
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+export const insertSectionSchema = createInsertSchema(sections)
+  .omit({
+    id: true,
+    createdAt: true,
+    updatedAt: true,
+  })
+  .extend({
+    type: z.enum(SECTION_TYPES),
+  });
+
+export type Branch = typeof branches.$inferSelect;
+export type InsertBranch = z.infer<typeof insertBranchSchema>;
+export type Department = typeof departments.$inferSelect;
+export type InsertDepartment = z.infer<typeof insertDepartmentSchema>;
+export type Section = typeof sections.$inferSelect;
+export type InsertSection = z.infer<typeof insertSectionSchema>;
 
 // Programs (PRM) - The highest level of research organization
 export const programs = pgTable("programs", {

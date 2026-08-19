@@ -7,9 +7,22 @@ import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { ArrowLeft, Save, RotateCcw, Eye, EyeOff, Edit, ArrowUp, Trash2, Plus } from "lucide-react";
+import {
+  ArrowLeft,
+  Save,
+  RotateCcw,
+  Eye,
+  EyeOff,
+  Edit,
+  ArrowUp,
+  Trash2,
+  Plus,
+  ShieldCheck,
+  LockKeyhole,
+} from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { usePermissions, type AccessLevel, type NavigationPermission } from "@/hooks/usePermissions";
+import { JOB_TITLES, NAVIGATION_ITEMS } from "@shared/constants";
 
 const KNOWN_RELATIONSHIPS = [
   "is_author",
@@ -20,6 +33,58 @@ const KNOWN_RELATIONSHIPS = [
   "is_requester",
 ] as const;
 
+const SERVER_ENFORCED_RULES = [
+  {
+    category: "Investigator eligibility",
+    title: "Only approved staff can be Principal Investigators",
+    appliesTo: "Project leads, program leadership, research activity PI/budget holders, IRB/IBC PIs, and PI team roles",
+    enforcement:
+      "A staff member must have the Investigator or Staff Scientist title, or an additional Investigator designation. The system rejects ineligible assignments even if a request bypasses the screen.",
+  },
+  {
+    category: "Investigator eligibility",
+    title: "Staff cannot grant themselves Investigator authority",
+    appliesTo: "Staff profiles and first-time registration",
+    enforcement:
+      "Only Management, administrators, or superadministrators can set the additional Investigator designation or an eligibility-granting title. Ordinary profile updates remain available without those fields.",
+  },
+  {
+    category: "Staff records",
+    title: "Profile changes are limited to the owner or Management",
+    appliesTo: "Staff profile edits and deletion",
+    enforcement:
+      "Staff can update their own profile. Management and administrators can manage all profiles. Deletion is limited to Management/administrators and is blocked while a profile is referenced by other records.",
+  },
+  {
+    category: "Account administration",
+    title: "Only administrators can change user roles",
+    appliesTo: "User access administration",
+    enforcement:
+      "Only administrators and superadministrators can update a user's role. The superadministrator role cannot be assigned from the interface.",
+  },
+  {
+    category: "Ownership access",
+    title: "Record relationships can elevate access",
+    appliesTo: "Configured ownership rules, such as being an author, PI, or requester",
+    enforcement:
+      "The effective access level uses the higher of the role-based access and a configured ownership override. Ownership rules are managed separately by administrators.",
+  },
+  {
+    category: "Publication workflow",
+    title: "IP vetting and sealed publications have extra safeguards",
+    appliesTo: "Publication status changes and corrections",
+    enforcement:
+      "Only an Outcome Officer or higher authority can move a Complete Draft through IP vetting. Published records are sealed from ordinary changes; researcher corrections are limited to linked records.",
+  },
+  {
+    category: "Staff data",
+    title: "Bulk staff imports are restricted",
+    appliesTo: "Staff import preview and apply actions",
+    enforcement:
+      "Only administrators can preview or apply staff imports. Organization assignments are also validated before staff records are saved.",
+  },
+] as const;
+
 interface OwnershipOverride {
   id: number;
   module: string;
@@ -27,48 +92,6 @@ interface OwnershipOverride {
   grantedAccess: string;
   description: string | null;
 }
-
-const JOB_TITLES = [
-  "Investigator",
-  "Staff Scientist", 
-  "Physician",
-  "Research Specialist",
-  "Research Associate",
-  "Research Assistant",
-  "Lab Manager",
-  "Postdoctoral Researcher",
-  "PhD Student",
-  "Management",
-  "IRB Board Member",
-  "IBC Board Member", 
-  "PMO Officer",
-  "IRB Officer",
-  "IBC Officer",
-  "Outcome Officer",
-  "Grant Officer"
-];
-
-const NAVIGATION_ITEMS = [
-  { id: "dashboard", name: "Dashboard", description: "System overview and statistics" },
-  { id: "scientists", name: "Scientists & Staff", description: "Research team management" },
-  { id: "facilities", name: "Facilities", description: "Buildings and rooms management" },
-  { id: "programs", name: "Programs (PRM)", description: "Research programs" },
-  { id: "projects", name: "Projects (PRJ)", description: "Research projects" },
-  { id: "research-activities", name: "Research Activities (SDR)", description: "Scientific data records" },
-  { id: "irb-applications", name: "IRB Applications", description: "Ethics review applications" },
-  { id: "irb-office", name: "IRB Office", description: "IRB administration" },
-  { id: "irb-reviewer", name: "IRB Reviewer", description: "IRB review interface" },
-  { id: "ibc-applications", name: "IBC Applications", description: "Biosafety applications" },
-  { id: "ibc-office", name: "IBC Office", description: "IBC administration" },
-  { id: "ibc-reviewer", name: "IBC Reviewer", description: "IBC review interface" },
-  { id: "data-management", name: "Data Management Plans", description: "Research data governance" },
-  { id: "contracts", name: "Research Contracts", description: "Collaboration agreements" },
-  { id: "publications", name: "Publications", description: "Academic publications" },
-  { id: "outcome-office", name: "Outcome Office", description: "Research outcomes and impact tracking" },
-  { id: "patents", name: "Patents", description: "Intellectual property" },
-  { id: "reports", name: "Reports", description: "System reports and analytics" },
-  { id: "grants", name: "Grants", description: "Research grants and funding" }
-];
 
 export default function RoleAccessConfig({ embedded = false }: { embedded?: boolean }) {
   const { toast } = useToast();
@@ -271,25 +294,72 @@ export default function RoleAccessConfig({ embedded = false }: { embedded?: bool
       )}
 
       <Card>
-        <CardHeader>
-          <CardTitle>Permission Matrix</CardTitle>
+        <CardHeader className="space-y-3">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <CardTitle className="flex items-center gap-2">
+              <ShieldCheck className="h-5 w-5 text-primary" />
+              Server-Enforced Access Rules
+            </CardTitle>
+            <Badge variant="secondary" className="gap-1">
+              <LockKeyhole className="h-3 w-3" />
+              Read only
+            </Badge>
+          </div>
           <p className="text-sm text-muted-foreground">
-            Configure navigation access levels for each job role: Hide (not visible), View Only (read-only), or Full Access (can edit). 
-            By default, all roles have Full Access to all navigation items.
+            These safeguards are enforced by the system and cannot be overridden by the
+            navigation matrix below. They are shown here so access decisions remain
+            transparent as the platform evolves.
+          </p>
+        </CardHeader>
+        <CardContent>
+          <div className="grid gap-3 lg:grid-cols-2">
+            {SERVER_ENFORCED_RULES.map((rule) => (
+              <section
+                key={rule.title}
+                className="rounded-lg border bg-muted/20 p-4"
+                aria-label={rule.title}
+              >
+                <Badge variant="outline" className="mb-3 text-xs">
+                  {rule.category}
+                </Badge>
+                <h3 className="font-medium leading-tight">{rule.title}</h3>
+                <dl className="mt-3 space-y-2 text-sm">
+                  <div>
+                    <dt className="font-medium text-muted-foreground">Applies to</dt>
+                    <dd className="mt-0.5">{rule.appliesTo}</dd>
+                  </div>
+                  <div>
+                    <dt className="font-medium text-muted-foreground">System rule</dt>
+                    <dd className="mt-0.5 text-muted-foreground">{rule.enforcement}</dd>
+                  </div>
+                </dl>
+              </section>
+            ))}
+          </div>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Navigation Permission Matrix</CardTitle>
+          <p className="text-sm text-muted-foreground">
+            Configure navigation visibility and screen-level access for each job role:
+            Hide (not visible), View Only (read-only), or Full Access (can edit).
+            Server-enforced rules above still apply to every request.
           </p>
         </CardHeader>
         
         {/* Quick Navigation */}
-        <div className="border-b px-6 py-4">
+        <div className="sticky top-0 z-20 border-b bg-card/95 px-6 py-4 backdrop-blur supports-[backdrop-filter]:bg-card/80">
           <h3 className="text-sm font-medium mb-3 text-muted-foreground">Quick Navigation</h3>
-          <div className="flex flex-wrap gap-2">
+          <div className="flex gap-2 overflow-x-auto pb-1">
             {NAVIGATION_ITEMS.map((navItem) => (
               <Button
                 key={navItem.id}
                 variant="outline"
                 size="sm"
                 onClick={() => scrollToSection(navItem.id)}
-                className="text-xs h-7"
+                className="h-7 shrink-0 text-xs"
               >
                 {navItem.name}
               </Button>
@@ -299,7 +369,7 @@ export default function RoleAccessConfig({ embedded = false }: { embedded?: bool
         <CardContent>
           <div className="space-y-6">
             {NAVIGATION_ITEMS.map((navItem) => (
-              <div key={navItem.id} id={`section-${navItem.id}`} className="space-y-3 scroll-mt-4">
+              <div key={navItem.id} id={`section-${navItem.id}`} className="scroll-mt-28 space-y-3">
                 <div className="flex items-center justify-between border-b pb-2">
                   <div>
                     <h3 className="font-medium text-lg">{navItem.name}</h3>

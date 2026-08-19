@@ -25,8 +25,11 @@ import { useQuery, useMutation } from "@tanstack/react-query";
 import { queryClient, apiRequest, invalidateScientistLists } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { insertScientistSchema } from "@shared/schema";
-import { Scientist } from "@shared/schema";
+import { Scientist, Department, Section } from "@shared/schema";
 import { ArrowLeft } from "lucide-react";
+import { useAuth } from "@/hooks/useAuth";
+import { useCurrentUser } from "@/hooks/useCurrentUser";
+import { INVESTIGATOR_ELIGIBLE_JOB_TITLES } from "@shared/investigatorEligibility";
 
 // Extend the insert schema with additional validations
 const createScientistSchema = insertScientistSchema.extend({
@@ -35,6 +38,8 @@ const createScientistSchema = insertScientistSchema.extend({
   lastName: z.string().min(1, "Last name is required"),
   honorificTitle: z.string().min(1, "Honorific title is required"),
   supervisorId: z.number().nullable().optional(),
+  departmentId: z.number().nullable().optional(),
+  sectionId: z.number().nullable().optional(),
   staffType: z.enum(["scientific", "administrative"]).default("scientific"),
 });
 
@@ -43,11 +48,26 @@ type CreateScientistFormValues = z.infer<typeof createScientistSchema>;
 export default function CreateScientist() {
   const [, navigate] = useLocation();
   const { toast } = useToast();
+  const { user, authConfig } = useAuth();
+  const { currentUser } = useCurrentUser();
+  const effectiveRole =
+    authConfig.mode === "demo" ? currentUser.role : (user?.role ?? "user");
+  const canManage = ["Management", "admin", "superadmin"].includes(effectiveRole);
   
   // Fetch all scientists for line manager selection
   const { data: allScientists = [] } = useQuery<Scientist[]>({
     queryKey: ['/api/scientists'],
     queryFn: () => fetch('/api/scientists').then(res => res.json()),
+  });
+
+  // Structured org data for Department + Section dropdowns
+  const { data: departments = [] } = useQuery<Department[]>({
+    queryKey: ['/api/departments'],
+    queryFn: () => fetch('/api/departments').then(res => res.json()),
+  });
+  const { data: sections = [] } = useQuery<Section[]>({
+    queryKey: ['/api/sections'],
+    queryFn: () => fetch('/api/sections').then(res => res.json()),
   });
 
   // Default form values  
@@ -59,10 +79,13 @@ export default function CreateScientist() {
     email: "",
     staffId: "",
     department: "",
+    departmentId: null,
+    sectionId: null,
     bio: "",
     profileImageInitials: "",
     supervisorId: null,
     staffType: "scientific",
+    isInvestigator: false,
   };
 
   const form = useForm<CreateScientistFormValues>({
@@ -100,7 +123,29 @@ export default function CreateScientist() {
 
     // supervisorId can be null if no line manager is selected
 
-    createScientistMutation.mutate(normalizeOptionalScientistFields(data));
+    const payload = normalizeOptionalScientistFields(data);
+    if (!canManage) {
+      delete payload.isInvestigator;
+    }
+    createScientistMutation.mutate(payload);
+  };
+
+  // When validation fails, the errored field may be off-screen — scroll to it
+  // and tell the user something needs fixing so the click never feels dead.
+  const onInvalid = (errors: Record<string, any>) => {
+    const firstField = Object.keys(errors)[0];
+    const el =
+      document.querySelector(`[name="${firstField}"]`) ||
+      document.querySelector('[aria-invalid="true"]');
+    if (el) {
+      el.scrollIntoView({ behavior: "smooth", block: "center" });
+      (el as HTMLElement).focus?.();
+    }
+    toast({
+      title: "Please fix the highlighted fields",
+      description: "Some required fields are missing or invalid.",
+      variant: "destructive",
+    });
   };
 
   return (
@@ -120,7 +165,7 @@ export default function CreateScientist() {
         </CardHeader>
         <CardContent>
           <Form {...form}>
-            <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
+            <form onSubmit={form.handleSubmit(onSubmit, onInvalid)} className="space-y-6">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 <FormField
                   control={form.control}
@@ -224,15 +269,23 @@ export default function CreateScientist() {
                       'Management', 'Investigator', 'Physician', 'Staff Scientist',
                       'Research Specialist', 'Research Associate', 'Research Assistant',
                       'PhD Student', 'Post-doctoral Fellow', 'Lab Manager',
-                      'PMO Officer', 'IRB Officer', 'IBC Officer', 'Outcome Officer', 'Grant Officer',
+                      'PMO Officer', 'IRB Officer', 'IBC Officer', 'Outcome Officer', 'Grant Officer', 'IT Officer',
                     ];
-                    const administrativeRoles = ['Management', 'PMO Officer', 'IRB Officer', 'IBC Officer', 'Lab Manager', 'Outcome Officer', 'Grant Officer'];
+                    const administrativeRoles = ['Management', 'PMO Officer', 'IRB Officer', 'IBC Officer', 'Lab Manager', 'Outcome Officer', 'Grant Officer', 'IT Officer'];
                     return (
                       <FormItem>
                         <FormLabel>Job Title</FormLabel>
                         <FormControl>
                           <SearchableSelect
-                            options={jobTitles.map((t) => ({ value: t, label: t }))}
+                            options={jobTitles
+                              .filter(
+                                (title) =>
+                                  canManage ||
+                                  !INVESTIGATOR_ELIGIBLE_JOB_TITLES.includes(
+                                    title as (typeof INVESTIGATOR_ELIGIBLE_JOB_TITLES)[number]
+                                  )
+                              )
+                              .map((t) => ({ value: t, label: t }))}
                             value={field.value || ""}
                             onChange={(value) => {
                               field.onChange(value);
@@ -251,6 +304,31 @@ export default function CreateScientist() {
                     );
                   }}
                 />
+
+                {canManage && (
+                  <FormField
+                    control={form.control}
+                    name="isInvestigator"
+                    render={({ field }) => (
+                      <FormItem className="flex flex-row items-center justify-between rounded-lg border p-4">
+                        <div className="space-y-0.5">
+                          <FormLabel>Additional Investigator designation</FormLabel>
+                          <FormDescription>
+                            Allows this staff member to lead projects and fill
+                            investigator-only roles without changing their job title.
+                          </FormDescription>
+                        </div>
+                        <FormControl>
+                          <Switch
+                            checked={field.value}
+                            onCheckedChange={field.onChange}
+                            aria-label="Additional Investigator designation"
+                          />
+                        </FormControl>
+                      </FormItem>
+                    )}
+                  />
+                )}
                 
                 <FormField
                   control={form.control}
@@ -282,16 +360,72 @@ export default function CreateScientist() {
                 
                 <FormField
                   control={form.control}
-                  name="department"
+                  name="departmentId"
                   render={({ field }) => (
                     <FormItem>
                       <FormLabel>Department</FormLabel>
                       <FormControl>
-                        <Input placeholder="Molecular Biology" autoComplete="off" data-1p-ignore="true" data-lpignore="true" {...field} value={field.value || ""} />
+                        <SearchableSelect
+                          options={departments.map((d) => ({
+                            value: d.id.toString(),
+                            label: d.name,
+                            searchText: d.name,
+                          }))}
+                          value={field.value?.toString() || ""}
+                          onChange={(value) => {
+                            field.onChange(value ? parseInt(value) : null);
+                            // Section belongs to a department — clear it on change
+                            form.setValue("sectionId", null);
+                          }}
+                          placeholder="Select department (optional)"
+                          searchPlaceholder="Search departments..."
+                          emptyMessage="No departments found. Managers can add them under Facilities → Organization."
+                          data-testid="select-department"
+                        />
                       </FormControl>
                       <FormMessage />
                     </FormItem>
                   )}
+                />
+
+                <FormField
+                  control={form.control}
+                  name="sectionId"
+                  render={({ field }) => {
+                    const deptId = form.watch("departmentId");
+                    const available = sections.filter((s) => !deptId || s.departmentId === deptId);
+                    return (
+                      <FormItem>
+                        <FormLabel>Section</FormLabel>
+                        <FormControl>
+                          <SearchableSelect
+                            options={available.map((s) => ({
+                              value: s.id.toString(),
+                              label: `${s.name} — ${s.type}`,
+                              searchText: `${s.name} ${s.type}`,
+                            }))}
+                            value={field.value?.toString() || ""}
+                            onChange={(value) => {
+                              field.onChange(value ? parseInt(value) : null);
+                              // Selecting a section also sets its department
+                              if (value) {
+                                const sec = sections.find((s) => s.id === parseInt(value));
+                                if (sec) form.setValue("departmentId", sec.departmentId);
+                              }
+                            }}
+                            placeholder="Select section (optional)"
+                            searchPlaceholder="Search sections..."
+                            emptyMessage="No sections found for this department."
+                            data-testid="select-section"
+                          />
+                        </FormControl>
+                        <FormDescription>
+                          Lab, office, or core within the department
+                        </FormDescription>
+                        <FormMessage />
+                      </FormItem>
+                    );
+                  }}
                 />
                 
 

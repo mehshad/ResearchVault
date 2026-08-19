@@ -21,6 +21,7 @@ export const JOB_TITLES = [
   "Outcome Officer",
   "Grant Officer",
   "Contracts Officer",
+  "IT Officer",
 ] as const;
 
 export type JobTitle = typeof JOB_TITLES[number];

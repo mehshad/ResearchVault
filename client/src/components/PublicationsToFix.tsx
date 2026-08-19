@@ -6,6 +6,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Users, AlertTriangle, UserX, CheckCircle2, ExternalLink } from "lucide-react";
+import { apiRequest } from "@/lib/queryClient";
 
 interface FlaggedPublication {
   publication: {
@@ -24,13 +25,26 @@ interface PublicationsToFixProps {
   className?: string;
   /** Render as a section inside another card (no own Card chrome). */
   embedded?: boolean;
+  /** Scope the scan to the scientist whose profile is being viewed. */
+  scientistId?: number;
 }
 
-export function PublicationsToFix({ className, embedded = false }: PublicationsToFixProps) {
+export function PublicationsToFix({
+  className,
+  embedded = false,
+  scientistId,
+}: PublicationsToFixProps) {
   const [enabled, setEnabled] = useState(false);
+  const endpoint = scientistId
+    ? `/api/publications/needs-author-fix?scientistId=${scientistId}`
+    : "/api/publications/needs-author-fix";
 
   const { data: flagged = [], isLoading, isFetching, refetch } = useQuery<FlaggedPublication[]>({
-    queryKey: ["/api/publications/needs-author-fix"],
+    queryKey: ["/api/publications/needs-author-fix", scientistId ?? "current-user"],
+    queryFn: async () => {
+      const response = await apiRequest("GET", endpoint);
+      return response.json();
+    },
     enabled,
     // Always re-run the scan when triggered so a publication fixed elsewhere
     // (e.g. on its detail page) drops off the list instead of showing stale data.

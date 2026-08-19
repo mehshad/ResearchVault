@@ -18,6 +18,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { SearchableSelect } from "@/components/ui/searchable-select";
+import { Switch } from "@/components/ui/switch";
 import { formatFullName } from "@/utils/nameUtils";
 import { normalizeOptionalScientistFields } from "@/utils/scientistForm";
 import {
@@ -33,10 +34,12 @@ import {
 } from "@/components/ui/alert-dialog";
 import { queryClient, apiRequest, invalidateScientistLists } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
-import { insertScientistSchema, type Scientist } from "@shared/schema";
+import { insertScientistSchema, type Scientist, type Department, type Section } from "@shared/schema";
 import { ArrowLeft, Loader2, Trash2 } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
 import React, { useEffect, useState } from "react";
+import { useAuth } from "@/hooks/useAuth";
+import { useCurrentUser } from "@/hooks/useCurrentUser";
 
 // Extend the insert schema with additional validations
 const editScientistSchema = insertScientistSchema.extend({
@@ -44,6 +47,8 @@ const editScientistSchema = insertScientistSchema.extend({
   lastName: z.string().min(1, "Last name is required"),
   email: z.string().email("Please enter a valid email address"),
   honorificTitle: z.string().min(1, "Honorific title is required"),
+  departmentId: z.number().nullable().optional(),
+  sectionId: z.number().nullable().optional(),
   staffType: z.enum(["scientific", "administrative"]).default("scientific"),
 });
 
@@ -54,6 +59,13 @@ export default function EditScientist() {
   const [, navigate] = useLocation();
   const { toast } = useToast();
   const queryClient = useQueryClient();
+  const { user, authConfig } = useAuth();
+  const { currentUser } = useCurrentUser();
+  const targetId = parseInt(id || "0");
+  const isOwner = (authConfig.mode === "demo" ? currentUser.id : user?.scientistId) === targetId;
+  const effectiveRole = authConfig.mode === "demo" ? currentUser.role : (user?.role ?? "user");
+  const canManage = ["Management", "admin", "superadmin"].includes(effectiveRole);
+  const canEdit = isOwner || canManage;
 
   // Fetch the scientist data
   const { data: scientist, isLoading } = useQuery<Scientist>({
@@ -68,6 +80,16 @@ export default function EditScientist() {
     queryFn: () => fetch('/api/scientists').then(res => res.json()),
   });
 
+  // Structured org data for Department + Section dropdowns
+  const { data: departments = [] } = useQuery<Department[]>({
+    queryKey: ['/api/departments'],
+    queryFn: () => fetch('/api/departments').then(res => res.json()),
+  });
+  const { data: sections = [] } = useQuery<Section[]>({
+    queryKey: ['/api/sections'],
+    queryFn: () => fetch('/api/sections').then(res => res.json()),
+  });
+
   const form = useForm<EditScientistFormValues>({
     resolver: zodResolver(editScientistSchema),
     defaultValues: {
@@ -78,6 +100,8 @@ export default function EditScientist() {
       email: "",
       staffId: "",
       department: "",
+      departmentId: null,
+      sectionId: null,
       bio: "",
       profileImageInitials: "",
       supervisorId: null,
@@ -86,6 +110,7 @@ export default function EditScientist() {
       linkedInUrl: "",
       googleScholarUrl: "",
       webOfScienceId: "",
+      isInvestigator: false,
     },
   });
 
@@ -100,6 +125,8 @@ export default function EditScientist() {
         email: scientist.email || "",
         staffId: scientist.staffId || "",
         department: scientist.department || "",
+        departmentId: scientist.departmentId ?? null,
+        sectionId: scientist.sectionId ?? null,
         bio: scientist.bio || "",
         profileImageInitials: scientist.profileImageInitials || "",
         supervisorId: scientist.supervisorId || null,
@@ -108,6 +135,7 @@ export default function EditScientist() {
         linkedInUrl: scientist.linkedInUrl || "",
         googleScholarUrl: scientist.googleScholarUrl || "",
         webOfScienceId: scientist.webOfScienceId || "",
+        isInvestigator: scientist.isInvestigator ?? false,
       });
     }
   }, [scientist, form]);
@@ -192,7 +220,30 @@ export default function EditScientist() {
       data.profileImageInitials = `${data.firstName[0]}${data.lastName[0]}`;
     }
     
-    updateScientistMutation.mutate(normalizeOptionalScientistFields(data));
+    const payload = normalizeOptionalScientistFields(data);
+    if (!canManage) {
+      delete payload.isInvestigator;
+      delete payload.jobTitle;
+    }
+    updateScientistMutation.mutate(payload);
+  };
+
+  // When validation fails, the errored field may be off-screen — scroll to it
+  // and tell the user something needs fixing so the click never feels dead.
+  const onInvalid = (errors: Record<string, any>) => {
+    const firstField = Object.keys(errors)[0];
+    const el =
+      document.querySelector(`[name="${firstField}"]`) ||
+      document.querySelector('[aria-invalid="true"]');
+    if (el) {
+      el.scrollIntoView({ behavior: "smooth", block: "center" });
+      (el as HTMLElement).focus?.();
+    }
+    toast({
+      title: "Please fix the highlighted fields",
+      description: "Some required fields are missing or invalid.",
+      variant: "destructive",
+    });
   };
 
   if (isLoading) {
@@ -239,6 +290,15 @@ export default function EditScientist() {
     );
   }
 
+  if (!canEdit) {
+    return (
+      <div className="space-y-6">
+        <Button variant="ghost" size="sm" onClick={() => navigate(`/scientists/${targetId}`)}><ArrowLeft className="mr-1 h-4 w-4" />Return to profile</Button>
+        <Card><CardHeader><CardTitle>Profile is read-only</CardTitle><CardDescription>You can only edit your own profile. Contact Management if this record needs an administrative change.</CardDescription></CardHeader><CardContent><Button onClick={() => navigate(`/scientists/${targetId}`)}>View profile</Button></CardContent></Card>
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-6">
       <div className="flex items-center gap-2">
@@ -256,7 +316,7 @@ export default function EditScientist() {
         </CardHeader>
         <CardContent>
           <Form {...form}>
-            <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
+            <form onSubmit={form.handleSubmit(onSubmit, onInvalid)} className="space-y-6">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 <FormField
                   control={form.control}
@@ -360,7 +420,7 @@ export default function EditScientist() {
                       'Management', 'Investigator', 'Physician', 'Staff Scientist',
                       'Research Specialist', 'Research Associate', 'Research Assistant',
                       'PhD Student', 'Post-doctoral Fellow', 'Lab Manager',
-                      'PMO Officer', 'IRB Officer', 'IBC Officer', 'Outcome Officer', 'Grant Officer',
+                      'PMO Officer', 'IRB Officer', 'IBC Officer', 'Outcome Officer', 'Grant Officer', 'IT Officer',
                     ];
                     return (
                       <FormItem>
@@ -370,19 +430,47 @@ export default function EditScientist() {
                             options={jobTitles.map((t) => ({ value: t, label: t }))}
                             value={field.value || ""}
                             onChange={field.onChange}
+                            disabled={!canManage}
                             placeholder="Select job title"
                             searchPlaceholder="Search job titles..."
                             data-testid="select-job-title"
                           />
                         </FormControl>
                         <FormDescription>
-                          Select the job title for this staff member
+                          {canManage
+                            ? "Select the job title for this staff member"
+                            : "Contact Management to change your job title"}
                         </FormDescription>
                         <FormMessage />
                       </FormItem>
                     );
                   }}
                 />
+
+                {canManage && (
+                  <FormField
+                    control={form.control}
+                    name="isInvestigator"
+                    render={({ field }) => (
+                      <FormItem className="flex flex-row items-center justify-between rounded-lg border p-4">
+                        <div className="space-y-0.5">
+                          <FormLabel>Additional Investigator designation</FormLabel>
+                          <FormDescription>
+                            Allows this staff member to lead projects and fill
+                            investigator-only roles without changing their job title.
+                          </FormDescription>
+                        </div>
+                        <FormControl>
+                          <Switch
+                            checked={field.value}
+                            onCheckedChange={field.onChange}
+                            aria-label="Additional Investigator designation"
+                          />
+                        </FormControl>
+                      </FormItem>
+                    )}
+                  />
+                )}
                 
                 <FormField
                   control={form.control}
@@ -414,16 +502,77 @@ export default function EditScientist() {
                 
                 <FormField
                   control={form.control}
-                  name="department"
+                  name="departmentId"
                   render={({ field }) => (
                     <FormItem>
                       <FormLabel>Department</FormLabel>
                       <FormControl>
-                        <Input placeholder="Molecular Biology" autoComplete="off" data-1p-ignore="true" data-lpignore="true" {...field} value={field.value || ""} />
+                        <SearchableSelect
+                          options={departments.map((d) => ({
+                            value: d.id.toString(),
+                            label: d.name,
+                            searchText: d.name,
+                          }))}
+                          value={field.value?.toString() || ""}
+                          onChange={(value) => {
+                            field.onChange(value ? parseInt(value) : null);
+                            // Section belongs to a department — clear it on change
+                            form.setValue("sectionId", null);
+                          }}
+                          placeholder="Select department (optional)"
+                          searchPlaceholder="Search departments..."
+                          emptyMessage="No departments found. Managers can add them under Facilities → Organization."
+                          data-testid="select-department"
+                        />
                       </FormControl>
+                      {!field.value && scientist?.department && (
+                        <FormDescription>
+                          Legacy department (free text): {scientist.department}
+                        </FormDescription>
+                      )}
                       <FormMessage />
                     </FormItem>
                   )}
+                />
+
+                <FormField
+                  control={form.control}
+                  name="sectionId"
+                  render={({ field }) => {
+                    const deptId = form.watch("departmentId");
+                    const available = sections.filter((s) => !deptId || s.departmentId === deptId);
+                    return (
+                      <FormItem>
+                        <FormLabel>Section</FormLabel>
+                        <FormControl>
+                          <SearchableSelect
+                            options={available.map((s) => ({
+                              value: s.id.toString(),
+                              label: `${s.name} — ${s.type}`,
+                              searchText: `${s.name} ${s.type}`,
+                            }))}
+                            value={field.value?.toString() || ""}
+                            onChange={(value) => {
+                              field.onChange(value ? parseInt(value) : null);
+                              // Selecting a section also sets its department
+                              if (value) {
+                                const sec = sections.find((s) => s.id === parseInt(value));
+                                if (sec) form.setValue("departmentId", sec.departmentId);
+                              }
+                            }}
+                            placeholder="Select section (optional)"
+                            searchPlaceholder="Search sections..."
+                            emptyMessage="No sections found for this department."
+                            data-testid="select-section"
+                          />
+                        </FormControl>
+                        <FormDescription>
+                          Lab, office, or core within the department
+                        </FormDescription>
+                        <FormMessage />
+                      </FormItem>
+                    );
+                  }}
                 />
                 
                 <FormField
@@ -602,7 +751,7 @@ export default function EditScientist() {
               </div>
 
               <CardFooter className="flex justify-between items-center px-0">
-                <AlertDialog open={deleteOpen} onOpenChange={setDeleteOpen}>
+                {canManage && <AlertDialog open={deleteOpen} onOpenChange={setDeleteOpen}>
                   <AlertDialogTrigger asChild>
                     <Button
                       type="button"
@@ -642,7 +791,7 @@ export default function EditScientist() {
                       </AlertDialogAction>
                     </AlertDialogFooter>
                   </AlertDialogContent>
-                </AlertDialog>
+                </AlertDialog>}
 
                 <div className="flex space-x-2">
                   <Button

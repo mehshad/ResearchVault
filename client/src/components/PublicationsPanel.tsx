@@ -10,6 +10,7 @@ interface PublicationsPanelProps {
   yearsSince?: number;
   hasOrcid: boolean;
   hasScholar: boolean;
+  canImport?: boolean;
 }
 
 export function PublicationsPanel({
@@ -17,6 +18,7 @@ export function PublicationsPanel({
   yearsSince = 5,
   hasOrcid,
   hasScholar,
+  canImport = true,
 }: PublicationsPanelProps) {
   const showMissing = hasOrcid || hasScholar;
 
@@ -34,7 +36,7 @@ export function PublicationsPanel({
       <CardContent className="space-y-6">
         <PublicationsList scientistId={scientistId} yearsSince={yearsSince} embedded />
         <Separator />
-        <PublicationsToFix embedded />
+        <PublicationsToFix scientistId={scientistId} embedded />
         {showMissing && (
           <>
             <Separator />
@@ -43,6 +45,7 @@ export function PublicationsPanel({
               hasOrcid={hasOrcid}
               hasScholar={hasScholar}
               embedded
+              canImport={canImport}
             />
           </>
         )}

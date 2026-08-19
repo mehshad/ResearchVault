@@ -35,8 +35,8 @@ export default function ProjectEdit() {
     queryKey: ['/api/programs'],
   });
 
-  const { data: scientists } = useQuery<Scientist[]>({
-    queryKey: ['/api/scientists'],
+  const { data: principalInvestigators } = useQuery<Scientist[]>({
+    queryKey: ['/api/principal-investigators'],
   });
 
   const form = useForm<InsertProject>({
@@ -222,7 +222,7 @@ export default function ProjectEdit() {
                           </SelectTrigger>
                         </FormControl>
                         <SelectContent>
-                          {scientists?.filter(scientist => scientist.jobTitle === 'Investigator').map((scientist) => (
+                          {principalInvestigators?.map((scientist) => (
                             <SelectItem key={scientist.id} value={scientist.id.toString()}>
                               {formatFullName(scientist)} - {scientist.jobTitle}
                             </SelectItem>

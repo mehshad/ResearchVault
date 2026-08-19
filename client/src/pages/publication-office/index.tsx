@@ -34,6 +34,12 @@ import { Link, useLocation } from "wouter";
 import { format } from "date-fns";
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip as ChartTooltip, ResponsiveContainer, BarChart, Bar, ReferenceLine, Cell } from "recharts";
 import type { JournalImpactFactor, InsertJournalImpactFactor, Publication } from "@shared/schema";
+import type { SidraScoreResult, SidraScoreSettings } from "@shared/sidraScore";
+import {
+  IP_VETTING_READY_STATUS,
+  isReadyForIpVetting,
+} from "@shared/publicationWorkflow";
+import { SidraScoreDetails } from "@/components/SidraScoreDetails";
 
 interface SavedSearch {
   id?: string;
@@ -48,19 +54,7 @@ interface SavedSearch {
   createdAt?: string;
 }
 
-interface SidraRanking {
-  id: number;
-  honorificTitle?: string | null;
-  firstName?: string | null;
-  lastName?: string | null;
-  jobTitle?: string | null;
-  department?: string | null;
-  publicationsCount: number;
-  sidraScore: number;
-  missingImpactFactorPublications: string[];
-  excludedPublications?: { title: string; journal: string | null; reason: string }[];
-  calculationDetails: any;
-}
+type SidraRanking = SidraScoreResult;
 
 // Render an affiliation string with the searched term highlighted, so staff can
 // visually verify the match that triggered the discovery.
@@ -97,13 +91,24 @@ export default function PublicationOffice() {
   const queryClient = useQueryClient();
   
   // Tab state
-  const [activeTab, setActiveTab] = useState("ip-vetting");
+  // Restore the tab from the URL (e.g. /outcome-office?tab=new-publications)
+  // so returning from a publication lands back on the tab being worked on.
+  const [activeTab, setActiveTab] = useState(() =>
+    new URLSearchParams(window.location.search).get("tab") || "ip-vetting"
+  );
 
   // New Publications tab filters (issue/tag, scientist, publication date range)
   const [npTagFilter, setNpTagFilter] = useState<string>("all");
   const [npScientistId, setNpScientistId] = useState<string>("all");
   const [npDateFrom, setNpDateFrom] = useState<string>("");
   const [npDateTo, setNpDateTo] = useState<string>("");
+
+  // IP Vetting defaults to the actual workflow stage. The wider unvetted
+  // backlog is available for review by publication year when needed.
+  const [showAllUnvettedForIp, setShowAllUnvettedForIp] = useState(false);
+  const [ipVettingYear, setIpVettingYear] = useState(() =>
+    String(new Date().getFullYear())
+  );
 
   // Import Links dialog: bulk-link publications to SDRs / staff via Excel upload.
   const [linkImportOpen, setLinkImportOpen] = useState(false);
@@ -168,6 +173,28 @@ export default function PublicationOffice() {
   const [sidraRankings, setSidraRankings] = useState<SidraRanking[]>([]);
   const [selectedScientistDetails, setSelectedScientistDetails] = useState<SidraRanking | null>(null);
   const [isDetailsModalOpen, setIsDetailsModalOpen] = useState(false);
+  const [sidraSettingsLoading, setSidraSettingsLoading] = useState(false);
+
+  useEffect(() => {
+    if (activeTab !== "sidra-score") return;
+    setSidraSettingsLoading(true);
+    fetch("/api/sidra-score/settings", { credentials: "include" })
+      .then((r) => r.ok ? r.json() : null)
+      .then((settings: SidraScoreSettings | null) => {
+        if (!settings) return;
+        setSidraYears(settings.years);
+        setSidraRangeMode(settings.startMonth && settings.endMonth ? "custom" : "years");
+        setSidraStartMonth(settings.startMonth || "");
+        setSidraEndMonth(settings.endMonth || "");
+        setImpactFactorYear(settings.impactFactorYear);
+        setSidraIncludeNonVetted(settings.includeNonVetted);
+        setFirstAuthorMultiplier(settings.multipliers["First Author"]);
+        setSecondAuthorMultiplier(settings.multipliers["Second or Second Last Author"]);
+        setLastAuthorMultiplier(settings.multipliers["Last Author"]);
+        setCorrespondingAuthorMultiplier(settings.multipliers["Corresponding Author"]);
+      })
+      .finally(() => setSidraSettingsLoading(false));
+  }, [activeTab]);
 
   // Function to open calculation details modal
   const openCalculationDetails = (scientist: SidraRanking) => {
@@ -467,20 +494,53 @@ export default function PublicationOffice() {
   });
 
   // Publication queries for the first two tabs
-  const { data: publicationsForIP = [], isLoading: ipPublicationsLoading } = useQuery<Publication[]>({
+  const { data: ipVettingSourcePublications = [], isLoading: ipPublicationsLoading } = useQuery<Publication[]>({
     queryKey: ['/api/publications', 'ip-vetting'],
     queryFn: async () => {
       const response = await fetch('/api/publications');
       if (!response.ok) throw new Error('Failed to fetch publications');
-      const publications = await response.json();
-      // Filter publications that need IP vetting (not yet vetted for IP office)
-      return publications.filter((pub: Publication) => 
-        pub.vettedForSubmissionByIpOffice === false && 
-        (pub.status === 'published' || pub.status === 'Published')
-      );
+      return response.json();
     },
     enabled: activeTab === "ip-vetting"
   });
+
+  const unvettedPublicationsForIp = useMemo(
+    () =>
+      ipVettingSourcePublications.filter(
+        (pub: Publication) =>
+          pub.vettedForSubmissionByIpOffice !== true &&
+          !pub.status?.includes("*")
+      ),
+    [ipVettingSourcePublications]
+  );
+
+  const ipVettingYears = useMemo(() => {
+    const currentYear = new Date().getFullYear();
+    const years = new Set<number>([currentYear]);
+
+    unvettedPublicationsForIp.forEach((pub: Publication) => {
+      if (!pub.publicationDate) return;
+      const year = new Date(pub.publicationDate).getFullYear();
+      if (!Number.isNaN(year) && year <= currentYear) years.add(year);
+    });
+
+    return Array.from(years).sort((a, b) => b - a);
+  }, [unvettedPublicationsForIp]);
+
+  const publicationsForIP = useMemo(() => {
+    if (!showAllUnvettedForIp) {
+      return unvettedPublicationsForIp.filter(isReadyForIpVetting);
+    }
+
+    return unvettedPublicationsForIp.filter((pub: Publication) => {
+      if (!pub.publicationDate) return false;
+      return String(new Date(pub.publicationDate).getFullYear()) === ipVettingYear;
+    });
+  }, [
+    ipVettingYear,
+    showAllUnvettedForIp,
+    unvettedPublicationsForIp,
+  ]);
 
   // Count of duplicate publication groups for the Duplicates tab badge.
   // staleTime 0 (overriding the app-wide Infinity) so the badge re-syncs with
@@ -839,6 +899,7 @@ export default function PublicationOffice() {
       const response = await fetch('/api/scientists/sidra-scores', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
+        credentials: "include",
         body: JSON.stringify(config)
       });
       if (!response.ok) throw new Error('Failed to calculate Sidra scores');
@@ -1107,34 +1168,12 @@ export default function PublicationOffice() {
     }
   };
 
-  // Publication status update mutations
-  const updatePublicationStatusMutation = useMutation({
-    mutationFn: async ({ id, status }: { id: number, status: string }) => {
-      const response = await fetch(`/api/publications/${id}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
-        body: JSON.stringify({ status }),
-      });
-      if (!response.ok) throw new Error('Failed to update publication status');
-      return response.json();
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['/api/publications'] });
-      toast({ title: "Success", description: "Publication status updated" });
-    },
-    onError: () => {
-      toast({ title: "Error", description: "Failed to update publication status", variant: "destructive" });
-    },
-  });
-
   const markAsVettedMutation = useMutation({
     mutationFn: async (id: number) => {
-      const response = await fetch(`/api/publications/${id}`, {
-        method: 'PATCH',
+      const response = await fetch(`/api/publications/${id}/ip-vet`, {
+        method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
-        body: JSON.stringify({ vettedForSubmissionByIpOffice: true, status: 'Published *' }),
       });
       if (!response.ok) {
         const body = await response.json().catch(() => null);
@@ -1144,7 +1183,35 @@ export default function PublicationOffice() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['/api/publications'] });
-      toast({ title: "Success", description: "Publication marked as Published * and sealed" });
+      toast({
+        title: "IP vetting complete",
+        description: "Publication moved to Vetted for submission.",
+      });
+    },
+    onError: (error: Error) => {
+      toast({ title: "Error", description: error.message, variant: "destructive" });
+    },
+  });
+
+  const markAsPublishedMutation = useMutation({
+    mutationFn: async (id: number) => {
+      const response = await fetch(`/api/publications/${id}/finalize`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+      });
+      if (!response.ok) {
+        const body = await response.json().catch(() => null);
+        throw new Error(body?.message || 'Failed to finalize publication');
+      }
+      return response.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['/api/publications'] });
+      toast({
+        title: "Publication finalized",
+        description: "Publication marked as Published * and sealed.",
+      });
     },
     onError: (error: Error) => {
       toast({ title: "Error", description: error.message, variant: "destructive" });
@@ -1259,17 +1326,58 @@ export default function PublicationOffice() {
         <TabsContent value="ip-vetting" className="space-y-6">
           <Card>
             <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <Shield className="h-5 w-5" />
-                Publications to be Vetted for IP
-              </CardTitle>
+              <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+                <div>
+                  <CardTitle className="flex items-center gap-2">
+                    <Shield className="h-5 w-5" />
+                    Publications to be Vetted for IP
+                  </CardTitle>
+                  <CardDescription className="mt-1">
+                    {showAllUnvettedForIp
+                      ? `Reviewing unvetted publications from ${ipVettingYear}.`
+                      : `Showing only publications at the ${IP_VETTING_READY_STATUS} stage.`}
+                  </CardDescription>
+                </div>
+                <div className="flex flex-wrap items-center gap-3">
+                  <div className="flex items-center gap-2">
+                    <Label htmlFor="switch-show-all-unvetted" className="text-sm">
+                      Show all unvetted
+                    </Label>
+                    <Switch
+                      id="switch-show-all-unvetted"
+                      checked={showAllUnvettedForIp}
+                      onCheckedChange={setShowAllUnvettedForIp}
+                      data-testid="switch-show-all-unvetted-ip"
+                    />
+                  </div>
+                  {showAllUnvettedForIp && (
+                    <Select value={ipVettingYear} onValueChange={setIpVettingYear}>
+                      <SelectTrigger
+                        className="w-[150px]"
+                        data-testid="select-ip-vetting-year"
+                      >
+                        <SelectValue placeholder="Publication year" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {ipVettingYears.map((year) => (
+                          <SelectItem key={year} value={String(year)}>
+                            {year}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  )}
+                </div>
+              </div>
             </CardHeader>
             <CardContent>
               {ipPublicationsLoading ? (
                 <div className="text-center py-8">Loading publications...</div>
               ) : publicationsForIP.length === 0 ? (
                 <div className="text-center py-8 text-muted-foreground">
-                  No publications pending IP vetting
+                  {showAllUnvettedForIp
+                    ? `No unvetted publications from ${ipVettingYear}`
+                    : "No Complete Draft publications are pending IP vetting"}
                 </div>
               ) : (
                 <div className="space-y-4">
@@ -1277,7 +1385,7 @@ export default function PublicationOffice() {
                     <div key={pub.id} className="border rounded-lg p-4 space-y-3">
                       <div className="flex items-start justify-between">
                         <div className="flex-1">
-                          <Link href={`/publications/${pub.id}`}>
+                          <Link href={`/publications/${pub.id}?from=${encodeURIComponent('/outcome-office?tab=ip-vetting')}`}>
                             <h3 className="font-semibold text-blue-600 hover:text-blue-800 cursor-pointer dark:text-blue-400 dark:hover:text-blue-300">
                               {pub.title}
                             </h3>
@@ -1289,13 +1397,19 @@ export default function PublicationOffice() {
                         </div>
                         <div className="flex items-center gap-2">
                           <Badge variant="outline">{pub.status}</Badge>
-                          <Button 
-                            size="sm"
-                            onClick={() => markAsVettedMutation.mutate(pub.id)}
-                            disabled={markAsVettedMutation.isPending}
-                          >
-                            Mark as Vetted
-                          </Button>
+                          {isReadyForIpVetting(pub) ? (
+                            <Button
+                              size="sm"
+                              onClick={() => markAsVettedMutation.mutate(pub.id)}
+                              disabled={markAsVettedMutation.isPending}
+                            >
+                              Mark as Vetted
+                            </Button>
+                          ) : (
+                            <Badge variant="secondary">
+                              Not in Complete Draft
+                            </Badge>
+                          )}
                         </div>
                       </div>
                     </div>
@@ -1424,7 +1538,7 @@ export default function PublicationOffice() {
                     >
                       <div className="flex items-start justify-between">
                         <div className="flex-1">
-                          <Link href={`/publications/${pub.id}`}>
+                          <Link href={`/publications/${pub.id}?from=${encodeURIComponent('/outcome-office?tab=new-publications')}`}>
                             <h3 className="font-semibold text-blue-600 hover:text-blue-800 cursor-pointer dark:text-blue-400 dark:hover:text-blue-300">
                               {pub.title}
                             </h3>
@@ -1463,8 +1577,8 @@ export default function PublicationOffice() {
                               )}
                               <Button 
                                 size="sm"
-                                onClick={() => markAsVettedMutation.mutate(pub.id)}
-                                disabled={markAsVettedMutation.isPending || hasIssues}
+                                onClick={() => markAsPublishedMutation.mutate(pub.id)}
+                                disabled={markAsPublishedMutation.isPending || hasIssues}
                                 title={hasIssues
                                   ? `Resolve all issues first${missingFields.length ? ` (missing: ${missingFields.join(', ')})` : ''}${!hasSdr ? ' (no linked SDR)' : ''}${!hasInternalAuthors ? ' (no linked internal authors)' : ''}`
                                   : 'Finalize and seal this publication'}
@@ -2242,13 +2356,18 @@ export default function PublicationOffice() {
                     variant="outline"
                     onClick={handleCalculateSidraScores}
                     disabled={
+                      sidraSettingsLoading ||
                       calculateSidraScoresMutation.isPending ||
                       (sidraRangeMode === "custom" &&
                         (!sidraStartMonth || !sidraEndMonth || sidraStartMonth > sidraEndMonth))
                     }
                   >
                     <TrendingUp className="h-4 w-4" />
-                    {calculateSidraScoresMutation.isPending ? 'Calculating...' : 'Calculate Scores'}
+                    {sidraSettingsLoading
+                      ? 'Loading official settings...'
+                      : calculateSidraScoresMutation.isPending
+                        ? 'Calculating and saving...'
+                        : 'Calculate and save official scores'}
                   </Button>
                 </CardContent>
               </Card>
@@ -3257,121 +3376,7 @@ export default function PublicationOffice() {
           </DialogHeader>
           
           {selectedScientistDetails && (
-            <div className="space-y-6">
-              {/* Summary */}
-              <Card>
-                <CardHeader>
-                  <CardTitle className="text-lg">Calculation Summary</CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <div className="grid grid-cols-2 gap-4">
-                    <div>
-                      <p className="text-sm text-gray-600 dark:text-gray-300">Total Publications</p>
-                      <p className="text-lg font-semibold">{selectedScientistDetails.publicationsCount}</p>
-                    </div>
-                    <div>
-                      <p className="text-sm text-gray-600 dark:text-gray-300">Total Sidra Score</p>
-                      <p className="text-lg font-semibold text-blue-600 dark:text-blue-400">{selectedScientistDetails.sidraScore.toFixed(2)}</p>
-                    </div>
-                    <div>
-                      <p className="text-sm text-gray-600 dark:text-gray-300">Department</p>
-                      <p className="font-medium">{selectedScientistDetails.department}</p>
-                    </div>
-                    <div>
-                      <p className="text-sm text-gray-600 dark:text-gray-300">Job Title</p>
-                      <p className="font-medium">{selectedScientistDetails.jobTitle}</p>
-                    </div>
-                  </div>
-                </CardContent>
-              </Card>
-
-              {/* Publications with Details */}
-              <Card>
-                <CardHeader>
-                  <CardTitle className="text-lg">Publication Details</CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <div className="space-y-4">
-                    {selectedScientistDetails.calculationDetails.map((pub, index) => (
-                      <div key={index} className="border rounded-lg p-4">
-                        <div className="mb-2">
-                          <h4 className="font-medium text-sm">{pub.title}</h4>
-                          <p className="text-xs text-gray-600 mt-1 dark:text-gray-300">
-                            {pub.journal} • {pub.publicationDate ? format(new Date(pub.publicationDate), 'yyyy') : 'Unknown Year'}
-                          </p>
-                        </div>
-                        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
-                          <div>
-                            <span className="text-gray-600 dark:text-gray-300">Impact Factor:</span>
-                            <p className="font-medium">
-                              {pub.impactFactor}{' '}
-                              {pub.usedFallback ? (
-                                <span className="text-orange-600 dark:text-orange-400">
-                                  ({pub.actualYear} - fallback from {pub.targetYear})
-                                </span>
-                              ) : (
-                                <span className="text-gray-500 dark:text-gray-400">({pub.actualYear})</span>
-                              )}
-                            </p>
-                          </div>
-                          <div>
-                            <span className="text-gray-600 dark:text-gray-300">Authorship:</span>
-                            <p className="font-medium">{pub.authorshipTypes.join(', ')}</p>
-                          </div>
-                          <div>
-                            <span className="text-gray-600 dark:text-gray-300">Multiplier:</span>
-                            <p className="font-medium">×{pub.multiplier} ({pub.appliedMultipliers.join(', ') || 'Base'})</p>
-                          </div>
-                          <div>
-                            <span className="text-gray-600 dark:text-gray-300">Contribution:</span>
-                            <p className="font-semibold text-blue-600 dark:text-blue-400">{pub.publicationScore.toFixed(2)}</p>
-                          </div>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </CardContent>
-              </Card>
-
-              {/* Publications excluded from the score (missing IF, not vetted) */}
-              {(selectedScientistDetails.excludedPublications?.length ?? 0) > 0 ? (
-                <Card>
-                  <CardHeader>
-                    <CardTitle className="text-lg text-red-600 dark:text-red-400">Publications Not Included</CardTitle>
-                  </CardHeader>
-                  <CardContent>
-                    <div className="text-sm text-gray-600 mb-2 dark:text-gray-300">
-                      These publications were not included in the score calculation:
-                    </div>
-                    <ul className="space-y-2">
-                      {selectedScientistDetails.excludedPublications!.map((pub, index) => (
-                        <li key={index} className="text-sm p-2 bg-red-50 rounded border-l-4 border-red-200 dark:bg-red-950 dark:border-red-800">
-                          <div className="font-medium">{pub.title}</div>
-                          <div className="text-xs text-gray-600 dark:text-gray-300">
-                            {pub.journal || 'No journal'} — {pub.reason}
-                          </div>
-                        </li>
-                      ))}
-                    </ul>
-                  </CardContent>
-                </Card>
-              ) : selectedScientistDetails.missingImpactFactorPublications.length > 0 && (
-                <Card>
-                  <CardHeader>
-                    <CardTitle className="text-lg text-red-600 dark:text-red-400">Publications Without Impact Factor Data</CardTitle>
-                  </CardHeader>
-                  <CardContent>
-                    <ul className="space-y-2">
-                      {selectedScientistDetails.missingImpactFactorPublications.map((title, index) => (
-                        <li key={index} className="text-sm p-2 bg-red-50 rounded border-l-4 border-red-200 dark:bg-red-950 dark:border-red-800">
-                          {title}
-                        </li>
-                      ))}
-                    </ul>
-                  </CardContent>
-                </Card>
-              )}
-            </div>
+            <SidraScoreDetails result={selectedScientistDetails} />
           )}
         </DialogContent>
       </Dialog>

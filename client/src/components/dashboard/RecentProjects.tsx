@@ -90,7 +90,7 @@ export default function RecentProjects({ limit = 5 }: RecentProjectsProps) {
       <div className="p-6 border-b border-neutral-100">
         <div className="flex items-center justify-between">
           <h2 className="font-medium text-lg">Recent Research Activities</h2>
-          <Link href="/research-activities">
+          <Link href="/pmo/research-activities">
             <Button variant="link" className="text-primary-500 px-0">View All</Button>
           </Link>
         </div>

@@ -54,9 +54,10 @@ interface MissingPapersProps {
   hasScholar: boolean;
   /** Render as a section inside another card (no own Card chrome). */
   embedded?: boolean;
+  canImport?: boolean;
 }
 
-export function MissingPapers({ scientistId, hasOrcid, hasScholar, embedded = false }: MissingPapersProps) {
+export function MissingPapers({ scientistId, hasOrcid, hasScholar, embedded = false, canImport = true }: MissingPapersProps) {
   const { toast } = useToast();
   const [result, setResult] = useState<MissingPapersResponse | null>(null);
   const [selected, setSelected] = useState<Set<string>>(new Set());
@@ -191,9 +192,11 @@ export function MissingPapers({ scientistId, hasOrcid, hasScholar, embedded = fa
               </div>
             )}
 
-            {missing.length > 0 && (
+             {missing.length > 0 && (
               <>
                 <div className="flex items-center justify-between border-b pb-2">
+                  {!canImport && <p className="text-xs text-muted-foreground">The profile owner or Outcome Office can import these works.</p>}
+                  {canImport && <>
                   <label className="flex items-center gap-2 text-sm font-medium cursor-pointer">
                     <Checkbox
                       checked={allSelected}
@@ -217,6 +220,7 @@ export function MissingPapers({ scientistId, hasOrcid, hasScholar, embedded = fa
                     )}
                     Import selected ({selected.size})
                   </Button>
+                  </>}
                 </div>
 
                 <div className="space-y-2">
@@ -238,12 +242,12 @@ export function MissingPapers({ scientistId, hasOrcid, hasScholar, embedded = fa
                       className="flex items-start gap-3 border rounded-lg p-3 hover:bg-gray-50 transition-colors dark:hover:bg-gray-900"
                       data-testid={`row-missing-paper-${paper.doi}`}
                     >
-                      <Checkbox
+                      {canImport && <Checkbox
                         checked={selected.has(paper.doi)}
                         onCheckedChange={() => toggle(paper.doi)}
                         className="mt-1"
                         data-testid={`checkbox-missing-paper-${paper.doi}`}
-                      />
+                      />}
                       <div className="flex-1 min-w-0">
                         <p className="font-medium text-sm text-gray-900 dark:text-gray-100 leading-snug">
                           {paper.title || "Untitled work"}

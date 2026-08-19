@@ -48,6 +48,7 @@ import {
 } from "lucide-react";
 import { apiRequest } from "@/lib/queryClient";
 import { type ResearchActivity, type Scientist, type ProjectMember } from "@shared/schema";
+import { isInvestigatorEligible } from "@shared/investigatorEligibility";
 
 interface TeamDetailProps {
   researchActivityId?: number;
@@ -378,12 +379,13 @@ export default function TeamDetail(props: TeamDetailProps) {
                     <SelectValue placeholder="Select team role" />
                   </SelectTrigger>
                   <SelectContent>
-                    {/* Only SDR Team Roles - Principal Investigator only for Investigators */}
+                    {/* Principal Investigator is available only to eligible staff. */}
                     {(() => {
                       const selectedScientist = selectedScientistId 
                         ? scientists?.find(s => s.id === selectedScientistId)
                         : null;
-                      const canBePrincipalInvestigator = selectedScientist?.jobTitle === "Investigator";
+                      const canBePrincipalInvestigator =
+                        isInvestigatorEligible(selectedScientist);
                       const constraints = getRoleConstraints();
                       
                       return (
@@ -410,10 +412,12 @@ export default function TeamDetail(props: TeamDetailProps) {
                 </Select>
                 {selectedScientistId && (() => {
                   const selectedScientist = scientists?.find(s => s.id === selectedScientistId);
-                  return selectedScientist?.jobTitle !== "Investigator" && (
+                  return !isInvestigatorEligible(selectedScientist) && (
                     <p className="text-sm text-amber-600 mt-1 dark:text-amber-400">
-                      <span className="font-medium">Note:</span> Only scientists with job title "Investigator" can be assigned as Principal Investigator. 
-                      {selectedScientist ? formatFullName(selectedScientist) : 'This scientist'} has the job title "{selectedScientist?.jobTitle}".
+                      <span className="font-medium">Note:</span> Principal Investigator
+                      requires an Investigator title, Staff Scientist title, or the
+                      additional Investigator designation.{" "}
+                      {selectedScientist ? formatFullName(selectedScientist) : "This scientist"} is not currently eligible.
                     </p>
                   );
                 })()}

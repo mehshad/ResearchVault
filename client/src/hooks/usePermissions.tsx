@@ -40,7 +40,8 @@ const JOB_TITLES = [
   "IBC Officer",
   "Outcome Officer",
   "Grant Officer",
-  "Contracts Officer"
+  "Contracts Officer",
+  "IT Officer"
 ];
 
 const NAVIGATION_ITEMS = [
@@ -126,6 +127,35 @@ const convertDbPermissionsToFrontend = (dbPermissions: any[]): NavigationPermiss
   }));
 };
 
+// Older databases can contain only a subset of the role/navigation grid.
+// Keep saved choices, but fill every missing cell with the same default the
+// app would use for a new installation so the access matrix remains complete.
+const mergeWithDefaultPermissions = (dbPermissions: any[]): NavigationPermission[] => {
+  const savedPermissions = convertDbPermissionsToFrontend(dbPermissions);
+  const savedByKey = new Map(
+    savedPermissions.map((permission) => [
+      `${permission.jobTitle}:${permission.navigationItem}`,
+      permission,
+    ])
+  );
+  const defaults = createDefaultPermissions();
+  const defaultKeys = new Set(
+    defaults.map((permission) => `${permission.jobTitle}:${permission.navigationItem}`)
+  );
+
+  return [
+    ...defaults.map(
+      (permission) =>
+        savedByKey.get(`${permission.jobTitle}:${permission.navigationItem}`) ?? permission
+    ),
+    // Preserve any custom role/navigation entries that are not part of the
+    // standard matrix.
+    ...savedPermissions.filter(
+      (permission) => !defaultKeys.has(`${permission.jobTitle}:${permission.navigationItem}`)
+    ),
+  ];
+};
+
 // Convert frontend permissions to database format for bulk updates
 const convertFrontendPermissionsToDb = (permissions: NavigationPermission[]) => {
   return permissions.map(p => ({
@@ -151,7 +181,7 @@ export function PermissionsProvider({ children }: PermissionsProviderProps) {
         if (response.ok) {
           const dbPermissions = await response.json();
           if (dbPermissions.length > 0) {
-            setPermissions(convertDbPermissionsToFrontend(dbPermissions));
+            setPermissions(mergeWithDefaultPermissions(dbPermissions));
           } else {
             // No permissions in database, seed with defaults
             const defaults = createDefaultPermissions();
@@ -222,7 +252,7 @@ export function PermissionsProvider({ children }: PermissionsProviderProps) {
 
   const canCreate = (jobTitle: string, navigationItem: string): boolean => {
     const accessLevel = getAccessLevel(jobTitle, navigationItem);
-    return accessLevel === "edit" || accessLevel === "create";
+    return accessLevel === "edit";
   };
 
   const isHidden = (jobTitle: string, navigationItem: string): boolean => {

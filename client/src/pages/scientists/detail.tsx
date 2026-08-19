@@ -20,6 +20,13 @@ import { formatFullName } from "@/utils/nameUtils";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { Certification, CertificationModule } from "@shared/schema";
 import { parseISO, differenceInDays } from "date-fns";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { SidraScoreDetails } from "@/components/SidraScoreDetails";
+import { ScientistGrants } from "@/components/ScientistGrants";
+import { useAuth } from "@/hooks/useAuth";
+import { useCurrentUser } from "@/hooks/useCurrentUser";
+import { Calculator, ShieldCheck } from "lucide-react";
+import type { SidraScoreResult } from "@shared/sidraScore";
 
 // Derive a badge color from a certification's expiry date (valid/expiring/expired)
 function getCertificationColor(expiryDate: string | null): string {
@@ -185,6 +192,35 @@ export default function ScientistDetail() {
   const params = useParams<{ id: string }>();
   const [, navigate] = useLocation();
   const id = parseInt(params.id);
+  const { user, authConfig } = useAuth();
+  const { currentUser } = useCurrentUser();
+  const ownerId = authConfig.mode === "demo" ? currentUser.id : user?.scientistId;
+  const effectiveRole = authConfig.mode === "demo" ? currentUser.role : (user?.role ?? "user");
+  const isOwner = ownerId === id;
+  const canManageProfile = ["Management", "admin", "superadmin"].includes(effectiveRole);
+  const canImport = isOwner || ["Outcome Officer", "Management", "admin", "superadmin"].includes(effectiveRole);
+  const [scoreOpen, setScoreOpen] = useState(false);
+  const [scoreResult, setScoreResult] = useState<SidraScoreResult | null>(null);
+  const [missingForScore, setMissingForScore] = useState<any[]>([]);
+  const [scoreLoading, setScoreLoading] = useState(false);
+  const [scoreError, setScoreError] = useState("");
+  const calculatePersonalScore = async () => {
+    setScoreOpen(true);
+    setScoreLoading(true);
+    setScoreError("");
+    setScoreResult(null);
+    setMissingForScore([]);
+    try {
+      const [scoreResponse, missingResponse] = await Promise.all([
+        fetch(`/api/scientists/${id}/sidra-score`, { method: "POST", credentials: "include" }),
+        fetch(`/api/scientists/${id}/missing-papers`, { credentials: "include" }),
+      ]);
+      if (!scoreResponse.ok) throw new Error("The personal score could not be calculated.");
+      setScoreResult(await scoreResponse.json());
+      if (missingResponse.ok) setMissingForScore((await missingResponse.json()).missing || []);
+    } catch (error) { setScoreError(error instanceof Error ? error.message : "The personal score could not be calculated."); }
+    finally { setScoreLoading(false); }
+  };
 
 
 
@@ -316,15 +352,17 @@ export default function ScientistDetail() {
                 <CardTitle>Profile</CardTitle>
                 <CardDescription>Personal and contact information</CardDescription>
               </div>
-            <Button 
-              variant="outline" 
-              size="sm" 
-              onClick={() => navigate(`/scientists/${id}/edit`)}
-              className="ml-auto"
-            >
-              <Pencil className="h-4 w-4 mr-2" />
-              Edit
-            </Button>
+            {(isOwner || canManageProfile) && (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => navigate(`/scientists/${id}/edit`)}
+                className="ml-auto"
+              >
+                <Pencil className="h-4 w-4 mr-2" />
+                Edit
+              </Button>
+            )}
           </CardHeader>
           <CardContent>
                 <div className="flex items-start gap-6">
@@ -344,6 +382,14 @@ export default function ScientistDetail() {
                         <p className="text-neutral-700">
                           {scientist.jobTitle || "No title"}
                         </p>
+                        {scientist.isInvestigator && (
+                          <Badge
+                            variant="outline"
+                            className="ml-3 bg-purple-50 text-purple-700 border-purple-200 dark:bg-purple-950 dark:text-purple-300 dark:border-purple-800"
+                          >
+                            Investigator
+                          </Badge>
+                        )}
                       </div>
                     </div>
 
@@ -514,6 +560,15 @@ export default function ScientistDetail() {
           </CardContent>
         </Card>
 
+        {isScientificStaff && isOwner && (
+          <Card className="border-primary/20 bg-primary/[0.03]">
+            <CardHeader className="flex flex-row items-center justify-between gap-4">
+              <div><CardTitle className="flex items-center gap-2"><ShieldCheck className="h-5 w-5 text-primary" />Your Sidra Score</CardTitle><CardDescription>A transparent calculation using official Outcome Office rules.</CardDescription></div>
+              <Button onClick={calculatePersonalScore}><Calculator className="mr-2 h-4 w-4" />Calculate my score</Button>
+            </CardHeader>
+          </Card>
+        )}
+
         {/* Unified Publications panel - Only show for scientific staff.
             Combines recent publications, internal author links, and (when an
             external profile is on file) the missing-works importer. */}
@@ -523,6 +578,7 @@ export default function ScientistDetail() {
             yearsSince={5}
             hasOrcid={!!scientist.orcidId}
             hasScholar={!!scientist.googleScholarUrl}
+            canImport={canImport}
           />
         )}
         </div>
@@ -565,8 +621,15 @@ export default function ScientistDetail() {
           {isScientificStaff && (
             <PublicationCharts scientistId={id} yearsSince={5} />
           )}
+          {isScientificStaff && <ScientistGrants scientistId={id} canExpand={isOwner} />}
         </div>
       </div>
+      <Dialog open={scoreOpen} onOpenChange={setScoreOpen}>
+        <DialogContent className="max-h-[88vh] max-w-4xl overflow-y-auto">
+          <DialogHeader><DialogTitle>Sidra Score explanation</DialogTitle><DialogDescription>Official inputs and every manuscript decision are shown below.</DialogDescription></DialogHeader>
+          {scoreLoading ? <div className="space-y-3 py-6"><Skeleton className="h-20 w-full" /><Skeleton className="h-32 w-full" /><Skeleton className="h-24 w-full" /></div> : scoreError ? <div className="rounded-md border border-destructive/30 bg-destructive/5 p-4 text-sm text-destructive">{scoreError}</div> : scoreResult ? <SidraScoreDetails result={scoreResult} missingPapers={missingForScore} /> : <p className="py-6 text-sm text-muted-foreground">Start a calculation to see the official explanation.</p>}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

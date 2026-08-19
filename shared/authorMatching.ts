@@ -29,6 +29,13 @@ function stripTitles(value: string): string {
   return value.replace(/^(dr\.?|prof\.?|professor|mr\.?|ms\.?|mrs\.?|phd\.?|md\.?)\s+/i, '').trim();
 }
 
+/** Minimal scientist shape needed for author matching and suggestions. */
+export interface MatchableScientist {
+  id: number;
+  firstName: string | null | undefined;
+  lastName: string | null | undefined;
+}
+
 export function matchesAuthorName(
   authorsText: string | null | undefined,
   firstName: string | null | undefined,
@@ -125,11 +132,50 @@ export function matchesAuthorName(
   });
 }
 
-/** Minimal scientist shape needed to suggest internal author links. */
-export interface MatchableScientist {
-  id: number;
-  firstName: string | null | undefined;
-  lastName: string | null | undefined;
+/**
+ * Require an exact full-name match when another internal scientist shares the
+ * same citation identity (first initial + last name). This keeps abbreviated
+ * names useful while preventing a researcher from self-linking an ambiguous
+ * "Smith A" record when both Alice Smith and Alicia Smith exist.
+ */
+export function isUnambiguousAuthorMatch(
+  authorsText: string | null | undefined,
+  target: MatchableScientist,
+  scientists: MatchableScientist[]
+): boolean {
+  if (!matchesAuthorName(authorsText, target.firstName, target.lastName)) {
+    return false;
+  }
+
+  const targetFirst = stripTitles(foldName(target.firstName));
+  const targetLast = stripTitles(foldName(target.lastName));
+  if (!targetFirst || !targetLast) return false;
+
+  const exactFullNameMatch = foldName(authorsText)
+    .split(",")
+    .map((entry) =>
+      stripTitles(entry)
+        .replace(/\./g, "")
+        .replace(/\s+/g, " ")
+        .trim()
+    )
+    .some(
+      (entry) =>
+        entry === `${targetFirst} ${targetLast}` ||
+        entry === `${targetLast} ${targetFirst}`
+    );
+  if (exactFullNameMatch) return true;
+
+  const firstInitial = targetFirst.charAt(0);
+  return !scientists.some((scientist) => {
+    if (scientist.id === target.id) return false;
+    const otherFirst = stripTitles(foldName(scientist.firstName));
+    const otherLast = stripTitles(foldName(scientist.lastName));
+    return (
+      otherFirst.charAt(0) === firstInitial &&
+      otherLast === targetLast
+    );
+  });
 }
 
 /** A proposed internal-author link inferred from a free-text author list. */

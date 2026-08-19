@@ -60,11 +60,6 @@ export default function CreateProject() {
     queryKey: ['/api/programs'],
   });
 
-  // Get all scientists
-  const { data: scientists, isLoading: scientistsLoading } = useQuery<Scientist[]>({
-    queryKey: ['/api/scientists'],
-  });
-
   // Default form values
   const defaultValues: Partial<CreateProjectFormValues> = {
     projectId: "",
@@ -226,7 +221,7 @@ export default function CreateProject() {
                           {piLoading ? (
                             <SelectItem value="loading" disabled>Loading investigators...</SelectItem>
                           ) : (
-                            principalInvestigators?.filter(scientist => scientist.jobTitle === 'Investigator').map((scientist) => (
+                            principalInvestigators?.map((scientist) => (
                               <SelectItem key={scientist.id} value={scientist.id.toString()}>
                                 {formatFullName(scientist)} - {scientist.jobTitle}
                               </SelectItem>

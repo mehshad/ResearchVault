@@ -206,6 +206,47 @@ function toSessionUser(user: typeof users.$inferSelect): SessionUser {
   };
 }
 
+async function refreshSessionUserFromDatabase(
+  req: Request
+): Promise<SessionUser | null> {
+  const sessionUser = req.session?.user;
+  if (!sessionUser) return null;
+
+  // Demo users are synthetic and do not have a corresponding database row.
+  if (getAuthMode() === "demo" || sessionUser.id <= 0) {
+    return sessionUser;
+  }
+
+  try {
+    const [currentUser] = await db
+      .select()
+      .from(users)
+      .where(eq(users.id, sessionUser.id));
+
+    if (!currentUser) return sessionUser;
+
+    const refreshedUser = toSessionUser(currentUser);
+    if (
+      refreshedUser.role !== sessionUser.role ||
+      refreshedUser.scientistId !== sessionUser.scientistId ||
+      refreshedUser.name !== sessionUser.name ||
+      refreshedUser.email !== sessionUser.email
+    ) {
+      authLog(
+        `refreshing session user id=${sessionUser.id} role=${sessionUser.role} -> ${refreshedUser.role}`
+      );
+      req.session.user = refreshedUser;
+    }
+
+    return refreshedUser;
+  } catch (error) {
+    // A temporary database lookup failure should not sign out an otherwise
+    // valid session. Permission middleware still applies the existing role.
+    authError(`failed to refresh session user id=${sessionUser.id}`, error);
+    return sessionUser;
+  }
+}
+
 // ── Route registration ─────────────────────────────────────────────────────────
 
 export function registerAuthRoutes(app: any) {
@@ -223,8 +264,9 @@ export function registerAuthRoutes(app: any) {
   });
 
   // Current user
-  app.get("/api/auth/me", (req: Request, res: Response) => {
-    if (req.session?.user) return res.json({ user: req.session.user });
+  app.get("/api/auth/me", async (req: Request, res: Response) => {
+    const currentUser = await refreshSessionUserFromDatabase(req);
+    if (currentUser) return res.json({ user: currentUser });
     res.status(401).json({ message: "Not authenticated" });
   });
 

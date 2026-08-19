@@ -51,7 +51,10 @@ import {
   ra200Applications, Ra200Application, InsertRa200Application,
   ra205aApplications, Ra205aApplication, InsertRa205aApplication,
   teamMembers, TeamMember, InsertTeamMember,
-  ownershipOverrides, OwnershipOverride, InsertOwnershipOverride
+  ownershipOverrides, OwnershipOverride, InsertOwnershipOverride,
+  branches, Branch, InsertBranch,
+  departments, Department, InsertDepartment,
+  sections, Section, InsertSection
 } from "@shared/schema";
 import { isPreprintRecord, preprintServerName, preprintLink, normalizeDoi } from "@shared/publicationDeduplication";
 
@@ -189,16 +192,23 @@ export class DatabaseStorage implements IStorage {
   }
 
   async getScientistsWithActivityCount(): Promise<(Scientist & { activeResearchActivities: number })[]> {
-    // Single query: LEFT JOIN project_members and GROUP BY scientist. Avoids the
-    // N+1 pattern of issuing one COUNT(*) per scientist.
+    // Single query with a scalar subquery per scientist: counts distinct SDRs
+    // where the scientist is either a team member OR the budget holder (PI),
+    // so PIs who aren't explicitly in project_members are still counted.
     const rows = await db
       .select({
         scientist: scientists,
-        count: sql<number>`count(${projectMembers.id})`.mapWith(Number),
+        count: sql<number>`(
+          select count(*) from (
+            select research_activity_id as ra_id from project_members
+              where scientist_id = "scientists"."id"
+            union
+            select id as ra_id from research_activities
+              where budget_holder_id = "scientists"."id"
+          ) t
+        )`.mapWith(Number),
       })
       .from(scientists)
-      .leftJoin(projectMembers, eq(projectMembers.scientistId, scientists.id))
-      .groupBy(scientists.id)
       .orderBy(scientists.lastName, scientists.firstName);
 
     return rows.map((r) => ({
@@ -237,11 +247,12 @@ export class DatabaseStorage implements IStorage {
   }
 
   async getPrincipalInvestigators(): Promise<Scientist[]> {
-    // Only return Investigators and Staff Scientists as potential PIs
+    // Include title-based eligibility plus the additional designation.
     return await db.select().from(scientists)
       .where(or(
         eq(scientists.jobTitle, "Investigator"),
-        eq(scientists.jobTitle, "Staff Scientist")
+        eq(scientists.jobTitle, "Staff Scientist"),
+        eq(scientists.isInvestigator, true)
       ))
       .orderBy(scientists.lastName, scientists.firstName);
   }
@@ -1514,7 +1525,6 @@ export class DatabaseStorage implements IStorage {
     activeResearchActivities: number;
     publications: number;
     patents: number;
-    pendingApplications: number;
   }> {
     const activeActivities = await db
       .select({ count: sql<number>`count(*)` })
@@ -1529,21 +1539,10 @@ export class DatabaseStorage implements IStorage {
       .select({ count: sql<number>`count(*)` })
       .from(patents);
     
-    const pendingIrbCount = await db
-      .select({ count: sql<number>`count(*)` })
-      .from(irbApplications)
-      .where(eq(irbApplications.status, "Submitted"));
-    
-    const pendingIbcCount = await db
-      .select({ count: sql<number>`count(*)` })
-      .from(ibcApplications)
-      .where(eq(ibcApplications.status, "Submitted"));
-    
     return {
-      activeResearchActivities: activeActivities[0].count,
-      publications: publicationCount[0].count,
-      patents: patentCount[0].count,
-      pendingApplications: pendingIrbCount[0].count + pendingIbcCount[0].count,
+      activeResearchActivities: Number(activeActivities[0].count),
+      publications: Number(publicationCount[0].count),
+      patents: Number(patentCount[0].count),
     };
   }
 
@@ -1559,39 +1558,6 @@ export class DatabaseStorage implements IStorage {
     const now = new Date();
     const thirtyDaysFromNow = new Date();
     thirtyDaysFromNow.setDate(now.getDate() + 30);
-    
-    // Get IRB applications expiring in the next 30 days
-    const irbDeadlines = await db
-      .select({
-        id: irbApplications.id,
-        type: sql<string>`'IRB'`,
-        title: irbApplications.title,
-        expirationDate: irbApplications.expirationDate,
-        researchActivityId: irbApplications.researchActivityId
-      })
-      .from(irbApplications)
-      .where(
-        and(
-          sql`${irbApplications.expirationDate} >= ${now.toISOString()}`,
-          sql`${irbApplications.expirationDate} <= ${thirtyDaysFromNow.toISOString()}`
-        )
-      );
-    
-    // Get IBC applications expiring in the next 30 days
-    const ibcDeadlines = await db
-      .select({
-        id: ibcApplications.id,
-        type: sql<string>`'IBC'`,
-        title: ibcApplications.title,
-        expirationDate: ibcApplications.expirationDate
-      })
-      .from(ibcApplications)
-      .where(
-        and(
-          sql`${ibcApplications.expirationDate} >= ${now.toISOString()}`,
-          sql`${ibcApplications.expirationDate} <= ${thirtyDaysFromNow.toISOString()}`
-        )
-      );
     
     // Get research contracts ending in the next 30 days
     const contractDeadlines = await db
@@ -1610,8 +1576,16 @@ export class DatabaseStorage implements IStorage {
         )
       );
     
-    return [...irbDeadlines, ...ibcDeadlines, ...contractDeadlines]
-      .sort((a, b) => new Date(a.expirationDate).getTime() - new Date(b.expirationDate).getTime());
+    return contractDeadlines
+      .map((deadline) => ({
+        id: deadline.id,
+        title: deadline.title,
+        description: "Research contract",
+        dueDate: deadline.expirationDate,
+        projectId: deadline.researchActivityId,
+        type: deadline.type,
+      }))
+      .sort((a, b) => new Date(a.dueDate!).getTime() - new Date(b.dueDate!).getTime());
   }
 
   // IRB Board Members
@@ -2010,20 +1984,60 @@ export class DatabaseStorage implements IStorage {
   }
 
   async updateRolePermissionsBulk(permissions: Array<{jobTitle: string, navigationItem: string, accessLevel: string}>): Promise<(RolePermission & { jobTitle: string })[]> {
-    const results: (RolePermission & { jobTitle: string })[] = [];
+    if (permissions.length === 0) return [];
 
+    // The access matrix may contain roles or cells that predate the current
+    // database seed. Ensure every submitted role exists, then upsert each
+    // role/navigation pair so newly restored matrix cells persist.
+    const roleNames = [...new Set(permissions.map((permission) => permission.jobTitle.trim()).filter(Boolean))];
+    await db
+      .insert(roleGroups)
+      .values(roleNames.map((name) => ({ name })))
+      .onConflictDoNothing({ target: roleGroups.name });
+
+    const groups = await db
+      .select({ id: roleGroups.id, name: roleGroups.name })
+      .from(roleGroups)
+      .where(inArray(roleGroups.name, roleNames));
+    const groupIdByName = new Map(groups.map((group) => [group.name, group.id]));
+    const groupNameById = new Map(groups.map((group) => [group.id, group.name]));
+
+    // Last submitted value wins if a client sends the same cell more than once.
+    const valuesByCell = new Map<string, {
+      roleGroupId: number;
+      navigationItem: string;
+      accessLevel: string;
+    }>();
     for (const permission of permissions) {
-      const result = await this.updateRolePermission(
-        permission.jobTitle,
-        permission.navigationItem,
-        permission.accessLevel
-      );
-      if (result) {
-        results.push(result);
-      }
+      const jobTitle = permission.jobTitle.trim();
+      const roleGroupId = groupIdByName.get(jobTitle);
+      if (!roleGroupId) continue;
+      valuesByCell.set(`${roleGroupId}:${permission.navigationItem}`, {
+        roleGroupId,
+        navigationItem: permission.navigationItem,
+        accessLevel: permission.accessLevel,
+      });
     }
 
-    return results;
+    const values = [...valuesByCell.values()];
+    if (values.length === 0) return [];
+
+    const upserted = await db
+      .insert(rolePermissions)
+      .values(values)
+      .onConflictDoUpdate({
+        target: [rolePermissions.roleGroupId, rolePermissions.navigationItem],
+        set: {
+          accessLevel: sql`excluded.access_level`,
+          updatedAt: sql`now()`,
+        },
+      })
+      .returning();
+
+    return upserted.map((permission) => ({
+      ...permission,
+      jobTitle: groupNameById.get(permission.roleGroupId) ?? "",
+    }));
   }
 
   // Journal Impact Factor operations
@@ -3007,11 +3021,9 @@ export class DatabaseStorage implements IStorage {
   // Recent activity feed — aggregated from real records across the app
   async getRecentActivity(limit: number = 8): Promise<Array<{ id: string; type: string; title: string; description: string; date: Date | null }>> {
     const perTable = Math.max(limit, 5);
-    const [proj, pubs, irbs, ibcs, sdrs, sci, ra200, ra205a] = await Promise.all([
+    const [proj, pubs, sdrs, sci, ra200, ra205a] = await Promise.all([
       db.select({ id: projects.id, title: projects.name, date: projects.createdAt }).from(projects).orderBy(desc(projects.createdAt)).limit(perTable),
       db.select({ id: publications.id, title: publications.title, date: publications.createdAt }).from(publications).orderBy(desc(publications.createdAt)).limit(perTable),
-      db.select({ id: irbApplications.id, title: irbApplications.title, date: irbApplications.createdAt }).from(irbApplications).orderBy(desc(irbApplications.createdAt)).limit(perTable),
-      db.select({ id: ibcApplications.id, title: ibcApplications.title, date: ibcApplications.createdAt }).from(ibcApplications).orderBy(desc(ibcApplications.createdAt)).limit(perTable),
       db.select({ id: researchActivities.id, title: researchActivities.title, date: researchActivities.createdAt }).from(researchActivities).orderBy(desc(researchActivities.createdAt)).limit(perTable),
       db.select({ id: scientists.id, first: scientists.firstName, last: scientists.lastName, date: scientists.createdAt }).from(scientists).orderBy(desc(scientists.createdAt)).limit(perTable),
       db.select({ id: ra200Applications.id, title: ra200Applications.title, date: ra200Applications.createdAt }).from(ra200Applications).orderBy(desc(ra200Applications.createdAt)).limit(perTable),
@@ -3021,8 +3033,6 @@ export class DatabaseStorage implements IStorage {
     const items = [
       ...proj.map(r => ({ id: `project-${r.id}`, type: 'project_added', title: r.title, description: 'New project added', date: r.date })),
       ...pubs.map(r => ({ id: `publication-${r.id}`, type: 'publication_added', title: r.title, description: 'New publication added', date: r.date })),
-      ...irbs.map(r => ({ id: `irb-${r.id}`, type: 'irb_submission', title: r.title, description: 'IRB application created', date: r.date })),
-      ...ibcs.map(r => ({ id: `ibc-${r.id}`, type: 'ibc_submission', title: r.title, description: 'IBC application created', date: r.date })),
       ...sdrs.map(r => ({ id: `sdr-${r.id}`, type: 'activity_added', title: r.title, description: 'New research activity', date: r.date })),
       ...sci.map(r => ({ id: `scientist-${r.id}`, type: 'staff_added', title: `${r.first} ${r.last}`, description: 'New staff member added', date: r.date })),
       ...ra200.map(r => ({ id: `ra200-${r.id}`, type: 'pmo_submission', title: r.title, description: 'RA-200 application created', date: r.date })),
@@ -3095,6 +3105,106 @@ export class DatabaseStorage implements IStorage {
   async deleteOwnershipOverride(id: number): Promise<boolean> {
     const result = await db.delete(ownershipOverrides).where(eq(ownershipOverrides.id, id));
     return result.rowCount !== null && result.rowCount > 0;
+  }
+
+  // ── Organizational structure (Branch → Department → Section) ──────────────
+
+  async getBranches(): Promise<Branch[]> {
+    return await db.select().from(branches).orderBy(asc(branches.name));
+  }
+
+  async createBranch(data: InsertBranch): Promise<Branch> {
+    const [row] = await db.insert(branches).values(data).returning();
+    return row;
+  }
+
+  async updateBranch(id: number, updates: Partial<InsertBranch>): Promise<Branch | undefined> {
+    const [row] = await db
+      .update(branches)
+      .set({ ...updates, updatedAt: sql`now()` })
+      .where(eq(branches.id, id))
+      .returning();
+    return row;
+  }
+
+  /** Returns true if deleted; returns a string reason if blocked. */
+  async deleteBranch(id: number): Promise<true | string> {
+    const [{ count: deptCount }] = await db
+      .select({ count: sql<number>`count(*)::int` })
+      .from(departments)
+      .where(eq(departments.branchId, id));
+    if (deptCount > 0) {
+      return `Branch has ${deptCount} department(s). Move or delete them first.`;
+    }
+    const result = await db.delete(branches).where(eq(branches.id, id));
+    return result.rowCount !== null && result.rowCount > 0 ? true : "Branch not found.";
+  }
+
+  async getDepartments(): Promise<Department[]> {
+    return await db.select().from(departments).orderBy(asc(departments.name));
+  }
+
+  async createDepartment(data: InsertDepartment): Promise<Department> {
+    const [row] = await db.insert(departments).values(data).returning();
+    return row;
+  }
+
+  async updateDepartment(id: number, updates: Partial<InsertDepartment>): Promise<Department | undefined> {
+    const [row] = await db
+      .update(departments)
+      .set({ ...updates, updatedAt: sql`now()` })
+      .where(eq(departments.id, id))
+      .returning();
+    return row;
+  }
+
+  async deleteDepartment(id: number): Promise<true | string> {
+    const [{ count: sectionCount }] = await db
+      .select({ count: sql<number>`count(*)::int` })
+      .from(sections)
+      .where(eq(sections.departmentId, id));
+    if (sectionCount > 0) {
+      return `Department has ${sectionCount} section(s). Move or delete them first.`;
+    }
+    const [{ count: staffCount }] = await db
+      .select({ count: sql<number>`count(*)::int` })
+      .from(scientists)
+      .where(eq(scientists.departmentId, id));
+    if (staffCount > 0) {
+      return `Department has ${staffCount} staff member(s) assigned. Reassign them first.`;
+    }
+    const result = await db.delete(departments).where(eq(departments.id, id));
+    return result.rowCount !== null && result.rowCount > 0 ? true : "Department not found.";
+  }
+
+  async getSections(): Promise<Section[]> {
+    return await db.select().from(sections).orderBy(asc(sections.name));
+  }
+
+  async createSection(data: InsertSection): Promise<Section> {
+    const [row] = await db.insert(sections).values(data).returning();
+    return row;
+  }
+
+  async updateSection(id: number, updates: Partial<InsertSection>): Promise<Section | undefined> {
+    const [row] = await db
+      .update(sections)
+      .set({ ...updates, updatedAt: sql`now()` })
+      .where(eq(sections.id, id))
+      .returning();
+    return row;
+  }
+
+  async deleteSection(id: number): Promise<true | string> {
+    const [{ count: staffCount }] = await db
+      .select({ count: sql<number>`count(*)::int` })
+      .from(scientists)
+      .where(eq(scientists.sectionId, id));
+    if (staffCount > 0) {
+      return `Section has ${staffCount} staff member(s) assigned. Reassign them first.`;
+    }
+    const result = await db.delete(sections).where(eq(sections.id, id));
+    return result.rowCount !== null && result.rowCount > 0 ? true : "Section not found.";
   }
 }
 

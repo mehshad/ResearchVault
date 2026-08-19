@@ -25,6 +25,9 @@ import { insertProgramSchema } from "@shared/schema";
 import { ArrowLeft } from "lucide-react";
 import type { Scientist } from "@shared/schema";
 
+// Extend the insert schema with additional validations.
+// programId (PRM number) is omitted — it is auto-generated on submit.
+const createProgramSchema = insertProgramSchema.omit({ programId: true }).extend({
 // Extend the insert schema with additional validations
 const createProgramSchema = insertProgramSchema.extend({
   programId: z.string().optional(), // auto-generated on server if omitted
@@ -44,6 +47,15 @@ export default function CreateProgram() {
     queryKey: ['/api/scientists'],
     queryFn: () => fetch('/api/scientists').then(res => res.json()),
   });
+  const { data: principalInvestigators = [] } = useQuery<Scientist[]>({
+    queryKey: ['/api/principal-investigators'],
+    queryFn: () => fetch('/api/principal-investigators').then(res => res.json()),
+  });
+
+  // Fetch existing programs so we can auto-assign the next PRM number
+  const { data: programs = [] } = useQuery<{ programId: string }[]>({
+    queryKey: ['/api/programs'],
+  });
 
   // Default form values
   const defaultValues: Partial<CreateProgramFormValues> = {
@@ -57,7 +69,13 @@ export default function CreateProgram() {
 
   const createProgramMutation = useMutation({
     mutationFn: async (data: CreateProgramFormValues) => {
-      const response = await apiRequest("POST", "/api/programs", data);
+      // Auto-generate the next PRM number from existing programs
+      const maxNum = programs.reduce((max, p) => {
+        const m = /^PRM-(\d+)$/.exec(p.programId || "");
+        return m ? Math.max(max, parseInt(m[1], 10)) : max;
+      }, 0);
+      const programId = `PRM-${String(maxNum + 1).padStart(3, '0')}`;
+      const response = await apiRequest("POST", "/api/programs", { ...data, programId });
       return response.json();
     },
     onSuccess: () => {
@@ -195,7 +213,7 @@ export default function CreateProgram() {
                           </SelectTrigger>
                         </FormControl>
                         <SelectContent>
-                          {scientists.filter(scientist => scientist.jobTitle === 'Investigator').map((scientist) => (
+                          {principalInvestigators.map((scientist) => (
                             <SelectItem key={scientist.id} value={scientist.id.toString()}>
                               {[scientist.honorificTitle, scientist.firstName, scientist.lastName].filter(Boolean).join(' ')} - {scientist.jobTitle || 'No title'}
                             </SelectItem>
@@ -223,7 +241,7 @@ export default function CreateProgram() {
                           </SelectTrigger>
                         </FormControl>
                         <SelectContent>
-                          {scientists.filter(scientist => scientist.jobTitle === 'Investigator' || scientist.jobTitle === 'Staff Scientist').map((scientist) => (
+                          {principalInvestigators.map((scientist) => (
                             <SelectItem key={scientist.id} value={scientist.id.toString()}>
                               {[scientist.honorificTitle, scientist.firstName, scientist.lastName].filter(Boolean).join(' ')} - {scientist.jobTitle || 'No title'}
                             </SelectItem>
