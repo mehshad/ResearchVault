@@ -166,10 +166,7 @@ export default function ResearchActivitiesList() {
   // Get projects for the selected program
   const projectsForSelectedProgram = projects?.filter(project => {
     if (activeTab === "all") return true;
-    if (activeTab === "cancer-genomics") return project.programId === 1;
-    if (activeTab === "neurological-disorders") return project.programId === 2;
-    if (activeTab === "immune-dysregulations") return project.programId === 3;
-    return false;
+    return project.programId === Number(activeTab);
   });
 
   const filteredActivities = enhancedActivities?.filter(activity => {
@@ -177,16 +174,16 @@ export default function ResearchActivitiesList() {
       activity.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
       (activity.description?.toLowerCase().includes(searchQuery.toLowerCase())) ||
       activity.sdrNumber.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      (activity.project?.name.toLowerCase().includes(searchQuery.toLowerCase()));
+      (activity.project?.name.toLowerCase().includes(searchQuery.toLowerCase())) ||
+      (activity.project?.program?.name.toLowerCase().includes(searchQuery.toLowerCase()));
     
     // If "All" is selected, show all activities
     if (activeTab === "all" && selectedProjectTab === "all") return matchesSearch;
     
     // Filter by program first
-    let matchesProgram = true;
-    if (activeTab === "cancer-genomics") matchesProgram = activity.project?.program?.name === "Cancer Genomics Program";
-    if (activeTab === "neurological-disorders") matchesProgram = activity.project?.program?.name === "Neurological Disorders Program";
-    if (activeTab === "immune-dysregulations") matchesProgram = activity.project?.program?.name === "Immune Dysregulations Program";
+    const matchesProgram =
+      activeTab === "all" ||
+      activity.project?.program?.id === Number(activeTab);
     
     // Then filter by specific project if a project tab is selected
     let matchesProject = true;
@@ -233,20 +230,22 @@ export default function ResearchActivitiesList() {
           </div>
         </CardHeader>
         <CardContent>
-          <Tabs defaultValue="all" onValueChange={(value) => {
+          <Tabs value={activeTab} onValueChange={(value) => {
             setActiveTab(value);
             setSelectedProjectTab("all"); // Reset project filter when program changes
           }}>
             <TabsList className="mb-4 flex flex-wrap gap-1">
               <TabsTrigger value="all">All</TabsTrigger>
-              <TabsTrigger value="cancer-genomics">Cancer Genomics</TabsTrigger>
-              <TabsTrigger value="neurological-disorders">Neurological Disorders</TabsTrigger>
-              <TabsTrigger value="immune-dysregulations">Immune Dysregulations</TabsTrigger>
+              {programs?.map((program) => (
+                <TabsTrigger key={program.id} value={program.id.toString()}>
+                  {program.name}
+                </TabsTrigger>
+              ))}
             </TabsList>
             
             {/* Project-level tabs - only show when a specific program is selected */}
             {activeTab !== "all" && projectsForSelectedProgram && projectsForSelectedProgram.length > 0 && (
-              <Tabs defaultValue="all" onValueChange={setSelectedProjectTab} className="mb-4">
+              <Tabs value={selectedProjectTab} onValueChange={setSelectedProjectTab} className="mb-4">
                 <TabsList className="flex flex-wrap gap-1">
                   <TabsTrigger value="all">All Projects</TabsTrigger>
                   {projectsForSelectedProgram.map(project => (

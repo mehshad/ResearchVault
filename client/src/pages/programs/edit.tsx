@@ -44,6 +44,10 @@ export default function ProgramEdit() {
     queryKey: ['/api/scientists'],
     queryFn: () => fetch('/api/scientists').then(res => res.json()),
   });
+  const { data: principalInvestigators = [] } = useQuery<Scientist[]>({
+    queryKey: ['/api/principal-investigators'],
+    queryFn: () => fetch('/api/principal-investigators').then(res => res.json()),
+  });
 
   const form = useForm<InsertProgram>({
     resolver: zodResolver(insertProgramSchema),
@@ -225,7 +229,7 @@ export default function ProgramEdit() {
                           </SelectTrigger>
                         </FormControl>
                         <SelectContent>
-                          {scientists.filter(scientist => scientist.jobTitle === 'Investigator').map((scientist) => (
+                          {principalInvestigators.map((scientist) => (
                             <SelectItem key={scientist.id} value={scientist.id.toString()}>
                               {[scientist.honorificTitle, scientist.firstName, scientist.lastName].filter(Boolean).join(' ')} - {scientist.jobTitle || 'No title'}
                             </SelectItem>
@@ -253,7 +257,7 @@ export default function ProgramEdit() {
                           </SelectTrigger>
                         </FormControl>
                         <SelectContent>
-                          {scientists.filter(scientist => scientist.jobTitle === 'Investigator' || scientist.jobTitle === 'Staff Scientist').map((scientist) => (
+                          {principalInvestigators.map((scientist) => (
                             <SelectItem key={scientist.id} value={scientist.id.toString()}>
                               {[scientist.honorificTitle, scientist.firstName, scientist.lastName].filter(Boolean).join(' ')} - {scientist.jobTitle || 'No title'}
                             </SelectItem>

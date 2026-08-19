@@ -247,11 +247,12 @@ export class DatabaseStorage implements IStorage {
   }
 
   async getPrincipalInvestigators(): Promise<Scientist[]> {
-    // Only return Investigators and Staff Scientists as potential PIs
+    // Include title-based eligibility plus the additional designation.
     return await db.select().from(scientists)
       .where(or(
         eq(scientists.jobTitle, "Investigator"),
-        eq(scientists.jobTitle, "Staff Scientist")
+        eq(scientists.jobTitle, "Staff Scientist"),
+        eq(scientists.isInvestigator, true)
       ))
       .orderBy(scientists.lastName, scientists.firstName);
   }

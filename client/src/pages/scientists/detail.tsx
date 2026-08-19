@@ -382,6 +382,14 @@ export default function ScientistDetail() {
                         <p className="text-neutral-700">
                           {scientist.jobTitle || "No title"}
                         </p>
+                        {scientist.isInvestigator && (
+                          <Badge
+                            variant="outline"
+                            className="ml-3 bg-purple-50 text-purple-700 border-purple-200 dark:bg-purple-950 dark:text-purple-300 dark:border-purple-800"
+                          >
+                            Investigator
+                          </Badge>
+                        )}
                       </div>
                     </div>
 

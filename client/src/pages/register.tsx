@@ -9,6 +9,7 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
+import { INVESTIGATOR_ELIGIBLE_JOB_TITLES } from "@shared/investigatorEligibility";
 
 const JOB_TITLES = [
   "Investigator",
@@ -29,6 +30,12 @@ const JOB_TITLES = [
   "Management",
   "Other",
 ];
+const SELF_REGISTRATION_JOB_TITLES = JOB_TITLES.filter(
+  (title) =>
+    !INVESTIGATOR_ELIGIBLE_JOB_TITLES.includes(
+      title as (typeof INVESTIGATOR_ELIGIBLE_JOB_TITLES)[number]
+    )
+);
 
 const STAFF_TYPES = [
   { value: "scientific", label: "Scientific Staff" },
@@ -49,7 +56,7 @@ function splitName(fullName: string | undefined): { firstName: string; lastName:
 /** If the user's role exactly matches a known job title, pre-select it. */
 function deriveJobTitle(role: string | undefined): string {
   if (!role) return "";
-  return JOB_TITLES.includes(role) ? role : "";
+  return SELF_REGISTRATION_JOB_TITLES.includes(role) ? role : "";
 }
 
 export default function RegisterPage() {
@@ -166,7 +173,7 @@ export default function RegisterPage() {
                   <SelectValue placeholder="Select your role…" />
                 </SelectTrigger>
                 <SelectContent>
-                  {JOB_TITLES.map((t) => (
+                  {SELF_REGISTRATION_JOB_TITLES.map((t) => (
                     <SelectItem key={t} value={t}>
                       {t}
                     </SelectItem>

@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { isInvestigatorEligible } from "@shared/investigatorEligibility";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { Link, useLocation } from "wouter";
 import { Button } from "@/components/ui/button";
@@ -418,7 +419,7 @@ export default function StaffList() {
     // Filter by job title (legacy support)
     if (activeTab === "management") return matchesSearch && person.jobTitle === "Management";
     if (activeTab === "physician") return matchesSearch && person.jobTitle === "Physician";
-    if (activeTab === "investigator") return matchesSearch && person.jobTitle === "Investigator";
+    if (activeTab === "investigator") return matchesSearch && isInvestigatorEligible(person);
     if (activeTab === "staff-scientist") return matchesSearch && person.jobTitle === "Staff Scientist";
     if (activeTab === "research-specialist") return matchesSearch && person.jobTitle === "Research Specialist";
     if (activeTab === "research-assistant") return matchesSearch && person.jobTitle === "Research Assistant";

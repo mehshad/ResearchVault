@@ -31,6 +31,7 @@ import {
   featureRequests, FeatureRequest, InsertFeatureRequest,
   teamMembers, TeamMember, InsertTeamMember
 } from "@shared/schema";
+import { isInvestigatorEligible } from "@shared/investigatorEligibility";
 
 // Storage interface with CRUD operations for all entities
 export interface IStorage {
@@ -404,7 +405,7 @@ export class MemStorage implements IStorage {
   }
 
   async getPrincipalInvestigators(): Promise<Scientist[]> {
-    return Array.from(this.scientists.values()).filter(scientist => !scientist.isStaff);
+    return Array.from(this.scientists.values()).filter(isInvestigatorEligible);
   }
 
   // Project operations

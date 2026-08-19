@@ -18,6 +18,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { SearchableSelect } from "@/components/ui/searchable-select";
+import { Switch } from "@/components/ui/switch";
 import { formatFullName } from "@/utils/nameUtils";
 import { normalizeOptionalScientistFields } from "@/utils/scientistForm";
 import {
@@ -109,6 +110,7 @@ export default function EditScientist() {
       linkedInUrl: "",
       googleScholarUrl: "",
       webOfScienceId: "",
+      isInvestigator: false,
     },
   });
 
@@ -133,6 +135,7 @@ export default function EditScientist() {
         linkedInUrl: scientist.linkedInUrl || "",
         googleScholarUrl: scientist.googleScholarUrl || "",
         webOfScienceId: scientist.webOfScienceId || "",
+        isInvestigator: scientist.isInvestigator ?? false,
       });
     }
   }, [scientist, form]);
@@ -217,7 +220,12 @@ export default function EditScientist() {
       data.profileImageInitials = `${data.firstName[0]}${data.lastName[0]}`;
     }
     
-    updateScientistMutation.mutate(normalizeOptionalScientistFields(data));
+    const payload = normalizeOptionalScientistFields(data);
+    if (!canManage) {
+      delete payload.isInvestigator;
+      delete payload.jobTitle;
+    }
+    updateScientistMutation.mutate(payload);
   };
 
   // When validation fails, the errored field may be off-screen — scroll to it
@@ -422,19 +430,47 @@ export default function EditScientist() {
                             options={jobTitles.map((t) => ({ value: t, label: t }))}
                             value={field.value || ""}
                             onChange={field.onChange}
+                            disabled={!canManage}
                             placeholder="Select job title"
                             searchPlaceholder="Search job titles..."
                             data-testid="select-job-title"
                           />
                         </FormControl>
                         <FormDescription>
-                          Select the job title for this staff member
+                          {canManage
+                            ? "Select the job title for this staff member"
+                            : "Contact Management to change your job title"}
                         </FormDescription>
                         <FormMessage />
                       </FormItem>
                     );
                   }}
                 />
+
+                {canManage && (
+                  <FormField
+                    control={form.control}
+                    name="isInvestigator"
+                    render={({ field }) => (
+                      <FormItem className="flex flex-row items-center justify-between rounded-lg border p-4">
+                        <div className="space-y-0.5">
+                          <FormLabel>Additional Investigator designation</FormLabel>
+                          <FormDescription>
+                            Allows this staff member to lead projects and fill
+                            investigator-only roles without changing their job title.
+                          </FormDescription>
+                        </div>
+                        <FormControl>
+                          <Switch
+                            checked={field.value}
+                            onCheckedChange={field.onChange}
+                            aria-label="Additional Investigator designation"
+                          />
+                        </FormControl>
+                      </FormItem>
+                    )}
+                  />
+                )}
                 
                 <FormField
                   control={form.control}

@@ -47,9 +47,12 @@ export default function EditResearchActivity() {
     queryKey: ['/api/projects'],
   });
 
-  // Get all scientists
-  const { data: scientists, isLoading: scientistsLoading } = useQuery<Scientist[]>({
-    queryKey: ['/api/scientists'],
+  // Investigator-eligible staff for the PI / budget-holder role.
+  const {
+    data: principalInvestigators,
+    isLoading: principalInvestigatorsLoading,
+  } = useQuery<Scientist[]>({
+    queryKey: ['/api/principal-investigators'],
   });
 
 
@@ -324,14 +327,10 @@ export default function EditResearchActivity() {
                           </SelectTrigger>
                         </FormControl>
                         <SelectContent>
-                          {scientistsLoading ? (
-                            <SelectItem value="loading" disabled>Loading scientists...</SelectItem>
+                          {principalInvestigatorsLoading ? (
+                            <SelectItem value="loading" disabled>Loading investigators...</SelectItem>
                           ) : (
-                            scientists?.filter(scientist => 
-                              scientist.jobTitle === 'Investigator' || 
-                              scientist.jobTitle === 'Staff Scientist' || 
-                              scientist.jobTitle === 'Physician'
-                            ).map((scientist) => (
+                            principalInvestigators?.map((scientist) => (
                               <SelectItem key={scientist.id} value={scientist.id.toString()}>
                                 {formatFullName(scientist)} ({scientist.jobTitle})
                               </SelectItem>
@@ -340,7 +339,7 @@ export default function EditResearchActivity() {
                         </SelectContent>
                       </Select>
                       <FormDescription>
-                        Must be an Investigator, Staff Scientist, or Physician
+                        Must have an eligible Investigator designation
                       </FormDescription>
                       <FormMessage />
                     </FormItem>

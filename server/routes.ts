@@ -87,6 +87,11 @@ import {
   getStatusTransitionWorkflowViolation,
 } from "./publicationMutationPolicy";
 import { createIpVettingHandler } from "./publicationWorkflowRoutes";
+import {
+  isInvestigatorEligible,
+  isInvestigatorRoleAssignmentAllowed,
+} from "@shared/investigatorEligibility";
+import { requireInvestigatorDesignationManager } from "./investigatorDesignationPolicy";
 
 const isLocalStorage = process.env.STORAGE_TYPE === "local";
 
@@ -169,6 +174,35 @@ function scientistUniqueConflictMessage(error: any): string | undefined {
     return "A staff member with this Staff ID already exists.";
   }
   return "A staff member with these details already exists.";
+}
+
+type InvestigatorAssignmentError = {
+  status: 400 | 404;
+  message: string;
+};
+
+async function getInvestigatorAssignmentError(
+  scientistId: number | null | undefined,
+  roleLabel: string
+): Promise<InvestigatorAssignmentError | null> {
+  if (scientistId == null) return null;
+
+  const scientist = await storage.getScientist(scientistId);
+  if (!scientist) {
+    return {
+      status: 404,
+      message: `${roleLabel} staff member not found.`,
+    };
+  }
+
+  if (!isInvestigatorEligible(scientist)) {
+    return {
+      status: 400,
+      message: `${roleLabel} must have an eligible Investigator designation.`,
+    };
+  }
+
+  return null;
 }
 
 // ── ORCID / Google Scholar missing-paper import helpers ──────────────────────
@@ -2651,6 +2685,24 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post('/api/programs', async (req: Request, res: Response) => {
     try {
       const validateData = insertProgramSchema.parse(req.body);
+      const programDirectorError = await getInvestigatorAssignmentError(
+        validateData.programDirectorId,
+        "Program Director"
+      );
+      if (programDirectorError) {
+        return res
+          .status(programDirectorError.status)
+          .json({ message: programDirectorError.message });
+      }
+      const researchCoLeadError = await getInvestigatorAssignmentError(
+        validateData.researchCoLeadId,
+        "Research Co-Lead"
+      );
+      if (researchCoLeadError) {
+        return res
+          .status(researchCoLeadError.status)
+          .json({ message: researchCoLeadError.message });
+      }
       const program = await storage.createProgram(validateData);
       res.status(201).json(program);
     } catch (error) {
@@ -2669,6 +2721,24 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       const validateData = insertProgramSchema.partial().parse(req.body);
+      const programDirectorError = await getInvestigatorAssignmentError(
+        validateData.programDirectorId,
+        "Program Director"
+      );
+      if (programDirectorError) {
+        return res
+          .status(programDirectorError.status)
+          .json({ message: programDirectorError.message });
+      }
+      const researchCoLeadError = await getInvestigatorAssignmentError(
+        validateData.researchCoLeadId,
+        "Research Co-Lead"
+      );
+      if (researchCoLeadError) {
+        return res
+          .status(researchCoLeadError.status)
+          .json({ message: researchCoLeadError.message });
+      }
       const program = await storage.updateProgram(id, validateData);
       
       if (!program) {
@@ -2742,6 +2812,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post('/api/projects', async (req: Request, res: Response) => {
     try {
       const validateData = insertProjectSchema.parse(req.body);
+      const eligibilityError = await getInvestigatorAssignmentError(
+        validateData.principalInvestigatorId,
+        "Project Lead Investigator"
+      );
+      if (eligibilityError) {
+        return res
+          .status(eligibilityError.status)
+          .json({ message: eligibilityError.message });
+      }
       const project = await storage.createProject(validateData);
       res.status(201).json(project);
     } catch (error) {
@@ -2760,6 +2839,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       const validateData = insertProjectSchema.partial().parse(req.body);
+      const eligibilityError = await getInvestigatorAssignmentError(
+        validateData.principalInvestigatorId,
+        "Project Lead Investigator"
+      );
+      if (eligibilityError) {
+        return res
+          .status(eligibilityError.status)
+          .json({ message: eligibilityError.message });
+      }
       const project = await storage.updateProject(id, validateData);
       
       if (!project) {
@@ -3159,7 +3247,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
     return null;
   };
 
-  app.post('/api/scientists', requireAuth, async (req: Request, res: Response) => {
+  app.post(
+    '/api/scientists',
+    requireAuth,
+    requireInvestigatorDesignationManager,
+    async (req: Request, res: Response) => {
     try {
       const validateData = insertScientistSchema.parse(normalizeScientistPayload(req.body));
       const orgError = await validateOrgAssignment(validateData);
@@ -3180,7 +3272,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.patch('/api/scientists/:id', requireAuth, async (req: Request, res: Response) => {
+  app.patch(
+    '/api/scientists/:id',
+    requireAuth,
+    requireInvestigatorDesignationManager,
+    async (req: Request, res: Response) => {
     try {
       const id = parseInt(req.params.id);
       if (isNaN(id)) {
@@ -3400,6 +3496,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post('/api/research-activities', async (req: Request, res: Response) => {
     try {
       const validatedData = insertResearchActivitySchema.parse(req.body);
+      const eligibilityError = await getInvestigatorAssignmentError(
+        validatedData.budgetHolderId,
+        "Budget Holder / Principal Investigator"
+      );
+      if (eligibilityError) {
+        return res
+          .status(eligibilityError.status)
+          .json({ message: eligibilityError.message });
+      }
       const newActivity = await storage.createResearchActivity(validatedData);
 
       // Automatically add the Principal Investigator/Budget Holder to the
@@ -3436,6 +3541,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       const validatedData = insertResearchActivitySchema.partial().parse(req.body);
+      const eligibilityError = await getInvestigatorAssignmentError(
+        validatedData.budgetHolderId,
+        "Budget Holder / Principal Investigator"
+      );
+      if (eligibilityError) {
+        return res
+          .status(eligibilityError.status)
+          .json({ message: eligibilityError.message });
+      }
       const updatedActivity = await storage.updateResearchActivity(id, validatedData);
       
       if (!updatedActivity) {
@@ -3718,6 +3832,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (!scientist) {
         return res.status(404).json({ message: "Scientist not found" });
       }
+
+      if (!isInvestigatorRoleAssignmentAllowed(validateData.role, scientist)) {
+        return res.status(400).json({
+          message:
+            "Only staff with an eligible Investigator designation can be assigned the role of Principal Investigator",
+        });
+      }
             
       const member = await storage.addProjectMember(validateData);
       
@@ -3838,10 +3959,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(404).json({ message: "Scientist not found" });
       }
       
-      // Validate role assignment: Only Investigators can be Principal Investigators
-      if (validateData.role === "Principal Investigator" && scientist.jobTitle !== "Investigator") {
+      // Principal Investigator is an investigator-only team role.
+      if (!isInvestigatorRoleAssignmentAllowed(validateData.role, scientist)) {
         return res.status(400).json({ 
-          message: "Only scientists with the job title 'Investigator' can be assigned the role of Principal Investigator" 
+          message: "Only staff with an eligible Investigator designation can be assigned the role of Principal Investigator"
         });
       }
       
@@ -5842,10 +5963,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(404).json({ message: "Research activity not found" });
       }
       
-      // Check if principal investigator exists
-      const pi = await storage.getScientist(validateData.principalInvestigatorId);
-      if (!pi) {
-        return res.status(404).json({ message: "Principal investigator not found" });
+      const piEligibilityError = await getInvestigatorAssignmentError(
+        validateData.principalInvestigatorId,
+        "IRB Principal Investigator"
+      );
+      if (piEligibilityError) {
+        return res
+          .status(piEligibilityError.status)
+          .json({ message: piEligibilityError.message });
       }
       
       const application = await storage.createIrbApplication(validateData);
@@ -5925,11 +6050,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }
       }
       
-      // Check if principal investigator exists if principalInvestigatorId is provided
+      // Validate investigator eligibility if principalInvestigatorId is provided.
       if (validateData.principalInvestigatorId) {
-        const pi = await storage.getScientist(validateData.principalInvestigatorId);
-        if (!pi) {
-          return res.status(404).json({ message: "Principal investigator not found" });
+        const piEligibilityError = await getInvestigatorAssignmentError(
+          validateData.principalInvestigatorId,
+          "IRB Principal Investigator"
+        );
+        if (piEligibilityError) {
+          return res
+            .status(piEligibilityError.status)
+            .json({ message: piEligibilityError.message });
         }
       }
       
@@ -6070,14 +6200,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const validateData = insertIbcApplicationSchema.parse(dataWithAutoFields);
       console.log("Schema validation successful:", JSON.stringify(validateData, null, 2));
       
-      // Check if principal investigator exists
-      console.log("Checking principal investigator with ID:", validateData.principalInvestigatorId);
-      const pi = await storage.getScientist(validateData.principalInvestigatorId);
-      if (!pi) {
-        console.log("Principal investigator not found");
-        return res.status(404).json({ message: "Principal investigator not found" });
+      console.log("Checking principal investigator eligibility with ID:", validateData.principalInvestigatorId);
+      const piEligibilityError = await getInvestigatorAssignmentError(
+        validateData.principalInvestigatorId,
+        "IBC Principal Investigator"
+      );
+      if (piEligibilityError) {
+        return res
+          .status(piEligibilityError.status)
+          .json({ message: piEligibilityError.message });
       }
-      console.log("Principal investigator found:", pi.name);
       
       // Validate research activities if provided
       if (researchActivityIds && Array.isArray(researchActivityIds)) {
@@ -6170,11 +6302,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }
       }
       
-      // Check if principal investigator exists if provided
+      // Validate investigator eligibility if provided.
       if (validateData.principalInvestigatorId) {
-        const pi = await storage.getScientist(validateData.principalInvestigatorId);
-        if (!pi) {
-          return res.status(404).json({ message: "Principal investigator not found" });
+        const piEligibilityError = await getInvestigatorAssignmentError(
+          validateData.principalInvestigatorId,
+          "IBC Principal Investigator"
+        );
+        if (piEligibilityError) {
+          return res
+            .status(piEligibilityError.status)
+            .json({ message: piEligibilityError.message });
         }
       }
       
@@ -10188,7 +10325,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // POST /api/register — first-time user links their account to a scientist/staff profile
-  app.post('/api/register', requireAuth, async (req: Request, res: Response) => {
+  app.post(
+    '/api/register',
+    requireAuth,
+    requireInvestigatorDesignationManager,
+    async (req: Request, res: Response) => {
     const sessionUser = (req.session as any)?.user;
     if (!sessionUser) return res.status(401).json({ message: 'Not authenticated' });
     if (sessionUser.scientistId) {
@@ -10230,7 +10371,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
       console.error('Error during registration:', err);
       res.status(500).json({ message: 'Failed to create profile' });
     }
-  });
+    }
+  );
 
   // ── Access level helpers ─────────────────────────────────────────────────────
   const ACCESS_LEVEL_ORDER: Record<string, number> = { edit: 3, create: 2, view: 1, hide: 0 };

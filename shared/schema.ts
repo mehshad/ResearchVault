@@ -66,6 +66,7 @@ export const scientists = pgTable("scientists", {
   firstName: text("first_name").notNull(),
   lastName: text("last_name").notNull(),
   jobTitle: text("job_title"), // Job title (Investigator, Manager, etc.)
+  isInvestigator: boolean("is_investigator").notNull().default(false), // Additional management-controlled investigator designation
   email: text("email").notNull().unique(),
   staffId: text("staff_id").unique(), // 5-digit staff ID for badges
   department: text("department"), // legacy free-text department (kept for display)

@@ -27,6 +27,9 @@ import { useToast } from "@/hooks/use-toast";
 import { insertScientistSchema } from "@shared/schema";
 import { Scientist, Department, Section } from "@shared/schema";
 import { ArrowLeft } from "lucide-react";
+import { useAuth } from "@/hooks/useAuth";
+import { useCurrentUser } from "@/hooks/useCurrentUser";
+import { INVESTIGATOR_ELIGIBLE_JOB_TITLES } from "@shared/investigatorEligibility";
 
 // Extend the insert schema with additional validations
 const createScientistSchema = insertScientistSchema.extend({
@@ -45,6 +48,11 @@ type CreateScientistFormValues = z.infer<typeof createScientistSchema>;
 export default function CreateScientist() {
   const [, navigate] = useLocation();
   const { toast } = useToast();
+  const { user, authConfig } = useAuth();
+  const { currentUser } = useCurrentUser();
+  const effectiveRole =
+    authConfig.mode === "demo" ? currentUser.role : (user?.role ?? "user");
+  const canManage = ["Management", "admin", "superadmin"].includes(effectiveRole);
   
   // Fetch all scientists for line manager selection
   const { data: allScientists = [] } = useQuery<Scientist[]>({
@@ -77,6 +85,7 @@ export default function CreateScientist() {
     profileImageInitials: "",
     supervisorId: null,
     staffType: "scientific",
+    isInvestigator: false,
   };
 
   const form = useForm<CreateScientistFormValues>({
@@ -114,7 +123,11 @@ export default function CreateScientist() {
 
     // supervisorId can be null if no line manager is selected
 
-    createScientistMutation.mutate(normalizeOptionalScientistFields(data));
+    const payload = normalizeOptionalScientistFields(data);
+    if (!canManage) {
+      delete payload.isInvestigator;
+    }
+    createScientistMutation.mutate(payload);
   };
 
   // When validation fails, the errored field may be off-screen — scroll to it
@@ -264,7 +277,15 @@ export default function CreateScientist() {
                         <FormLabel>Job Title</FormLabel>
                         <FormControl>
                           <SearchableSelect
-                            options={jobTitles.map((t) => ({ value: t, label: t }))}
+                            options={jobTitles
+                              .filter(
+                                (title) =>
+                                  canManage ||
+                                  !INVESTIGATOR_ELIGIBLE_JOB_TITLES.includes(
+                                    title as (typeof INVESTIGATOR_ELIGIBLE_JOB_TITLES)[number]
+                                  )
+                              )
+                              .map((t) => ({ value: t, label: t }))}
                             value={field.value || ""}
                             onChange={(value) => {
                               field.onChange(value);
@@ -283,6 +304,31 @@ export default function CreateScientist() {
                     );
                   }}
                 />
+
+                {canManage && (
+                  <FormField
+                    control={form.control}
+                    name="isInvestigator"
+                    render={({ field }) => (
+                      <FormItem className="flex flex-row items-center justify-between rounded-lg border p-4">
+                        <div className="space-y-0.5">
+                          <FormLabel>Additional Investigator designation</FormLabel>
+                          <FormDescription>
+                            Allows this staff member to lead projects and fill
+                            investigator-only roles without changing their job title.
+                          </FormDescription>
+                        </div>
+                        <FormControl>
+                          <Switch
+                            checked={field.value}
+                            onCheckedChange={field.onChange}
+                            aria-label="Additional Investigator designation"
+                          />
+                        </FormControl>
+                      </FormItem>
+                    )}
+                  />
+                )}
                 
                 <FormField
                   control={form.control}

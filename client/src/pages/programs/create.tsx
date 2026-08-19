@@ -46,6 +46,10 @@ export default function CreateProgram() {
     queryKey: ['/api/scientists'],
     queryFn: () => fetch('/api/scientists').then(res => res.json()),
   });
+  const { data: principalInvestigators = [] } = useQuery<Scientist[]>({
+    queryKey: ['/api/principal-investigators'],
+    queryFn: () => fetch('/api/principal-investigators').then(res => res.json()),
+  });
 
   // Fetch existing programs so we can auto-assign the next PRM number
   const { data: programs = [] } = useQuery<{ programId: string }[]>({
@@ -193,7 +197,7 @@ export default function CreateProgram() {
                           </SelectTrigger>
                         </FormControl>
                         <SelectContent>
-                          {scientists.filter(scientist => scientist.jobTitle === 'Investigator').map((scientist) => (
+                          {principalInvestigators.map((scientist) => (
                             <SelectItem key={scientist.id} value={scientist.id.toString()}>
                               {[scientist.honorificTitle, scientist.firstName, scientist.lastName].filter(Boolean).join(' ')} - {scientist.jobTitle || 'No title'}
                             </SelectItem>
@@ -221,7 +225,7 @@ export default function CreateProgram() {
                           </SelectTrigger>
                         </FormControl>
                         <SelectContent>
-                          {scientists.filter(scientist => scientist.jobTitle === 'Investigator' || scientist.jobTitle === 'Staff Scientist').map((scientist) => (
+                          {principalInvestigators.map((scientist) => (
                             <SelectItem key={scientist.id} value={scientist.id.toString()}>
                               {[scientist.honorificTitle, scientist.firstName, scientist.lastName].filter(Boolean).join(' ')} - {scientist.jobTitle || 'No title'}
                             </SelectItem>
