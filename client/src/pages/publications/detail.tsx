@@ -112,7 +112,6 @@ export default function PublicationDetail() {
 
   // Status management state
   const [isStatusDialogOpen, setIsStatusDialogOpen] = useState(false);
-  const [ipOfficeApproval, setIpOfficeApproval] = useState(false);
   const [prepublicationUrl, setPrepublicationUrl] = useState('');
   const [prepublicationSite, setPrepublicationSite] = useState('');
   const [journalName, setJournalName] = useState('');
@@ -239,7 +238,6 @@ export default function PublicationDetail() {
       toast({ title: "Success", description: "Status updated successfully" });
       setIsStatusDialogOpen(false);
       // Reset form state
-      setIpOfficeApproval(false);
       setPrepublicationUrl('');
       setPrepublicationSite('');
       setJournalName('');
@@ -1218,8 +1216,6 @@ export default function PublicationDetail() {
               updateStatusMutation.mutate({ status, updatedFields, changes });
             }}
             isLoading={updateStatusMutation.isPending}
-            ipOfficeApproval={ipOfficeApproval}
-            setIpOfficeApproval={setIpOfficeApproval}
             prepublicationUrl={prepublicationUrl}
             setPrepublicationUrl={setPrepublicationUrl}
             prepublicationSite={prepublicationSite}
@@ -1244,8 +1240,6 @@ function StatusUpdateForm({
   publication,
   onStatusUpdate,
   isLoading,
-  ipOfficeApproval,
-  setIpOfficeApproval,
   prepublicationUrl,
   setPrepublicationUrl,
   prepublicationSite,
@@ -1262,8 +1256,6 @@ function StatusUpdateForm({
   publication: Publication;
   onStatusUpdate: (status: string, updatedFields?: any, changes?: any[]) => void;
   isLoading: boolean;
-  ipOfficeApproval: boolean;
-  setIpOfficeApproval: (value: boolean) => void;
   prepublicationUrl: string;
   setPrepublicationUrl: (value: string) => void;
   prepublicationSite: string;
@@ -1285,7 +1277,9 @@ function StatusUpdateForm({
     // terminal exits (Rejected/Withdrawn).
     const transitions: Record<string, string[]> = {
       'Concept': ['Complete Draft', 'Withdrawn'],
-      'Complete Draft': ['Vetted for submission', 'Concept', 'Rejected', 'Withdrawn'],
+      // Complete Draft → Vetted for submission is reserved for the
+      // Outcome Office IP Vetting action.
+      'Complete Draft': ['Concept', 'Rejected', 'Withdrawn'],
       'Vetted for submission': ['Submitted for review with pre-publication', 'Submitted for review without pre-publication', 'Complete Draft', 'Rejected', 'Withdrawn'],
       'Submitted for review with pre-publication': ['Under review', 'Vetted for submission', 'Rejected', 'Withdrawn'],
       'Submitted for review without pre-publication': ['Under review', 'Vetted for submission', 'Rejected', 'Withdrawn'],
@@ -1330,10 +1324,6 @@ function StatusUpdateForm({
     const changes: any[] = [];
 
     // Collect updated fields based on form inputs
-    if (ipOfficeApproval && selectedStatus === 'Vetted for submission') {
-      updatedFields.vettedForSubmissionByIpOffice = true;
-    }
-    
     if (selectedStatus === 'Submitted for review with pre-publication') {
       updatedFields.prepublicationUrl = prepublicationUrl;
       updatedFields.prepublicationSite = prepublicationSite;

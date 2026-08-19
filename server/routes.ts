@@ -80,6 +80,13 @@ import {
   canCreatePublicationForResearchActivity,
 } from "./sidraScoreRoutes";
 import { SIDRA_SCORE_SETTINGS_KEY } from "@shared/sidraScore";
+import {
+  rejectGenericPublicationWorkflowMutation,
+  rejectPublicationCreateWorkflowMutation,
+  rejectProtectedPublicationStatusFields,
+  getStatusTransitionWorkflowViolation,
+} from "./publicationMutationPolicy";
+import { createIpVettingHandler } from "./publicationWorkflowRoutes";
 
 const isLocalStorage = process.env.STORAGE_TYPE === "local";
 
@@ -4505,7 +4512,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post('/api/publications', requireAuth, async (req: Request, res: Response) => {
+  app.post('/api/publications', requireAuth, rejectPublicationCreateWorkflowMutation, async (req: Request, res: Response) => {
     try {
       // Create a validation schema that makes authors optional for concept status
       const createPublicationSchema = insertPublicationSchema.extend({
@@ -4575,7 +4582,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.patch('/api/publications/:id', requireAuth, async (req: Request, res: Response) => {
+  app.patch('/api/publications/:id', requireAuth, rejectGenericPublicationWorkflowMutation, async (req: Request, res: Response) => {
     try {
       const id = parseInt(req.params.id);
       if (isNaN(id)) {
@@ -4609,32 +4616,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
           message:
             "You may only edit publications linked to your scientist profile. Add or confirm your own internal-author link first, or ask Outcome Office for help.",
         });
-      }
-
-      // Final Outcome Office step: officer-only, and only allowed when the
-      // record has no unresolved issues. Mirrors the office's issue checklist.
-      if (validateData.status === 'Published *') {
-        const role = req.session?.user?.role;
-        const isOfficer = role === "Outcome Officer" || role === "admin" || role === "superadmin" || role === "Management";
-        if (!isOfficer) {
-          return res.status(403).json({ message: "Only the Outcome Office can mark a publication as Published *." });
-        }
-        const merged = { ...existing, ...validateData };
-        const issues: string[] = [];
-        if (!merged.journal?.trim()) issues.push('missing journal');
-        if (!merged.publicationDate) issues.push('missing publication date');
-        if (!merged.doi?.trim() && !merged.pmid?.trim()) issues.push('missing DOI/PMID');
-        if (!merged.authors?.trim()) issues.push('missing authors');
-        if (!merged.abstract?.trim()) issues.push('missing abstract');
-        if (!merged.researchActivityId) issues.push('no linked SDR');
-        const internalAuthors = await storage.getPublicationAuthors(id);
-        if (internalAuthors.length === 0) issues.push('no linked internal authors');
-        if (issues.length > 0) {
-          return res.status(400).json({
-            message: `Cannot mark as Published *: unresolved issues (${issues.join(', ')}).`,
-            issues,
-          });
-        }
       }
 
       // Check if research activity exists if researchActivityId is provided
@@ -4747,7 +4728,67 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Publication Status Management
-  app.patch('/api/publications/:id/status', requireAuth, async (req: Request, res: Response) => {
+  app.post(
+    '/api/publications/:id/ip-vet',
+    requirePublicationOfficer,
+    createIpVettingHandler(storage)
+  );
+
+  app.post('/api/publications/:id/finalize', requirePublicationOfficer, async (req: Request, res: Response) => {
+    try {
+      const id = parseInt(req.params.id);
+      if (isNaN(id)) {
+        return res.status(400).json({ message: "Invalid publication ID" });
+      }
+
+      const sessionUserId = req.session?.user?.id;
+      if (sessionUserId == null) {
+        return res.status(401).json({ message: "You must be signed in." });
+      }
+
+      const publication = await storage.getPublication(id);
+      if (!publication) {
+        return res.status(404).json({ message: "Publication not found" });
+      }
+      if (publication.status === "Published *") {
+        return res.status(403).json({
+          message:
+            "This publication is already sealed. Revert the final approval before making changes.",
+        });
+      }
+
+      const issues: string[] = [];
+      if (!publication.journal?.trim()) issues.push("missing journal");
+      if (!publication.publicationDate) issues.push("missing publication date");
+      if (!publication.doi?.trim() && !publication.pmid?.trim()) {
+        issues.push("missing DOI/PMID");
+      }
+      if (!publication.authors?.trim()) issues.push("missing authors");
+      if (!publication.abstract?.trim()) issues.push("missing abstract");
+      if (!publication.researchActivityId) issues.push("no linked SDR");
+      const internalAuthors = await storage.getPublicationAuthors(id);
+      if (internalAuthors.length === 0) issues.push("no linked internal authors");
+      if (issues.length > 0) {
+        return res.status(400).json({
+          message: `Cannot mark as Published *: unresolved issues (${issues.join(", ")}).`,
+          issues,
+        });
+      }
+
+      const updated = await storage.updatePublicationStatus(
+        id,
+        "Published *",
+        sessionUserId
+      );
+
+      res.json(updated);
+    } catch (error) {
+      console.error("Error finalizing publication:", error);
+      res.status(500).json({ message: "Failed to finalize publication" });
+    }
+  });
+
+  app.patch('/api/publications/:id/status', requireAuth, rejectProtectedPublicationStatusFields, async (req: Request, res: Response) => {
     try {
       const id = parseInt(req.params.id);
       if (isNaN(id)) {
@@ -4808,6 +4849,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
       };
 
       const currentStatus = currentPublication.status || 'Concept';
+      const workflowViolation = getStatusTransitionWorkflowViolation(
+        currentStatus,
+        status
+      );
+      if (workflowViolation) {
+        return res
+          .status(workflowViolation.statusCode)
+          .json({ message: workflowViolation.message });
+      }
       if (currentStatus === 'Published *') {
         return res.status(403).json({
           message: "This publication is sealed (Published *). Only the Outcome Office can revert the final approval.",

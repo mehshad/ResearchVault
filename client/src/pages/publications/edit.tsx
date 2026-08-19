@@ -112,9 +112,14 @@ export default function PublicationEdit() {
   });
 
   const onSubmit = (data: any) => {
+    const {
+      vettedForSubmissionByIpOffice: _protectedIpApproval,
+      status: _protectedStatus,
+      ...editableData
+    } = data;
     // Convert string date from HTML input to Date object for API
     const submitData = {
-      ...data,
+      ...editableData,
       publicationDate: data.publicationDate ? new Date(data.publicationDate) : null,
       researchActivityId: data.researchActivityId || null,
     };
