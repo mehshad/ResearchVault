@@ -42,6 +42,8 @@ for migration in \
     "migrations/20260615_ibc_missing_columns.sql" \
     "migrations/20260615_schema_sync.sql" \
     "migrations/20260616_global_app_settings.sql" \
+    "migrations/20260616_align_constraint_names.sql" \
+    "migrations/manual/2026-08-18-org-structure.sql" \
     "migrations/20260816_publication_authors_attribution.sql" \
     "migrations/20260817_publications_alternate_dois.sql" \
     "migrations/20260817_fix_column_types.sql" \
