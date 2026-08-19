@@ -28,11 +28,12 @@ import type { Scientist } from "@shared/schema";
 // Extend the insert schema with additional validations.
 // programId (PRM number) is omitted — it is auto-generated on submit.
 const createProgramSchema = insertProgramSchema.omit({ programId: true }).extend({
+// Extend the insert schema with additional validations
+const createProgramSchema = insertProgramSchema.extend({
+  programId: z.string().optional(), // auto-generated on server if omitted
   name: z.string().min(3, "Program name must be at least 3 characters"),
   description: z.string().optional(),
-  category: z.string({
-    required_error: "Please select a program category",
-  }),
+  category: z.string().optional(),
 });
 
 type CreateProgramFormValues = z.infer<typeof createProgramSchema>;
@@ -126,6 +127,21 @@ export default function CreateProgram() {
                       <FormControl>
                         <Input placeholder="e.g. Cancer Research Initiative" autoComplete="off" data-1p-ignore="true" data-lpignore="true" {...field} />
                       </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+
+                <FormField
+                  control={form.control}
+                  name="programId"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Program ID (PRM Number)</FormLabel>
+                      <FormControl>
+                        <Input placeholder="Auto-generated if left blank (e.g. PRM-001)" autoComplete="off" data-1p-ignore="true" data-lpignore="true" {...field} value={field.value ?? ""} />
+                      </FormControl>
+                      <FormDescription>Leave blank to auto-assign the next PRM number.</FormDescription>
                       <FormMessage />
                     </FormItem>
                   )}

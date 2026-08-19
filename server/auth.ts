@@ -46,7 +46,7 @@ export function getAuthMode(): AuthMode {
 }
 
 export function isSsoEnabled(): boolean {
-  return getAuthMode() === "oidc";
+  return getAuthMode() === "oidc"; // only OIDC redirects to an external IDP
 }
 
 export function logAuthStatus(): void {
@@ -259,7 +259,7 @@ export function registerAuthRoutes(app: any) {
       const { getOidcConfig } = await import("./authProviders/oidc");
       providerName = getOidcConfig().providerName ?? null;
     }
-    const ssoEnabled = mode === "ldap" || mode === "oidc";
+    const ssoEnabled = mode === "oidc"; // LDAP uses username/password, not browser SSO redirect
     res.json({ mode, ssoEnabled, provider: mode, providerName });
   });
 

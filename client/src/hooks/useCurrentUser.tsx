@@ -64,10 +64,14 @@ export function CurrentUserProvider({ children }: CurrentUserProviderProps) {
   const { authConfig, user: authUser } = useAuth();
   const [currentUser, setCurrentUser] = useState<DummyUser>(DUMMY_USERS[7]); // Default to Management role
 
-  // When SSO (ldap/oidc) is enabled, the real session user is the single source
-  // of identity and the role-emulation dummy users are ignored.
+  // Use the real authenticated session user for ldap and oidc modes.
+  // ssoEnabled only controls whether the browser redirects to an external IDP
+  // (oidc), but both ldap and oidc have real session users — dummy users must
+  // not override them. Only demo/local modes use the role-emulation selector.
+  const hasRealAuth = authConfig.mode === 'ldap' || authConfig.mode === 'oidc';
+
   const effectiveUser = useMemo<DummyUser>(() => {
-    if (authConfig.ssoEnabled) {
+    if (hasRealAuth) {
       if (authUser) {
         return {
           id: authUser.id,
@@ -81,10 +85,10 @@ export function CurrentUserProvider({ children }: CurrentUserProviderProps) {
       return { id: 0, name: 'Loading…', email: '', role: 'user' };
     }
     return currentUser;
-  }, [authConfig.ssoEnabled, authUser, currentUser]);
+  }, [hasRealAuth, authUser, currentUser]);
 
   const updateCurrentUser = (user: DummyUser) => {
-    if (authConfig.ssoEnabled) return; // ignore role-switching under SSO
+    if (hasRealAuth) return; // ignore role-switching under real auth
     setCurrentUser(user);
   };
 
