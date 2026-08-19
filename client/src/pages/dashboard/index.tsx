@@ -1,5 +1,4 @@
 import { useQuery } from "@tanstack/react-query";
-import { PauseCircle } from "lucide-react";
 import StatsCard from "@/components/dashboard/StatsCard";
 import RecentProjects from "@/components/dashboard/RecentProjects";
 import RecentActivity from "@/components/dashboard/RecentActivity";
@@ -16,20 +15,6 @@ export default function Dashboard() {
       {/* Page Title */}
       <div>
         <h1 className="text-2xl font-semibold text-foreground">Dashboard</h1>
-      </div>
-
-      <div
-        className="flex items-start gap-3 rounded-lg border border-amber-200 bg-amber-50 p-4 text-amber-950 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-100"
-        role="status"
-        data-testid="notice-compliance-on-hold"
-      >
-        <PauseCircle className="mt-0.5 h-5 w-5 shrink-0" />
-        <div>
-          <p className="font-medium">IRB and IBC services are currently on hold</p>
-          <p className="mt-1 text-sm text-amber-800 dark:text-amber-200">
-            Applications and compliance workflows for these modules are temporarily unavailable.
-          </p>
-        </div>
       </div>
 
       {/* Stats Cards */}

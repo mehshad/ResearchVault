@@ -27,7 +27,6 @@ import type { Scientist } from "@shared/schema";
 
 // programId (PRM number) is optional — auto-generated on submit if not provided.
 const createProgramSchema = insertProgramSchema.omit({ programId: true }).extend({
-  programId: z.string().optional(),
   name: z.string().min(3, "Program name must be at least 3 characters"),
   description: z.string().optional(),
   category: z.string().optional(),

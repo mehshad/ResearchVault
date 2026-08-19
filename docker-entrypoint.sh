@@ -44,7 +44,8 @@ for migration in \
     "migrations/20260616_global_app_settings.sql" \
     "migrations/20260816_publication_authors_attribution.sql" \
     "migrations/20260817_publications_alternate_dois.sql" \
-    "migrations/20260817_fix_column_types.sql"; do
+    "migrations/20260817_fix_column_types.sql" \
+    "migrations/20260819_add_investigator_designation.sql"; do
   if [ -f "/app/$migration" ]; then
     echo "  Applying $migration..."
     psql "$DATABASE_URL" -f "/app/$migration" -v ON_ERROR_STOP=0 2>&1 | grep -v "^$\|already exists\|does not exist\|NOTICE" || true
