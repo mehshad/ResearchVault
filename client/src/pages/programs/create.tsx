@@ -28,9 +28,6 @@ import type { Scientist } from "@shared/schema";
 // Extend the insert schema with additional validations.
 // programId (PRM number) is omitted — it is auto-generated on submit.
 const createProgramSchema = insertProgramSchema.omit({ programId: true }).extend({
-// Extend the insert schema with additional validations
-const createProgramSchema = insertProgramSchema.extend({
-  programId: z.string().optional(), // auto-generated on server if omitted
   name: z.string().min(3, "Program name must be at least 3 characters"),
   description: z.string().optional(),
   category: z.string().optional(),

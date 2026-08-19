@@ -2700,7 +2700,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.post('/api/programs', async (req: Request, res: Response) => {
     try {
-      const validateData = insertProgramSchema.parse(req.body);
+      // Auto-generate a PRM number if the client didn't supply one.
+      let body = { ...req.body };
+      if (!body.programId) {
+        const existing = await storage.getPrograms();
+        const nums = existing
+          .map((p: any) => { const m = String(p.programId || "").match(/(\d+)$/); return m ? parseInt(m[1]) : 0; })
+          .filter((n: number) => n > 0);
+        const next = nums.length > 0 ? Math.max(...nums) + 1 : 1;
+        body.programId = `PRM-${String(next).padStart(3, "0")}`;
+      }
+      const validateData = insertProgramSchema.parse(body);
       const programDirectorError = await getInvestigatorAssignmentError(
         validateData.programDirectorId,
         "Program Director"
@@ -2719,17 +2729,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
           .status(researchCoLeadError.status)
           .json({ message: researchCoLeadError.message });
       }
-      // Auto-generate a PRM number if the client didn't supply one.
-      let body = { ...req.body };
-      if (!body.programId) {
-        const existing = await storage.getPrograms();
-        const nums = existing
-          .map((p: any) => { const m = String(p.programId || "").match(/(\d+)$/); return m ? parseInt(m[1]) : 0; })
-          .filter((n: number) => n > 0);
-        const next = nums.length > 0 ? Math.max(...nums) + 1 : 1;
-        body.programId = `PRM-${String(next).padStart(3, "0")}`;
-      }
-      const validateData = insertProgramSchema.parse(body);
       const program = await storage.createProgram(validateData);
       res.status(201).json(program);
     } catch (error) {
