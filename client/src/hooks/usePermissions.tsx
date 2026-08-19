@@ -252,7 +252,7 @@ export function PermissionsProvider({ children }: PermissionsProviderProps) {
 
   const canCreate = (jobTitle: string, navigationItem: string): boolean => {
     const accessLevel = getAccessLevel(jobTitle, navigationItem);
-    return accessLevel === "edit" || accessLevel === "create";
+    return accessLevel === "edit";
   };
 
   const isHidden = (jobTitle: string, navigationItem: string): boolean => {
