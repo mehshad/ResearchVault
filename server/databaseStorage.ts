@@ -2020,20 +2020,60 @@ export class DatabaseStorage implements IStorage {
   }
 
   async updateRolePermissionsBulk(permissions: Array<{jobTitle: string, navigationItem: string, accessLevel: string}>): Promise<(RolePermission & { jobTitle: string })[]> {
-    const results: (RolePermission & { jobTitle: string })[] = [];
+    if (permissions.length === 0) return [];
 
+    // The access matrix may contain roles or cells that predate the current
+    // database seed. Ensure every submitted role exists, then upsert each
+    // role/navigation pair so newly restored matrix cells persist.
+    const roleNames = [...new Set(permissions.map((permission) => permission.jobTitle.trim()).filter(Boolean))];
+    await db
+      .insert(roleGroups)
+      .values(roleNames.map((name) => ({ name })))
+      .onConflictDoNothing({ target: roleGroups.name });
+
+    const groups = await db
+      .select({ id: roleGroups.id, name: roleGroups.name })
+      .from(roleGroups)
+      .where(inArray(roleGroups.name, roleNames));
+    const groupIdByName = new Map(groups.map((group) => [group.name, group.id]));
+    const groupNameById = new Map(groups.map((group) => [group.id, group.name]));
+
+    // Last submitted value wins if a client sends the same cell more than once.
+    const valuesByCell = new Map<string, {
+      roleGroupId: number;
+      navigationItem: string;
+      accessLevel: string;
+    }>();
     for (const permission of permissions) {
-      const result = await this.updateRolePermission(
-        permission.jobTitle,
-        permission.navigationItem,
-        permission.accessLevel
-      );
-      if (result) {
-        results.push(result);
-      }
+      const jobTitle = permission.jobTitle.trim();
+      const roleGroupId = groupIdByName.get(jobTitle);
+      if (!roleGroupId) continue;
+      valuesByCell.set(`${roleGroupId}:${permission.navigationItem}`, {
+        roleGroupId,
+        navigationItem: permission.navigationItem,
+        accessLevel: permission.accessLevel,
+      });
     }
 
-    return results;
+    const values = [...valuesByCell.values()];
+    if (values.length === 0) return [];
+
+    const upserted = await db
+      .insert(rolePermissions)
+      .values(values)
+      .onConflictDoUpdate({
+        target: [rolePermissions.roleGroupId, rolePermissions.navigationItem],
+        set: {
+          accessLevel: sql`excluded.access_level`,
+          updatedAt: sql`now()`,
+        },
+      })
+      .returning();
+
+    return upserted.map((permission) => ({
+      ...permission,
+      jobTitle: groupNameById.get(permission.roleGroupId) ?? "",
+    }));
   }
 
   // Journal Impact Factor operations

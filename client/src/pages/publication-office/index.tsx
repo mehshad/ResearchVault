@@ -34,6 +34,8 @@ import { Link, useLocation } from "wouter";
 import { format } from "date-fns";
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip as ChartTooltip, ResponsiveContainer, BarChart, Bar, ReferenceLine, Cell } from "recharts";
 import type { JournalImpactFactor, InsertJournalImpactFactor, Publication } from "@shared/schema";
+import type { SidraScoreResult, SidraScoreSettings } from "@shared/sidraScore";
+import { SidraScoreDetails } from "@/components/SidraScoreDetails";
 
 interface SavedSearch {
   id?: string;
@@ -48,19 +50,7 @@ interface SavedSearch {
   createdAt?: string;
 }
 
-interface SidraRanking {
-  id: number;
-  honorificTitle?: string | null;
-  firstName?: string | null;
-  lastName?: string | null;
-  jobTitle?: string | null;
-  department?: string | null;
-  publicationsCount: number;
-  sidraScore: number;
-  missingImpactFactorPublications: string[];
-  excludedPublications?: { title: string; journal: string | null; reason: string }[];
-  calculationDetails: any;
-}
+type SidraRanking = SidraScoreResult;
 
 // Render an affiliation string with the searched term highlighted, so staff can
 // visually verify the match that triggered the discovery.
@@ -172,6 +162,28 @@ export default function PublicationOffice() {
   const [sidraRankings, setSidraRankings] = useState<SidraRanking[]>([]);
   const [selectedScientistDetails, setSelectedScientistDetails] = useState<SidraRanking | null>(null);
   const [isDetailsModalOpen, setIsDetailsModalOpen] = useState(false);
+  const [sidraSettingsLoading, setSidraSettingsLoading] = useState(false);
+
+  useEffect(() => {
+    if (activeTab !== "sidra-score") return;
+    setSidraSettingsLoading(true);
+    fetch("/api/sidra-score/settings", { credentials: "include" })
+      .then((r) => r.ok ? r.json() : null)
+      .then((settings: SidraScoreSettings | null) => {
+        if (!settings) return;
+        setSidraYears(settings.years);
+        setSidraRangeMode(settings.startMonth && settings.endMonth ? "custom" : "years");
+        setSidraStartMonth(settings.startMonth || "");
+        setSidraEndMonth(settings.endMonth || "");
+        setImpactFactorYear(settings.impactFactorYear);
+        setSidraIncludeNonVetted(settings.includeNonVetted);
+        setFirstAuthorMultiplier(settings.multipliers["First Author"]);
+        setSecondAuthorMultiplier(settings.multipliers["Second or Second Last Author"]);
+        setLastAuthorMultiplier(settings.multipliers["Last Author"]);
+        setCorrespondingAuthorMultiplier(settings.multipliers["Corresponding Author"]);
+      })
+      .finally(() => setSidraSettingsLoading(false));
+  }, [activeTab]);
 
   // Function to open calculation details modal
   const openCalculationDetails = (scientist: SidraRanking) => {
@@ -843,6 +855,7 @@ export default function PublicationOffice() {
       const response = await fetch('/api/scientists/sidra-scores', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
+        credentials: "include",
         body: JSON.stringify(config)
       });
       if (!response.ok) throw new Error('Failed to calculate Sidra scores');
@@ -2246,13 +2259,18 @@ export default function PublicationOffice() {
                     variant="outline"
                     onClick={handleCalculateSidraScores}
                     disabled={
+                      sidraSettingsLoading ||
                       calculateSidraScoresMutation.isPending ||
                       (sidraRangeMode === "custom" &&
                         (!sidraStartMonth || !sidraEndMonth || sidraStartMonth > sidraEndMonth))
                     }
                   >
                     <TrendingUp className="h-4 w-4" />
-                    {calculateSidraScoresMutation.isPending ? 'Calculating...' : 'Calculate Scores'}
+                    {sidraSettingsLoading
+                      ? 'Loading official settings...'
+                      : calculateSidraScoresMutation.isPending
+                        ? 'Calculating and saving...'
+                        : 'Calculate and save official scores'}
                   </Button>
                 </CardContent>
               </Card>
@@ -3261,121 +3279,7 @@ export default function PublicationOffice() {
           </DialogHeader>
           
           {selectedScientistDetails && (
-            <div className="space-y-6">
-              {/* Summary */}
-              <Card>
-                <CardHeader>
-                  <CardTitle className="text-lg">Calculation Summary</CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <div className="grid grid-cols-2 gap-4">
-                    <div>
-                      <p className="text-sm text-gray-600 dark:text-gray-300">Total Publications</p>
-                      <p className="text-lg font-semibold">{selectedScientistDetails.publicationsCount}</p>
-                    </div>
-                    <div>
-                      <p className="text-sm text-gray-600 dark:text-gray-300">Total Sidra Score</p>
-                      <p className="text-lg font-semibold text-blue-600 dark:text-blue-400">{selectedScientistDetails.sidraScore.toFixed(2)}</p>
-                    </div>
-                    <div>
-                      <p className="text-sm text-gray-600 dark:text-gray-300">Department</p>
-                      <p className="font-medium">{selectedScientistDetails.department}</p>
-                    </div>
-                    <div>
-                      <p className="text-sm text-gray-600 dark:text-gray-300">Job Title</p>
-                      <p className="font-medium">{selectedScientistDetails.jobTitle}</p>
-                    </div>
-                  </div>
-                </CardContent>
-              </Card>
-
-              {/* Publications with Details */}
-              <Card>
-                <CardHeader>
-                  <CardTitle className="text-lg">Publication Details</CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <div className="space-y-4">
-                    {selectedScientistDetails.calculationDetails.map((pub, index) => (
-                      <div key={index} className="border rounded-lg p-4">
-                        <div className="mb-2">
-                          <h4 className="font-medium text-sm">{pub.title}</h4>
-                          <p className="text-xs text-gray-600 mt-1 dark:text-gray-300">
-                            {pub.journal} • {pub.publicationDate ? format(new Date(pub.publicationDate), 'yyyy') : 'Unknown Year'}
-                          </p>
-                        </div>
-                        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
-                          <div>
-                            <span className="text-gray-600 dark:text-gray-300">Impact Factor:</span>
-                            <p className="font-medium">
-                              {pub.impactFactor}{' '}
-                              {pub.usedFallback ? (
-                                <span className="text-orange-600 dark:text-orange-400">
-                                  ({pub.actualYear} - fallback from {pub.targetYear})
-                                </span>
-                              ) : (
-                                <span className="text-gray-500 dark:text-gray-400">({pub.actualYear})</span>
-                              )}
-                            </p>
-                          </div>
-                          <div>
-                            <span className="text-gray-600 dark:text-gray-300">Authorship:</span>
-                            <p className="font-medium">{pub.authorshipTypes.join(', ')}</p>
-                          </div>
-                          <div>
-                            <span className="text-gray-600 dark:text-gray-300">Multiplier:</span>
-                            <p className="font-medium">×{pub.multiplier} ({pub.appliedMultipliers.join(', ') || 'Base'})</p>
-                          </div>
-                          <div>
-                            <span className="text-gray-600 dark:text-gray-300">Contribution:</span>
-                            <p className="font-semibold text-blue-600 dark:text-blue-400">{pub.publicationScore.toFixed(2)}</p>
-                          </div>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </CardContent>
-              </Card>
-
-              {/* Publications excluded from the score (missing IF, not vetted) */}
-              {(selectedScientistDetails.excludedPublications?.length ?? 0) > 0 ? (
-                <Card>
-                  <CardHeader>
-                    <CardTitle className="text-lg text-red-600 dark:text-red-400">Publications Not Included</CardTitle>
-                  </CardHeader>
-                  <CardContent>
-                    <div className="text-sm text-gray-600 mb-2 dark:text-gray-300">
-                      These publications were not included in the score calculation:
-                    </div>
-                    <ul className="space-y-2">
-                      {selectedScientistDetails.excludedPublications!.map((pub, index) => (
-                        <li key={index} className="text-sm p-2 bg-red-50 rounded border-l-4 border-red-200 dark:bg-red-950 dark:border-red-800">
-                          <div className="font-medium">{pub.title}</div>
-                          <div className="text-xs text-gray-600 dark:text-gray-300">
-                            {pub.journal || 'No journal'} — {pub.reason}
-                          </div>
-                        </li>
-                      ))}
-                    </ul>
-                  </CardContent>
-                </Card>
-              ) : selectedScientistDetails.missingImpactFactorPublications.length > 0 && (
-                <Card>
-                  <CardHeader>
-                    <CardTitle className="text-lg text-red-600 dark:text-red-400">Publications Without Impact Factor Data</CardTitle>
-                  </CardHeader>
-                  <CardContent>
-                    <ul className="space-y-2">
-                      {selectedScientistDetails.missingImpactFactorPublications.map((title, index) => (
-                        <li key={index} className="text-sm p-2 bg-red-50 rounded border-l-4 border-red-200 dark:bg-red-950 dark:border-red-800">
-                          {title}
-                        </li>
-                      ))}
-                    </ul>
-                  </CardContent>
-                </Card>
-              )}
-            </div>
+            <SidraScoreDetails result={selectedScientistDetails} />
           )}
         </DialogContent>
       </Dialog>

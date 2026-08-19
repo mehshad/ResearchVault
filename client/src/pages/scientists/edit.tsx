@@ -37,6 +37,8 @@ import { insertScientistSchema, type Scientist, type Department, type Section } 
 import { ArrowLeft, Loader2, Trash2 } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
 import React, { useEffect, useState } from "react";
+import { useAuth } from "@/hooks/useAuth";
+import { useCurrentUser } from "@/hooks/useCurrentUser";
 
 // Extend the insert schema with additional validations
 const editScientistSchema = insertScientistSchema.extend({
@@ -56,6 +58,13 @@ export default function EditScientist() {
   const [, navigate] = useLocation();
   const { toast } = useToast();
   const queryClient = useQueryClient();
+  const { user, authConfig } = useAuth();
+  const { currentUser } = useCurrentUser();
+  const targetId = parseInt(id || "0");
+  const isOwner = (authConfig.mode === "demo" ? currentUser.id : user?.scientistId) === targetId;
+  const effectiveRole = authConfig.mode === "demo" ? currentUser.role : (user?.role ?? "user");
+  const canManage = ["Management", "admin", "superadmin"].includes(effectiveRole);
+  const canEdit = isOwner || canManage;
 
   // Fetch the scientist data
   const { data: scientist, isLoading } = useQuery<Scientist>({
@@ -269,6 +278,15 @@ export default function EditScientist() {
             <p>The staff member you're looking for could not be found.</p>
           </CardContent>
         </Card>
+      </div>
+    );
+  }
+
+  if (!canEdit) {
+    return (
+      <div className="space-y-6">
+        <Button variant="ghost" size="sm" onClick={() => navigate(`/scientists/${targetId}`)}><ArrowLeft className="mr-1 h-4 w-4" />Return to profile</Button>
+        <Card><CardHeader><CardTitle>Profile is read-only</CardTitle><CardDescription>You can only edit your own profile. Contact Management if this record needs an administrative change.</CardDescription></CardHeader><CardContent><Button onClick={() => navigate(`/scientists/${targetId}`)}>View profile</Button></CardContent></Card>
       </div>
     );
   }
@@ -697,7 +715,7 @@ export default function EditScientist() {
               </div>
 
               <CardFooter className="flex justify-between items-center px-0">
-                <AlertDialog open={deleteOpen} onOpenChange={setDeleteOpen}>
+                {canManage && <AlertDialog open={deleteOpen} onOpenChange={setDeleteOpen}>
                   <AlertDialogTrigger asChild>
                     <Button
                       type="button"
@@ -737,7 +755,7 @@ export default function EditScientist() {
                       </AlertDialogAction>
                     </AlertDialogFooter>
                   </AlertDialogContent>
-                </AlertDialog>
+                </AlertDialog>}
 
                 <div className="flex space-x-2">
                   <Button

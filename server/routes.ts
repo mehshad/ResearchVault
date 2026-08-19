@@ -69,6 +69,8 @@ import { detectDuplicateGroups, pickDefaultSurvivorId, normalizeDoi as canonical
 import { getObjectAclPolicy, ObjectPermission } from "./objectAcl";
 import { buildLinkImportTemplate, previewLinkImport } from "./publicationLinksImport";
 import { GRANT_COLUMNS, grantsToRows, buildGrantsWorkbookBuffer, buildGrantsTemplateBuffer, previewGrantRows } from "./grantsImportExport";
+import { registerSidraScoreRoutes, isOwnScientistProfile, isDemo, hasManagementRole, hasPublicationOfficerRole } from "./sidraScoreRoutes";
+import { SIDRA_SCORE_SETTINGS_KEY } from "@shared/sidraScore";
 
 const isLocalStorage = process.env.STORAGE_TYPE === "local";
 
@@ -1023,6 +1025,11 @@ const DISCOVERY_FETCHERS: Record<
 export async function registerRoutes(app: Express): Promise<Server> {
   // Set up API routes
   const apiRouter = app.route('/api');
+
+  // Sidra Score settings + per-scientist endpoints (registered early so literal
+  // routes beat the /api/scientists/:id param route). Also registers
+  // /api/scientists/sidra-scores (office-wide) and /api/scientists/:id/sidra-score.
+  registerSidraScoreRoutes(app);
 
   // Health check for database connection
   app.get('/api/health/database', async (req: Request, res: Response) => {
@@ -2944,237 +2951,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // Sidra Score calculation for all scientists
-  app.post('/api/scientists/sidra-scores', async (req: Request, res: Response) => {
-    try {
-      const { years = 5, impactFactorYear = "publication", multipliers = {}, startMonth, endMonth, includeNonVetted = false } = req.body;
-
-      // Optional custom month range (YYYY-MM). When provided, it overrides `years`.
-      const monthRe = /^\d{4}-(0[1-9]|1[0-2])$/;
-      const useCustomRange = typeof startMonth === 'string' && typeof endMonth === 'string'
-        && monthRe.test(startMonth) && monthRe.test(endMonth);
-      if ((startMonth || endMonth) && !useCustomRange) {
-        return res.status(400).json({ error: "startMonth and endMonth must both be provided in YYYY-MM format" });
-      }
-      if (useCustomRange && startMonth > endMonth) {
-        return res.status(400).json({ error: "startMonth must not be after endMonth" });
-      }
-      
-      // Default multipliers (canonical roles)
-      const defaultMultipliers = {
-        'First Author': 2,
-        'Second or Second Last Author': 1.5,
-        'Last Author': 2,
-        'Corresponding Author': 2
-      };
-
-      // Normalize stored/legacy authorship labels to canonical multiplier keys.
-      // Co- variants share the same weight as the base role; old senior-author
-      // labels are the same role as Last Author.
-      const normalizeAuthorshipType = (type: string): string => {
-        const t = type.trim();
-        if (t === 'Senior Author' || t === 'Senior/Last Author' || t === 'Co-Senior/Last Author' || t === 'Co-Last Author') return 'Last Author';
-        if (t === 'Co-First Author') return 'First Author';
-        return t;
-      };
-      
-      const finalMultipliers = { ...defaultMultipliers, ...multipliers };
-      
-      // Get only scientific staff (exclude administrative staff)
-      const allScientists = await storage.getScientists();
-      const scientificScientists = allScientists.filter(s => s.staffType === 'scientific');
-
-      if (scientificScientists.length === 0) {
-        return res.json([]);
-      }
-
-      const scientificIds = scientificScientists.map(s => s.id);
-      const currentYear = new Date().getFullYear();
-      let cutoffDate: Date;
-      let rangeEndDate: Date | null = null;
-      if (useCustomRange) {
-        const [sy, sm] = startMonth.split('-').map(Number);
-        const [ey, em] = endMonth.split('-').map(Number);
-        cutoffDate = new Date(sy, sm - 1, 1);
-        // End of the last day of the end month (inclusive)
-        rangeEndDate = new Date(ey, em, 0, 23, 59, 59, 999);
-      } else {
-        cutoffDate = new Date();
-        cutoffDate.setFullYear(cutoffDate.getFullYear() - years);
-      }
-
-      // Batched: all publications, authorships for scientific staff, and all
-      // journal IF metrics — fetched once instead of per-(scientist × publication).
-      // Previously this route issued one publication_authors query per
-      // publication and one impact-factor query per publication, which scaled
-      // as O(scientists × publications × authorships).
-      const [allPublications, allAuthorRows, allMetricRows] = await Promise.all([
-        storage.getPublications(),
-        db
-          .select({
-            publicationId: publicationAuthors.publicationId,
-            scientistId: publicationAuthors.scientistId,
-            authorshipType: publicationAuthors.authorshipType,
-          })
-          .from(publicationAuthors)
-          .where(inArray(publicationAuthors.scientistId, scientificIds)),
-        db
-          .select({
-            journalName: journals.journalName,
-            year: journalImpactFactorMetrics.year,
-            impactFactor: journalImpactFactorMetrics.impactFactor,
-          })
-          .from(journalImpactFactorMetrics)
-          .innerJoin(journals, eq(journalImpactFactorMetrics.journalId, journals.id)),
-      ]);
-
-      // scientistId -> publicationId -> combined authorshipType string
-      // (kept as comma-joined to match the existing split(',') multiplier logic)
-      const authorshipByScientist = new Map<number, Map<number, string>>();
-      for (const row of allAuthorRows) {
-        let m = authorshipByScientist.get(row.scientistId);
-        if (!m) { m = new Map(); authorshipByScientist.set(row.scientistId, m); }
-        const existing = m.get(row.publicationId);
-        m.set(row.publicationId, existing ? `${existing},${row.authorshipType}` : row.authorshipType);
-      }
-
-      // normalizeJournalName(journalName) -> year -> impactFactor (numeric)
-      const ifByJournalYear = new Map<string, Map<number, number>>();
-      for (const m of allMetricRows) {
-        const ifVal = m.impactFactor != null ? parseFloat(String(m.impactFactor)) : NaN;
-        if (!Number.isFinite(ifVal)) continue;
-        const key = normalizeJournalName(m.journalName);
-        let yearMap = ifByJournalYear.get(key);
-        if (!yearMap) { yearMap = new Map(); ifByJournalYear.set(key, yearMap); }
-        yearMap.set(m.year, ifVal);
-      }
-
-      const lookupIf = (journalName: string, year: number): number | null => {
-        const yearMap = ifByJournalYear.get(normalizeJournalName(journalName));
-        if (!yearMap) return null;
-        const v = yearMap.get(year);
-        return v != null ? v : null;
-      };
-
-      const rankings = scientificScientists.map((scientist) => {
-        let totalScore = 0;
-        let publicationsCount = 0;
-        const missingImpactFactorPublications: string[] = [];
-        // Publications that were otherwise eligible but not counted, with the
-        // reason and journal so the office can chase them down.
-        const excludedPublications: { title: string; journal: string | null; reason: string }[] = [];
-        const calculationDetails: any[] = [];
-
-        const authorshipMap = authorshipByScientist.get(scientist.id);
-        if (authorshipMap) {
-          for (const publication of allPublications) {
-            const authorshipTypeStr = authorshipMap.get(publication.id);
-            if (!authorshipTypeStr) continue;
-            if (!publication.publicationDate) continue;
-
-            const pubDate = new Date(publication.publicationDate);
-            if (pubDate < cutoffDate) continue;
-            if (rangeEndDate && pubDate > rangeEndDate) continue;
-            const statusLc = (publication.status || '').toLowerCase();
-            if (!['published', 'published *', 'accepted/in press', 'in press'].includes(statusLc)) continue;
-            if (!publication.journal || publication.journal.trim() === '') continue;
-            // Default: only fully vetted ("Published *") publications count.
-            if (!includeNonVetted && statusLc !== 'published *') {
-              excludedPublications.push({
-                title: publication.title,
-                journal: publication.journal,
-                reason: `Not vetted (status: ${publication.status})`,
-              });
-              continue;
-            }
-
-            const pubYear = pubDate.getFullYear();
-            let targetYear: number;
-            if (impactFactorYear === "prior") targetYear = pubYear - 1;
-            else if (impactFactorYear === "publication") targetYear = pubYear;
-            else targetYear = currentYear;
-
-            let ifValue = lookupIf(publication.journal, targetYear);
-            let actualYear = targetYear;
-            let usedFallback = false;
-
-            if (ifValue == null) {
-              usedFallback = true;
-              const fallbackYears = impactFactorYear === "latest"
-                ? Array.from({ length: Math.max(0, currentYear - 1 - 2020 + 1) }, (_, i) => currentYear - 1 - i)
-                : [targetYear + 1, targetYear - 1, targetYear + 2, targetYear - 2].filter(y => y >= 2020);
-              for (const fy of fallbackYears) {
-                const v = lookupIf(publication.journal, fy);
-                if (v != null) { ifValue = v; actualYear = fy; break; }
-              }
-            }
-
-            if (ifValue == null || !Number.isFinite(ifValue)) {
-              missingImpactFactorPublications.push(publication.title);
-              excludedPublications.push({
-                title: publication.title,
-                journal: publication.journal,
-                reason: 'No impact factor on record',
-              });
-              continue;
-            }
-
-            publicationsCount++;
-
-            const authorshipTypes = authorshipTypeStr.split(',').map(t => normalizeAuthorshipType(t));
-            let multiplier = 1;
-            let appliedMultipliers: string[] = [];
-            for (const type of authorshipTypes) {
-              const mul = finalMultipliers[type];
-              if (mul != null && !isNaN(mul)) {
-                if (mul > multiplier) { multiplier = mul; appliedMultipliers = [type]; }
-                else if (mul === multiplier && !appliedMultipliers.includes(type)) { appliedMultipliers.push(type); }
-              }
-            }
-
-            const publicationScore = ifValue * multiplier;
-            totalScore += publicationScore;
-
-            calculationDetails.push({
-              title: publication.title,
-              journal: publication.journal,
-              publicationDate: publication.publicationDate,
-              impactFactor: ifValue,
-              targetYear,
-              actualYear,
-              usedFallback,
-              authorshipTypes,
-              appliedMultipliers,
-              multiplier,
-              publicationScore,
-            });
-          }
-        }
-
-        return {
-          id: scientist.id,
-          honorificTitle: scientist.honorificTitle,
-          firstName: scientist.firstName,
-          lastName: scientist.lastName,
-          jobTitle: scientist.jobTitle,
-          department: scientist.department,
-          publicationsCount,
-          sidraScore: totalScore,
-          missingImpactFactorPublications,
-          excludedPublications,
-          calculationDetails,
-        };
-      });
-
-      // Sort by score descending
-      rankings.sort((a, b) => b.sidraScore - a.sidraScore);
-
-      res.json(rankings);
-    } catch (error) {
-      console.error('Error calculating Sidra scores:', error);
-      res.status(500).json({ message: "Failed to calculate Sidra scores" });
-    }
-  });
+  // NOTE: POST /api/scientists/sidra-scores is now registered by registerSidraScoreRoutes()
+  // above (protected by requirePublicationOfficer and backed by sidraScoreService).
+  // The original inline handler has been removed to avoid duplicate registration.
+  // Legacy marker — do not re-add inline handler here.
 
   // Roughly 8 MB of base64 → ~6 MB decoded file. Plenty for staff lists; blocks runaway payloads.
   const MAX_IMPORT_B64_LEN = 8 * 1024 * 1024;
@@ -3391,6 +3171,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).json({ message: "Invalid scientist ID" });
       }
 
+      // Own-profile or privileged (Management/admin/superadmin). Demo mode passes.
+      if (!isDemo() && !isOwnScientistProfile(req, id) && !hasManagementRole(req)) {
+        return res.status(403).json({
+          message: "Forbidden. You may only edit your own scientist profile, or you need Management/admin access.",
+        });
+      }
+
       const validateData = insertScientistSchema.partial().parse(normalizeScientistPayload(req.body));
       if (validateData.departmentId !== undefined || validateData.sectionId !== undefined) {
         const existing = await storage.getScientist(id);
@@ -3419,11 +3206,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.delete('/api/scientists/:id', async (req: Request, res: Response) => {
+  app.delete('/api/scientists/:id', requireAuth, async (req: Request, res: Response) => {
     try {
       const id = parseInt(req.params.id);
       if (isNaN(id)) {
         return res.status(400).json({ message: "Invalid scientist ID" });
+      }
+
+      // Only Management/admin/superadmin may delete scientist profiles.
+      // Demo mode uses DEMO_ROLE=Management so this passes in dev.
+      if (!hasManagementRole(req)) {
+        return res.status(403).json({
+          message: "Forbidden. Management/admin access is required to delete a scientist profile.",
+        });
       }
 
       // Make sure the scientist exists before we go FK-hunting so the
@@ -8877,6 +8672,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).json({ message: "Invalid scientist ID" });
       }
 
+      // Own profile OR publication officer group. Demo mode passes.
+      if (!isDemo() && !isOwnScientistProfile(req, id) && !hasPublicationOfficerRole(req)) {
+        return res.status(403).json({
+          message: "Forbidden. You may only import papers for your own linked profile, or you need Publication Officer access.",
+        });
+      }
+
       const scientist = await storage.getScientist(id);
       if (!scientist) {
         return res.status(404).json({ message: "Scientist not found" });
@@ -9682,6 +9484,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.post('/api/system-configurations', async (req, res) => {
     try {
+      if (req.body?.key === SIDRA_SCORE_SETTINGS_KEY && !hasPublicationOfficerRole(req)) {
+        return res.status(403).json({ error: 'Outcome Office access is required to change Sidra Score settings' });
+      }
       const config = await storage.createSystemConfiguration(req.body);
       res.status(201).json(config);
     } catch (error) {
@@ -9692,6 +9497,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.put('/api/system-configurations/:key', async (req, res) => {
     try {
+      if (req.params.key === SIDRA_SCORE_SETTINGS_KEY && !hasPublicationOfficerRole(req)) {
+        return res.status(403).json({ error: 'Outcome Office access is required to change Sidra Score settings' });
+      }
       const config = await storage.updateSystemConfiguration(req.params.key, req.body);
       if (!config) {
         return res.status(404).json({ error: 'Configuration not found' });
@@ -9705,6 +9513,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.delete('/api/system-configurations/:key', async (req, res) => {
     try {
+      if (req.params.key === SIDRA_SCORE_SETTINGS_KEY && !hasPublicationOfficerRole(req)) {
+        return res.status(403).json({ error: 'Outcome Office access is required to change Sidra Score settings' });
+      }
       const result = await storage.deleteSystemConfiguration(req.params.key);
       if (!result) {
         return res.status(404).json({ error: 'Configuration not found' });

@@ -10,6 +10,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { ArrowLeft, Save, RotateCcw, Eye, EyeOff, Edit, ArrowUp, Trash2, Plus } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { usePermissions, type AccessLevel, type NavigationPermission } from "@/hooks/usePermissions";
+import { JOB_TITLES, NAVIGATION_ITEMS } from "@shared/constants";
 
 const KNOWN_RELATIONSHIPS = [
   "is_author",
@@ -27,49 +28,6 @@ interface OwnershipOverride {
   grantedAccess: string;
   description: string | null;
 }
-
-const JOB_TITLES = [
-  "Investigator",
-  "Staff Scientist", 
-  "Physician",
-  "Research Specialist",
-  "Research Associate",
-  "Research Assistant",
-  "Lab Manager",
-  "Postdoctoral Researcher",
-  "PhD Student",
-  "Management",
-  "IRB Board Member",
-  "IBC Board Member", 
-  "PMO Officer",
-  "IRB Officer",
-  "IBC Officer",
-  "Outcome Officer",
-  "Grant Officer",
-  "IT Officer"
-];
-
-const NAVIGATION_ITEMS = [
-  { id: "dashboard", name: "Dashboard", description: "System overview and statistics" },
-  { id: "scientists", name: "Scientists & Staff", description: "Research team management" },
-  { id: "facilities", name: "Facilities", description: "Buildings and rooms management" },
-  { id: "programs", name: "Programs (PRM)", description: "Research programs" },
-  { id: "projects", name: "Projects (PRJ)", description: "Research projects" },
-  { id: "research-activities", name: "Research Activities (SDR)", description: "Scientific data records" },
-  { id: "irb-applications", name: "IRB Applications", description: "Ethics review applications" },
-  { id: "irb-office", name: "IRB Office", description: "IRB administration" },
-  { id: "irb-reviewer", name: "IRB Reviewer", description: "IRB review interface" },
-  { id: "ibc-applications", name: "IBC Applications", description: "Biosafety applications" },
-  { id: "ibc-office", name: "IBC Office", description: "IBC administration" },
-  { id: "ibc-reviewer", name: "IBC Reviewer", description: "IBC review interface" },
-  { id: "data-management", name: "Data Management Plans", description: "Research data governance" },
-  { id: "contracts", name: "Research Contracts", description: "Collaboration agreements" },
-  { id: "publications", name: "Publications", description: "Academic publications" },
-  { id: "outcome-office", name: "Outcome Office", description: "Research outcomes and impact tracking" },
-  { id: "patents", name: "Patents", description: "Intellectual property" },
-  { id: "reports", name: "Reports", description: "System reports and analytics" },
-  { id: "grants", name: "Grants", description: "Research grants and funding" }
-];
 
 export default function RoleAccessConfig({ embedded = false }: { embedded?: boolean }) {
   const { toast } = useToast();
@@ -281,16 +239,16 @@ export default function RoleAccessConfig({ embedded = false }: { embedded?: bool
         </CardHeader>
         
         {/* Quick Navigation */}
-        <div className="border-b px-6 py-4">
+        <div className="sticky top-0 z-20 border-b bg-card/95 px-6 py-4 backdrop-blur supports-[backdrop-filter]:bg-card/80">
           <h3 className="text-sm font-medium mb-3 text-muted-foreground">Quick Navigation</h3>
-          <div className="flex flex-wrap gap-2">
+          <div className="flex gap-2 overflow-x-auto pb-1">
             {NAVIGATION_ITEMS.map((navItem) => (
               <Button
                 key={navItem.id}
                 variant="outline"
                 size="sm"
                 onClick={() => scrollToSection(navItem.id)}
-                className="text-xs h-7"
+                className="h-7 shrink-0 text-xs"
               >
                 {navItem.name}
               </Button>
@@ -300,7 +258,7 @@ export default function RoleAccessConfig({ embedded = false }: { embedded?: bool
         <CardContent>
           <div className="space-y-6">
             {NAVIGATION_ITEMS.map((navItem) => (
-              <div key={navItem.id} id={`section-${navItem.id}`} className="space-y-3 scroll-mt-4">
+              <div key={navItem.id} id={`section-${navItem.id}`} className="scroll-mt-28 space-y-3">
                 <div className="flex items-center justify-between border-b pb-2">
                   <div>
                     <h3 className="font-medium text-lg">{navItem.name}</h3>
