@@ -4,6 +4,7 @@ import type { Express, Request, Response, NextFunction } from "express";
 import { createServer, type Server } from "http";
 import { createHmac, timingSafeEqual } from "crypto";
 import { storage, normalizeJournalName } from "./databaseStorage";
+import { resolveAuthorCheckSubject } from "./authorCheckSubject";
 import { ZodError, z } from "zod";
 import { fromZodError } from "zod-validation-error";
 import {
@@ -4477,51 +4478,28 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // Publications needing author-linking fixes for the current user.
-  // Returns only the logged-in user's likely publications that have a real
+  // Publications needing author-linking fixes for a requested scientist or,
+  // when no scientist is specified, the current user. Returns only that person's
+  // likely publications that have a real
   // author-linking problem: either no internal authors linked, or a linked
   // internal author that does not appear in the free-text author list.
   // Registered before "/api/publications/:id" so the literal path isn't
   // swallowed by the id param route.
   app.get('/api/publications/needs-author-fix', async (req: Request, res: Response) => {
     try {
-      // Resolve the current user's first/last name for author matching.
-      // In demo mode, the feature treats the user as "Dr. Wouter Hendrickx"
-      // (only for this feature; the rest of the demo identity is unchanged).
-      let firstName: string | null = null;
-      let lastName: string | null = null;
-
-      if (getAuthMode() === "demo") {
-        firstName = "Wouter";
-        lastName = "Hendrickx";
-      } else {
-        const sessionUser = req.session.user;
-        if (!sessionUser) {
-          return res.status(401).json({ message: "Not authenticated" });
-        }
-        // Prefer the linked scientist profile for accurate first/last name.
-        if (sessionUser.scientistId) {
-          const scientist = await storage.getScientist(sessionUser.scientistId);
-          if (scientist) {
-            firstName = scientist.firstName;
-            lastName = scientist.lastName;
-          }
-        }
-        // Fall back to parsing the session display name (strip an honorific).
-        if ((!firstName || !lastName) && sessionUser.name) {
-          const cleaned = sessionUser.name
-            .replace(/^(dr\.?|prof\.?|professor|mr\.?|ms\.?|mrs\.?|phd\.?|md\.?)\s+/i, '')
-            .trim();
-          const parts = cleaned.split(/\s+/);
-          if (parts.length >= 2) {
-            firstName = parts[0];
-            lastName = parts[parts.length - 1];
-          }
-        }
+      const subject = await resolveAuthorCheckSubject({
+        requestedScientistId: req.query.scientistId,
+        authMode: getAuthMode(),
+        sessionUser: req.session.user,
+        getScientist: (id) => storage.getScientist(id),
+      });
+      if (!subject.ok) {
+        return res.status(subject.status).json({ message: subject.message });
       }
 
+      const { firstName, lastName } = subject;
       if (!firstName || !lastName) {
-        // Can't determine the user's name, so there's nothing to match.
+        // Can't determine the target person's name, so there's nothing to match.
         return res.json([]);
       }
 
@@ -4539,7 +4517,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       const flagged = allPublications
-        // Only the logged-in user's likely publications.
+        // Only the target scientist/current user's likely publications.
         .filter(pub => matchesAuthorName(pub.authors, firstName, lastName))
         .map(pub => {
           const linkedAuthors = authorsByPublication.get(pub.id) || [];

@@ -34,7 +34,7 @@ export function PublicationsPanel({
       <CardContent className="space-y-6">
         <PublicationsList scientistId={scientistId} yearsSince={yearsSince} embedded />
         <Separator />
-        <PublicationsToFix embedded />
+        <PublicationsToFix scientistId={scientistId} embedded />
         {showMissing && (
           <>
             <Separator />
