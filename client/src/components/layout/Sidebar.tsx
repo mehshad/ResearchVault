@@ -412,26 +412,30 @@ export default function Sidebar({ mobile = false, onClose, onCollapsedChange }: 
           mobile ? "overflow-y-auto max-h-[calc(100vh-200px)]" : "overflow-y-auto"
         )}>
           <div className={cn("space-y-4", isCollapsed ? "px-1" : "px-2")}>
-            {navigationSections.map((section, sectionIndex) => (
-              <div key={section.title}>
-                {!isCollapsed && sectionIndex > 0 && (
-                  <div className="px-3 py-2">
-                    <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
-                      {section.title}
-                    </h3>
-                  </div>
-                )}
-                {isCollapsed && sectionIndex > 0 && (
-                  <div className="border-t border-primary/20 mx-2 my-1" />
-                )}
-                {isSectionVisible(section.title) && (
-                <div className={sectionIndex === 0 ? "space-y-1" : "space-y-1 mt-1"}>
-                  {section.items
-                    .filter((item) => {
-                      const navItemId = getNavigationItemId(item.href);
-                      return !isHidden(currentUser.role, navItemId) && isPageVisible(item.href);
-                    })
-                    .map((item) => {
+            {navigationSections.map((section, sectionIndex) => {
+              const visibleItems = section.items.filter((item) => {
+                const navItemId = getNavigationItemId(item.href);
+                return !isHidden(currentUser.role, navItemId) && isPageVisible(item.href);
+              });
+
+              if (!isSectionVisible(section.title) || visibleItems.length === 0) {
+                return null;
+              }
+
+              return (
+                <div key={section.title}>
+                  {!isCollapsed && sectionIndex > 0 && (
+                    <div className="px-3 py-2">
+                      <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
+                        {section.title}
+                      </h3>
+                    </div>
+                  )}
+                  {isCollapsed && sectionIndex > 0 && (
+                    <div className="border-t border-primary/20 mx-2 my-1" />
+                  )}
+                  <div className={sectionIndex === 0 ? "space-y-1" : "space-y-1 mt-1"}>
+                    {visibleItems.map((item) => {
                       const navItemId = getNavigationItemId(item.href);
                       const itemIsReadOnly = isReadOnly(currentUser.role, navItemId);
                       const IconComponent = item.icon;
@@ -465,10 +469,10 @@ export default function Sidebar({ mobile = false, onClose, onCollapsedChange }: 
                         </Link>
                       );
                     })}
+                  </div>
                 </div>
-                )}
-              </div>
-            ))}
+              );
+            })}
           </div>
         </nav>
 
