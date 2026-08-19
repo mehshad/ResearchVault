@@ -25,8 +25,7 @@ import { insertProgramSchema } from "@shared/schema";
 import { ArrowLeft } from "lucide-react";
 import type { Scientist } from "@shared/schema";
 
-// Extend the insert schema with additional validations.
-// programId (PRM number) is omitted — it is auto-generated on submit.
+// programId (PRM number) is optional — auto-generated on submit if not provided.
 const createProgramSchema = insertProgramSchema.omit({ programId: true }).extend({
   name: z.string().min(3, "Program name must be at least 3 characters"),
   description: z.string().optional(),
