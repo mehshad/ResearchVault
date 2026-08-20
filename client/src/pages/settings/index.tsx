@@ -109,13 +109,13 @@ export default function Settings() {
   // Active tab — can be set via URL hash (e.g. /settings#access-control)
   const [activeTab, setActiveTab] = useState(() => {
     const hash = window.location.hash.replace('#', '');
-    const valid = ['layout-theme', 'team', 'authentication', 'access-control', 'feature-requests'];
+    const valid = ['layout-theme', 'team', 'authentication', 'access-control'];
     return valid.includes(hash) ? hash : 'layout-theme';
   });
 
   useEffect(() => {
     const hash = window.location.hash.replace('#', '');
-    const valid = ['layout-theme', 'team', 'authentication', 'access-control', 'feature-requests'];
+    const valid = ['layout-theme', 'team', 'authentication', 'access-control'];
     if (valid.includes(hash)) setActiveTab(hash);
   }, []);
 
@@ -375,7 +375,7 @@ IRIS (Intelligent Research Information Management System) is a research manageme
       </div>
 
       <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">
-        <TabsList className="grid w-full grid-cols-1 lg:grid-cols-5">
+        <TabsList className="grid w-full grid-cols-1 lg:grid-cols-4">
           <TabsTrigger value="layout-theme" className="flex items-center gap-2">
             <Palette className="h-4 w-4" />
             Layout & Theme
@@ -391,10 +391,6 @@ IRIS (Intelligent Research Information Management System) is a research manageme
           <TabsTrigger value="authentication" className="flex items-center gap-2" data-testid="tab-authentication">
             <ShieldCheck className="h-4 w-4" />
             Authentication
-          </TabsTrigger>
-          <TabsTrigger value="feature-requests" className="flex items-center gap-2">
-            <MessageSquarePlus className="h-4 w-4" />
-            Feature Requests
           </TabsTrigger>
         </TabsList>
 

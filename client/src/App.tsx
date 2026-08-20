@@ -129,6 +129,7 @@ import CertificationsPage from "@/pages/certifications";
 
 // Settings
 import SettingsPage from "@/pages/settings";
+import FeatureRequestsPage from "@/pages/feature-requests";
 import { useAuth, RequireAuth } from "@/hooks/useAuth";
 
 // Public Pages
@@ -320,6 +321,7 @@ function AppRouter() {
         <Route path="/reports" component={ReportsPage} />
         
         {/* Settings */}
+        <Route path="/feature-requests" component={FeatureRequestsPage} />
         <Route path="/settings" component={SettingsPage} />
         <Route path="/settings/users" component={AdminUsersPage} />
         

@@ -1,7 +1,8 @@
-import { pgTable, text, serial, integer, timestamp, boolean, json, uniqueIndex, unique, date, numeric } from "drizzle-orm/pg-core";
+import { pgTable, text, serial, integer, timestamp, boolean, json, uniqueIndex, unique, date, numeric, check } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
+import { GRANT_STATUS_VALUES } from "./grantLifecycle";
 
 // Contract type definitions - shared across all components
 export const CONTRACT_TYPES = [
@@ -1288,7 +1289,7 @@ export const grants = pgTable("grants", {
   requestedAmount: numeric("requested_amount", { precision: 12, scale: 2 }), // Amount requested
   awardedAmount: numeric("awarded_amount", { precision: 12, scale: 2 }), // Amount awarded
   submittedYear: integer("submitted_year"), // Year grant was submitted
-  awarded: boolean("awarded").default(false), // Whether the grant was awarded (Yes/No)
+  awarded: boolean("awarded").notNull().default(false), // Lasting award milestone
   awardedYear: integer("awarded_year"), // Year grant was awarded
   runningTimeYears: integer("running_time_years"), // How many years the grant has been running
   currentGrantYear: text("current_grant_year"), // What year we are in (e.g., "1/3", "2/5")
@@ -1302,12 +1303,33 @@ export const grants = pgTable("grants", {
   fundingAgency: text("funding_agency"), // Funding source/agency
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => {
+  return {
+    grantsStatusValid: check(
+      "grants_status_valid",
+      sql`${table.status} IN ('submitted', 'pending', 'in_review', 'awarded', 'active', 'completed', 'rejected', 'cancelled')`,
+    ),
+    grantsAwardStatusConsistent: check(
+      "grants_award_status_consistent",
+      sql`${table.status} NOT IN ('awarded', 'active', 'completed') OR ${table.awarded} = true`,
+    ),
+    grantsDatesChronological: check(
+      "grants_dates_chronological",
+      sql`${table.startDate} IS NULL OR ${table.endDate} IS NULL OR ${table.endDate} >= ${table.startDate}`,
+    ),
+    grantsActiveStartDateRequired: check(
+      "grants_active_start_date_required",
+      sql`${table.status} NOT IN ('active', 'completed') OR ${table.startDate} IS NOT NULL`,
+    ),
+  };
 });
 
 export const insertGrantSchema = createInsertSchema(grants).omit({
   id: true,
   createdAt: true,
   updatedAt: true,
+}).extend({
+  status: z.enum(GRANT_STATUS_VALUES),
 });
 
 export type InsertGrant = z.infer<typeof insertGrantSchema>;
@@ -1347,6 +1369,11 @@ export const grantResearchActivities = pgTable("grant_research_activities", {
   linkedDate: timestamp("linked_date").defaultNow(), // When the link was created
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => {
+  return {
+    grantResearchActivityUniqueIdx: uniqueIndex("grant_research_activity_unique_idx")
+      .on(table.grantId, table.researchActivityId),
+  };
 });
 
 export const insertGrantResearchActivitySchema = createInsertSchema(grantResearchActivities).omit({

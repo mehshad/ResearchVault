@@ -1,6 +1,6 @@
 // @ts-nocheck — Pre-existing TypeScript errors in this file are suppressed so `npx tsc --noEmit` runs clean and new code in other files gets reliable type-checking feedback.
 // Most errors here stem from untyped `useQuery` results (data inferred as `unknown`), drifted shared/schema field renames, and form values typed as `unknown`. They are not known runtime bugs but should be fixed file-by-file as each is next touched: remove this directive, run `npx tsc --noEmit`, and resolve what surfaces.
-import { eq, and, desc, asc, or, sql, inArray, gte, ilike } from "drizzle-orm";
+import { eq, and, desc, asc, or, sql, inArray, notInArray, gte, ilike } from "drizzle-orm";
 import { db } from "./db";
 import { IStorage } from "./storage";
 import {
@@ -56,6 +56,22 @@ import {
   departments, Department, InsertDepartment,
   sections, Section, InsertSection
 } from "@shared/schema";
+
+export type GrantSdrLifecycleStorageErrorCode =
+  | "GRANT_NOT_FOUND"
+  | "GRANT_NOT_AWARDED"
+  | "GRANT_HAS_SDR_LINKS"
+  | "RESEARCH_ACTIVITY_NOT_FOUND";
+
+export class GrantSdrLifecycleStorageError extends Error {
+  constructor(
+    public readonly code: GrantSdrLifecycleStorageErrorCode,
+    message: string,
+  ) {
+    super(message);
+    this.name = "GrantSdrLifecycleStorageError";
+  }
+}
 import { isPreprintRecord, preprintServerName, preprintLink, normalizeDoi } from "@shared/publicationDeduplication";
 
 /**
@@ -2522,9 +2538,135 @@ export class DatabaseStorage implements IStorage {
     return updatedGrant;
   }
 
+  async updateGrantWithResearchActivities(
+    id: number,
+    grant: Partial<InsertGrant>,
+    desiredResearchActivityIds?: number[],
+  ): Promise<Grant | undefined> {
+    return await db.transaction(async (tx) => {
+      await tx.execute(
+        sql`SELECT "id" FROM "grants" WHERE "id" = ${id} FOR UPDATE`,
+      );
+      const [currentGrant] = await tx
+        .select()
+        .from(grants)
+        .where(eq(grants.id, id));
+      if (!currentGrant) return undefined;
+
+      const desiredIds = desiredResearchActivityIds === undefined
+        ? undefined
+        : [...new Set(desiredResearchActivityIds)];
+      const nextAwarded = grant.awarded ?? currentGrant.awarded ?? false;
+
+      if (!nextAwarded) {
+        if (desiredIds && desiredIds.length > 0) {
+          throw new GrantSdrLifecycleStorageError(
+            "GRANT_NOT_AWARDED",
+            "SDRs can only be linked after the grant has been awarded.",
+          );
+        }
+
+        if (desiredIds === undefined) {
+          const [linkedSdr] = await tx
+            .select({ id: grantResearchActivities.id })
+            .from(grantResearchActivities)
+            .where(eq(grantResearchActivities.grantId, id))
+            .limit(1);
+          if (linkedSdr) {
+            throw new GrantSdrLifecycleStorageError(
+              "GRANT_HAS_SDR_LINKS",
+              "Unlink all SDRs before clearing the Grant Awarded designation. Existing links were left unchanged.",
+            );
+          }
+        }
+      }
+
+      if (desiredIds && desiredIds.length > 0) {
+        const matchingActivities = await tx
+          .select({ id: researchActivities.id })
+          .from(researchActivities)
+          .where(inArray(researchActivities.id, desiredIds));
+        if (matchingActivities.length !== desiredIds.length) {
+          throw new GrantSdrLifecycleStorageError(
+            "RESEARCH_ACTIVITY_NOT_FOUND",
+            "One or more selected research activities no longer exist.",
+          );
+        }
+      }
+
+      const reconcileResearchActivities = async () => {
+        if (desiredIds === undefined) return;
+        const deleteCondition = desiredIds.length > 0
+          ? and(
+              eq(grantResearchActivities.grantId, id),
+              notInArray(grantResearchActivities.researchActivityId, desiredIds),
+            )
+          : eq(grantResearchActivities.grantId, id);
+        await tx
+          .delete(grantResearchActivities)
+          .where(deleteCondition);
+
+        if (desiredIds.length > 0) {
+          await tx
+            .insert(grantResearchActivities)
+            .values(
+              desiredIds.map((researchActivityId) => ({
+                grantId: id,
+                researchActivityId,
+              })),
+            )
+            .onConflictDoNothing({
+              target: [
+                grantResearchActivities.grantId,
+                grantResearchActivities.researchActivityId,
+              ],
+            });
+        }
+      };
+
+      // Clearing the award and unlinking SDRs must happen in one transaction.
+      // Remove the explicitly deselected links first so the database trigger
+      // permits the award update; the grant row lock prevents new links from
+      // being inserted until this transaction commits.
+      if (!nextAwarded) {
+        await reconcileResearchActivities();
+      }
+
+      const [updatedGrant] = await tx
+        .update(grants)
+        .set({ ...grant, updatedAt: sql`now()` })
+        .where(eq(grants.id, id))
+        .returning();
+
+      // When establishing an award, update the milestone before adding links
+      // so the database trigger can verify that the grant is eligible.
+      if (nextAwarded) {
+        await reconcileResearchActivities();
+      }
+
+      return updatedGrant;
+    });
+  }
+
   async deleteGrant(id: number): Promise<boolean> {
-    const result = await db.delete(grants).where(eq(grants.id, id));
-    return (result.rowCount ?? 0) > 0;
+    return await db.transaction(async (tx) => {
+      await tx.execute(
+        sql`SELECT "id" FROM "grants" WHERE "id" = ${id} FOR UPDATE`,
+      );
+      const [linkedSdr] = await tx
+        .select({ id: grantResearchActivities.id })
+        .from(grantResearchActivities)
+        .where(eq(grantResearchActivities.grantId, id))
+        .limit(1);
+      if (linkedSdr) {
+        throw new GrantSdrLifecycleStorageError(
+          "GRANT_HAS_SDR_LINKS",
+          "Unlink all SDRs before deleting this grant. Existing links were left unchanged.",
+        );
+      }
+      const result = await tx.delete(grants).where(eq(grants.id, id));
+      return (result.rowCount ?? 0) > 0;
+    });
   }
 
   // Grant-Research Activity relationship operations
@@ -2557,11 +2699,59 @@ export class DatabaseStorage implements IStorage {
   }
 
   async addGrantResearchActivity(grantId: number, researchActivityId: number): Promise<GrantResearchActivity> {
-    const [relationship] = await db
-      .insert(grantResearchActivities)
-      .values({ grantId, researchActivityId })
-      .returning();
-    return relationship;
+    return await db.transaction(async (tx) => {
+      await tx.execute(
+        sql`SELECT "id" FROM "grants" WHERE "id" = ${grantId} FOR UPDATE`,
+      );
+      const [grant] = await tx
+        .select()
+        .from(grants)
+        .where(eq(grants.id, grantId));
+      if (!grant) {
+        throw new GrantSdrLifecycleStorageError(
+          "GRANT_NOT_FOUND",
+          "Grant not found",
+        );
+      }
+      if (!grant.awarded) {
+        throw new GrantSdrLifecycleStorageError(
+          "GRANT_NOT_AWARDED",
+          "SDRs can only be linked after the grant has been awarded.",
+        );
+      }
+
+      const [researchActivity] = await tx
+        .select({ id: researchActivities.id })
+        .from(researchActivities)
+        .where(eq(researchActivities.id, researchActivityId));
+      if (!researchActivity) {
+        throw new GrantSdrLifecycleStorageError(
+          "RESEARCH_ACTIVITY_NOT_FOUND",
+          "Research activity not found",
+        );
+      }
+
+      const [relationship] = await tx
+        .insert(grantResearchActivities)
+        .values({ grantId, researchActivityId })
+        .onConflictDoNothing({
+          target: [
+            grantResearchActivities.grantId,
+            grantResearchActivities.researchActivityId,
+          ],
+        })
+        .returning();
+      if (relationship) return relationship;
+
+      const [existingRelationship] = await tx
+        .select()
+        .from(grantResearchActivities)
+        .where(and(
+          eq(grantResearchActivities.grantId, grantId),
+          eq(grantResearchActivities.researchActivityId, researchActivityId),
+        ));
+      return existingRelationship;
+    });
   }
 
   async removeGrantResearchActivity(grantId: number, researchActivityId: number): Promise<boolean> {

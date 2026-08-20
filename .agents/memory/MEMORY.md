@@ -14,3 +14,4 @@
 - [Role changes and active sessions](role-session-refresh.md) — Settings updates the database role; `/api/auth/me` must refresh the serialized session so new access takes effect after reload.
 - [Investigator eligibility](investigator-eligibility.md) — preserve primary job titles; investigator-only roles use title eligibility or a management-controlled additional designation.
 - [Access-control transparency](access-control-transparency.md) — surface code-enforced authorization rules read-only beside configurable permissions.
+- [Grant lifecycle integrity](grant-lifecycle-integrity.md) — Awarded is a lasting milestone; grant fields and the intended SDR set must change atomically under row-level guards.

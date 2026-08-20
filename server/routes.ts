@@ -3,7 +3,11 @@
 import type { Express, Request, Response, NextFunction } from "express";
 import { createServer, type Server } from "http";
 import { createHmac, timingSafeEqual } from "crypto";
-import { storage, normalizeJournalName } from "./databaseStorage";
+import {
+  GrantSdrLifecycleStorageError,
+  storage,
+  normalizeJournalName,
+} from "./databaseStorage";
 import { resolveAuthorCheckSubject } from "./authorCheckSubject";
 import { ZodError, z } from "zod";
 import { fromZodError } from "zod-validation-error";
@@ -92,6 +96,12 @@ import {
   isInvestigatorRoleAssignmentAllowed,
 } from "@shared/investigatorEligibility";
 import { requireInvestigatorDesignationManager } from "./investigatorDesignationPolicy";
+import {
+  canGrantLinkSdrs,
+  GrantLifecycleError,
+  grantStatusAllowsProgressTracking,
+  reconcileGrantLifecycle,
+} from "@shared/grantLifecycle";
 
 const isLocalStorage = process.env.STORAGE_TYPE === "local";
 
@@ -9228,10 +9238,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.post('/api/grants', async (req: Request, res: Response) => {
     try {
-      const validatedData = insertGrantSchema.parse(nullifyEmptyStrings(req.body));
+      const parsedData = insertGrantSchema.parse(nullifyEmptyStrings(req.body));
+      const lifecycle = reconcileGrantLifecycle(parsedData);
+      const validatedData = insertGrantSchema.parse({
+        ...parsedData,
+        ...lifecycle,
+      });
       const grant = await storage.createGrant(validatedData);
       res.status(201).json(grant);
     } catch (error) {
+      if (error instanceof GrantLifecycleError) {
+        return res.status(400).json({ message: error.message });
+      }
       if (error instanceof ZodError) {
         return res.status(400).json({ 
           message: "Invalid grant data", 
@@ -9250,15 +9268,56 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).json({ message: "Invalid grant ID" });
       }
 
-      const validatedData = insertGrantSchema.partial().parse(nullifyEmptyStrings(req.body));
-      const grant = await storage.updateGrant(id, validatedData);
-      
-      if (!grant) {
+      const existingGrant = await storage.getGrant(id);
+      if (!existingGrant) {
         return res.status(404).json({ message: "Grant not found" });
       }
 
+      const {
+        researchActivityIds: rawResearchActivityIds,
+        ...rawGrantData
+      } = req.body ?? {};
+      const desiredResearchActivityIds = rawResearchActivityIds === undefined
+        ? undefined
+        : z.array(z.coerce.number().int().positive()).parse(rawResearchActivityIds);
+      const parsedData = insertGrantSchema.partial().parse(
+        nullifyEmptyStrings(rawGrantData),
+      );
+      const lifecycle = reconcileGrantLifecycle(parsedData, existingGrant);
+
+      if (existingGrant.awarded && !lifecycle.awarded) {
+        if (
+          desiredResearchActivityIds !== undefined &&
+          desiredResearchActivityIds.length > 0
+        ) {
+          return res.status(409).json({
+            message:
+              "Unlink all SDRs before clearing the Grant Awarded designation. Existing links were left unchanged.",
+          });
+        }
+      }
+
+      const validatedData = insertGrantSchema.partial().parse({
+        ...parsedData,
+        ...lifecycle,
+      });
+      const grant = await storage.updateGrantWithResearchActivities(
+        id,
+        validatedData,
+        desiredResearchActivityIds,
+      );
       res.json(grant);
     } catch (error) {
+      if (error instanceof GrantSdrLifecycleStorageError) {
+        const status = error.code === "GRANT_NOT_FOUND" ||
+          error.code === "RESEARCH_ACTIVITY_NOT_FOUND"
+          ? 404
+          : 409;
+        return res.status(status).json({ message: error.message });
+      }
+      if (error instanceof GrantLifecycleError) {
+        return res.status(400).json({ message: error.message });
+      }
       if (error instanceof ZodError) {
         console.error('Validation error:', fromZodError(error).toString());
         return res.status(400).json({ 
@@ -9285,6 +9344,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       res.status(204).send();
     } catch (error) {
+      if (error instanceof GrantSdrLifecycleStorageError) {
+        return res.status(409).json({ message: error.message });
+      }
       console.error('Error deleting grant:', error);
       res.status(500).json({ message: "Failed to delete grant" });
     }
@@ -9384,13 +9446,34 @@ export async function registerRoutes(app: Express): Promise<Server> {
         if (p.action === 'skip' || !p.data) continue;
         try {
           if (p.action === 'create') {
-            await storage.createGrant(insertGrantSchema.parse(p.data));
+            const parsedData = insertGrantSchema.parse(p.data);
+            const lifecycle = reconcileGrantLifecycle(parsedData);
+            await storage.createGrant(insertGrantSchema.parse({
+              ...parsedData,
+              ...lifecycle,
+            }));
             created++;
           } else {
             const existing = await storage.getGrants().then((gs: any[]) =>
               gs.find((g) => String(g.projectNumber).toLowerCase() === p.projectNumber.toLowerCase()));
             if (!existing) { failed.push({ rowNumber: p.rowNumber, projectNumber: p.projectNumber, reason: "Grant disappeared during import" }); continue; }
-            await storage.updateGrant(existing.id, insertGrantSchema.partial().parse(p.data));
+            const parsedData = insertGrantSchema.partial().parse(p.data);
+            const lifecycle = reconcileGrantLifecycle(parsedData, existing);
+            if (existing.awarded && !lifecycle.awarded) {
+              const linkedSdrs = await storage.getGrantResearchActivities(existing.id);
+              if (linkedSdrs.length > 0) {
+                throw new GrantLifecycleError(
+                  "Unlink all SDRs before clearing the Grant Awarded designation.",
+                );
+              }
+            }
+            await storage.updateGrantWithResearchActivities(
+              existing.id,
+              insertGrantSchema.partial().parse({
+                ...parsedData,
+                ...lifecycle,
+              }),
+            );
             updated++;
           }
         } catch (err) {
@@ -9434,9 +9517,33 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).json({ message: "Invalid grant or research activity ID" });
       }
 
+      const [grant, researchActivity] = await Promise.all([
+        storage.getGrant(grantId),
+        storage.getResearchActivity(researchActivityId),
+      ]);
+      if (!grant) {
+        return res.status(404).json({ message: "Grant not found" });
+      }
+      if (!researchActivity) {
+        return res.status(404).json({ message: "Research activity not found" });
+      }
+      if (!canGrantLinkSdrs(grant)) {
+        return res.status(409).json({
+          message:
+            "SDRs can only be linked after the grant has been awarded.",
+        });
+      }
+
       const relationship = await storage.addGrantResearchActivity(grantId, researchActivityId);
       res.status(201).json(relationship);
     } catch (error) {
+      if (error instanceof GrantSdrLifecycleStorageError) {
+        const status = error.code === "GRANT_NOT_FOUND" ||
+          error.code === "RESEARCH_ACTIVITY_NOT_FOUND"
+          ? 404
+          : 409;
+        return res.status(status).json({ message: error.message });
+      }
       console.error('Error linking grant to research activity:', error);
       res.status(500).json({ message: "Failed to link grant to research activity" });
     }
@@ -9514,6 +9621,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const grantId = parseInt(req.params.id);
       if (isNaN(grantId)) {
         return res.status(400).json({ message: "Invalid grant ID" });
+      }
+
+      const grant = await storage.getGrant(grantId);
+      if (!grant) {
+        return res.status(404).json({ message: "Grant not found" });
+      }
+      if (!grantStatusAllowsProgressTracking(grant.status)) {
+        return res.status(409).json({
+          message: "Progress reports are available after the grant becomes Active.",
+        });
       }
 
       const reportData = {

@@ -26,6 +26,7 @@ import {
 } from "@/components/ui/select";
 import { Grant } from "@shared/schema";
 import { Plus, Search, MoreHorizontal, Download, Filter, DollarSign, Calendar, ArrowUpDown, Link as LinkIcon, Upload, FileSpreadsheet, Loader2 } from "lucide-react";
+import { GRANT_STATUS_OPTIONS } from "@shared/grantLifecycle";
 import {
   Dialog,
   DialogContent,
@@ -66,12 +67,12 @@ export default function GrantsList() {
     queryKey: ['/api/grants'],
   });
 
-  // Fetch SDR counts for awarded grants
+  // Fetch SDR counts for grants with awarded=true (includes Active and Completed)
   const { data: grantSdrCounts = {} } = useQuery({
     queryKey: ['/api/grants/sdr-counts'],
-    enabled: grants && grants.some(g => g.awarded),
+    enabled: grants && grants.some(g => g.awarded === true),
     queryFn: async () => {
-      const awardedGrants = grants?.filter(g => g.awarded) || [];
+      const awardedGrants = grants?.filter(g => g.awarded === true) || [];
       const counts: Record<number, number> = {};
       
       await Promise.all(
@@ -129,17 +130,23 @@ export default function GrantsList() {
     });
   };
 
-  const statusColors = {
+  const statusColors: Record<string, string> = {
     submitted: "bg-yellow-100 text-yellow-700 dark:bg-yellow-950 dark:text-yellow-300",
+    pending: "bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-300",
+    in_review: "bg-purple-100 text-purple-700 dark:bg-purple-950 dark:text-purple-300",
+    awarded: "bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300",
     active: "bg-green-100 text-green-700 dark:bg-green-950 dark:text-green-300",
     completed: "bg-blue-100 text-blue-700 dark:bg-blue-950 dark:text-blue-300",
+    rejected: "bg-orange-100 text-orange-700 dark:bg-orange-950 dark:text-orange-300",
     cancelled: "bg-red-100 text-red-600 dark:bg-red-950 dark:text-red-400",
-    pending: "bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-300"
   };
 
   const getStatusColor = (status: string) => {
     return statusColors[status.toLowerCase() as keyof typeof statusColors] || "bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-300";
   };
+
+  const getStatusLabel = (status: string) =>
+    GRANT_STATUS_OPTIONS.find((option) => option.value === status)?.label ?? status;
 
   const getGrantType = (grant: EnhancedGrant) => {
     return grant.grantType || "Local";
@@ -268,7 +275,7 @@ export default function GrantsList() {
 
   // Get unique years and statuses for filters
   const years = [...new Set(grants?.map(g => g.submittedYear).filter(Boolean))].sort((a, b) => (b || 0) - (a || 0));
-  const statuses = [...new Set(grants?.map(g => g.status))].sort();
+  const statuses = GRANT_STATUS_OPTIONS;
 
   if (isLoading) {
     return (
@@ -366,7 +373,7 @@ export default function GrantsList() {
                 <SelectContent>
                   <SelectItem value="all">All Status</SelectItem>
                   {statuses.map(status => (
-                    <SelectItem key={status} value={status}>{status}</SelectItem>
+                    <SelectItem key={status.value} value={status.value}>{status.label}</SelectItem>
                   ))}
                 </SelectContent>
               </Select>
@@ -475,7 +482,7 @@ export default function GrantsList() {
                       <TableCell className="text-right font-mono text-sm">
                         <div className="flex items-center justify-end gap-2">
                           {formatCurrency(grant.awardedAmount)}
-                          {grant.awarded && grantSdrCounts[grant.id] > 0 && (
+                          {grant.awarded === true && grantSdrCounts[grant.id] > 0 && (
                             <div className="flex items-center gap-1" title={`${grantSdrCounts[grant.id]} linked SDR${grantSdrCounts[grant.id] > 1 ? 's' : ''}`}>
                               <LinkIcon className="h-3 w-3 text-blue-600 dark:text-blue-400" />
                               <span className="text-xs text-blue-600 dark:text-blue-400">{grantSdrCounts[grant.id]}</span>
@@ -485,7 +492,7 @@ export default function GrantsList() {
                       </TableCell>
                       <TableCell className="text-right">
                         <Badge variant="secondary" className={getStatusColor(grant.status)}>
-                          {grant.status}
+                          {getStatusLabel(grant.status)}
                         </Badge>
                       </TableCell>
                       <TableCell onClick={(e) => e.stopPropagation()}>
