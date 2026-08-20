@@ -227,12 +227,12 @@ export const insertResearchActivitySchema = createInsertSchema(researchActivitie
     z.date(),
     z.string().datetime().transform((val) => new Date(val)),
     z.literal("").transform(() => undefined)
-  ]).optional(),
+  ]).nullable().optional(),
   endDate: z.union([
     z.date(),
     z.string().datetime().transform((val) => new Date(val)),
     z.literal("").transform(() => undefined)
-  ]).optional(),
+  ]).nullable().optional(),
 });
 
 // This is no longer needed as we have a proper Projects schema now
