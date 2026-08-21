@@ -16,6 +16,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
 import TeamManagement from "@/components/settings/TeamManagement";
+import BulkDataHub from "@/components/settings/BulkDataHub";
 import RoleAccessConfig from "@/pages/scientists/role-access-config";
 import { useCurrentUser } from "@/hooks/useCurrentUser";
 
@@ -109,13 +110,13 @@ export default function Settings() {
   // Active tab — can be set via URL hash (e.g. /settings#access-control)
   const [activeTab, setActiveTab] = useState(() => {
     const hash = window.location.hash.replace('#', '');
-    const valid = ['layout-theme', 'team', 'authentication', 'access-control'];
+    const valid = ['layout-theme', 'team', 'authentication', 'access-control', 'data-import-export'];
     return valid.includes(hash) ? hash : 'layout-theme';
   });
 
   useEffect(() => {
     const hash = window.location.hash.replace('#', '');
-    const valid = ['layout-theme', 'team', 'authentication', 'access-control'];
+    const valid = ['layout-theme', 'team', 'authentication', 'access-control', 'data-import-export'];
     if (valid.includes(hash)) setActiveTab(hash);
   }, []);
 
@@ -375,7 +376,7 @@ IRIS (Intelligent Research Information Management System) is a research manageme
       </div>
 
       <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">
-        <TabsList className="grid w-full grid-cols-1 lg:grid-cols-4">
+        <TabsList className="grid h-auto w-full grid-cols-1 sm:grid-cols-2 xl:grid-cols-5">
           <TabsTrigger value="layout-theme" className="flex items-center gap-2">
             <Palette className="h-4 w-4" />
             Layout & Theme
@@ -391,6 +392,10 @@ IRIS (Intelligent Research Information Management System) is a research manageme
           <TabsTrigger value="authentication" className="flex items-center gap-2" data-testid="tab-authentication">
             <ShieldCheck className="h-4 w-4" />
             Authentication
+          </TabsTrigger>
+          <TabsTrigger value="data-import-export" className="flex items-center gap-2" data-testid="tab-data-import-export">
+            <Layers className="h-4 w-4" />
+            Data Import & Export
           </TabsTrigger>
         </TabsList>
 
@@ -1302,6 +1307,10 @@ IRIS (Intelligent Research Information Management System) is a research manageme
 
         <TabsContent value="access-control" className="space-y-6">
           <RoleAccessConfig embedded />
+        </TabsContent>
+
+        <TabsContent value="data-import-export" className="space-y-6">
+          <BulkDataHub />
         </TabsContent>
       </Tabs>
     </div>

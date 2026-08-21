@@ -1,0 +1,2653 @@
+/**
+ * Bulk Data Hub - Section-based bulk import/export engine.
+ *
+ * Sections: research-management, pmo-office, research-compliance,
+ *           research-services, research-output.
+ *
+ * Each section maps to one XLSX workbook with multiple canonical worksheets.
+ * Export contains current DB records; templates contain headers only.
+ * An Instructions sheet is included in all generated workbooks.
+ *
+ * Stable keys:
+ *   Scientists:         staffId (preferred) or email (required for new)
+ *   Grants:             projectNumber
+ *   Programs:           programId
+ *   Projects:           projectId
+ *   Research Activities: sdrNumber
+ *   IRB:                irbNumber
+ *   IBC:                ibcNumber
+ *   Contracts:          contractNumber
+ *   Patents:            patentNumber
+ *
+ * Relationships use business keys only (emails, programId, projectId, sdrNumber).
+ * Blank cells leave the DB value unchanged; literal "CLEAR" clears nullable fields.
+ */
+
+import crypto from "node:crypto";
+import ExcelJS from "exceljs";
+import { eq, inArray, sql } from "drizzle-orm";
+import { db } from "./db.js";
+import {
+  scientists,
+  grants,
+  programs,
+  projects,
+  researchActivities,
+  irbApplications,
+  ibcApplications,
+  researchContracts,
+  patents,
+  grantResearchActivities,
+} from "@shared/schema";
+import type {
+  Scientist,
+  Grant,
+  Program,
+  Project,
+  ResearchActivity,
+  IrbApplication,
+  IbcApplication,
+  ResearchContract,
+  Patent,
+} from "@shared/schema";
+import {
+  reconcileGrantLifecycle,
+  GrantLifecycleError,
+} from "@shared/grantLifecycle";
+
+// ---------------------------------------------------------------------------
+// Constants / limits
+// ---------------------------------------------------------------------------
+
+const MAX_WORKBOOK_BYTES = 20 * 1024 * 1024; // 20 MB base64 cap
+const MAX_TOTAL_ROWS = 10_000;
+const MAX_ROWS_PER_SHEET = 5_000;
+function getHmacSecret(): string {
+  const secret = process.env.SESSION_SECRET;
+  if (secret) return secret;
+  if (process.env.NODE_ENV === "production") {
+    throw new Error("SESSION_SECRET is required for bulk import preview fingerprints");
+  }
+  return "development-only-bulk-data-hub-secret";
+}
+
+const CLEAR_SENTINEL = "clear"; // case-insensitive
+
+// ---------------------------------------------------------------------------
+// Section metadata
+// ---------------------------------------------------------------------------
+
+export type SectionId =
+  | "research-management"
+  | "pmo-office"
+  | "research-compliance"
+  | "research-services"
+  | "research-output";
+
+export interface SheetSpec {
+  name: string;
+  description: string;
+  businessKey: string;
+}
+
+export interface SectionMeta {
+  id: SectionId;
+  label: string;
+  description: string;
+  sheets: SheetSpec[];
+}
+
+export const SECTION_META: SectionMeta[] = [
+  {
+    id: "research-management",
+    label: "Research Management",
+    description: "Scientists and Grants",
+    sheets: [
+      { name: "Scientists", description: "Staff/scientist records", businessKey: "staffId or email" },
+      { name: "Grants", description: "Grant records", businessKey: "projectNumber" },
+    ],
+  },
+  {
+    id: "pmo-office",
+    label: "PMO Office",
+    description: "Programs, Projects, and Research Activities",
+    sheets: [
+      { name: "Programs", description: "Research programs", businessKey: "programId" },
+      { name: "Projects", description: "Research projects", businessKey: "projectId" },
+      { name: "Research Activities", description: "SDR records", businessKey: "sdrNumber" },
+    ],
+  },
+  {
+    id: "research-compliance",
+    label: "Research Compliance",
+    description: "IRB and IBC applications",
+    sheets: [
+      { name: "IRB Applications", description: "IRB application records", businessKey: "irbNumber" },
+      { name: "IBC Applications", description: "IBC application records", businessKey: "ibcNumber" },
+    ],
+  },
+  {
+    id: "research-services",
+    label: "Research Services",
+    description: "Research Contracts",
+    sheets: [
+      { name: "Research Contracts", description: "Contract records", businessKey: "contractNumber" },
+    ],
+  },
+  {
+    id: "research-output",
+    label: "Research Output",
+    description: "Patents",
+    sheets: [
+      { name: "Patents", description: "Patent records", businessKey: "patentNumber" },
+    ],
+  },
+];
+
+export function getSectionMeta(sectionId: SectionId): SectionMeta {
+  const meta = SECTION_META.find((s) => s.id === sectionId);
+  if (!meta) throw new Error(`Unknown section: ${sectionId}`);
+  return meta;
+}
+
+// ---------------------------------------------------------------------------
+// Column definitions per sheet
+// ---------------------------------------------------------------------------
+
+type ColDef = { header: string; key: string; required?: boolean; description?: string };
+
+const SCIENTIST_COLS: ColDef[] = [
+  { header: "Staff ID", key: "staffId", description: "5-digit badge ID (optional, used as primary key if present)" },
+  { header: "Email", key: "email", required: true, description: "Required; used as key when Staff ID absent" },
+  { header: "Honorific Title", key: "honorificTitle", required: true, description: "Dr, Mr, Ms, Prof, etc." },
+  { header: "First Name", key: "firstName", required: true },
+  { header: "Last Name", key: "lastName", required: true },
+  { header: "Job Title", key: "jobTitle" },
+  { header: "Staff Type", key: "staffType", description: "scientific or administrative" },
+  { header: "Department", key: "department" },
+  { header: "ORCID ID", key: "orcidId" },
+  { header: "LinkedIn URL", key: "linkedInUrl" },
+  { header: "Google Scholar URL", key: "googleScholarUrl" },
+  { header: "Web of Science ID", key: "webOfScienceId" },
+  { header: "Bio", key: "bio" },
+  { header: "Line Manager Email", key: "supervisorEmail", description: "Must resolve to a scientist email" },
+];
+
+const GRANT_COLS: ColDef[] = [
+  { header: "Project Number", key: "projectNumber", required: true, description: "Unique grant identifier" },
+  { header: "Title", key: "title", required: true },
+  { header: "Cycle", key: "cycle" },
+  { header: "LPI Email", key: "lpiEmail", description: "Lead PI email — must resolve to a scientist" },
+  { header: "Investigator Type", key: "investigatorType", description: "Researcher or Clinician" },
+  { header: "Grant Type", key: "grantType", description: "Local or International" },
+  { header: "Status", key: "status" },
+  { header: "Funding Agency", key: "fundingAgency" },
+  { header: "Requested Amount", key: "requestedAmount" },
+  { header: "Awarded Amount", key: "awardedAmount" },
+  { header: "Awarded (Yes/No)", key: "awarded" },
+  { header: "Submitted Year", key: "submittedYear" },
+  { header: "Awarded Year", key: "awardedYear" },
+  { header: "Running Time (Years)", key: "runningTimeYears" },
+  { header: "Current Grant Year", key: "currentGrantYear" },
+  { header: "Start Date", key: "startDate", description: "YYYY-MM-DD" },
+  { header: "End Date", key: "endDate", description: "YYYY-MM-DD" },
+  { header: "Reporting Interval (Months)", key: "reportingIntervalMonths" },
+  { header: "Collaborators", key: "collaborators", description: "Semicolon-separated" },
+  { header: "Description", key: "description" },
+];
+
+const PROGRAM_COLS: ColDef[] = [
+  { header: "Program ID", key: "programId", required: true, description: "Unique PRM number" },
+  { header: "Name", key: "name", required: true },
+  { header: "Description", key: "description" },
+  { header: "Program Director Email", key: "programDirectorEmail" },
+  { header: "Research Co-Lead Email", key: "researchCoLeadEmail" },
+  { header: "Clinical Co-Lead 1 Email", key: "clinicalCoLead1Email" },
+  { header: "Clinical Co-Lead 2 Email", key: "clinicalCoLead2Email" },
+];
+
+const PROJECT_COLS: ColDef[] = [
+  { header: "Project ID", key: "projectId", required: true, description: "Unique PRJ number" },
+  { header: "Program ID", key: "programId", description: "Parent program (must exist)" },
+  { header: "Name", key: "name", required: true },
+  { header: "Description", key: "description" },
+  { header: "PI Email", key: "piEmail", description: "Principal Investigator email" },
+];
+
+const SDR_COLS: ColDef[] = [
+  { header: "SDR Number", key: "sdrNumber", required: true, description: "Unique SDR number" },
+  { header: "Project ID", key: "projectId", description: "Parent project (must exist)" },
+  { header: "Title", key: "title", required: true },
+  { header: "Short Title", key: "shortTitle" },
+  { header: "Description", key: "description" },
+  { header: "Status", key: "status", description: "planning, active, completed, on_hold" },
+  { header: "Start Date", key: "startDate", description: "YYYY-MM-DD" },
+  { header: "End Date", key: "endDate", description: "YYYY-MM-DD" },
+  { header: "Budget Holder Email", key: "budgetHolderEmail", description: "Budget holder / PI email" },
+  { header: "Additional Notification Email", key: "additionalNotificationEmail" },
+  { header: "Sidra Branch", key: "sidraBranch", description: "Research, Clinical, External" },
+  { header: "Budget Source", key: "budgetSource", description: "Semicolon-separated: IRF, PI Budget, QNRF, etc." },
+  { header: "Objectives", key: "objectives" },
+];
+
+const IRB_COLS: ColDef[] = [
+  { header: "IRB Number", key: "irbNumber", required: true, description: "Sidra IRB number" },
+  { header: "IRBNet Number", key: "irbNetNumber" },
+  { header: "Old Number", key: "oldNumber" },
+  { header: "Title", key: "title", required: true },
+  { header: "Short Title", key: "shortTitle" },
+  { header: "PI Email", key: "piEmail", required: true, description: "Principal Investigator email" },
+  { header: "Additional Notification Email", key: "additionalNotificationEmail" },
+  { header: "Protocol Type", key: "protocolType", description: "Exempt, Expedited, Full Board, etc." },
+  { header: "Is Interventional", key: "isInterventional", description: "Yes/No" },
+  { header: "Status", key: "status", required: true },
+  { header: "Submission Date", key: "submissionDate", description: "YYYY-MM-DD" },
+  { header: "Initial Approval Date", key: "initialApprovalDate", description: "YYYY-MM-DD" },
+  { header: "Expiration Date", key: "expirationDate", description: "YYYY-MM-DD" },
+  { header: "SDR Number", key: "sdrNumber", description: "Linked SDR (must exist)" },
+  { header: "Risk Level", key: "riskLevel", description: "minimal, greater_than_minimal, high" },
+  { header: "Funding Source", key: "fundingSource" },
+  { header: "Description", key: "description" },
+];
+
+const IBC_COLS: ColDef[] = [
+  { header: "IBC Number", key: "ibcNumber", required: true, description: "IBC project number" },
+  { header: "Title", key: "title", required: true },
+  { header: "Short Title", key: "shortTitle" },
+  { header: "PI Email", key: "piEmail", required: true, description: "Principal Investigator email" },
+  { header: "Additional Notification Email", key: "additionalNotificationEmail" },
+  { header: "Biosafety Level", key: "biosafetyLevel", required: true, description: "BSL-1, BSL-2, BSL-3, BSL-4" },
+  { header: "Risk Group Classification", key: "riskGroupClassification" },
+  { header: "Status", key: "status", required: true },
+  { header: "Risk Level", key: "riskLevel", required: true, description: "low, moderate, high" },
+  { header: "Submission Date", key: "submissionDate", description: "YYYY-MM-DD" },
+  { header: "Approval Date", key: "approvalDate", description: "YYYY-MM-DD" },
+  { header: "Expiration Date", key: "expirationDate", description: "YYYY-MM-DD" },
+  { header: "Description", key: "description" },
+  { header: "Protocol Summary", key: "protocolSummary" },
+];
+
+const CONTRACT_COLS: ColDef[] = [
+  { header: "Contract Number", key: "contractNumber", required: true, description: "Unique contract number" },
+  { header: "Title", key: "title", required: true },
+  { header: "SDR Number", key: "sdrNumber", description: "Linked research activity SDR" },
+  { header: "Lead PI Email", key: "leadPiEmail", description: "Lead PI email" },
+  { header: "Contract Type", key: "contractType" },
+  { header: "Status", key: "status" },
+  { header: "Start Date", key: "startDate", description: "YYYY-MM-DD" },
+  { header: "End Date", key: "endDate", description: "YYYY-MM-DD" },
+  { header: "IRB Protocol", key: "irbProtocol" },
+  { header: "IBC Protocol", key: "ibcProtocol" },
+  { header: "QNRF Number", key: "qnrfNumber" },
+  { header: "Funding Source Category", key: "fundingSourceCategory" },
+  { header: "Contractor Name", key: "contractorName" },
+  { header: "Counterparty Contact", key: "counterpartyContact" },
+  { header: "Counterparty Country", key: "counterpartyCountry" },
+  { header: "Contract Value", key: "contractValue" },
+  { header: "Currency", key: "currency" },
+  { header: "Remarks", key: "remarks" },
+  { header: "Description", key: "description" },
+];
+
+const PATENT_COLS: ColDef[] = [
+  { header: "Patent Number", key: "patentNumber", required: true, description: "Unique patent number" },
+  { header: "Title", key: "title", required: true },
+  { header: "Inventors", key: "inventors", required: true },
+  { header: "Status", key: "status", required: true },
+  { header: "Filing Date", key: "filingDate", description: "YYYY-MM-DD" },
+  { header: "Grant Date", key: "grantDate", description: "YYYY-MM-DD" },
+  { header: "SDR Number", key: "sdrNumber", description: "Linked research activity SDR" },
+  { header: "Description", key: "description" },
+];
+
+const SHEET_COLS: Record<string, ColDef[]> = {
+  "Scientists": SCIENTIST_COLS,
+  "Grants": GRANT_COLS,
+  "Programs": PROGRAM_COLS,
+  "Projects": PROJECT_COLS,
+  "Research Activities": SDR_COLS,
+  "IRB Applications": IRB_COLS,
+  "IBC Applications": IBC_COLS,
+  "Research Contracts": CONTRACT_COLS,
+  "Patents": PATENT_COLS,
+};
+
+// All valid sheet names across all sections
+const ALL_SHEET_NAMES = new Set(Object.keys(SHEET_COLS));
+
+// ---------------------------------------------------------------------------
+// Utility helpers
+// ---------------------------------------------------------------------------
+
+function cellString(v: unknown): string {
+  if (v == null || v === "") return "";
+  if (v instanceof Date) return v.toISOString().slice(0, 10);
+  if (typeof v === "number") {
+    // Excel serial date detection: typical range 25569 (1970-01-01) to 60000 (~2064)
+    if (Number.isInteger(v) && v > 25000 && v < 80000) {
+      // Convert Excel serial date to YYYY-MM-DD
+      const d = new Date(Math.round((v - 25569) * 86400 * 1000));
+      if (!isNaN(d.getTime())) return d.toISOString().slice(0, 10);
+    }
+    return String(v);
+  }
+  if (typeof v === "object") {
+    const obj = v as Record<string, unknown>;
+    if ("text" in obj && obj.text != null) return String(obj.text).trim();
+    if ("result" in obj && obj.result != null) return String(obj.result).trim();
+    if ("richText" in obj && Array.isArray(obj.richText)) {
+      return obj.richText.map((r: unknown) => (r as { text?: string }).text ?? "").join("").trim();
+    }
+    return String(v).trim();
+  }
+  return String(v).trim();
+}
+
+function isClear(v: string): boolean {
+  return v.trim().toLowerCase() === CLEAR_SENTINEL;
+}
+
+function textVal(v: string, isNew: boolean): string | null {
+  if (v === "") return isNew ? null : undefined as unknown as null;
+  if (isClear(v)) return null;
+  return v;
+}
+
+// Returns undefined if field should not be written (blank + existing record)
+function maybeText(v: string, existing: boolean): string | null | undefined {
+  if (v === "" && existing) return undefined;
+  if (v === "") return null;
+  if (isClear(v)) return null;
+  return v;
+}
+
+function parseDateStr(raw: string, label: string, errors: string[]): string | null {
+  if (raw === "" || isClear(raw)) return null;
+  if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) return raw;
+  const d = new Date(raw);
+  if (isNaN(d.getTime())) {
+    errors.push(`${label}: expected YYYY-MM-DD (got "${raw}")`);
+    return null;
+  }
+  return d.toISOString().slice(0, 10);
+}
+
+function parseDateTimestamp(raw: string, label: string, errors: string[]): Date | null {
+  const s = parseDateStr(raw, label, errors);
+  if (!s) return null;
+  return new Date(s + "T00:00:00.000Z");
+}
+
+function parseIntField(raw: string, label: string, errors: string[]): number | null {
+  if (raw === "" || isClear(raw)) return null;
+  const n = Number(raw.replace(/,/g, ""));
+  if (!Number.isInteger(n) || isNaN(n)) {
+    errors.push(`${label}: must be a whole number (got "${raw}")`);
+    return null;
+  }
+  return n;
+}
+
+function parseNumericField(raw: string, label: string, errors: string[]): string | null {
+  if (raw === "" || isClear(raw)) return null;
+  const cleaned = raw.replace(/[,$\s]/g, "");
+  if (!/^\d+(\.\d+)?$/.test(cleaned)) {
+    errors.push(`${label}: must be numeric (got "${raw}")`);
+    return null;
+  }
+  return cleaned;
+}
+
+function parseBool(raw: string, label: string, errors: string[]): boolean | null {
+  if (raw === "" || isClear(raw)) return null;
+  const v = raw.trim().toLowerCase();
+  if (["yes", "y", "true", "1"].includes(v)) return true;
+  if (["no", "n", "false", "0"].includes(v)) return false;
+  errors.push(`${label}: must be Yes/No (got "${raw}")`);
+  return null;
+}
+
+function splitSemicolon(raw: string): string[] {
+  if (raw === "" || isClear(raw)) return [];
+  return raw.split(/;|\n/).map((s) => s.trim()).filter(Boolean);
+}
+
+function rejectRequiredClear(
+  row: Record<string, string>,
+  cols: ColDef[],
+  errors: string[],
+): void {
+  for (const col of cols) {
+    if (col.required && isClear(row[col.key] ?? "")) {
+      errors.push(`${col.header} cannot be cleared`);
+    }
+  }
+}
+
+function makeHeaderMap(cols: ColDef[]): Record<string, string> {
+  const m: Record<string, string> = {};
+  for (const c of cols) m[c.header.toLowerCase().trim()] = c.key;
+  return m;
+}
+
+// ---------------------------------------------------------------------------
+// Build workbook helpers
+// ---------------------------------------------------------------------------
+
+function addInstructionsSheet(wb: ExcelJS.Workbook, sectionId: SectionId): void {
+  const ws = wb.addWorksheet("Instructions");
+  ws.getColumn(1).width = 90;
+  const lines = [
+    `Bulk Import/Export — ${getSectionMeta(sectionId).label}`,
+    "",
+    "HOW TO USE THIS FILE",
+    "• Export: contains current database records. Edit and re-import.",
+    "• Template: contains headers only. Fill in and import.",
+    "",
+    "RULES",
+    "• Blank cells leave the existing DB value unchanged (updates only).",
+    "• Enter the literal word CLEAR in a cell to erase a nullable field.",
+    "• New records require all columns marked Required.",
+    "• Dates: use YYYY-MM-DD format.",
+    "• Arrays (e.g. Budget Source): separate values with semicolons (;).",
+    "• Booleans: enter Yes or No.",
+    "",
+    "STABLE KEYS (used to match existing records)",
+    "• Scientists: Staff ID (preferred) or Email",
+    "• Grants: Project Number",
+    "• Programs: Program ID",
+    "• Projects: Project ID",
+    "• Research Activities: SDR Number",
+    "• IRB Applications: IRB Number",
+    "• IBC Applications: IBC Number",
+    "• Research Contracts: Contract Number",
+    "• Patents: Patent Number",
+    "",
+    "RELATIONSHIPS",
+    "• Staff references use email addresses.",
+    "• Program/Project/SDR references use their respective IDs.",
+    "• The system validates all relationships against current DB records",
+    "  and against earlier rows in the same workbook.",
+    "",
+    "UNKNOWN SHEETS / COLUMNS",
+    "• Non-empty sheets with unrecognized names are rejected.",
+    "• Unknown non-empty column headers are rejected.",
+    "",
+    "Generated: " + new Date().toISOString(),
+  ];
+  lines.forEach((line, i) => {
+    const row = ws.getRow(i + 1);
+    row.getCell(1).value = line;
+    if (i === 0) row.getCell(1).font = { bold: true, size: 13 };
+    else if (line.startsWith("HOW TO") || line.startsWith("RULES") || line.startsWith("STABLE") || line.startsWith("RELATIONSHIPS") || line.startsWith("UNKNOWN")) {
+      row.getCell(1).font = { bold: true };
+    }
+  });
+}
+
+function addDataSheet(wb: ExcelJS.Workbook, name: string, cols: ColDef[], rows: Record<string, unknown>[]): void {
+  const ws = wb.addWorksheet(name);
+  ws.columns = cols.map((c) => ({
+    header: c.header,
+    key: c.header,
+    width: Math.max(c.header.length + 4, 18),
+  }));
+  const headerRow = ws.getRow(1);
+  headerRow.font = { bold: true };
+  headerRow.eachCell((cell, col) => {
+    const colDef = cols[col - 1];
+    if (colDef?.required) cell.font = { bold: true, color: { argb: "FF8B0000" } };
+  });
+  for (const row of rows) {
+    const r: Record<string, unknown> = {};
+    for (const c of cols) r[c.header] = row[c.key] ?? "";
+    ws.addRow(r);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Data → row converters (for export)
+// ---------------------------------------------------------------------------
+
+function scientistsToRows(
+  allScientists: Scientist[],
+): Record<string, unknown>[] {
+  const idToEmail = new Map<number, string>();
+  allScientists.forEach((s) => idToEmail.set(s.id, s.email));
+  return allScientists.map((s) => ({
+    staffId: s.staffId ?? "",
+    email: s.email,
+    honorificTitle: s.honorificTitle,
+    firstName: s.firstName,
+    lastName: s.lastName,
+    jobTitle: s.jobTitle ?? "",
+    staffType: s.staffType,
+    department: s.department ?? "",
+    orcidId: s.orcidId ?? "",
+    linkedInUrl: s.linkedInUrl ?? "",
+    googleScholarUrl: s.googleScholarUrl ?? "",
+    webOfScienceId: s.webOfScienceId ?? "",
+    bio: s.bio ?? "",
+    supervisorEmail: s.supervisorId ? (idToEmail.get(s.supervisorId) ?? "") : "",
+  }));
+}
+
+function grantsToRows(
+  grantList: Grant[],
+  scientistById: Map<number, Scientist>,
+): Record<string, unknown>[] {
+  return grantList.map((g) => {
+    const lpi = g.lpiId ? scientistById.get(g.lpiId) : undefined;
+    return {
+      projectNumber: g.projectNumber,
+      title: g.title,
+      cycle: g.cycle ?? "",
+      lpiEmail: lpi?.email ?? "",
+      investigatorType: g.investigatorType ?? "",
+      grantType: g.grantType ?? "",
+      status: g.status,
+      fundingAgency: g.fundingAgency ?? "",
+      requestedAmount: g.requestedAmount ?? "",
+      awardedAmount: g.awardedAmount ?? "",
+      awarded: g.awarded ? "Yes" : "No",
+      submittedYear: g.submittedYear ?? "",
+      awardedYear: g.awardedYear ?? "",
+      runningTimeYears: g.runningTimeYears ?? "",
+      currentGrantYear: g.currentGrantYear ?? "",
+      startDate: g.startDate ?? "",
+      endDate: g.endDate ?? "",
+      reportingIntervalMonths: g.reportingIntervalMonths ?? "",
+      collaborators: g.collaborators ? g.collaborators.join("; ") : "",
+      description: g.description ?? "",
+    };
+  });
+}
+
+function programsToRows(
+  programList: Program[],
+  scientistById: Map<number, Scientist>,
+): Record<string, unknown>[] {
+  return programList.map((p) => ({
+    programId: p.programId,
+    name: p.name,
+    description: p.description ?? "",
+    programDirectorEmail: p.programDirectorId ? (scientistById.get(p.programDirectorId)?.email ?? "") : "",
+    researchCoLeadEmail: p.researchCoLeadId ? (scientistById.get(p.researchCoLeadId)?.email ?? "") : "",
+    clinicalCoLead1Email: p.clinicalCoLead1Id ? (scientistById.get(p.clinicalCoLead1Id)?.email ?? "") : "",
+    clinicalCoLead2Email: p.clinicalCoLead2Id ? (scientistById.get(p.clinicalCoLead2Id)?.email ?? "") : "",
+  }));
+}
+
+function projectsToRows(
+  projectList: Project[],
+  programByDbId: Map<number, Program>,
+  scientistById: Map<number, Scientist>,
+): Record<string, unknown>[] {
+  return projectList.map((p) => ({
+    projectId: p.projectId,
+    programId: p.programId ? (programByDbId.get(p.programId)?.programId ?? "") : "",
+    name: p.name,
+    description: p.description ?? "",
+    piEmail: p.principalInvestigatorId ? (scientistById.get(p.principalInvestigatorId)?.email ?? "") : "",
+  }));
+}
+
+function sdrsToRows(
+  sdrList: ResearchActivity[],
+  projectByDbId: Map<number, Project>,
+  scientistById: Map<number, Scientist>,
+): Record<string, unknown>[] {
+  return sdrList.map((a) => ({
+    sdrNumber: a.sdrNumber,
+    projectId: a.projectId ? (projectByDbId.get(a.projectId)?.projectId ?? "") : "",
+    title: a.title,
+    shortTitle: a.shortTitle ?? "",
+    description: a.description ?? "",
+    status: a.status,
+    startDate: a.startDate ? new Date(a.startDate).toISOString().slice(0, 10) : "",
+    endDate: a.endDate ? new Date(a.endDate).toISOString().slice(0, 10) : "",
+    budgetHolderEmail: a.budgetHolderId ? (scientistById.get(a.budgetHolderId)?.email ?? "") : "",
+    additionalNotificationEmail: a.additionalNotificationEmail ?? "",
+    sidraBranch: a.sidraBranch ?? "",
+    budgetSource: a.budgetSource ? a.budgetSource.join("; ") : "",
+    objectives: a.objectives ?? "",
+  }));
+}
+
+function irbToRows(
+  irbList: IrbApplication[],
+  sdrByDbId: Map<number, ResearchActivity>,
+  scientistById: Map<number, Scientist>,
+): Record<string, unknown>[] {
+  return irbList.map((irb) => ({
+    irbNumber: irb.irbNumber,
+    irbNetNumber: irb.irbNetNumber ?? "",
+    oldNumber: irb.oldNumber ?? "",
+    title: irb.title,
+    shortTitle: irb.shortTitle ?? "",
+    piEmail: irb.principalInvestigatorId ? (scientistById.get(irb.principalInvestigatorId)?.email ?? "") : "",
+    additionalNotificationEmail: irb.additionalNotificationEmail ?? "",
+    protocolType: irb.protocolType ?? "",
+    isInterventional: irb.isInterventional ? "Yes" : "No",
+    status: irb.status,
+    submissionDate: irb.submissionDate ? new Date(irb.submissionDate).toISOString().slice(0, 10) : "",
+    initialApprovalDate: irb.initialApprovalDate ?? "",
+    expirationDate: irb.expirationDate ?? "",
+    sdrNumber: irb.researchActivityId ? (sdrByDbId.get(irb.researchActivityId)?.sdrNumber ?? "") : "",
+    riskLevel: irb.riskLevel ?? "",
+    fundingSource: irb.fundingSource ?? "",
+    description: irb.description ?? "",
+  }));
+}
+
+function ibcToRows(
+  ibcList: IbcApplication[],
+  scientistById: Map<number, Scientist>,
+): Record<string, unknown>[] {
+  return ibcList.map((ibc) => ({
+    ibcNumber: ibc.ibcNumber,
+    title: ibc.title,
+    shortTitle: ibc.shortTitle ?? "",
+    piEmail: ibc.principalInvestigatorId ? (scientistById.get(ibc.principalInvestigatorId)?.email ?? "") : "",
+    additionalNotificationEmail: ibc.additionalNotificationEmail ?? "",
+    biosafetyLevel: ibc.biosafetyLevel,
+    riskGroupClassification: ibc.riskGroupClassification ?? "",
+    status: ibc.status,
+    riskLevel: ibc.riskLevel,
+    submissionDate: ibc.submissionDate ? new Date(ibc.submissionDate).toISOString().slice(0, 10) : "",
+    approvalDate: ibc.approvalDate ? new Date(ibc.approvalDate).toISOString().slice(0, 10) : "",
+    expirationDate: ibc.expirationDate ?? "",
+    description: ibc.description ?? "",
+    protocolSummary: ibc.protocolSummary ?? "",
+  }));
+}
+
+function contractsToRows(
+  contractList: ResearchContract[],
+  sdrByDbId: Map<number, ResearchActivity>,
+  scientistById: Map<number, Scientist>,
+): Record<string, unknown>[] {
+  return contractList.map((c) => ({
+    contractNumber: c.contractNumber,
+    title: c.title,
+    sdrNumber: c.researchActivityId ? (sdrByDbId.get(c.researchActivityId)?.sdrNumber ?? "") : "",
+    leadPiEmail: c.leadPIId ? (scientistById.get(c.leadPIId)?.email ?? "") : "",
+    contractType: c.contractType ?? "",
+    status: c.status,
+    startDate: c.startDate ?? "",
+    endDate: c.endDate ?? "",
+    irbProtocol: c.irbProtocol ?? "",
+    ibcProtocol: c.ibcProtocol ?? "",
+    qnrfNumber: c.qnrfNumber ?? "",
+    fundingSourceCategory: c.fundingSourceCategory ?? "",
+    contractorName: c.contractorName ?? "",
+    counterpartyContact: c.counterpartyContact ?? "",
+    counterpartyCountry: c.counterpartyCountry ?? "",
+    contractValue: c.contractValue ?? "",
+    currency: c.currency ?? "",
+    remarks: c.remarks ?? "",
+    description: c.description ?? "",
+  }));
+}
+
+function patentsToRows(
+  patentList: Patent[],
+  sdrByDbId: Map<number, ResearchActivity>,
+): Record<string, unknown>[] {
+  return patentList.map((p) => ({
+    patentNumber: p.patentNumber ?? "",
+    title: p.title,
+    inventors: p.inventors,
+    status: p.status,
+    filingDate: p.filingDate ? new Date(p.filingDate).toISOString().slice(0, 10) : "",
+    grantDate: p.grantDate ? new Date(p.grantDate).toISOString().slice(0, 10) : "",
+    sdrNumber: p.researchActivityId ? (sdrByDbId.get(p.researchActivityId)?.sdrNumber ?? "") : "",
+    description: p.description ?? "",
+  }));
+}
+
+// ---------------------------------------------------------------------------
+// Context loader — fetches all DB data needed for a section
+// ---------------------------------------------------------------------------
+
+interface DbContext {
+  scientists: Scientist[];
+  scientistByEmail: Map<string, Scientist>;
+  scientistById: Map<number, Scientist>;
+  grants?: Grant[];
+  grantByProjectNumber?: Map<string, Grant>;
+  grantLinkedSdrIds?: Map<number, number[]>; // grantId → researchActivityId[]
+  programs?: Program[];
+  programByProgramId?: Map<string, Program>;
+  programByDbId?: Map<number, Program>;
+  projects?: Project[];
+  projectByProjectId?: Map<string, Project>;
+  projectByDbId?: Map<number, Project>;
+  sdrs?: ResearchActivity[];
+  sdrBySdrNumber?: Map<string, ResearchActivity>;
+  sdrByDbId?: Map<number, ResearchActivity>;
+  irbs?: IrbApplication[];
+  irbByIrbNumber?: Map<string, IrbApplication>;
+  ibcs?: IbcApplication[];
+  ibcByIbcNumber?: Map<string, IbcApplication>;
+  contracts?: ResearchContract[];
+  contractByContractNumber?: Map<string, ResearchContract>;
+  patentList?: Patent[];
+  patentByPatentNumber?: Map<string, Patent>;
+}
+
+async function loadDbContext(sectionId: SectionId, executor: any = db): Promise<DbContext> {
+  const allScientists = await executor.select().from(scientists);
+  const scientistByEmail = new Map<string, Scientist>();
+  const scientistById = new Map<number, Scientist>();
+  for (const s of allScientists) {
+    scientistByEmail.set(s.email.toLowerCase(), s);
+    scientistById.set(s.id, s);
+  }
+
+  const ctx: DbContext = { scientists: allScientists, scientistByEmail, scientistById };
+
+  if (sectionId === "research-management") {
+    const grantList = await executor.select().from(grants);
+    const grantByProjectNumber = new Map<string, Grant>();
+    for (const g of grantList) grantByProjectNumber.set(g.projectNumber.toLowerCase(), g);
+    // Load grant-SDR links to protect awarded grants
+    const grantLinks = await executor.select().from(grantResearchActivities);
+    const grantLinkedSdrIds = new Map<number, number[]>();
+    for (const link of grantLinks) {
+      if (!grantLinkedSdrIds.has(link.grantId)) grantLinkedSdrIds.set(link.grantId, []);
+      grantLinkedSdrIds.get(link.grantId)!.push(link.researchActivityId);
+    }
+    ctx.grants = grantList;
+    ctx.grantByProjectNumber = grantByProjectNumber;
+    ctx.grantLinkedSdrIds = grantLinkedSdrIds;
+  }
+
+  if (sectionId === "pmo-office" || sectionId === "research-compliance" || sectionId === "research-services" || sectionId === "research-output") {
+    const programList = await executor.select().from(programs);
+    const programByProgramId = new Map<string, Program>();
+    const programByDbId = new Map<number, Program>();
+    for (const p of programList) {
+      programByProgramId.set(p.programId.toLowerCase(), p);
+      programByDbId.set(p.id, p);
+    }
+    ctx.programs = programList;
+    ctx.programByProgramId = programByProgramId;
+    ctx.programByDbId = programByDbId;
+
+    const projectList = await executor.select().from(projects);
+    const projectByProjectId = new Map<string, Project>();
+    const projectByDbId = new Map<number, Project>();
+    for (const p of projectList) {
+      projectByProjectId.set(p.projectId.toLowerCase(), p);
+      projectByDbId.set(p.id, p);
+    }
+    ctx.projects = projectList;
+    ctx.projectByProjectId = projectByProjectId;
+    ctx.projectByDbId = projectByDbId;
+
+    const sdrList = await executor.select().from(researchActivities);
+    const sdrBySdrNumber = new Map<string, ResearchActivity>();
+    const sdrByDbId = new Map<number, ResearchActivity>();
+    for (const a of sdrList) {
+      sdrBySdrNumber.set(a.sdrNumber.toLowerCase(), a);
+      sdrByDbId.set(a.id, a);
+    }
+    ctx.sdrs = sdrList;
+    ctx.sdrBySdrNumber = sdrBySdrNumber;
+    ctx.sdrByDbId = sdrByDbId;
+  }
+
+  if (sectionId === "research-compliance") {
+    const irbList = await executor.select().from(irbApplications);
+    const irbByIrbNumber = new Map<string, IrbApplication>();
+    for (const irb of irbList) irbByIrbNumber.set(irb.irbNumber.toLowerCase(), irb);
+    ctx.irbs = irbList;
+    ctx.irbByIrbNumber = irbByIrbNumber;
+
+    const ibcList = await executor.select().from(ibcApplications);
+    const ibcByIbcNumber = new Map<string, IbcApplication>();
+    for (const ibc of ibcList) ibcByIbcNumber.set(ibc.ibcNumber.toLowerCase(), ibc);
+    ctx.ibcs = ibcList;
+    ctx.ibcByIbcNumber = ibcByIbcNumber;
+  }
+
+  if (sectionId === "research-services") {
+    const contractList = await executor.select().from(researchContracts);
+    const contractByContractNumber = new Map<string, ResearchContract>();
+    for (const c of contractList) contractByContractNumber.set(c.contractNumber.toLowerCase(), c);
+    ctx.contracts = contractList;
+    ctx.contractByContractNumber = contractByContractNumber;
+  }
+
+  if (sectionId === "research-output") {
+    const patentList = await executor.select().from(patents);
+    const patentByPatentNumber = new Map<string, Patent>();
+    for (const p of patentList) {
+      if (p.patentNumber) patentByPatentNumber.set(p.patentNumber.toLowerCase(), p);
+    }
+    ctx.patentList = patentList;
+    ctx.patentByPatentNumber = patentByPatentNumber;
+  }
+
+  return ctx;
+}
+
+// ---------------------------------------------------------------------------
+// Export workbook builder
+// ---------------------------------------------------------------------------
+
+export async function buildExportWorkbook(sectionId: SectionId): Promise<Buffer> {
+  const ctx = await loadDbContext(sectionId);
+  const wb = new ExcelJS.Workbook();
+  addInstructionsSheet(wb, sectionId);
+
+  if (sectionId === "research-management") {
+    addDataSheet(wb, "Scientists", SCIENTIST_COLS, scientistsToRows(ctx.scientists));
+    addDataSheet(wb, "Grants", GRANT_COLS, grantsToRows(ctx.grants!, ctx.scientistById));
+  } else if (sectionId === "pmo-office") {
+    addDataSheet(wb, "Programs", PROGRAM_COLS, programsToRows(ctx.programs!, ctx.scientistById));
+    addDataSheet(wb, "Projects", PROJECT_COLS, projectsToRows(ctx.projects!, ctx.programByDbId!, ctx.scientistById));
+    addDataSheet(wb, "Research Activities", SDR_COLS, sdrsToRows(ctx.sdrs!, ctx.projectByDbId!, ctx.scientistById));
+  } else if (sectionId === "research-compliance") {
+    addDataSheet(wb, "IRB Applications", IRB_COLS, irbToRows(ctx.irbs!, ctx.sdrByDbId!, ctx.scientistById));
+    addDataSheet(wb, "IBC Applications", IBC_COLS, ibcToRows(ctx.ibcs!, ctx.scientistById));
+  } else if (sectionId === "research-services") {
+    addDataSheet(wb, "Research Contracts", CONTRACT_COLS, contractsToRows(ctx.contracts!, ctx.sdrByDbId!, ctx.scientistById));
+  } else if (sectionId === "research-output") {
+    addDataSheet(wb, "Patents", PATENT_COLS, patentsToRows(ctx.patentList!, ctx.sdrByDbId!));
+  }
+
+  const buf = await wb.xlsx.writeBuffer();
+  return Buffer.from(buf);
+}
+
+// ---------------------------------------------------------------------------
+// Template workbook builder
+// ---------------------------------------------------------------------------
+
+export async function buildTemplateWorkbook(sectionId: SectionId): Promise<Buffer> {
+  const wb = new ExcelJS.Workbook();
+  addInstructionsSheet(wb, sectionId);
+  const meta = getSectionMeta(sectionId);
+  for (const sheet of meta.sheets) {
+    const cols = SHEET_COLS[sheet.name];
+    if (cols) addDataSheet(wb, sheet.name, cols, []);
+  }
+  const buf = await wb.xlsx.writeBuffer();
+  return Buffer.from(buf);
+}
+
+// ---------------------------------------------------------------------------
+// Row-level result types
+// ---------------------------------------------------------------------------
+
+export type RowAction = "create" | "update" | "skip" | "error";
+
+export interface RowEntry {
+  sheetName: string;
+  rowNumber: number; // 1-based data row (header = 0)
+  action: RowAction;
+  key: string; // business key value
+  reason?: string; // for skip/error
+  changes?: string[]; // for update: changed field keys
+  data?: Record<string, unknown>; // parsed, DB-ready payload
+}
+
+export interface SheetSummary {
+  sheetName: string;
+  total: number;
+  create: number;
+  update: number;
+  skip: number;
+  error: number;
+}
+
+export interface PreviewResult {
+  sectionId: SectionId;
+  rows: RowEntry[];
+  sheets: SheetSummary[];
+  canApply: boolean;
+  fingerprint: string;
+}
+
+export interface ApplyCounts {
+  created: number;
+  updated: number;
+  skipped: number;
+}
+
+export interface ApplyResult {
+  sectionId: SectionId;
+  counts: Record<string, ApplyCounts>;
+}
+
+// ---------------------------------------------------------------------------
+// HMAC fingerprint helpers
+// ---------------------------------------------------------------------------
+
+export function computeFingerprint(payload: unknown): string {
+  const json = JSON.stringify(payload);
+  return crypto.createHmac("sha256", getHmacSecret()).update(json).digest("hex");
+}
+
+export function verifyFingerprint(payload: unknown, fingerprint: string): boolean {
+  if (!/^[a-f0-9]{64}$/i.test(fingerprint)) return false;
+  const expected = computeFingerprint(payload);
+  return crypto.timingSafeEqual(Buffer.from(expected, "hex"), Buffer.from(fingerprint, "hex"));
+}
+
+// ---------------------------------------------------------------------------
+// Sheet parsing helper
+// ---------------------------------------------------------------------------
+
+interface ParsedSheet {
+  name: string;
+  rows: Record<string, string>[];
+  unknownHeaders: string[];
+}
+
+async function parseWorkbookBase64(fileBase64: string, fileName: string): Promise<ParsedSheet[]> {
+  if (!fileName.toLowerCase().endsWith(".xlsx")) {
+    throw new Error("Only .xlsx workbooks are supported");
+  }
+  const buf = Buffer.from(fileBase64, "base64");
+  if (buf.byteLength > MAX_WORKBOOK_BYTES) {
+    throw new Error(`Workbook exceeds size limit (${MAX_WORKBOOK_BYTES / 1024 / 1024} MB)`);
+  }
+  const wb = new ExcelJS.Workbook();
+  await wb.xlsx.load(buf);
+
+  const parsed: ParsedSheet[] = [];
+
+  for (const ws of wb.worksheets) {
+    const name = ws.name.trim();
+    if (name === "Instructions") continue; // always skip instructions
+
+    const cols = SHEET_COLS[name];
+    if (!cols) {
+      // Check if sheet has any data
+      let hasData = false;
+      ws.eachRow((row, rowNum) => { if (rowNum > 0) hasData = true; });
+      if (hasData) {
+        throw new Error(`Unknown sheet "${name}". Remove it or rename to a recognized sheet name.`);
+      }
+      continue;
+    }
+
+    const headerMap = makeHeaderMap(cols);
+    const validKeys = new Set(Object.values(headerMap));
+
+    const headers: string[] = [];
+    const rows: Record<string, string>[] = [];
+    const unknownHeaders: string[] = [];
+
+    ws.eachRow((row, rowNum) => {
+      if (rowNum === 1) {
+        row.eachCell({ includeEmpty: true }, (cell, colIdx) => {
+          headers[colIdx] = cellString(cell.value);
+        });
+        // Check for unknown headers
+        for (const h of headers) {
+          if (!h) continue;
+          const key = headerMap[h.toLowerCase().trim()];
+          if (!key) unknownHeaders.push(h);
+        }
+      } else {
+        const rowObj: Record<string, string> = {};
+        row.eachCell({ includeEmpty: true }, (cell, colIdx) => {
+          const header = headers[colIdx] ?? "";
+          const key = headerMap[header.toLowerCase().trim()];
+          if (key) rowObj[key] = cellString(cell.value);
+        });
+        // Only include rows with at least one non-empty cell
+        if (Object.values(rowObj).some((v) => v !== "")) {
+          rows.push(rowObj);
+        }
+      }
+    });
+
+    if (unknownHeaders.length > 0) {
+      throw new Error(`Sheet "${name}" has unknown columns: ${unknownHeaders.map((h) => `"${h}"`).join(", ")}`);
+    }
+
+    if (rows.length > MAX_ROWS_PER_SHEET) {
+      throw new Error(`Sheet "${name}" exceeds row limit (${MAX_ROWS_PER_SHEET} rows)`);
+    }
+
+    parsed.push({ name, rows, unknownHeaders });
+  }
+
+  // Check total rows
+  const totalRows = parsed.reduce((sum, s) => sum + s.rows.length, 0);
+  if (totalRows > MAX_TOTAL_ROWS) {
+    throw new Error(`Total rows across all sheets exceeds limit (${MAX_TOTAL_ROWS})`);
+  }
+
+  return parsed;
+}
+
+async function parseSectionWorkbook(
+  sectionId: SectionId,
+  fileBase64: string,
+  fileName: string,
+): Promise<ParsedSheet[]> {
+  const parsed = await parseWorkbookBase64(fileBase64, fileName);
+  const allowedSheets = new Set(getSectionMeta(sectionId).sheets.map((sheet) => sheet.name));
+  const wrongSectionSheets = parsed
+    .map((sheet) => sheet.name)
+    .filter((sheetName) => !allowedSheets.has(sheetName));
+  if (wrongSectionSheets.length > 0) {
+    throw new Error(
+      `Workbook contains sheet(s) outside ${getSectionMeta(sectionId).label}: ${wrongSectionSheets.join(", ")}`,
+    );
+  }
+  return parsed;
+}
+
+export async function inspectWorkbookStructure(
+  sectionId: SectionId,
+  fileBase64: string,
+  fileName: string,
+): Promise<Array<{ name: string; rowCount: number }>> {
+  const sheets = await parseSectionWorkbook(sectionId, fileBase64, fileName);
+  return sheets.map((sheet) => ({ name: sheet.name, rowCount: sheet.rows.length }));
+}
+
+// ---------------------------------------------------------------------------
+// Per-sheet row previewing
+// ---------------------------------------------------------------------------
+
+function previewScientistRows(
+  rows: Record<string, string>[],
+  ctx: DbContext,
+  inFileByEmail: Map<string, number>, // email → row index (for within-file dup detection)
+  inFileByStaffId: Map<string, number>,
+): RowEntry[] {
+  const entries: RowEntry[] = [];
+  const seenEmails = new Set<string>();
+  const seenStaffIds = new Set<string>();
+
+  rows.forEach((row, idx) => {
+    const rowNumber = idx + 1;
+    const errors: string[] = [];
+    rejectRequiredClear(row, SCIENTIST_COLS, errors);
+    const email = (row.email ?? "").trim().toLowerCase();
+    const staffId = (row.staffId ?? "").trim();
+    const staffIdKey = staffId.toLowerCase();
+
+    if (!email) {
+      entries.push({ sheetName: "Scientists", rowNumber, action: "error", key: staffId || `row ${rowNumber}`, reason: "Email is required" });
+      return;
+    }
+
+    if (seenEmails.has(email)) {
+      entries.push({ sheetName: "Scientists", rowNumber, action: "error", key: email, reason: `Duplicate email "${email}" in this file` });
+      return;
+    }
+    seenEmails.add(email);
+
+    if (staffId) {
+      if (seenStaffIds.has(staffIdKey)) {
+        errors.push(`Duplicate Staff ID "${staffId}" in this file`);
+      }
+      seenStaffIds.add(staffIdKey);
+    }
+
+    // Match existing
+    const existingByStaffId = staffId
+      ? ctx.scientists.find((s) => s.staffId?.toLowerCase() === staffIdKey)
+      : undefined;
+    const existingByEmail = ctx.scientistByEmail.get(email);
+    if (existingByStaffId && existingByEmail && existingByStaffId.id !== existingByEmail.id) {
+      errors.push(`Staff ID "${staffId}" belongs to a different record than email "${email}"`);
+    }
+    const existing = existingByStaffId ?? existingByEmail ?? null;
+    const isNew = existing === null;
+
+    // Required fields for new
+    if (isNew) {
+      if (!row.honorificTitle?.trim()) errors.push("Honorific Title is required for new records");
+      if (!row.firstName?.trim()) errors.push("First Name is required for new records");
+      if (!row.lastName?.trim()) errors.push("Last Name is required for new records");
+    }
+
+    // Validate staff type
+    if (row.staffType && !["scientific", "administrative"].includes(row.staffType.trim().toLowerCase())) {
+      errors.push(`Staff Type must be "scientific" or "administrative" (got "${row.staffType}")`);
+    }
+
+    // Validate supervisor
+    const supervisorEmail = (row.supervisorEmail ?? "").trim().toLowerCase();
+    if (supervisorEmail && !isClear(supervisorEmail)) {
+      if (supervisorEmail === email) {
+        errors.push("A staff member cannot be their own line manager");
+      } else if (!ctx.scientistByEmail.has(supervisorEmail) && !inFileByEmail.has(supervisorEmail)) {
+        errors.push(`Supervisor email "${supervisorEmail}" not found in DB or this file`);
+      }
+    }
+
+    if (errors.length > 0) {
+      entries.push({ sheetName: "Scientists", rowNumber, action: "error", key: email, reason: errors.join("; ") });
+      return;
+    }
+
+    const data: Record<string, unknown> = { email };
+    if (staffId) data.staffId = staffId;
+    if (row.honorificTitle?.trim()) data.honorificTitle = row.honorificTitle.trim();
+    if (row.firstName?.trim()) data.firstName = row.firstName.trim();
+    if (row.lastName?.trim()) data.lastName = row.lastName.trim();
+    const jt = maybeText(row.jobTitle ?? "", !isNew);
+    if (jt !== undefined) data.jobTitle = jt;
+    if (row.staffType?.trim()) data.staffType = row.staffType.trim().toLowerCase();
+    const dept = maybeText(row.department ?? "", !isNew);
+    if (dept !== undefined) data.department = dept;
+    const orcid = maybeText(row.orcidId ?? "", !isNew);
+    if (orcid !== undefined) data.orcidId = orcid;
+    const li = maybeText(row.linkedInUrl ?? "", !isNew);
+    if (li !== undefined) data.linkedInUrl = li;
+    const gs = maybeText(row.googleScholarUrl ?? "", !isNew);
+    if (gs !== undefined) data.googleScholarUrl = gs;
+    const wos = maybeText(row.webOfScienceId ?? "", !isNew);
+    if (wos !== undefined) data.webOfScienceId = wos;
+    const bio = maybeText(row.bio ?? "", !isNew);
+    if (bio !== undefined) data.bio = bio;
+    if (supervisorEmail) {
+      data.supervisorEmail = isClear(supervisorEmail) ? null : supervisorEmail;
+    }
+
+    if (isNew) {
+      entries.push({ sheetName: "Scientists", rowNumber, action: "create", key: email, data });
+    } else {
+      // Determine changes
+      const changes: string[] = [];
+      for (const k of Object.keys(data)) {
+        if (k === "email" || k === "supervisorEmail") continue;
+        const cur = (existing as Record<string, unknown>)[k];
+        const nv = data[k];
+        if (nv !== undefined && String(cur ?? "") !== String(nv ?? "")) changes.push(k);
+      }
+      // Check supervisor change
+      if (supervisorEmail) {
+        const resolvedSupId = isClear(supervisorEmail)
+          ? null
+          : ctx.scientistByEmail.get(supervisorEmail)?.id ?? null;
+        if (resolvedSupId !== existing.supervisorId) changes.push("supervisorId");
+      }
+
+      if (changes.length === 0) {
+        entries.push({ sheetName: "Scientists", rowNumber, action: "skip", key: email, reason: "No changes" });
+      } else {
+        entries.push({ sheetName: "Scientists", rowNumber, action: "update", key: email, changes, data });
+      }
+    }
+  });
+
+  return entries;
+}
+
+function previewGrantRows2(
+  rows: Record<string, string>[],
+  ctx: DbContext,
+  inFileScientistEmails: Set<string>,
+): RowEntry[] {
+  const entries: RowEntry[] = [];
+  const seenKeys = new Set<string>();
+
+  rows.forEach((row, idx) => {
+    const rowNumber = idx + 1;
+    const projectNumber = (row.projectNumber ?? "").trim();
+    if (!projectNumber) {
+      entries.push({ sheetName: "Grants", rowNumber, action: "error", key: `row ${rowNumber}`, reason: "Project Number is required" });
+      return;
+    }
+    const key = projectNumber.toLowerCase();
+    if (seenKeys.has(key)) {
+      entries.push({ sheetName: "Grants", rowNumber, action: "error", key: projectNumber, reason: `Duplicate Project Number "${projectNumber}" in this file` });
+      return;
+    }
+    seenKeys.add(key);
+
+    const existing = ctx.grantByProjectNumber!.get(key) ?? null;
+    const isNew = existing === null;
+    const errors: string[] = [];
+    rejectRequiredClear(row, GRANT_COLS, errors);
+
+    if (isNew && !(row.title ?? "").trim()) {
+      errors.push("Title is required for new grants");
+    }
+
+    const data: Record<string, unknown> = { projectNumber };
+
+    // LPI
+    let lpiId: number | null | undefined = undefined;
+    const lpiEmail = (row.lpiEmail ?? "").trim().toLowerCase();
+    if (lpiEmail) {
+      if (isClear(lpiEmail)) {
+        lpiId = null;
+      } else {
+        const s = ctx.scientistByEmail.get(lpiEmail);
+        if (s) {
+          lpiId = s.id;
+        } else if (inFileScientistEmails.has(lpiEmail)) {
+          data._lpiEmailKey = lpiEmail;
+        } else {
+          errors.push(`LPI email "${lpiEmail}" not found`);
+        }
+      }
+    }
+
+    // Awarded
+    let awarded: boolean | undefined = undefined;
+    if (row.awarded !== undefined && row.awarded !== "") {
+      if (isClear(row.awarded)) {
+        errors.push("Awarded cannot be cleared; enter Yes or No");
+      } else {
+        const b = parseBool(row.awarded, "Awarded", errors);
+        if (b !== null) awarded = b;
+      }
+    }
+
+    // Numeric / date fields
+    if ((row.title ?? "").trim()) data.title = row.title.trim();
+
+    const cycle = maybeText(row.cycle ?? "", !isNew);
+    if (cycle !== undefined) data.cycle = cycle;
+    const invType = maybeText(row.investigatorType ?? "", !isNew);
+    if (invType !== undefined) data.investigatorType = invType;
+    const grantType = maybeText(row.grantType ?? "", !isNew);
+    if (grantType !== undefined) data.grantType = grantType;
+    const fa = maybeText(row.fundingAgency ?? "", !isNew);
+    if (fa !== undefined) data.fundingAgency = fa;
+
+    if (row.status) {
+      if (isClear(row.status)) errors.push("Status cannot be cleared");
+      else data.status = row.status.trim();
+    }
+
+    if (row.requestedAmount !== undefined && row.requestedAmount !== "") {
+      data.requestedAmount = parseNumericField(row.requestedAmount, "Requested Amount", errors);
+    }
+    if (row.awardedAmount !== undefined && row.awardedAmount !== "") {
+      data.awardedAmount = parseNumericField(row.awardedAmount, "Awarded Amount", errors);
+    }
+    if (awarded !== undefined) data.awarded = awarded;
+    if (row.submittedYear && row.submittedYear !== "") {
+      data.submittedYear = parseIntField(row.submittedYear, "Submitted Year", errors);
+    }
+    if (row.awardedYear && row.awardedYear !== "") {
+      data.awardedYear = parseIntField(row.awardedYear, "Awarded Year", errors);
+    }
+    if (row.runningTimeYears && row.runningTimeYears !== "") {
+      data.runningTimeYears = parseIntField(row.runningTimeYears, "Running Time (Years)", errors);
+    }
+    const cgYear = maybeText(row.currentGrantYear ?? "", !isNew);
+    if (cgYear !== undefined) data.currentGrantYear = cgYear;
+    if (row.startDate && row.startDate !== "") {
+      data.startDate = parseDateStr(row.startDate, "Start Date", errors);
+    }
+    if (row.endDate && row.endDate !== "") {
+      data.endDate = parseDateStr(row.endDate, "End Date", errors);
+    }
+    if (row.reportingIntervalMonths && row.reportingIntervalMonths !== "") {
+      data.reportingIntervalMonths = parseIntField(row.reportingIntervalMonths, "Reporting Interval (Months)", errors);
+    }
+    if (row.collaborators !== undefined && (row.collaborators !== "" || !isNew)) {
+      if (row.collaborators !== "") {
+        data.collaborators = isClear(row.collaborators) ? null : splitSemicolon(row.collaborators);
+      }
+    }
+    const desc = maybeText(row.description ?? "", !isNew);
+    if (desc !== undefined) data.description = desc;
+    if (lpiId !== undefined) data.lpiId = lpiId;
+
+    // Grant lifecycle
+    if (errors.length === 0) {
+      try {
+        const lifecycle = reconcileGrantLifecycle(
+          {
+            status: data.status as string | undefined,
+            awarded: data.awarded as boolean | undefined,
+            startDate: data.startDate as string | undefined,
+            endDate: data.endDate as string | undefined,
+          },
+          existing
+            ? {
+                status: existing.status,
+                awarded: existing.awarded,
+                startDate: existing.startDate ?? undefined,
+                endDate: existing.endDate ?? undefined,
+              }
+            : undefined,
+        );
+        data.status = lifecycle.status;
+        data.awarded = lifecycle.awarded;
+      } catch (err) {
+        errors.push(err instanceof GrantLifecycleError ? err.message : "Grant lifecycle error");
+      }
+    }
+
+    // Protect granted with linked SDRs from clearing awarded
+    if (errors.length === 0 && existing && !data.awarded && existing.awarded) {
+      const linkedSdrs = ctx.grantLinkedSdrIds!.get(existing.id) ?? [];
+      if (linkedSdrs.length > 0) {
+        errors.push(`Cannot clear award status: grant has ${linkedSdrs.length} linked SDR(s)`);
+      }
+    }
+
+    if (errors.length > 0) {
+      entries.push({ sheetName: "Grants", rowNumber, action: "error", key: projectNumber, reason: errors.join("; ") });
+      return;
+    }
+
+    if (isNew) {
+      entries.push({ sheetName: "Grants", rowNumber, action: "create", key: projectNumber, data });
+    } else {
+      const changes: string[] = [];
+      for (const [k, v] of Object.entries(data)) {
+        if (k === "projectNumber") continue;
+        const cur = (existing as Record<string, unknown>)[k];
+        const norm = (x: unknown) => Array.isArray(x) ? x.join("; ") : x == null ? "" : String(x);
+        if (norm(cur) !== norm(v)) changes.push(k);
+      }
+      if (changes.length === 0) {
+        entries.push({ sheetName: "Grants", rowNumber, action: "skip", key: projectNumber, reason: "No changes" });
+      } else {
+        entries.push({ sheetName: "Grants", rowNumber, action: "update", key: projectNumber, changes, data });
+      }
+    }
+  });
+
+  return entries;
+}
+
+function previewProgramRows(
+  rows: Record<string, string>[],
+  ctx: DbContext,
+): RowEntry[] {
+  const entries: RowEntry[] = [];
+  const seenKeys = new Set<string>();
+
+  rows.forEach((row, idx) => {
+    const rowNumber = idx + 1;
+    const programId = (row.programId ?? "").trim();
+    if (!programId) {
+      entries.push({ sheetName: "Programs", rowNumber, action: "error", key: `row ${rowNumber}`, reason: "Program ID is required" });
+      return;
+    }
+    const key = programId.toLowerCase();
+    if (seenKeys.has(key)) {
+      entries.push({ sheetName: "Programs", rowNumber, action: "error", key: programId, reason: `Duplicate Program ID "${programId}" in this file` });
+      return;
+    }
+    seenKeys.add(key);
+
+    const existing = ctx.programByProgramId!.get(key) ?? null;
+    const isNew = existing === null;
+    const errors: string[] = [];
+    rejectRequiredClear(row, PROGRAM_COLS, errors);
+
+    if (isNew && !(row.name ?? "").trim()) errors.push("Name is required for new programs");
+
+    const resolveLeader = (emailRaw: string, label: string): number | null | undefined => {
+      const e = emailRaw.trim().toLowerCase();
+      if (!e) return undefined;
+      if (isClear(e)) return null;
+      const s = ctx.scientistByEmail.get(e);
+      if (!s) { errors.push(`${label} email "${e}" not found`); return undefined; }
+      return s.id;
+    };
+
+    const data: Record<string, unknown> = { programId };
+    if ((row.name ?? "").trim()) data.name = row.name.trim();
+    const desc = maybeText(row.description ?? "", !isNew);
+    if (desc !== undefined) data.description = desc;
+
+    const dir = resolveLeader(row.programDirectorEmail ?? "", "Program Director");
+    if (dir !== undefined) data.programDirectorId = dir;
+    const rcl = resolveLeader(row.researchCoLeadEmail ?? "", "Research Co-Lead");
+    if (rcl !== undefined) data.researchCoLeadId = rcl;
+    const ccl1 = resolveLeader(row.clinicalCoLead1Email ?? "", "Clinical Co-Lead 1");
+    if (ccl1 !== undefined) data.clinicalCoLead1Id = ccl1;
+    const ccl2 = resolveLeader(row.clinicalCoLead2Email ?? "", "Clinical Co-Lead 2");
+    if (ccl2 !== undefined) data.clinicalCoLead2Id = ccl2;
+
+    if (errors.length > 0) {
+      entries.push({ sheetName: "Programs", rowNumber, action: "error", key: programId, reason: errors.join("; ") });
+      return;
+    }
+
+    if (isNew) {
+      entries.push({ sheetName: "Programs", rowNumber, action: "create", key: programId, data });
+    } else {
+      const changes: string[] = [];
+      for (const [k, v] of Object.entries(data)) {
+        if (k === "programId") continue;
+        const cur = (existing as Record<string, unknown>)[k];
+        if (String(cur ?? "") !== String(v ?? "")) changes.push(k);
+      }
+      if (changes.length === 0) {
+        entries.push({ sheetName: "Programs", rowNumber, action: "skip", key: programId, reason: "No changes" });
+      } else {
+        entries.push({ sheetName: "Programs", rowNumber, action: "update", key: programId, changes, data });
+      }
+    }
+  });
+  return entries;
+}
+
+function previewProjectRows(
+  rows: Record<string, string>[],
+  ctx: DbContext,
+  inFileProgramIds: Set<string>, // program IDs being created in this same file
+): RowEntry[] {
+  const entries: RowEntry[] = [];
+  const seenKeys = new Set<string>();
+
+  rows.forEach((row, idx) => {
+    const rowNumber = idx + 1;
+    const projectId = (row.projectId ?? "").trim();
+    if (!projectId) {
+      entries.push({ sheetName: "Projects", rowNumber, action: "error", key: `row ${rowNumber}`, reason: "Project ID is required" });
+      return;
+    }
+    const key = projectId.toLowerCase();
+    if (seenKeys.has(key)) {
+      entries.push({ sheetName: "Projects", rowNumber, action: "error", key: projectId, reason: `Duplicate Project ID "${projectId}" in this file` });
+      return;
+    }
+    seenKeys.add(key);
+
+    const existing = ctx.projectByProjectId!.get(key) ?? null;
+    const isNew = existing === null;
+    const errors: string[] = [];
+    rejectRequiredClear(row, PROJECT_COLS, errors);
+
+    if (isNew && !(row.name ?? "").trim()) errors.push("Name is required for new projects");
+
+    const data: Record<string, unknown> = { projectId };
+    if ((row.name ?? "").trim()) data.name = row.name.trim();
+    const desc = maybeText(row.description ?? "", !isNew);
+    if (desc !== undefined) data.description = desc;
+
+    // Resolve program
+    const programIdRaw = (row.programId ?? "").trim();
+    if (programIdRaw) {
+      if (isClear(programIdRaw)) {
+        data.programId = null;
+      } else {
+        const prog = ctx.programByProgramId!.get(programIdRaw.toLowerCase());
+        if (prog) {
+          data.programId = prog.id;
+        } else if (inFileProgramIds.has(programIdRaw.toLowerCase())) {
+          // Will be resolved at apply time
+          data._programIdKey = programIdRaw;
+        } else {
+          errors.push(`Program ID "${programIdRaw}" not found`);
+        }
+      }
+    }
+
+    // Resolve PI
+    const piEmail = (row.piEmail ?? "").trim().toLowerCase();
+    if (piEmail) {
+      if (isClear(piEmail)) {
+        data.principalInvestigatorId = null;
+      } else {
+        const s = ctx.scientistByEmail.get(piEmail);
+        if (!s) errors.push(`PI email "${piEmail}" not found`);
+        else data.principalInvestigatorId = s.id;
+      }
+    }
+
+    if (errors.length > 0) {
+      entries.push({ sheetName: "Projects", rowNumber, action: "error", key: projectId, reason: errors.join("; ") });
+      return;
+    }
+
+    if (isNew) {
+      entries.push({ sheetName: "Projects", rowNumber, action: "create", key: projectId, data });
+    } else {
+      const changes: string[] = [];
+      for (const [k, v] of Object.entries(data)) {
+        if (k === "projectId" || k.startsWith("_")) continue;
+        const cur = (existing as Record<string, unknown>)[k];
+        if (String(cur ?? "") !== String(v ?? "")) changes.push(k);
+      }
+      if (changes.length === 0) {
+        entries.push({ sheetName: "Projects", rowNumber, action: "skip", key: projectId, reason: "No changes" });
+      } else {
+        entries.push({ sheetName: "Projects", rowNumber, action: "update", key: projectId, changes, data });
+      }
+    }
+  });
+  return entries;
+}
+
+function previewSdrRows(
+  rows: Record<string, string>[],
+  ctx: DbContext,
+  inFileProjectIds: Set<string>,
+): RowEntry[] {
+  const entries: RowEntry[] = [];
+  const seenKeys = new Set<string>();
+
+  rows.forEach((row, idx) => {
+    const rowNumber = idx + 1;
+    const sdrNumber = (row.sdrNumber ?? "").trim();
+    if (!sdrNumber) {
+      entries.push({ sheetName: "Research Activities", rowNumber, action: "error", key: `row ${rowNumber}`, reason: "SDR Number is required" });
+      return;
+    }
+    const key = sdrNumber.toLowerCase();
+    if (seenKeys.has(key)) {
+      entries.push({ sheetName: "Research Activities", rowNumber, action: "error", key: sdrNumber, reason: `Duplicate SDR Number "${sdrNumber}" in this file` });
+      return;
+    }
+    seenKeys.add(key);
+
+    const existing = ctx.sdrBySdrNumber!.get(key) ?? null;
+    const isNew = existing === null;
+    const errors: string[] = [];
+    rejectRequiredClear(row, SDR_COLS, errors);
+
+    if (isNew && !(row.title ?? "").trim()) errors.push("Title is required for new research activities");
+
+    const data: Record<string, unknown> = { sdrNumber };
+    if ((row.title ?? "").trim()) data.title = row.title.trim();
+    const st = maybeText(row.shortTitle ?? "", !isNew);
+    if (st !== undefined) data.shortTitle = st;
+    const desc = maybeText(row.description ?? "", !isNew);
+    if (desc !== undefined) data.description = desc;
+    if (row.status?.trim()) {
+      if (isClear(row.status)) errors.push("Status cannot be cleared");
+      else data.status = row.status.trim();
+    }
+    const obj = maybeText(row.objectives ?? "", !isNew);
+    if (obj !== undefined) data.objectives = obj;
+    const sb = maybeText(row.sidraBranch ?? "", !isNew);
+    if (sb !== undefined) data.sidraBranch = sb;
+    const ane = maybeText(row.additionalNotificationEmail ?? "", !isNew);
+    if (ane !== undefined) data.additionalNotificationEmail = ane;
+
+    if (row.startDate && row.startDate !== "") {
+      data.startDate = parseDateTimestamp(row.startDate, "Start Date", errors);
+    }
+    if (row.endDate && row.endDate !== "") {
+      data.endDate = parseDateTimestamp(row.endDate, "End Date", errors);
+    }
+
+    if (row.budgetSource !== undefined && row.budgetSource !== "") {
+      data.budgetSource = isClear(row.budgetSource) ? null : splitSemicolon(row.budgetSource);
+    }
+
+    // Resolve project
+    const projectIdRaw = (row.projectId ?? "").trim();
+    if (projectIdRaw) {
+      if (isClear(projectIdRaw)) {
+        data.projectId = null;
+      } else {
+        const proj = ctx.projectByProjectId!.get(projectIdRaw.toLowerCase());
+        if (proj) {
+          data.projectId = proj.id;
+        } else if (inFileProjectIds.has(projectIdRaw.toLowerCase())) {
+          data._projectIdKey = projectIdRaw;
+        } else {
+          errors.push(`Project ID "${projectIdRaw}" not found`);
+        }
+      }
+    }
+
+    // Resolve budget holder
+    const bhEmail = (row.budgetHolderEmail ?? "").trim().toLowerCase();
+    if (bhEmail) {
+      if (isClear(bhEmail)) {
+        data.budgetHolderId = null;
+      } else {
+        const s = ctx.scientistByEmail.get(bhEmail);
+        if (!s) errors.push(`Budget Holder email "${bhEmail}" not found`);
+        else data.budgetHolderId = s.id;
+      }
+    }
+
+    if (errors.length > 0) {
+      entries.push({ sheetName: "Research Activities", rowNumber, action: "error", key: sdrNumber, reason: errors.join("; ") });
+      return;
+    }
+
+    if (isNew) {
+      entries.push({ sheetName: "Research Activities", rowNumber, action: "create", key: sdrNumber, data });
+    } else {
+      const changes: string[] = [];
+      for (const [k, v] of Object.entries(data)) {
+        if (k === "sdrNumber" || k.startsWith("_")) continue;
+        const cur = (existing as Record<string, unknown>)[k];
+        const norm = (x: unknown) => {
+          if (x instanceof Date) return x.toISOString().slice(0, 10);
+          if (Array.isArray(x)) return x.join("; ");
+          return x == null ? "" : String(x);
+        };
+        if (norm(cur) !== norm(v)) changes.push(k);
+      }
+      if (changes.length === 0) {
+        entries.push({ sheetName: "Research Activities", rowNumber, action: "skip", key: sdrNumber, reason: "No changes" });
+      } else {
+        entries.push({ sheetName: "Research Activities", rowNumber, action: "update", key: sdrNumber, changes, data });
+      }
+    }
+  });
+  return entries;
+}
+
+function previewIrbRows(
+  rows: Record<string, string>[],
+  ctx: DbContext,
+  inFileSdrNumbers: Set<string>,
+): RowEntry[] {
+  const entries: RowEntry[] = [];
+  const seenKeys = new Set<string>();
+
+  rows.forEach((row, idx) => {
+    const rowNumber = idx + 1;
+    const irbNumber = (row.irbNumber ?? "").trim();
+    if (!irbNumber) {
+      entries.push({ sheetName: "IRB Applications", rowNumber, action: "error", key: `row ${rowNumber}`, reason: "IRB Number is required" });
+      return;
+    }
+    const key = irbNumber.toLowerCase();
+    if (seenKeys.has(key)) {
+      entries.push({ sheetName: "IRB Applications", rowNumber, action: "error", key: irbNumber, reason: `Duplicate IRB Number "${irbNumber}" in this file` });
+      return;
+    }
+    seenKeys.add(key);
+
+    const existing = ctx.irbByIrbNumber!.get(key) ?? null;
+    const isNew = existing === null;
+    const errors: string[] = [];
+    rejectRequiredClear(row, IRB_COLS, errors);
+
+    if (isNew) {
+      if (!(row.title ?? "").trim()) errors.push("Title is required for new IRB applications");
+      if (!(row.piEmail ?? "").trim()) errors.push("PI Email is required for new IRB applications");
+      if (!(row.status ?? "").trim()) errors.push("Status is required for new IRB applications");
+    }
+
+    const data: Record<string, unknown> = { irbNumber };
+    if ((row.title ?? "").trim()) data.title = row.title.trim();
+    const st = maybeText(row.shortTitle ?? "", !isNew);
+    if (st !== undefined) data.shortTitle = st;
+    const irbNet = maybeText(row.irbNetNumber ?? "", !isNew);
+    if (irbNet !== undefined) data.irbNetNumber = irbNet;
+    const oldNum = maybeText(row.oldNumber ?? "", !isNew);
+    if (oldNum !== undefined) data.oldNumber = oldNum;
+    const ane = maybeText(row.additionalNotificationEmail ?? "", !isNew);
+    if (ane !== undefined) data.additionalNotificationEmail = ane;
+    const pt = maybeText(row.protocolType ?? "", !isNew);
+    if (pt !== undefined) data.protocolType = pt;
+    if (row.status?.trim()) data.status = row.status.trim();
+    const rl = maybeText(row.riskLevel ?? "", !isNew);
+    if (rl !== undefined) data.riskLevel = rl;
+    const fs = maybeText(row.fundingSource ?? "", !isNew);
+    if (fs !== undefined) data.fundingSource = fs;
+    const desc = maybeText(row.description ?? "", !isNew);
+    if (desc !== undefined) data.description = desc;
+
+    if (row.isInterventional !== undefined && row.isInterventional !== "") {
+      data.isInterventional = parseBool(row.isInterventional, "Is Interventional", errors);
+    }
+
+    if (row.submissionDate && row.submissionDate !== "") {
+      data.submissionDate = parseDateTimestamp(row.submissionDate, "Submission Date", errors);
+    }
+    if (row.initialApprovalDate && row.initialApprovalDate !== "") {
+      data.initialApprovalDate = parseDateStr(row.initialApprovalDate, "Initial Approval Date", errors);
+    }
+    if (row.expirationDate && row.expirationDate !== "") {
+      data.expirationDate = parseDateStr(row.expirationDate, "Expiration Date", errors);
+    }
+
+    // Resolve PI
+    const piEmail = (row.piEmail ?? "").trim().toLowerCase();
+    if (piEmail) {
+      if (isClear(piEmail)) {
+        errors.push("PI Email cannot be cleared");
+      } else {
+        const s = ctx.scientistByEmail.get(piEmail);
+        if (!s) errors.push(`PI email "${piEmail}" not found`);
+        else data.principalInvestigatorId = s.id;
+      }
+    }
+
+    // Resolve SDR
+    const sdrNumberRaw = (row.sdrNumber ?? "").trim();
+    if (sdrNumberRaw) {
+      if (isClear(sdrNumberRaw)) {
+        data.researchActivityId = null;
+      } else {
+        const sdr = ctx.sdrBySdrNumber!.get(sdrNumberRaw.toLowerCase());
+        if (sdr) {
+          data.researchActivityId = sdr.id;
+        } else if (inFileSdrNumbers.has(sdrNumberRaw.toLowerCase())) {
+          data._sdrNumberKey = sdrNumberRaw;
+        } else {
+          errors.push(`SDR Number "${sdrNumberRaw}" not found`);
+        }
+      }
+    }
+
+    if (errors.length > 0) {
+      entries.push({ sheetName: "IRB Applications", rowNumber, action: "error", key: irbNumber, reason: errors.join("; ") });
+      return;
+    }
+
+    if (isNew) {
+      entries.push({ sheetName: "IRB Applications", rowNumber, action: "create", key: irbNumber, data });
+    } else {
+      const changes: string[] = [];
+      for (const [k, v] of Object.entries(data)) {
+        if (k === "irbNumber" || k.startsWith("_")) continue;
+        const cur = (existing as Record<string, unknown>)[k];
+        if (String(cur ?? "") !== String(v ?? "")) changes.push(k);
+      }
+      if (changes.length === 0) {
+        entries.push({ sheetName: "IRB Applications", rowNumber, action: "skip", key: irbNumber, reason: "No changes" });
+      } else {
+        entries.push({ sheetName: "IRB Applications", rowNumber, action: "update", key: irbNumber, changes, data });
+      }
+    }
+  });
+  return entries;
+}
+
+function previewIbcRows(
+  rows: Record<string, string>[],
+  ctx: DbContext,
+): RowEntry[] {
+  const entries: RowEntry[] = [];
+  const seenKeys = new Set<string>();
+
+  rows.forEach((row, idx) => {
+    const rowNumber = idx + 1;
+    const ibcNumber = (row.ibcNumber ?? "").trim();
+    if (!ibcNumber) {
+      entries.push({ sheetName: "IBC Applications", rowNumber, action: "error", key: `row ${rowNumber}`, reason: "IBC Number is required" });
+      return;
+    }
+    const key = ibcNumber.toLowerCase();
+    if (seenKeys.has(key)) {
+      entries.push({ sheetName: "IBC Applications", rowNumber, action: "error", key: ibcNumber, reason: `Duplicate IBC Number "${ibcNumber}" in this file` });
+      return;
+    }
+    seenKeys.add(key);
+
+    const existing = ctx.ibcByIbcNumber!.get(key) ?? null;
+    const isNew = existing === null;
+    const errors: string[] = [];
+    rejectRequiredClear(row, IBC_COLS, errors);
+
+    if (isNew) {
+      if (!(row.title ?? "").trim()) errors.push("Title is required");
+      if (!(row.piEmail ?? "").trim()) errors.push("PI Email is required");
+      if (!(row.biosafetyLevel ?? "").trim()) errors.push("Biosafety Level is required");
+      if (!(row.status ?? "").trim()) errors.push("Status is required");
+      if (!(row.riskLevel ?? "").trim()) errors.push("Risk Level is required");
+    }
+
+    const data: Record<string, unknown> = { ibcNumber };
+    if ((row.title ?? "").trim()) data.title = row.title.trim();
+    const sh = maybeText(row.shortTitle ?? "", !isNew);
+    if (sh !== undefined) data.shortTitle = sh;
+    const ane = maybeText(row.additionalNotificationEmail ?? "", !isNew);
+    if (ane !== undefined) data.additionalNotificationEmail = ane;
+    if (row.biosafetyLevel?.trim()) data.biosafetyLevel = row.biosafetyLevel.trim();
+    const rgc = maybeText(row.riskGroupClassification ?? "", !isNew);
+    if (rgc !== undefined) data.riskGroupClassification = rgc;
+    if (row.status?.trim()) data.status = row.status.trim();
+    if (row.riskLevel?.trim()) data.riskLevel = row.riskLevel.trim();
+    const desc = maybeText(row.description ?? "", !isNew);
+    if (desc !== undefined) data.description = desc;
+    const ps = maybeText(row.protocolSummary ?? "", !isNew);
+    if (ps !== undefined) data.protocolSummary = ps;
+
+    if (row.submissionDate && row.submissionDate !== "") {
+      data.submissionDate = parseDateTimestamp(row.submissionDate, "Submission Date", errors);
+    }
+    if (row.approvalDate && row.approvalDate !== "") {
+      data.approvalDate = parseDateTimestamp(row.approvalDate, "Approval Date", errors);
+    }
+    if (row.expirationDate && row.expirationDate !== "") {
+      data.expirationDate = parseDateStr(row.expirationDate, "Expiration Date", errors);
+    }
+
+    // Resolve PI
+    const piEmail = (row.piEmail ?? "").trim().toLowerCase();
+    if (piEmail) {
+      if (isClear(piEmail)) {
+        errors.push("PI Email cannot be cleared");
+      } else {
+        const s = ctx.scientistByEmail.get(piEmail);
+        if (!s) errors.push(`PI email "${piEmail}" not found`);
+        else data.principalInvestigatorId = s.id;
+      }
+    }
+
+    if (errors.length > 0) {
+      entries.push({ sheetName: "IBC Applications", rowNumber, action: "error", key: ibcNumber, reason: errors.join("; ") });
+      return;
+    }
+
+    if (isNew) {
+      entries.push({ sheetName: "IBC Applications", rowNumber, action: "create", key: ibcNumber, data });
+    } else {
+      const changes: string[] = [];
+      for (const [k, v] of Object.entries(data)) {
+        if (k === "ibcNumber" || k.startsWith("_")) continue;
+        const cur = (existing as Record<string, unknown>)[k];
+        if (String(cur ?? "") !== String(v ?? "")) changes.push(k);
+      }
+      if (changes.length === 0) {
+        entries.push({ sheetName: "IBC Applications", rowNumber, action: "skip", key: ibcNumber, reason: "No changes" });
+      } else {
+        entries.push({ sheetName: "IBC Applications", rowNumber, action: "update", key: ibcNumber, changes, data });
+      }
+    }
+  });
+  return entries;
+}
+
+function previewContractRows(
+  rows: Record<string, string>[],
+  ctx: DbContext,
+  inFileSdrNumbers: Set<string>,
+): RowEntry[] {
+  const entries: RowEntry[] = [];
+  const seenKeys = new Set<string>();
+
+  rows.forEach((row, idx) => {
+    const rowNumber = idx + 1;
+    const contractNumber = (row.contractNumber ?? "").trim();
+    if (!contractNumber) {
+      entries.push({ sheetName: "Research Contracts", rowNumber, action: "error", key: `row ${rowNumber}`, reason: "Contract Number is required" });
+      return;
+    }
+    const key = contractNumber.toLowerCase();
+    if (seenKeys.has(key)) {
+      entries.push({ sheetName: "Research Contracts", rowNumber, action: "error", key: contractNumber, reason: `Duplicate Contract Number "${contractNumber}" in this file` });
+      return;
+    }
+    seenKeys.add(key);
+
+    const existing = ctx.contractByContractNumber!.get(key) ?? null;
+    const isNew = existing === null;
+    const errors: string[] = [];
+    rejectRequiredClear(row, CONTRACT_COLS, errors);
+
+    if (isNew && !(row.title ?? "").trim()) errors.push("Title is required for new contracts");
+
+    const data: Record<string, unknown> = { contractNumber };
+    if ((row.title ?? "").trim()) data.title = row.title.trim();
+    const ct = maybeText(row.contractType ?? "", !isNew);
+    if (ct !== undefined) data.contractType = ct;
+    if (row.status?.trim()) {
+      if (isClear(row.status)) errors.push("Status cannot be cleared");
+      else data.status = row.status.trim();
+    }
+    if (row.startDate && row.startDate !== "") {
+      data.startDate = parseDateStr(row.startDate, "Start Date", errors);
+    }
+    if (row.endDate && row.endDate !== "") {
+      data.endDate = parseDateStr(row.endDate, "End Date", errors);
+    }
+    const irb = maybeText(row.irbProtocol ?? "", !isNew);
+    if (irb !== undefined) data.irbProtocol = irb;
+    const ibc = maybeText(row.ibcProtocol ?? "", !isNew);
+    if (ibc !== undefined) data.ibcProtocol = ibc;
+    const qnrf = maybeText(row.qnrfNumber ?? "", !isNew);
+    if (qnrf !== undefined) data.qnrfNumber = qnrf;
+    const fsc = maybeText(row.fundingSourceCategory ?? "", !isNew);
+    if (fsc !== undefined) data.fundingSourceCategory = fsc;
+    const cn = maybeText(row.contractorName ?? "", !isNew);
+    if (cn !== undefined) data.contractorName = cn;
+    const cc = maybeText(row.counterpartyContact ?? "", !isNew);
+    if (cc !== undefined) data.counterpartyContact = cc;
+    const cco = maybeText(row.counterpartyCountry ?? "", !isNew);
+    if (cco !== undefined) data.counterpartyCountry = cco;
+    if (row.contractValue && row.contractValue !== "") {
+      data.contractValue = parseNumericField(row.contractValue, "Contract Value", errors);
+    }
+    const cur = maybeText(row.currency ?? "", !isNew);
+    if (cur !== undefined) data.currency = cur;
+    const rem = maybeText(row.remarks ?? "", !isNew);
+    if (rem !== undefined) data.remarks = rem;
+    const desc = maybeText(row.description ?? "", !isNew);
+    if (desc !== undefined) data.description = desc;
+
+    // Resolve SDR
+    const sdrRaw = (row.sdrNumber ?? "").trim();
+    if (sdrRaw) {
+      if (isClear(sdrRaw)) {
+        data.researchActivityId = null;
+      } else {
+        const sdr = ctx.sdrBySdrNumber!.get(sdrRaw.toLowerCase());
+        if (sdr) {
+          data.researchActivityId = sdr.id;
+        } else if (inFileSdrNumbers.has(sdrRaw.toLowerCase())) {
+          data._sdrNumberKey = sdrRaw;
+        } else {
+          errors.push(`SDR Number "${sdrRaw}" not found`);
+        }
+      }
+    }
+
+    // Resolve lead PI
+    const leadPiEmail = (row.leadPiEmail ?? "").trim().toLowerCase();
+    if (leadPiEmail) {
+      if (isClear(leadPiEmail)) {
+        data.leadPIId = null;
+      } else {
+        const s = ctx.scientistByEmail.get(leadPiEmail);
+        if (!s) errors.push(`Lead PI email "${leadPiEmail}" not found`);
+        else data.leadPIId = s.id;
+      }
+    }
+
+    if (errors.length > 0) {
+      entries.push({ sheetName: "Research Contracts", rowNumber, action: "error", key: contractNumber, reason: errors.join("; ") });
+      return;
+    }
+
+    if (isNew) {
+      entries.push({ sheetName: "Research Contracts", rowNumber, action: "create", key: contractNumber, data });
+    } else {
+      const changes: string[] = [];
+      for (const [k, v] of Object.entries(data)) {
+        if (k === "contractNumber" || k.startsWith("_")) continue;
+        const cur2 = (existing as Record<string, unknown>)[k];
+        if (String(cur2 ?? "") !== String(v ?? "")) changes.push(k);
+      }
+      if (changes.length === 0) {
+        entries.push({ sheetName: "Research Contracts", rowNumber, action: "skip", key: contractNumber, reason: "No changes" });
+      } else {
+        entries.push({ sheetName: "Research Contracts", rowNumber, action: "update", key: contractNumber, changes, data });
+      }
+    }
+  });
+  return entries;
+}
+
+function previewPatentRows(
+  rows: Record<string, string>[],
+  ctx: DbContext,
+  inFileSdrNumbers: Set<string>,
+): RowEntry[] {
+  const entries: RowEntry[] = [];
+  const seenKeys = new Set<string>();
+
+  rows.forEach((row, idx) => {
+    const rowNumber = idx + 1;
+    const patentNumber = (row.patentNumber ?? "").trim();
+    if (!patentNumber) {
+      entries.push({ sheetName: "Patents", rowNumber, action: "skip", key: `row ${rowNumber}`, reason: "Patent Number is required; row skipped" });
+      return;
+    }
+    const key = patentNumber.toLowerCase();
+    if (seenKeys.has(key)) {
+      entries.push({ sheetName: "Patents", rowNumber, action: "error", key: patentNumber, reason: `Duplicate Patent Number "${patentNumber}" in this file` });
+      return;
+    }
+    seenKeys.add(key);
+
+    const existing = ctx.patentByPatentNumber!.get(key) ?? null;
+    const isNew = existing === null;
+    const errors: string[] = [];
+    rejectRequiredClear(row, PATENT_COLS, errors);
+
+    if (isNew) {
+      if (!(row.title ?? "").trim()) errors.push("Title is required");
+      if (!(row.inventors ?? "").trim()) errors.push("Inventors is required");
+      if (!(row.status ?? "").trim()) errors.push("Status is required");
+    }
+
+    const data: Record<string, unknown> = { patentNumber };
+    if ((row.title ?? "").trim()) data.title = row.title.trim();
+    const inv = maybeText(row.inventors ?? "", !isNew);
+    if (inv !== undefined) data.inventors = inv;
+    if (row.status?.trim()) data.status = row.status.trim();
+    const desc = maybeText(row.description ?? "", !isNew);
+    if (desc !== undefined) data.description = desc;
+
+    if (row.filingDate && row.filingDate !== "") {
+      data.filingDate = parseDateTimestamp(row.filingDate, "Filing Date", errors);
+    }
+    if (row.grantDate && row.grantDate !== "") {
+      data.grantDate = parseDateTimestamp(row.grantDate, "Grant Date", errors);
+    }
+
+    // Resolve SDR
+    const sdrRaw = (row.sdrNumber ?? "").trim();
+    if (sdrRaw) {
+      if (isClear(sdrRaw)) {
+        data.researchActivityId = null;
+      } else {
+        const sdr = ctx.sdrBySdrNumber!.get(sdrRaw.toLowerCase());
+        if (sdr) {
+          data.researchActivityId = sdr.id;
+        } else if (inFileSdrNumbers.has(sdrRaw.toLowerCase())) {
+          data._sdrNumberKey = sdrRaw;
+        } else {
+          errors.push(`SDR Number "${sdrRaw}" not found`);
+        }
+      }
+    }
+
+    if (errors.length > 0) {
+      entries.push({ sheetName: "Patents", rowNumber, action: "error", key: patentNumber, reason: errors.join("; ") });
+      return;
+    }
+
+    if (isNew) {
+      entries.push({ sheetName: "Patents", rowNumber, action: "create", key: patentNumber, data });
+    } else {
+      const changes: string[] = [];
+      for (const [k, v] of Object.entries(data)) {
+        if (k === "patentNumber" || k.startsWith("_")) continue;
+        const cur = (existing as Record<string, unknown>)[k];
+        const norm = (x: unknown) => {
+          if (x instanceof Date) return x.toISOString().slice(0, 10);
+          return x == null ? "" : String(x);
+        };
+        if (norm(cur) !== norm(v)) changes.push(k);
+      }
+      if (changes.length === 0) {
+        entries.push({ sheetName: "Patents", rowNumber, action: "skip", key: patentNumber, reason: "No changes" });
+      } else {
+        entries.push({ sheetName: "Patents", rowNumber, action: "update", key: patentNumber, changes, data });
+      }
+    }
+  });
+  return entries;
+}
+
+// ---------------------------------------------------------------------------
+// Preview orchestration
+// ---------------------------------------------------------------------------
+
+export async function previewSection(
+  sectionId: SectionId,
+  fileBase64: string,
+  fileName: string,
+): Promise<PreviewResult> {
+  const sheets = await parseSectionWorkbook(sectionId, fileBase64, fileName);
+  const ctx = await loadDbContext(sectionId);
+  return buildPreviewResult(sectionId, sheets, ctx);
+}
+
+function buildPreviewResult(
+  sectionId: SectionId,
+  sheets: ParsedSheet[],
+  ctx: DbContext,
+): PreviewResult {
+  // Get sheet names being processed in this file (for cross-sheet resolution)
+  const inFileProgramIds = new Set<string>();
+  const inFileProjectIds = new Set<string>();
+  const inFileSdrNumbers = new Set<string>();
+
+  for (const s of sheets) {
+    if (s.name === "Programs") s.rows.forEach((r) => { if (r.programId) inFileProgramIds.add(r.programId.toLowerCase()); });
+    if (s.name === "Projects") s.rows.forEach((r) => { if (r.projectId) inFileProjectIds.add(r.projectId.toLowerCase()); });
+    if (s.name === "Research Activities") s.rows.forEach((r) => { if (r.sdrNumber) inFileSdrNumbers.add(r.sdrNumber.toLowerCase()); });
+  }
+
+  // Build within-file email and staffId maps for Scientists
+  const inFileByEmail = new Map<string, number>();
+  const inFileByStaffId = new Map<string, number>();
+  const sciSheet = sheets.find((s) => s.name === "Scientists");
+  if (sciSheet) {
+    sciSheet.rows.forEach((r, idx) => {
+      if (r.email) inFileByEmail.set(r.email.toLowerCase(), idx);
+      if (r.staffId) inFileByStaffId.set(r.staffId.toLowerCase(), idx);
+    });
+  }
+
+  const allRows: RowEntry[] = [];
+
+  for (const sheet of sheets) {
+    let sheetEntries: RowEntry[] = [];
+    switch (sheet.name) {
+      case "Scientists":
+        sheetEntries = previewScientistRows(sheet.rows, ctx, inFileByEmail, inFileByStaffId);
+        break;
+      case "Grants":
+        sheetEntries = previewGrantRows2(sheet.rows, ctx, new Set(inFileByEmail.keys()));
+        break;
+      case "Programs":
+        sheetEntries = previewProgramRows(sheet.rows, ctx);
+        break;
+      case "Projects":
+        sheetEntries = previewProjectRows(sheet.rows, ctx, inFileProgramIds);
+        break;
+      case "Research Activities":
+        sheetEntries = previewSdrRows(sheet.rows, ctx, inFileProjectIds);
+        break;
+      case "IRB Applications":
+        sheetEntries = previewIrbRows(sheet.rows, ctx, inFileSdrNumbers);
+        break;
+      case "IBC Applications":
+        sheetEntries = previewIbcRows(sheet.rows, ctx);
+        break;
+      case "Research Contracts":
+        sheetEntries = previewContractRows(sheet.rows, ctx, inFileSdrNumbers);
+        break;
+      case "Patents":
+        sheetEntries = previewPatentRows(sheet.rows, ctx, inFileSdrNumbers);
+        break;
+    }
+    allRows.push(...sheetEntries);
+  }
+
+  // Build sheet summaries
+  const sheetNames = [...new Set(allRows.map((r) => r.sheetName))];
+  const sheetSummaries: SheetSummary[] = sheetNames.map((name) => {
+    const sheetRows = allRows.filter((r) => r.sheetName === name);
+    return {
+      sheetName: name,
+      total: sheetRows.length,
+      create: sheetRows.filter((r) => r.action === "create").length,
+      update: sheetRows.filter((r) => r.action === "update").length,
+      skip: sheetRows.filter((r) => r.action === "skip").length,
+      error: sheetRows.filter((r) => r.action === "error").length,
+    };
+  });
+
+  const canApply = allRows.every((r) => r.action !== "error");
+
+  // Fingerprint over rows + a snapshot of ctx to detect staleness
+  const fingerprintPayload = {
+    sectionId,
+    rows: allRows.map((r) => ({ sheetName: r.sheetName, rowNumber: r.rowNumber, action: r.action, key: r.key, data: r.data })),
+    dbSnapshot: buildDbSnapshot(ctx),
+  };
+  const fingerprint = computeFingerprint(fingerprintPayload);
+
+  return { sectionId, rows: allRows, sheets: sheetSummaries, canApply, fingerprint };
+}
+
+function buildDbSnapshot(ctx: DbContext): Record<string, unknown> {
+  const version = (row: { id: number; updatedAt?: Date | null }) => [
+    row.id,
+    row.updatedAt?.toISOString() ?? null,
+  ];
+  const versions = (rows: Array<{ id: number; updatedAt?: Date | null }> | undefined) =>
+    (rows ?? []).map(version).sort((a, b) => Number(a[0]) - Number(b[0]));
+  return {
+    scientists: versions(ctx.scientists),
+    grants: versions(ctx.grants),
+    programs: versions(ctx.programs),
+    projects: versions(ctx.projects),
+    sdrs: versions(ctx.sdrs),
+    irbs: versions(ctx.irbs),
+    ibcs: versions(ctx.ibcs),
+    contracts: versions(ctx.contracts),
+    patents: versions(ctx.patentList),
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Apply orchestration
+// ---------------------------------------------------------------------------
+
+async function lockBulkDataSection(tx: any, sectionId: SectionId): Promise<void> {
+  const tablesBySection: Record<SectionId, string[]> = {
+    "research-management": ["scientists", "grants", "grant_research_activities"],
+    "pmo-office": ["scientists", "programs", "projects", "research_activities"],
+    "research-compliance": [
+      "scientists",
+      "programs",
+      "projects",
+      "research_activities",
+      "irb_applications",
+      "ibc_applications",
+    ],
+    "research-services": [
+      "scientists",
+      "programs",
+      "projects",
+      "research_activities",
+      "research_contracts",
+    ],
+    "research-output": [
+      "scientists",
+      "programs",
+      "projects",
+      "research_activities",
+      "patents",
+    ],
+  };
+  await tx.execute(
+    sql.raw(`LOCK TABLE ${tablesBySection[sectionId].join(", ")} IN SHARE ROW EXCLUSIVE MODE`),
+  );
+}
+
+export async function applySection(
+  sectionId: SectionId,
+  fileBase64: string,
+  fileName: string,
+  fingerprint: string,
+): Promise<ApplyResult> {
+  const parsedSheets = await parseSectionWorkbook(sectionId, fileBase64, fileName);
+  const counts = await db.transaction(async (tx: any) => {
+    // Hold all tables read by this section so the confirmed plan cannot change
+    // between verification and the final write.
+    await lockBulkDataSection(tx, sectionId);
+    const preview = buildPreviewResult(
+      sectionId,
+      parsedSheets,
+      await loadDbContext(sectionId, tx),
+    );
+    if (preview.fingerprint !== fingerprint) {
+      throw new Error("Fingerprint mismatch: the data may have changed since preview. Please re-preview and try again.");
+    }
+    if (!preview.canApply) {
+      const errCount = preview.rows.filter((r) => r.action === "error").length;
+      throw new Error(`Cannot apply: ${errCount} row error(s) must be resolved first.`);
+    }
+
+    const transactionCounts: Record<string, ApplyCounts> = {};
+    // We need to resolve deferred references (in-file cross-references)
+    // Build local resolution maps as we insert
+    const newProgramByKey = new Map<string, number>(); // programId key → db id
+    const newProjectByKey = new Map<string, number>(); // projectId key → db id
+    const newSdrByKey = new Map<string, number>(); // sdrNumber key → db id
+
+    const sectionSheetOrder: string[] = getSectionSheetOrder(sectionId);
+
+    for (const sheetName of sectionSheetOrder) {
+      const sheetRows = preview.rows.filter((r) => r.sheetName === sheetName && (r.action === "create" || r.action === "update"));
+      const sheetCounts: ApplyCounts = { created: 0, updated: 0, skipped: 0 };
+      transactionCounts[sheetName] = sheetCounts;
+
+      // Count skips
+      sheetCounts.skipped = preview.rows.filter((r) => r.sheetName === sheetName && r.action === "skip").length;
+
+      for (const entry of sheetRows) {
+        const rowData = resolveDeferred(entry.data ?? {}, newProgramByKey, newProjectByKey, newSdrByKey);
+
+        if (sheetName === "Scientists") {
+          await applyScientistRow(tx, entry, rowData);
+          if (entry.action === "create") sheetCounts.created++;
+          else sheetCounts.updated++;
+        } else if (sheetName === "Grants") {
+          await applyGrantRow(tx, entry, rowData);
+          if (entry.action === "create") sheetCounts.created++;
+          else sheetCounts.updated++;
+        } else if (sheetName === "Programs") {
+          const newId = await applyProgramRow(tx, entry, rowData);
+          if (newId) newProgramByKey.set(entry.key.toLowerCase(), newId);
+          if (entry.action === "create") sheetCounts.created++;
+          else sheetCounts.updated++;
+        } else if (sheetName === "Projects") {
+          const newId = await applyProjectRow(tx, entry, rowData);
+          if (newId) newProjectByKey.set(entry.key.toLowerCase(), newId);
+          if (entry.action === "create") sheetCounts.created++;
+          else sheetCounts.updated++;
+        } else if (sheetName === "Research Activities") {
+          const newId = await applySdrRow(tx, entry, rowData);
+          if (newId) newSdrByKey.set(entry.key.toLowerCase(), newId);
+          if (entry.action === "create") sheetCounts.created++;
+          else sheetCounts.updated++;
+        } else if (sheetName === "IRB Applications") {
+          await applyIrbRow(tx, entry, rowData, newSdrByKey);
+          if (entry.action === "create") sheetCounts.created++;
+          else sheetCounts.updated++;
+        } else if (sheetName === "IBC Applications") {
+          await applyIbcRow(tx, entry, rowData);
+          if (entry.action === "create") sheetCounts.created++;
+          else sheetCounts.updated++;
+        } else if (sheetName === "Research Contracts") {
+          await applyContractRow(tx, entry, rowData, newSdrByKey);
+          if (entry.action === "create") sheetCounts.created++;
+          else sheetCounts.updated++;
+        } else if (sheetName === "Patents") {
+          await applyPatentRow(tx, entry, rowData, newSdrByKey);
+          if (entry.action === "create") sheetCounts.created++;
+          else sheetCounts.updated++;
+        }
+      }
+
+      if (sheetName === "Scientists") {
+        for (const entry of sheetRows) {
+          await applyScientistSupervisor(tx, entry, entry.data ?? {});
+        }
+      }
+
+      // Fill in counts for sheets not in preview
+      if (!transactionCounts[sheetName]) {
+        transactionCounts[sheetName] = { created: 0, updated: 0, skipped: 0 };
+      }
+    }
+    return transactionCounts;
+  });
+
+  return { sectionId, counts };
+}
+
+function getSectionSheetOrder(sectionId: SectionId): string[] {
+  switch (sectionId) {
+    case "research-management": return ["Scientists", "Grants"];
+    case "pmo-office": return ["Programs", "Projects", "Research Activities"];
+    case "research-compliance": return ["IRB Applications", "IBC Applications"];
+    case "research-services": return ["Research Contracts"];
+    case "research-output": return ["Patents"];
+  }
+}
+
+function resolveDeferred(
+  data: Record<string, unknown>,
+  newProgramByKey: Map<string, number>,
+  newProjectByKey: Map<string, number>,
+  newSdrByKey: Map<string, number>,
+): Record<string, unknown> {
+  const out = { ...data };
+  if (out._programIdKey) {
+    const id = newProgramByKey.get(String(out._programIdKey).toLowerCase());
+    if (id) out.programId = id;
+    delete out._programIdKey;
+  }
+  if (out._projectIdKey) {
+    const id = newProjectByKey.get(String(out._projectIdKey).toLowerCase());
+    if (id) out.projectId = id;
+    delete out._projectIdKey;
+  }
+  if (out._sdrNumberKey) {
+    const id = newSdrByKey.get(String(out._sdrNumberKey).toLowerCase());
+    if (id) out.researchActivityId = id;
+    delete out._sdrNumberKey;
+  }
+  return out;
+}
+
+// ---------------------------------------------------------------------------
+// Per-entity apply helpers (operating within a transaction)
+// ---------------------------------------------------------------------------
+
+// db is typed as `any` in db.ts (dynamic import), so tx is also `any`
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type TxDb = any;
+
+function caseInsensitiveKey(column: unknown, value: unknown) {
+  return sql`lower(${column}) = ${String(value).toLowerCase()}`;
+}
+
+function requireUpdatedRow<T>(
+  row: T | null | undefined,
+  entity: string,
+  key: unknown,
+): asserts row is T {
+  if (!row) {
+    throw new Error(`${entity} "${String(key)}" was not found while applying an update`);
+  }
+}
+
+async function applyScientistRow(tx: TxDb, entry: RowEntry, data: Record<string, unknown>): Promise<void> {
+  const payload = { ...data };
+  const email = payload.email as string;
+  delete payload.supervisorEmail;
+
+  if (entry.action === "create") {
+    if (!payload.honorificTitle) payload.honorificTitle = "Dr";
+    if (!payload.staffType) payload.staffType = "scientific";
+    await tx.insert(scientists).values(payload);
+  } else {
+    const staffId = payload.staffId as string | undefined;
+    delete payload.staffId;
+
+    let existingId: number | undefined;
+    if (staffId) {
+      const rows = await tx
+        .select({ id: scientists.id })
+        .from(scientists)
+        .where(caseInsensitiveKey(scientists.staffId, staffId));
+      existingId = rows[0]?.id;
+    }
+    if (!existingId) {
+      const rows = await tx
+        .select({ id: scientists.id })
+        .from(scientists)
+        .where(caseInsensitiveKey(scientists.email, email));
+      existingId = rows[0]?.id;
+    }
+    requireUpdatedRow(existingId, "Scientist", entry.key);
+    await tx.update(scientists).set({ ...payload, updatedAt: new Date() }).where(eq(scientists.id, existingId));
+  }
+}
+
+async function applyScientistSupervisor(
+  tx: TxDb,
+  entry: RowEntry,
+  data: Record<string, unknown>,
+): Promise<void> {
+  if (!Object.prototype.hasOwnProperty.call(data, "supervisorEmail")) return;
+
+  const staffId = data.staffId as string | undefined;
+  const email = String(data.email ?? entry.key).toLowerCase();
+  let scientistId: number | undefined;
+  if (staffId) {
+    const rows = await tx
+      .select({ id: scientists.id })
+      .from(scientists)
+      .where(caseInsensitiveKey(scientists.staffId, staffId));
+    scientistId = rows[0]?.id;
+  }
+  if (!scientistId) {
+    const rows = await tx
+      .select({ id: scientists.id })
+      .from(scientists)
+      .where(sql`lower(${scientists.email}) = ${email}`);
+    scientistId = rows[0]?.id;
+  }
+  if (!scientistId) throw new Error(`Scientist "${entry.key}" was not found while resolving supervisor`);
+
+  const supervisorEmail = data.supervisorEmail;
+  let supervisorId: number | null = null;
+  if (typeof supervisorEmail === "string" && supervisorEmail) {
+    const rows = await tx
+      .select({ id: scientists.id })
+      .from(scientists)
+      .where(sql`lower(${scientists.email}) = ${supervisorEmail.toLowerCase()}`);
+    supervisorId = rows[0]?.id ?? null;
+    if (!supervisorId) {
+      throw new Error(`Supervisor "${supervisorEmail}" was not found while applying scientist "${entry.key}"`);
+    }
+  }
+  await tx
+    .update(scientists)
+    .set({ supervisorId, updatedAt: new Date() })
+    .where(eq(scientists.id, scientistId));
+}
+
+async function applyGrantRow(tx: TxDb, entry: RowEntry, data: Record<string, unknown>): Promise<void> {
+  const { projectNumber, _lpiEmailKey, ...rest } = data;
+  if (_lpiEmailKey) {
+    const rows = await tx
+      .select({ id: scientists.id })
+      .from(scientists)
+      .where(sql`lower(${scientists.email}) = ${String(_lpiEmailKey).toLowerCase()}`);
+    const lpiId = rows[0]?.id;
+    if (!lpiId) {
+      throw new Error(`LPI "${String(_lpiEmailKey)}" was not found while applying grant "${String(projectNumber)}"`);
+    }
+    rest.lpiId = lpiId;
+  }
+
+  if (entry.action === "create") {
+    await tx.insert(grants).values({ projectNumber: String(projectNumber), title: String(rest.title ?? ""), ...rest });
+  } else {
+    const [row] = await tx
+      .update(grants)
+      .set({ ...rest, updatedAt: new Date() })
+      .where(caseInsensitiveKey(grants.projectNumber, projectNumber))
+      .returning({ id: grants.id });
+    requireUpdatedRow(row, "Grant", projectNumber);
+  }
+}
+
+async function applyProgramRow(tx: TxDb, entry: RowEntry, data: Record<string, unknown>): Promise<number | null> {
+  const { programId, ...rest } = data;
+
+  if (entry.action === "create") {
+    const [row] = await tx.insert(programs).values({ programId: String(programId), name: String(rest.name ?? ""), ...rest }).returning({ id: programs.id });
+    return (row as { id: number } | undefined)?.id ?? null;
+  } else {
+    const [row] = await tx
+      .update(programs)
+      .set({ ...rest, updatedAt: new Date() })
+      .where(caseInsensitiveKey(programs.programId, programId))
+      .returning({ id: programs.id });
+    requireUpdatedRow(row, "Program", programId);
+    return (row as { id: number } | undefined)?.id ?? null;
+  }
+}
+
+async function applyProjectRow(tx: TxDb, entry: RowEntry, data: Record<string, unknown>): Promise<number | null> {
+  const { projectId, ...rest } = data;
+
+  if (entry.action === "create") {
+    const [row] = await tx.insert(projects).values({ projectId: String(projectId), name: String(rest.name ?? ""), ...rest }).returning({ id: projects.id });
+    return (row as { id: number } | undefined)?.id ?? null;
+  } else {
+    const [row] = await tx
+      .update(projects)
+      .set({ ...rest, updatedAt: new Date() })
+      .where(caseInsensitiveKey(projects.projectId, projectId))
+      .returning({ id: projects.id });
+    requireUpdatedRow(row, "Project", projectId);
+    return (row as { id: number } | undefined)?.id ?? null;
+  }
+}
+
+async function applySdrRow(tx: TxDb, entry: RowEntry, data: Record<string, unknown>): Promise<number | null> {
+  const { sdrNumber, ...rest } = data;
+
+  if (entry.action === "create") {
+    const [row] = await tx.insert(researchActivities).values({ sdrNumber: String(sdrNumber), title: String(rest.title ?? ""), status: "planning", ...rest }).returning({ id: researchActivities.id });
+    return (row as { id: number } | undefined)?.id ?? null;
+  } else {
+    const [row] = await tx
+      .update(researchActivities)
+      .set({ ...rest, updatedAt: new Date() })
+      .where(caseInsensitiveKey(researchActivities.sdrNumber, sdrNumber))
+      .returning({ id: researchActivities.id });
+    requireUpdatedRow(row, "Research activity", sdrNumber);
+    return (row as { id: number } | undefined)?.id ?? null;
+  }
+}
+
+async function applyIrbRow(tx: TxDb, entry: RowEntry, data: Record<string, unknown>, newSdrByKey: Map<string, number>): Promise<void> {
+  const { irbNumber, _sdrNumberKey, ...rest } = data;
+
+  if (_sdrNumberKey) {
+    const id = newSdrByKey.get(String(_sdrNumberKey).toLowerCase());
+    if (id) rest.researchActivityId = id;
+  }
+
+  if (entry.action === "create") {
+    if (typeof rest.principalInvestigatorId !== "number") {
+      throw new Error(`IRB ${String(irbNumber)} is missing a resolved principal investigator`);
+    }
+    await tx.insert(irbApplications).values({
+      irbNumber: String(irbNumber),
+      title: String(rest.title ?? ""),
+      principalInvestigatorId: rest.principalInvestigatorId,
+      status: String(rest.status ?? "Active"),
+      workflowStatus: "draft",
+      ...rest,
+    });
+  } else {
+    const [row] = await tx
+      .update(irbApplications)
+      .set({ ...rest, updatedAt: new Date() })
+      .where(caseInsensitiveKey(irbApplications.irbNumber, irbNumber))
+      .returning({ id: irbApplications.id });
+    requireUpdatedRow(row, "IRB application", irbNumber);
+  }
+}
+
+async function applyIbcRow(tx: TxDb, entry: RowEntry, data: Record<string, unknown>): Promise<void> {
+  const { ibcNumber, ...rest } = data;
+
+  if (entry.action === "create") {
+    if (typeof rest.principalInvestigatorId !== "number") {
+      throw new Error(`IBC ${String(ibcNumber)} is missing a resolved principal investigator`);
+    }
+    await tx.insert(ibcApplications).values({
+      ibcNumber: String(ibcNumber),
+      title: String(rest.title ?? ""),
+      principalInvestigatorId: rest.principalInvestigatorId,
+      biosafetyLevel: String(rest.biosafetyLevel ?? "BSL-1"),
+      status: String(rest.status ?? "Active"),
+      riskLevel: String(rest.riskLevel ?? "low"),
+      workflowStatus: "draft",
+      submissionType: "initial",
+      version: 1,
+      ...rest,
+    });
+  } else {
+    const [row] = await tx
+      .update(ibcApplications)
+      .set({ ...rest, updatedAt: new Date() })
+      .where(caseInsensitiveKey(ibcApplications.ibcNumber, ibcNumber))
+      .returning({ id: ibcApplications.id });
+    requireUpdatedRow(row, "IBC application", ibcNumber);
+  }
+}
+
+async function applyContractRow(tx: TxDb, entry: RowEntry, data: Record<string, unknown>, newSdrByKey: Map<string, number>): Promise<void> {
+  const { contractNumber, _sdrNumberKey, ...rest } = data;
+
+  if (_sdrNumberKey) {
+    const id = newSdrByKey.get(String(_sdrNumberKey).toLowerCase());
+    if (id) rest.researchActivityId = id;
+  }
+
+  if (entry.action === "create") {
+    await tx.insert(researchContracts).values({
+      contractNumber: String(contractNumber),
+      title: String(rest.title ?? ""),
+      status: "submitted",
+      ...rest,
+    });
+  } else {
+    const [row] = await tx
+      .update(researchContracts)
+      .set({ ...rest, updatedAt: new Date() })
+      .where(caseInsensitiveKey(researchContracts.contractNumber, contractNumber))
+      .returning({ id: researchContracts.id });
+    requireUpdatedRow(row, "Research contract", contractNumber);
+  }
+}
+
+async function applyPatentRow(tx: TxDb, entry: RowEntry, data: Record<string, unknown>, newSdrByKey: Map<string, number>): Promise<void> {
+  const { patentNumber, _sdrNumberKey, ...rest } = data;
+
+  if (_sdrNumberKey) {
+    const id = newSdrByKey.get(String(_sdrNumberKey).toLowerCase());
+    if (id) rest.researchActivityId = id;
+  }
+
+  if (entry.action === "create") {
+    await tx.insert(patents).values({
+      patentNumber: String(patentNumber),
+      title: String(rest.title ?? ""),
+      inventors: String(rest.inventors ?? ""),
+      status: String(rest.status ?? "Filed"),
+      ...rest,
+    });
+  } else {
+    const [row] = await tx
+      .update(patents)
+      .set({ ...rest, updatedAt: new Date() })
+      .where(caseInsensitiveKey(patents.patentNumber, patentNumber))
+      .returning({ id: patents.id });
+    requireUpdatedRow(row, "Patent", patentNumber);
+  }
+}

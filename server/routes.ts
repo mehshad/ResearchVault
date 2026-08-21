@@ -102,6 +102,15 @@ import {
   grantStatusAllowsProgressTracking,
   reconcileGrantLifecycle,
 } from "@shared/grantLifecycle";
+import {
+  applySection as applyBulkDataSection,
+  buildExportWorkbook as buildBulkDataExportWorkbook,
+  buildTemplateWorkbook as buildBulkDataTemplateWorkbook,
+  getSectionMeta as getBulkDataSectionMeta,
+  previewSection as previewBulkDataSection,
+  SECTION_META as BULK_DATA_SECTIONS,
+  type SectionId as BulkDataSectionId,
+} from "./bulkDataHub";
 
 const isLocalStorage = process.env.STORAGE_TYPE === "local";
 
@@ -10627,6 +10636,93 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       console.error('Error deleting ownership override:', error);
       res.status(500).json({ message: 'Failed to delete ownership override' });
+    }
+  });
+
+  // Section-based, administrator-only structured data import/export hub.
+  // Uploaded documents, workflow history, credentials, and role assignments
+  // are intentionally outside this API.
+  app.get('/api/bulk-data/sections', requireAdmin, (_req: Request, res: Response) => {
+    res.json({ sections: BULK_DATA_SECTIONS });
+  });
+
+  const resolveBulkDataSection = (value: string): BulkDataSectionId => {
+    const sectionId = value as BulkDataSectionId;
+    getBulkDataSectionMeta(sectionId);
+    return sectionId;
+  };
+
+  app.get('/api/bulk-data/:sectionId/export', requireAdmin, async (req: Request, res: Response) => {
+    try {
+      const sectionId = resolveBulkDataSection(req.params.sectionId);
+      const section = getBulkDataSectionMeta(sectionId);
+      const workbook = await buildBulkDataExportWorkbook(sectionId);
+      const stamp = new Date().toISOString().slice(0, 10);
+      res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+      res.setHeader('Content-Disposition', `attachment; filename="${sectionId}-export-${stamp}.xlsx"`);
+      res.send(workbook);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Failed to export section data';
+      const status = message.startsWith('Unknown section') ? 400 : 500;
+      console.error('Bulk data export failed:', error);
+      res.status(status).json({ message });
+    }
+  });
+
+  app.get('/api/bulk-data/:sectionId/template', requireAdmin, async (req: Request, res: Response) => {
+    try {
+      const sectionId = resolveBulkDataSection(req.params.sectionId);
+      const workbook = await buildBulkDataTemplateWorkbook(sectionId);
+      res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+      res.setHeader('Content-Disposition', `attachment; filename="${sectionId}-import-template.xlsx"`);
+      res.send(workbook);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Failed to build import template';
+      const status = message.startsWith('Unknown section') ? 400 : 500;
+      console.error('Bulk data template failed:', error);
+      res.status(status).json({ message });
+    }
+  });
+
+  app.post('/api/bulk-data/:sectionId/preview', requireAdmin, async (req: Request, res: Response) => {
+    try {
+      const sectionId = resolveBulkDataSection(req.params.sectionId);
+      const { fileBase64, fileName } = req.body as { fileBase64?: string; fileName?: string };
+      if (!fileBase64 || !fileName) {
+        return res.status(400).json({ message: 'fileBase64 and fileName are required' });
+      }
+      if (!fileName.toLowerCase().endsWith('.xlsx')) {
+        return res.status(400).json({ message: 'Only .xlsx workbooks are supported' });
+      }
+      const preview = await previewBulkDataSection(sectionId, fileBase64, fileName);
+      res.json(preview);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Failed to preview section import';
+      console.error('Bulk data preview failed:', error);
+      res.status(400).json({ message });
+    }
+  });
+
+  app.post('/api/bulk-data/:sectionId/apply', requireAdmin, async (req: Request, res: Response) => {
+    try {
+      const sectionId = resolveBulkDataSection(req.params.sectionId);
+      const { fileBase64, fileName, fingerprint } = req.body as {
+        fileBase64?: string;
+        fileName?: string;
+        fingerprint?: string;
+      };
+      if (!fileBase64 || !fileName || !fingerprint) {
+        return res.status(400).json({ message: 'fileBase64, fileName, and fingerprint are required' });
+      }
+      const result = await applyBulkDataSection(sectionId, fileBase64, fileName, fingerprint);
+      res.json(result);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Failed to apply section import';
+      const status = /fingerprint|preview|row error|unknown section|only \.xlsx|required|limit|not found|duplicate/i.test(message)
+        ? 400
+        : 500;
+      console.error('Bulk data apply failed:', error);
+      res.status(status).json({ message });
     }
   });
 
