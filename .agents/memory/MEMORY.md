@@ -17,3 +17,4 @@
 - [Grant lifecycle integrity](grant-lifecycle-integrity.md) — Awarded is a lasting milestone; grant fields and the intended SDR set must change atomically under row-level guards.
 - [Bulk import preview integrity](bulk-import-preview-integrity.md) — verify signed previews under section table locks in the same transaction; key matching is case-insensitive end to end.
 - [Publication bulk identity consistency](publication-bulk-identity-consistency.md) — resolve ID/DOI/PMID/composite together; reject conflicts, never priority-short-circuit.
+- [HMR-stable React contexts](hmr-stable-react-contexts.md) — separate context, provider, hook, and changing fixtures so Vite cannot split context identity.

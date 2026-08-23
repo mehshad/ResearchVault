@@ -13,7 +13,8 @@ import {
 } from "@/components/ui/select";
 import { usePermissions } from "@/hooks/usePermissions";
 import { useAuth } from "@/hooks/useAuth";
-import { useCurrentUser, DUMMY_USERS, SUPER_ADMIN_USER } from "@/hooks/useCurrentUser";
+import { useCurrentUser } from "@/hooks/useCurrentUser";
+import { DUMMY_USERS, SUPER_ADMIN_USER } from "@/lib/currentUserRoleData";
 import { useTheme, themes } from "@/contexts/ThemeContext";
 import qbridgeLogo from "@assets/image_1767775219373.png";
 

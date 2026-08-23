@@ -6,7 +6,7 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import NotFound from "@/pages/not-found";
 import Layout from "@/components/layout/Layout";
 import { PermissionsProvider } from "@/hooks/usePermissions";
-import { CurrentUserProvider } from "@/hooks/useCurrentUser";
+import { CurrentUserProvider } from "@/providers/CurrentUserProvider";
 import { AuthProvider } from "@/hooks/useAuth";
 import { ThemeProvider } from "@/contexts/ThemeContext";
 import GlobalColorModeInit from "@/components/GlobalColorModeInit";
