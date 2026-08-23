@@ -194,7 +194,31 @@ export default function BulkDataHub() {
     return <Card><CardHeader><Skeleton className="h-6 w-64" /><Skeleton className="h-4 w-96" /></CardHeader><CardContent><Skeleton className="h-10 w-full" /></CardContent></Card>;
   }
   if (sectionsQuery.isError) {
-    return <Card><CardContent className="flex items-center gap-3 p-6 text-destructive"><AlertCircle className="h-5 w-5" /><span>Unable to load bulk data sections. Refresh and try again.</span></CardContent></Card>;
+    const message = sectionsQuery.error instanceof Error
+      ? sectionsQuery.error.message
+      : "The server did not return the available data sections.";
+    return (
+      <Card>
+        <CardContent className="flex flex-col gap-3 p-6 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex items-start gap-3 text-destructive">
+            <AlertCircle className="mt-0.5 h-5 w-5 shrink-0" />
+            <div>
+              <div className="font-medium">Unable to load bulk data sections</div>
+              <div className="mt-1 text-sm">{message}</div>
+            </div>
+          </div>
+          <Button
+            type="button"
+            variant="outline"
+            onClick={() => sectionsQuery.refetch()}
+            disabled={sectionsQuery.isFetching}
+          >
+            {sectionsQuery.isFetching && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+            Try again
+          </Button>
+        </CardContent>
+      </Card>
+    );
   }
 
   return (

@@ -109,7 +109,17 @@ export function requireAuth(req: Request, res: Response, next: NextFunction) {
 
 export function requireAdmin(req: Request, res: Response, next: NextFunction) {
   const role = req.session?.user?.role;
-  if (role === "admin" || role === "superadmin") return next();
+  // Demo role switching is intentionally client-side. The demo server session
+  // remains Management even when a tester selects the Super Admin persona, so
+  // treat that fixed demo session as the administrator for protected previews.
+  // Real local/LDAP/OIDC sessions still require admin or superadmin exactly.
+  if (
+    role === "admin" ||
+    role === "superadmin" ||
+    (getAuthMode() === "demo" && role === "Management")
+  ) {
+    return next();
+  }
   authLog(`403 admin required: ${req.method} ${req.path} user=${req.session?.user?.username ?? "anonymous"} role=${role ?? "none"}`);
   res.status(403).json({ message: "Forbidden. Admin access required." });
 }
