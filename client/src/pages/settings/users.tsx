@@ -37,6 +37,17 @@ interface AppUser {
   email: string;
   role: string;
   scientistId: number | null;
+  lastLoginAt: string | null;
+}
+
+function formatLastLogin(value: string | null): string {
+  if (!value) return "Never";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "Unknown";
+  return new Intl.DateTimeFormat(undefined, {
+    dateStyle: "medium",
+    timeStyle: "short",
+  }).format(date);
 }
 
 export default function AdminUsersPage() {
@@ -98,12 +109,17 @@ export default function AdminUsersPage() {
             <p className="text-muted-foreground">Loading…</p>
           ) : (
             <div className="divide-y">
+              <div className="hidden md:grid grid-cols-[minmax(0,1fr)_12rem_16rem] gap-4 pb-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                <div>User</div>
+                <div>Last login</div>
+                <div>Role</div>
+              </div>
               {users.map((u) => {
                 const isSelf = u.id === me.id;
                 const isSuperAdmin = u.role === "superadmin";
                 const currentRole = pendingRole[u.id] ?? u.role;
                 return (
-                  <div key={u.id} className="flex items-center justify-between py-4 gap-4">
+                  <div key={u.id} className="grid gap-3 py-4 md:grid-cols-[minmax(0,1fr)_12rem_16rem] md:items-center md:gap-4">
                     <div className="flex items-center gap-3 min-w-0">
                       <div className="h-9 w-9 rounded-full bg-primary/10 flex items-center justify-center text-primary flex-shrink-0">
                         <User className="w-4 h-4" />
@@ -114,7 +130,12 @@ export default function AdminUsersPage() {
                       </div>
                     </div>
 
-                    <div className="flex items-center gap-3 flex-shrink-0">
+                    <div className="text-sm text-muted-foreground" title={u.lastLoginAt ?? undefined}>
+                      <span className="mr-2 font-medium text-foreground md:hidden">Last login:</span>
+                      {formatLastLogin(u.lastLoginAt)}
+                    </div>
+
+                    <div className="flex items-center gap-3 md:justify-start">
                       {isSuperAdmin ? (
                         <Badge variant="destructive">Super Admin</Badge>
                       ) : isSelf ? (

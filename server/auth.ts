@@ -216,6 +216,13 @@ function toSessionUser(user: typeof users.$inferSelect): SessionUser {
   };
 }
 
+async function recordSuccessfulLogin(userId: number): Promise<void> {
+  await db
+    .update(users)
+    .set({ lastLoginAt: new Date() })
+    .where(eq(users.id, userId));
+}
+
 async function refreshSessionUserFromDatabase(
   req: Request
 ): Promise<SessionUser | null> {
@@ -336,6 +343,7 @@ export function registerAuthRoutes(app: any) {
         }
       }
 
+      await recordSuccessfulLogin(sessionUser!.id);
       authLog(`login success username=${sessionUser!.username} id=${sessionUser!.id} role=${sessionUser!.role} ip=${ip}`);
       req.session.user = sessionUser;
       return res.json({ user: sessionUser });
@@ -378,6 +386,7 @@ export function registerAuthRoutes(app: any) {
           return res.redirect("/login?error=session_error");
         }
 
+        await recordSuccessfulLogin(sessionUser.id);
         authLog(`OIDC login success username=${sessionUser.username} id=${sessionUser.id} role=${sessionUser.role} ip=${ip}`);
         req.session.user = sessionUser;
         res.redirect("/");

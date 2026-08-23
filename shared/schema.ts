@@ -47,12 +47,14 @@ export const users = pgTable("users", {
   entraOid: text("entra_oid").unique(), // stable external subject id (OIDC `sub`)
   // Link to the scientist/staff profile — null until the user completes registration.
   scientistId: integer("scientist_id"),
+  lastLoginAt: timestamp("last_login_at"),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 });
 
 export const insertUserSchema = createInsertSchema(users).omit({
   id: true,
+  lastLoginAt: true,
   createdAt: true,
   updatedAt: true,
 });
