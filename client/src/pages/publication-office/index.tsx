@@ -30,7 +30,7 @@ import { Pencil, Save, X, Upload, Search, ChevronLeft, ChevronRight, ChevronsLef
 import { UploadingModal } from "@/components/ui/upload-modal";
 import { PublicationDuplicates } from "@/components/PublicationDuplicates";
 import { useToast } from "@/hooks/use-toast";
-import { Link, useLocation } from "wouter";
+import { Link, useLocation, useSearch } from "wouter";
 import { format } from "date-fns";
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip as ChartTooltip, ResponsiveContainer, BarChart, Bar, ReferenceLine, Cell } from "recharts";
 import type { JournalImpactFactor, InsertJournalImpactFactor, Publication } from "@shared/schema";
@@ -52,6 +52,33 @@ interface SavedSearch {
     status: string;
   };
   createdAt?: string;
+}
+
+const PUBLICATION_OFFICE_TABS = [
+  "ip-vetting",
+  "new-publications",
+  "find-papers",
+  "duplicates",
+  "export",
+  "sidra-score",
+  "impact-factors",
+] as const;
+
+export type PublicationOfficeTab = typeof PUBLICATION_OFFICE_TABS[number];
+
+export interface PublicationOfficeProps {
+  /**
+   * Renders one existing workflow without the Outcome Office heading, office
+   * tab navigation, or URL synchronization.
+   */
+  embeddedTab?: PublicationOfficeTab;
+}
+
+function getPublicationOfficeTab(search: string): PublicationOfficeTab {
+  const requestedTab = new URLSearchParams(search).get("tab");
+  return PUBLICATION_OFFICE_TABS.includes(requestedTab as PublicationOfficeTab)
+    ? requestedTab as PublicationOfficeTab
+    : "ip-vetting";
 }
 
 type SidraRanking = SidraScoreResult;
@@ -86,15 +113,17 @@ function highlightAffiliation(text: string, term: string) {
   );
 }
 
-export default function PublicationOffice() {
+export default function PublicationOffice({ embeddedTab }: PublicationOfficeProps = {}) {
+  const isEmbedded = embeddedTab !== undefined;
   const { toast } = useToast();
   const queryClient = useQueryClient();
   
   // Tab state
-  // Restore the tab from the URL (e.g. /outcome-office?tab=new-publications)
-  // so returning from a publication lands back on the tab being worked on.
-  const [activeTab, setActiveTab] = useState(() =>
-    new URLSearchParams(window.location.search).get("tab") || "ip-vetting"
+  // Restore only known tabs from the URL so malformed deep links cannot leave
+  // the controlled Tabs component without matching content, while returning
+  // from a publication still lands on the tab being worked on.
+  const [activeTab, setActiveTab] = useState<PublicationOfficeTab>(() =>
+    embeddedTab ?? getPublicationOfficeTab(window.location.search)
   );
 
   // New Publications tab filters (issue/tag, scientist, publication date range)
@@ -220,11 +249,22 @@ export default function PublicationOffice() {
   const [exportDialogOpen, setExportDialogOpen] = useState(false);
   const [exportYear, setExportYear] = useState<string>("");
   const [, navigate] = useLocation();
+  const search = useSearch();
   const [currentPage, setCurrentPage] = useState(1);
   const [sortField, setSortField] = useState("rank");
   const [sortDirection, setSortDirection] = useState<"asc" | "desc">("asc");
   const [editingFieldJournalId, setEditingFieldJournalId] = useState<number | null>(null);
   const [fieldDraft, setFieldDraft] = useState<string>("");
+
+  useEffect(() => {
+    if (isEmbedded) return;
+    const tabFromUrl = getPublicationOfficeTab(search);
+    setActiveTab((currentTab) => currentTab === tabFromUrl ? currentTab : tabFromUrl);
+  }, [isEmbedded, search]);
+
+  useEffect(() => {
+    if (embeddedTab) setActiveTab(embeddedTab);
+  }, [embeddedTab]);
 
   // Synced top-of-table horizontal scrollbar so users can scroll the wide
   // Impact Factors table without scrolling all the way to the bottom.
@@ -1273,20 +1313,28 @@ export default function PublicationOffice() {
       sublabel={csvFileName}
     />
     <div className="space-y-6">
-      <div className="flex justify-between items-center">
-        <h1 className="text-2xl font-semibold text-foreground">Outcome Office</h1>
-      </div>
+      {!isEmbedded && (
+        <div className="flex justify-between items-center">
+          <h1 className="text-2xl font-semibold text-foreground">Outcome Office</h1>
+        </div>
+      )}
 
       <Tabs
         value={activeTab}
         onValueChange={(tab) => {
-          setActiveTab(tab);
+          const nextTab = tab as PublicationOfficeTab;
+          setActiveTab(nextTab);
+          if (!isEmbedded) {
+            const params = new URLSearchParams(window.location.search);
+            params.set("tab", nextTab);
+            navigate(`${window.location.pathname}?${params.toString()}${window.location.hash}`);
+          }
           // Keep the badge in sync with the panel when the Duplicates tab opens.
           if (tab === "duplicates") refetchDuplicateCount();
         }}
         className="space-y-6"
       >
-        <TabsList className="grid w-full grid-cols-7">
+        {!isEmbedded && <TabsList className="grid w-full grid-cols-7">
           <TabsTrigger value="ip-vetting" className="flex items-center gap-2">
             <Shield className="h-4 w-4" />
             IP Vetting ({publicationsForIP.length})
@@ -1320,7 +1368,7 @@ export default function PublicationOffice() {
             <BarChart3 className="h-4 w-4" />
             Impact Factors
           </TabsTrigger>
-        </TabsList>
+        </TabsList>}
 
         {/* IP Vetting Tab */}
         <TabsContent value="ip-vetting" className="space-y-6">

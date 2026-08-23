@@ -35,7 +35,7 @@ const DUMMY_USERS: DummyUser[] = [
   { id: 5, name: 'Lisa Thompson', email: 'l.thompson@research.org', role: 'Lab Manager' },
   { id: 6, name: 'Dr. Alex Kumar', email: 'a.kumar@research.org', role: 'Postdoctoral Researcher' },
   { id: 7, name: 'Maria Santos', email: 'm.santos@research.org', role: 'PhD Student' },
-  { id: 8, name: 'Iris Administrator', email: 'iris.admin@research.org', role: 'Management' },
+  { id: 8, name: 'Q-BRIDGE Administrator', email: 'qbridge.admin@research.org', role: 'Management' },
   { id: 9, name: 'Dr. Jennifer Park', email: 'j.park@research.org', role: 'IRB Board Member' },
   { id: 10, name: 'Dr. Robert Kim', email: 'r.kim@research.org', role: 'IBC Board Member' },
   { id: 11, name: 'Jessica Morgan', email: 'j.morgan@research.org', role: 'Outcome Officer' },

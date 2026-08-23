@@ -2,10 +2,12 @@ import { useEffect, useRef, useState } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import {
   AlertCircle,
+  BarChart3,
   CheckCircle2,
   ChevronDown,
   Download,
   FileSpreadsheet,
+  Globe,
   Info,
   Loader2,
   ShieldCheck,
@@ -35,8 +37,10 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
+import PublicationOffice, { type PublicationOfficeTab } from "@/pages/publication-office";
 
 type Section = {
   id: string;
@@ -65,6 +69,103 @@ type ApplyResult = {
 };
 
 const MAX_FILE_BYTES = 8 * 1024 * 1024;
+
+const operations = [
+  {
+    value: "section-workbooks",
+    label: "Section Workbooks",
+    description: "Export, review, and import structured records by Q-BRIDGE section.",
+    icon: FileSpreadsheet,
+  },
+  {
+    value: "find-papers",
+    label: "Discover & Import Papers",
+    description: "Find papers from trusted publication sources and import selected records.",
+    icon: Globe,
+  },
+  {
+    value: "new-publications",
+    label: "Publication Links Workbook",
+    description: "Review new publications and import publication-to-SDR or staff links.",
+    icon: Upload,
+  },
+  {
+    value: "export",
+    label: "Publication Export",
+    description: "Search, filter, and export publication records.",
+    icon: Download,
+  },
+  {
+    value: "impact-factors",
+    label: "Journal Impact Factors",
+    description: "Maintain and exchange journal impact-factor data.",
+    icon: BarChart3,
+  },
+] as const;
+
+type Operation = typeof operations[number]["value"];
+
+function OperationSelector({
+  value,
+  onValueChange,
+}: {
+  value: Operation;
+  onValueChange: (value: Operation) => void;
+}) {
+  const selected = operations.find((operation) => operation.value === value) ?? operations[0];
+
+  return (
+    <Card className="border-primary/20 bg-primary/[0.02]">
+      <CardHeader className="pb-4">
+        <CardTitle className="flex items-center gap-2 text-lg">
+          <ShieldCheck className="h-5 w-5 text-primary" />
+          Data import & export operations
+        </CardTitle>
+        <CardDescription className="max-w-3xl">
+          Publication operations below execute the same Publication Office workflows and APIs inline.
+          They are the authoritative tools, not copied import or export pipelines.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        <div className="md:hidden">
+          <Label htmlFor="data-operation">Operation</Label>
+          <Select value={value} onValueChange={(next) => onValueChange(next as Operation)}>
+            <SelectTrigger id="data-operation" className="mt-2 w-full" data-testid="select-data-operation">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {operations.map((operation) => (
+                <SelectItem key={operation.value} value={operation.value}>{operation.label}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+        <Tabs
+          value={value}
+          onValueChange={(next) => onValueChange(next as Operation)}
+          className="hidden md:block"
+        >
+          <div className="overflow-x-auto pb-1">
+            <TabsList className="grid h-auto min-w-[850px] grid-cols-5">
+              {operations.map(({ value: operationValue, label, icon: Icon }) => (
+                <TabsTrigger
+                  key={operationValue}
+                  value={operationValue}
+                  className="h-full whitespace-normal px-3 py-2 text-center"
+                  data-testid={`tab-data-operation-${operationValue}`}
+                >
+                  <Icon className="mr-2 h-4 w-4 shrink-0" aria-hidden="true" />
+                  {label}
+                </TabsTrigger>
+              ))}
+            </TabsList>
+          </div>
+        </Tabs>
+        <p className="text-sm text-muted-foreground">{selected.description}</p>
+      </CardContent>
+    </Card>
+  );
+}
 
 function fileToBase64(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -96,6 +197,9 @@ function actionClass(action: PreviewRow["action"]) {
 export default function BulkDataHub() {
   const { toast } = useToast();
   const inputRef = useRef<HTMLInputElement>(null);
+  const [operation, setOperation] = useState<Operation>("section-workbooks");
+  const [publicationOperation, setPublicationOperation] = useState<PublicationOfficeTab>("find-papers");
+  const [publicationWorkspaceMounted, setPublicationWorkspaceMounted] = useState(false);
   const [sectionId, setSectionId] = useState("");
   const [file, setFile] = useState<{ name: string; base64: string } | null>(null);
   const [preview, setPreview] = useState<Preview | null>(null);
@@ -151,6 +255,14 @@ export default function BulkDataHub() {
     resetWorkbook();
   };
 
+  const handleOperationChange = (next: Operation) => {
+    setOperation(next);
+    if (next !== "section-workbooks") {
+      setPublicationOperation(next);
+      setPublicationWorkspaceMounted(true);
+    }
+  };
+
   const handleFileChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const selected = event.target.files?.[0];
     resetWorkbook();
@@ -177,7 +289,7 @@ export default function BulkDataHub() {
     try {
       const response = await fetch(`/api/bulk-data/${sectionId}/${kind}`, { credentials: "include" });
       if (!response.ok) throw new Error(`${response.status}: ${await response.text()}`);
-      downloadBlob(await response.blob(), `iris-${sectionId}-${kind}.xlsx`);
+      downloadBlob(await response.blob(), `qbridge-${sectionId}-${kind}.xlsx`);
       toast({ title: kind === "export" ? "Export downloaded" : "Template downloaded" });
     } catch (error) {
       toast({ title: "Download failed", description: error instanceof Error ? error.message : "Try again.", variant: "destructive" });
@@ -190,45 +302,51 @@ export default function BulkDataHub() {
   );
   const applyReady = Boolean(preview?.canApply && (counts?.create || 0) + (counts?.update || 0) > 0 && !applyMutation.isPending);
 
-  if (sectionsQuery.isLoading) {
-    return <Card><CardHeader><Skeleton className="h-6 w-64" /><Skeleton className="h-4 w-96" /></CardHeader><CardContent><Skeleton className="h-10 w-full" /></CardContent></Card>;
+  if (operation === "section-workbooks" && sectionsQuery.isLoading) {
+    return <div className="space-y-6"><OperationSelector value={operation} onValueChange={handleOperationChange} /><Card><CardHeader><Skeleton className="h-6 w-64" /><Skeleton className="h-4 w-96" /></CardHeader><CardContent><Skeleton className="h-10 w-full" /></CardContent></Card></div>;
   }
-  if (sectionsQuery.isError) {
+  if (operation === "section-workbooks" && sectionsQuery.isError) {
     const message = sectionsQuery.error instanceof Error
       ? sectionsQuery.error.message
       : "The server did not return the available data sections.";
     return (
-      <Card>
-        <CardContent className="flex flex-col gap-3 p-6 sm:flex-row sm:items-center sm:justify-between">
-          <div className="flex items-start gap-3 text-destructive">
-            <AlertCircle className="mt-0.5 h-5 w-5 shrink-0" />
-            <div>
-              <div className="font-medium">Unable to load bulk data sections</div>
-              <div className="mt-1 text-sm">{message}</div>
+      <div className="space-y-6">
+        <OperationSelector value={operation} onValueChange={handleOperationChange} />
+        <Card>
+          <CardContent className="flex flex-col gap-3 p-6 sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex items-start gap-3 text-destructive">
+              <AlertCircle className="mt-0.5 h-5 w-5 shrink-0" />
+              <div>
+                <div className="font-medium">Unable to load bulk data sections</div>
+                <div className="mt-1 text-sm">{message}</div>
+              </div>
             </div>
-          </div>
-          <Button
-            type="button"
-            variant="outline"
-            onClick={() => sectionsQuery.refetch()}
-            disabled={sectionsQuery.isFetching}
-          >
-            {sectionsQuery.isFetching && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-            Try again
-          </Button>
-        </CardContent>
-      </Card>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => sectionsQuery.refetch()}
+              disabled={sectionsQuery.isFetching}
+            >
+              {sectionsQuery.isFetching && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+              Try again
+            </Button>
+          </CardContent>
+        </Card>
+      </div>
     );
   }
 
   return (
-    <>
+    <div className="space-y-6">
+      <OperationSelector value={operation} onValueChange={handleOperationChange} />
+      {operation === "section-workbooks" && (
+      <>
       <Card className="overflow-hidden">
         <CardHeader className="border-b bg-muted/20 pb-5">
           <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
             <div>
               <CardTitle className="flex items-center gap-2 text-lg"><FileSpreadsheet className="h-5 w-5 text-primary" />Bulk data workbook</CardTitle>
-              <CardDescription className="mt-1 max-w-2xl">Move structured records between IRIS sections with a reviewed preview before anything is written.</CardDescription>
+              <CardDescription className="mt-1 max-w-2xl">Move structured records between Q-BRIDGE sections with a reviewed preview before anything is written.</CardDescription>
             </div>
             <Badge variant="outline" className="w-fit gap-1.5"><ShieldCheck className="h-3.5 w-3.5" />Administrator workflow</Badge>
           </div>
@@ -289,6 +407,13 @@ export default function BulkDataHub() {
           <AlertDialogFooter><AlertDialogCancel data-testid="button-cancel-bulk-apply">Cancel</AlertDialogCancel><AlertDialogAction onClick={() => applyMutation.mutate()} disabled={applyMutation.isPending} data-testid="button-confirm-bulk-apply">{applyMutation.isPending ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Applying…</> : "Yes, apply workbook"}</AlertDialogAction></AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
-    </>
+      </>
+      )}
+      {publicationWorkspaceMounted && (
+        <div hidden={operation === "section-workbooks"}>
+          <PublicationOffice embeddedTab={publicationOperation} />
+        </div>
+      )}
+    </div>
   );
 }

@@ -95,6 +95,12 @@ import {
   isInvestigatorEligible,
   isInvestigatorRoleAssignmentAllowed,
 } from "@shared/investigatorEligibility";
+import {
+  isRoomManagerEligible,
+  isRoomSupervisorEligible,
+  ROOM_MANAGER_ELIGIBILITY_MESSAGE,
+  ROOM_SUPERVISOR_ELIGIBILITY_MESSAGE,
+} from "@shared/roomRoleEligibility";
 import { requireInvestigatorDesignationManager } from "./investigatorDesignationPolicy";
 import {
   canGrantLinkSdrs,
@@ -5682,7 +5688,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Publication Export  
-  app.post('/api/publications/export', async (req: Request, res: Response) => {
+  app.post('/api/publications/export', requirePublicationOfficer, async (req: Request, res: Response) => {
     try {
       const { startDate, endDate, journal, scientist, status } = req.body;
       
@@ -8311,22 +8317,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Validate supervisor and manager roles if provided
       if (parsedData.roomSupervisorId) {
         const supervisor = await storage.getScientist(parsedData.roomSupervisorId);
-        if (!supervisor || !supervisor.title || !supervisor.title.toLowerCase().includes('investigator')) {
+        if (!isRoomSupervisorEligible(supervisor)) {
           return res.status(400).json({ 
-            message: "Room supervisor must be a scientist with 'Investigator' in their title" 
+            message: ROOM_SUPERVISOR_ELIGIBILITY_MESSAGE,
           });
         }
       }
       
       if (parsedData.roomManagerId) {
         const manager = await storage.getScientist(parsedData.roomManagerId);
-        if (!manager || !manager.title || 
-            !(manager.title.toLowerCase().includes('staff') || 
-              manager.title.toLowerCase().includes('management') ||
-              manager.title.toLowerCase().includes('post-doctoral') ||
-              manager.title.toLowerCase().includes('research'))) {
+        if (!isRoomManagerEligible(manager)) {
           return res.status(400).json({ 
-            message: "Room manager must be a scientist with Management, Staff, Post-doctoral, or Research role" 
+            message: ROOM_MANAGER_ELIGIBILITY_MESSAGE,
           });
         }
       }
@@ -8355,22 +8357,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Validate supervisor and manager roles if being updated
       if (parsedData.roomSupervisorId) {
         const supervisor = await storage.getScientist(parsedData.roomSupervisorId);
-        if (!supervisor || !supervisor.title || !supervisor.title.toLowerCase().includes('investigator')) {
+        if (!isRoomSupervisorEligible(supervisor)) {
           return res.status(400).json({ 
-            message: "Room supervisor must be a scientist with 'Investigator' in their title" 
+            message: ROOM_SUPERVISOR_ELIGIBILITY_MESSAGE,
           });
         }
       }
       
       if (parsedData.roomManagerId) {
         const manager = await storage.getScientist(parsedData.roomManagerId);
-        if (!manager || !manager.title || 
-            !(manager.title.toLowerCase().includes('staff') || 
-              manager.title.toLowerCase().includes('management') ||
-              manager.title.toLowerCase().includes('post-doctoral') ||
-              manager.title.toLowerCase().includes('research'))) {
+        if (!isRoomManagerEligible(manager)) {
           return res.status(400).json({ 
-            message: "Room manager must be a scientist with Management, Staff, Post-doctoral, or Research role" 
+            message: ROOM_MANAGER_ELIGIBILITY_MESSAGE,
           });
         }
       }
@@ -8534,7 +8532,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.get('/api/journal-impact-factors/export', async (req: Request, res: Response) => {
+  app.get('/api/journal-impact-factors/export', requirePublicationOfficer, async (req: Request, res: Response) => {
     try {
       const year = parseInt(String(req.query.year ?? ''), 10);
       if (!Number.isFinite(year)) {
@@ -8649,7 +8647,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.patch('/api/journal-impact-factors/:id/field', async (req: Request, res: Response) => {
+  app.patch('/api/journal-impact-factors/:id/field', requirePublicationOfficer, async (req: Request, res: Response) => {
     try {
       const id = parseInt(req.params.id);
       if (isNaN(id)) {
@@ -8699,7 +8697,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post('/api/journal-impact-factors', async (req: Request, res: Response) => {
+  app.post('/api/journal-impact-factors', requirePublicationOfficer, async (req: Request, res: Response) => {
     try {
       const { insertJournalImpactFactorSchema } = await import("@shared/schema");
       const parsedData = insertJournalImpactFactorSchema.parse(req.body);
@@ -8720,7 +8718,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post('/api/journal-impact-factors/import-csv', async (req: Request, res: Response) => {
+  app.post('/api/journal-impact-factors/import-csv', requirePublicationOfficer, async (req: Request, res: Response) => {
     try {
       const { csvData } = req.body;
       if (!csvData || !Array.isArray(csvData)) {
@@ -8766,7 +8764,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.patch('/api/journal-impact-factors/:id', async (req: Request, res: Response) => {
+  app.patch('/api/journal-impact-factors/:id', requirePublicationOfficer, async (req: Request, res: Response) => {
     try {
       const id = parseInt(req.params.id);
       if (isNaN(id)) {
@@ -9173,7 +9171,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.delete('/api/journal-impact-factors/:id', async (req: Request, res: Response) => {
+  app.delete('/api/journal-impact-factors/:id', requirePublicationOfficer, async (req: Request, res: Response) => {
     try {
       const id = parseInt(req.params.id);
       if (isNaN(id)) {
@@ -10714,11 +10712,21 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (!fileBase64 || !fileName || !fingerprint) {
         return res.status(400).json({ message: 'fileBase64, fileName, and fingerprint are required' });
       }
-      const result = await applyBulkDataSection(sectionId, fileBase64, fileName, fingerprint);
+      const sessionUser = req.session.user;
+      const result = await applyBulkDataSection(
+        sectionId,
+        fileBase64,
+        fileName,
+        fingerprint,
+        {
+          scientistId: sessionUser?.scientistId,
+          email: sessionUser?.email,
+        },
+      );
       res.json(result);
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Failed to apply section import';
-      const status = /fingerprint|preview|row error|unknown section|only \.xlsx|required|limit|not found|duplicate/i.test(message)
+      const status = /fingerprint|preview|row error|unknown section|only \.xlsx|required|auditable applying user|limit|not found|duplicate/i.test(message)
         ? 400
         : 500;
       console.error('Bulk data apply failed:', error);

@@ -250,7 +250,9 @@ function AppRouter() {
         <Route path="/publications/:id" component={PublicationDetail} />
         
         {/* Outcome Office */}
-        <Route path="/outcome-office" component={PublicationOffice} />
+        <Route path="/outcome-office">
+          <PublicationOffice />
+        </Route>
         
         {/* Patents */}
         <Route path="/patents" component={PatentsList} />

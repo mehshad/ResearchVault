@@ -36,7 +36,7 @@ async function workbookBase64(
 
 // ---- Section metadata tests -----------------------------------------------
 
-test("SECTION_META covers all 5 sections", () => {
+test("SECTION_META covers all structured bulk-data sections", () => {
   const ids = SECTION_META.map((s) => s.id);
   assert.deepEqual(ids, [
     "research-management",
@@ -50,10 +50,15 @@ test("SECTION_META covers all 5 sections", () => {
 test("getSectionMeta returns correct meta for research-management", () => {
   const meta = getSectionMeta("research-management");
   assert.equal(meta.id, "research-management");
-  assert.equal(meta.sheets.length, 2);
-  const names = meta.sheets.map((s) => s.name);
-  assert.ok(names.includes("Scientists"), "should include Scientists sheet");
-  assert.ok(names.includes("Grants"), "should include Grants sheet");
+  assert.equal(meta.label, "Research Management");
+  assert.equal(meta.description, "Scientists, Facilities, and Certifications");
+  assert.deepEqual(meta.sheets.map((s) => s.name), [
+    "Scientists",
+    "Buildings",
+    "Rooms",
+    "Certification Modules",
+    "Certifications",
+  ]);
 });
 
 test("getSectionMeta returns correct meta for pmo-office", () => {
@@ -75,8 +80,9 @@ test("getSectionMeta returns correct meta for research-compliance", () => {
 
 test("getSectionMeta returns correct meta for research-services", () => {
   const meta = getSectionMeta("research-services");
-  assert.equal(meta.sheets.length, 1);
-  assert.equal(meta.sheets[0].name, "Research Contracts");
+  assert.equal(meta.label, "Research Data Management");
+  assert.equal(meta.description, "Research Contracts and Grants");
+  assert.deepEqual(meta.sheets.map((s) => s.name), ["Research Contracts", "Grants"]);
 });
 
 test("getSectionMeta returns correct meta for research-output", () => {
@@ -310,6 +316,10 @@ test("all sheet column headers are non-empty strings", () => {
     "IBC Applications",
     "Research Contracts",
     "Patents",
+    "Buildings",
+    "Rooms",
+    "Certification Modules",
+    "Certifications",
   ]);
 
   for (const section of SECTION_META) {
@@ -319,6 +329,25 @@ test("all sheet column headers are non-empty strings", () => {
         `Unknown sheet name "${sheet.name}" in section "${section.id}"`,
       );
     }
+  }
+});
+
+test("new templates expose structured fields and exclude workflow and file data", async () => {
+  const management = new ExcelJS.Workbook();
+  await management.xlsx.load(await buildTemplateWorkbook("research-management"));
+  assert.deepEqual(management.worksheets.slice(1).map((sheet) => sheet.name), [
+    "Scientists", "Buildings", "Rooms", "Certification Modules", "Certifications",
+  ]);
+  const roomHeaders = management.getWorksheet("Rooms")!.getRow(1).values as unknown[];
+  assert.equal(roomHeaders.includes("IBC Application"), false);
+  assert.equal(roomHeaders.includes("Backbone Junction"), false);
+
+  const certificationHeaders = management.getWorksheet("Certifications")!.getRow(1).values as unknown[];
+  for (const excluded of [
+    "Certificate File Path", "Certificate File Name", "Report File Path",
+    "Report File Name", "Extracted Data", "Uploaded By",
+  ]) {
+    assert.equal(certificationHeaders.includes(excluded), false, `${excluded} must be excluded`);
   }
 });
 
@@ -375,11 +404,12 @@ test("fingerprint changes when row actions change", () => {
 test("SECTION_META: research-management has correct business keys documented", () => {
   const section = getSectionMeta("research-management");
   const sciSheet = section.sheets.find((s) => s.name === "Scientists");
-  const grantSheet = section.sheets.find((s) => s.name === "Grants");
+  const roomSheet = section.sheets.find((s) => s.name === "Rooms");
+  const certificationSheet = section.sheets.find((s) => s.name === "Certifications");
   assert.ok(sciSheet, "Scientists sheet must exist");
-  assert.ok(grantSheet, "Grants sheet must exist");
   assert.match(sciSheet.businessKey, /staffId|email/, "Scientists key should mention staffId or email");
-  assert.match(grantSheet.businessKey, /projectNumber/, "Grants key should mention projectNumber");
+  assert.match(roomSheet!.businessKey, /building name \+ room number/);
+  assert.match(certificationSheet!.businessKey, /scientist email \+ module name \+ start date/);
 });
 
 test("SECTION_META: pmo-office has correct business keys", () => {
@@ -400,9 +430,10 @@ test("SECTION_META: research-compliance has correct business keys", () => {
   assert.match(ibcSheet!.businessKey, /ibcNumber/);
 });
 
-test("SECTION_META: research-services has contractNumber key", () => {
+test("SECTION_META: research-services groups contracts and grants", () => {
   const section = getSectionMeta("research-services");
   assert.match(section.sheets[0].businessKey, /contractNumber/);
+  assert.match(section.sheets[1].businessKey, /projectNumber/);
 });
 
 test("SECTION_META: research-output has patentNumber key", () => {

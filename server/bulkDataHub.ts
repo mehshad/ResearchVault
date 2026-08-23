@@ -18,6 +18,10 @@
  *   IBC:                ibcNumber
  *   Contracts:          contractNumber
  *   Patents:            patentNumber
+ *   Buildings:          building name
+ *   Rooms:              building name + room number
+ *   Certification Modules: module name
+ *   Certifications:     scientist email + module name + start date
  *
  * Relationships use business keys only (emails, programId, projectId, sdrNumber).
  * Blank cells leave the DB value unchanged; literal "CLEAR" clears nullable fields.
@@ -38,6 +42,10 @@ import {
   researchContracts,
   patents,
   grantResearchActivities,
+  buildings,
+  rooms,
+  certificationModules,
+  certifications,
 } from "@shared/schema";
 import type {
   Scientist,
@@ -49,11 +57,21 @@ import type {
   IbcApplication,
   ResearchContract,
   Patent,
+  Building,
+  Room,
+  CertificationModule,
+  Certification,
 } from "@shared/schema";
 import {
   reconcileGrantLifecycle,
   GrantLifecycleError,
 } from "@shared/grantLifecycle";
+import {
+  isRoomManagerEligible,
+  isRoomSupervisorEligible,
+  ROOM_MANAGER_ELIGIBILITY_MESSAGE,
+  ROOM_SUPERVISOR_ELIGIBILITY_MESSAGE,
+} from "@shared/roomRoleEligibility";
 
 // ---------------------------------------------------------------------------
 // Constants / limits
@@ -101,10 +119,13 @@ export const SECTION_META: SectionMeta[] = [
   {
     id: "research-management",
     label: "Research Management",
-    description: "Scientists and Grants",
+    description: "Scientists, Facilities, and Certifications",
     sheets: [
       { name: "Scientists", description: "Staff/scientist records", businessKey: "staffId or email" },
-      { name: "Grants", description: "Grant records", businessKey: "projectNumber" },
+      { name: "Buildings", description: "Facility buildings", businessKey: "building name" },
+      { name: "Rooms", description: "Rooms within buildings", businessKey: "building name + room number" },
+      { name: "Certification Modules", description: "Certification module configuration", businessKey: "module name" },
+      { name: "Certifications", description: "Scientist certification records", businessKey: "scientist email + module name + start date" },
     ],
   },
   {
@@ -128,10 +149,11 @@ export const SECTION_META: SectionMeta[] = [
   },
   {
     id: "research-services",
-    label: "Research Services",
-    description: "Research Contracts",
+    label: "Research Data Management",
+    description: "Research Contracts and Grants",
     sheets: [
       { name: "Research Contracts", description: "Contract records", businessKey: "contractNumber" },
+      { name: "Grants", description: "Grant records", businessKey: "projectNumber" },
     ],
   },
   {
@@ -300,6 +322,50 @@ const PATENT_COLS: ColDef[] = [
   { header: "Description", key: "description" },
 ];
 
+const BUILDING_COLS: ColDef[] = [
+  { header: "Building Name", key: "name", required: true },
+  { header: "Address", key: "address" },
+  { header: "Description", key: "description" },
+  { header: "Total Floors", key: "totalFloors" },
+  { header: "Max Occupancy", key: "maxOccupancy" },
+  { header: "Emergency Contact", key: "emergencyContact" },
+  { header: "Safety Notes", key: "safetyNotes" },
+];
+
+const ROOM_COLS: ColDef[] = [
+  { header: "Building Name", key: "buildingName", required: true },
+  { header: "Room Number", key: "roomNumber", required: true },
+  { header: "Floor", key: "floor" },
+  { header: "Room Type", key: "roomType" },
+  { header: "Capacity", key: "capacity" },
+  { header: "Area", key: "area" },
+  { header: "Biosafety Level", key: "biosafetyLevel" },
+  { header: "Room Supervisor Email", key: "roomSupervisorEmail" },
+  { header: "Room Manager Email", key: "roomManagerEmail" },
+  { header: "Certifications", key: "certifications", description: "Semicolon-separated" },
+  { header: "Available PPE", key: "availablePpe", description: "Semicolon-separated" },
+  { header: "Equipment", key: "equipment" },
+  { header: "Special Features", key: "specialFeatures" },
+  { header: "Access Restrictions", key: "accessRestrictions" },
+  { header: "Maintenance Notes", key: "maintenanceNotes" },
+];
+
+const CERTIFICATION_MODULE_COLS: ColDef[] = [
+  { header: "Module Name", key: "name", required: true },
+  { header: "Description", key: "description" },
+  { header: "Is Core", key: "isCore", required: true },
+  { header: "Expiration Months", key: "expirationMonths", required: true },
+  { header: "Is Active", key: "isActive", required: true },
+];
+
+const CERTIFICATION_COLS: ColDef[] = [
+  { header: "Scientist Email", key: "scientistEmail", required: true },
+  { header: "Module Name", key: "moduleName", required: true },
+  { header: "Start Date", key: "startDate", required: true, description: "YYYY-MM-DD" },
+  { header: "End Date", key: "endDate", required: true, description: "YYYY-MM-DD" },
+  { header: "Notes", key: "notes" },
+];
+
 const SHEET_COLS: Record<string, ColDef[]> = {
   "Scientists": SCIENTIST_COLS,
   "Grants": GRANT_COLS,
@@ -310,6 +376,10 @@ const SHEET_COLS: Record<string, ColDef[]> = {
   "IBC Applications": IBC_COLS,
   "Research Contracts": CONTRACT_COLS,
   "Patents": PATENT_COLS,
+  "Buildings": BUILDING_COLS,
+  "Rooms": ROOM_COLS,
+  "Certification Modules": CERTIFICATION_MODULE_COLS,
+  "Certifications": CERTIFICATION_COLS,
 };
 
 // All valid sheet names across all sections
@@ -462,6 +532,10 @@ function addInstructionsSheet(wb: ExcelJS.Workbook, sectionId: SectionId): void 
     "• IBC Applications: IBC Number",
     "• Research Contracts: Contract Number",
     "• Patents: Patent Number",
+    "• Buildings: Building Name",
+    "• Rooms: Building Name + Room Number",
+    "• Certification Modules: Module Name",
+    "• Certifications: Scientist Email + Module Name + Start Date",
     "",
     "RELATIONSHIPS",
     "• Staff references use email addresses.",
@@ -706,6 +780,66 @@ function patentsToRows(
   }));
 }
 
+function buildingsToRows(list: Building[]): Record<string, unknown>[] {
+  return list.map((b) => ({
+    name: b.name,
+    address: b.address ?? "",
+    description: b.description ?? "",
+    totalFloors: b.totalFloors ?? "",
+    maxOccupancy: b.maxOccupancy ?? "",
+    emergencyContact: b.emergencyContact ?? "",
+    safetyNotes: b.safetyNotes ?? "",
+  }));
+}
+
+function roomsToRows(
+  list: Room[],
+  buildingById: Map<number, Building>,
+  scientistById: Map<number, Scientist>,
+): Record<string, unknown>[] {
+  return list.map((r) => ({
+    buildingName: buildingById.get(r.buildingId)?.name ?? "",
+    roomNumber: r.roomNumber,
+    floor: r.floor ?? "",
+    roomType: r.roomType ?? "",
+    capacity: r.capacity ?? "",
+    area: r.area ?? "",
+    biosafetyLevel: r.biosafetyLevel ?? "",
+    roomSupervisorEmail: r.roomSupervisorId ? scientistById.get(r.roomSupervisorId)?.email ?? "" : "",
+    roomManagerEmail: r.roomManagerId ? scientistById.get(r.roomManagerId)?.email ?? "" : "",
+    certifications: Array.isArray(r.certifications) ? r.certifications.join("; ") : "",
+    availablePpe: Array.isArray(r.availablePpe) ? r.availablePpe.join("; ") : "",
+    equipment: r.equipment ?? "",
+    specialFeatures: r.specialFeatures ?? "",
+    accessRestrictions: r.accessRestrictions ?? "",
+    maintenanceNotes: r.maintenanceNotes ?? "",
+  }));
+}
+
+function certificationModulesToRows(list: CertificationModule[]): Record<string, unknown>[] {
+  return list.map((m) => ({
+    name: m.name,
+    description: m.description ?? "",
+    isCore: m.isCore ? "Yes" : "No",
+    expirationMonths: m.expirationMonths,
+    isActive: m.isActive ? "Yes" : "No",
+  }));
+}
+
+function certificationsToRows(
+  list: Certification[],
+  scientistById: Map<number, Scientist>,
+  moduleById: Map<number, CertificationModule>,
+): Record<string, unknown>[] {
+  return list.map((c) => ({
+    scientistEmail: scientistById.get(c.scientistId)?.email ?? "",
+    moduleName: moduleById.get(c.moduleId)?.name ?? "",
+    startDate: c.startDate,
+    endDate: c.endDate,
+    notes: c.notes ?? "",
+  }));
+}
+
 // ---------------------------------------------------------------------------
 // Context loader — fetches all DB data needed for a section
 // ---------------------------------------------------------------------------
@@ -734,6 +868,20 @@ interface DbContext {
   contractByContractNumber?: Map<string, ResearchContract>;
   patentList?: Patent[];
   patentByPatentNumber?: Map<string, Patent>;
+  buildings?: Building[];
+  buildingByName?: Map<string, Building>;
+  buildingById?: Map<number, Building>;
+  ambiguousBuildingNames?: Set<string>;
+  rooms?: Room[];
+  roomByKey?: Map<string, Room>;
+  ambiguousRoomKeys?: Set<string>;
+  certificationModules?: CertificationModule[];
+  certificationModuleByName?: Map<string, CertificationModule>;
+  certificationModuleById?: Map<number, CertificationModule>;
+  ambiguousCertificationModuleNames?: Set<string>;
+  certifications?: Certification[];
+  certificationByKey?: Map<string, Certification>;
+  ambiguousCertificationKeys?: Set<string>;
 }
 
 async function loadDbContext(sectionId: SectionId, executor: any = db): Promise<DbContext> {
@@ -747,7 +895,7 @@ async function loadDbContext(sectionId: SectionId, executor: any = db): Promise<
 
   const ctx: DbContext = { scientists: allScientists, scientistByEmail, scientistById };
 
-  if (sectionId === "research-management") {
+  if (sectionId === "research-services") {
     const grantList = await executor.select().from(grants);
     const grantByProjectNumber = new Map<string, Grant>();
     for (const g of grantList) grantByProjectNumber.set(g.projectNumber.toLowerCase(), g);
@@ -830,6 +978,59 @@ async function loadDbContext(sectionId: SectionId, executor: any = db): Promise<
     ctx.patentByPatentNumber = patentByPatentNumber;
   }
 
+  if (sectionId === "research-management") {
+    const buildingList: Building[] = await executor.select().from(buildings);
+    const buildingByName = new Map<string, Building>();
+    const buildingById = new Map<number, Building>();
+    const ambiguousBuildingNames = new Set<string>();
+    for (const building of buildingList) {
+      const key = building.name.toLowerCase();
+      if (buildingByName.has(key)) ambiguousBuildingNames.add(key);
+      else buildingByName.set(key, building);
+      buildingById.set(building.id, building);
+    }
+    const roomList: Room[] = await executor.select().from(rooms);
+    const roomByKey = new Map<string, Room>();
+    const ambiguousRoomKeys = new Set<string>();
+    for (const room of roomList) {
+      const building = buildingById.get(room.buildingId);
+      if (!building) continue;
+      const key = `${building.name.toLowerCase()}\u0000${room.roomNumber.toLowerCase()}`;
+      if (roomByKey.has(key)) ambiguousRoomKeys.add(key);
+      else roomByKey.set(key, room);
+    }
+    Object.assign(ctx, { buildings: buildingList, buildingByName, buildingById, ambiguousBuildingNames, rooms: roomList, roomByKey, ambiguousRoomKeys });
+  }
+
+  if (sectionId === "research-management") {
+    const moduleList: CertificationModule[] = await executor.select().from(certificationModules);
+    const certificationModuleByName = new Map<string, CertificationModule>();
+    const certificationModuleById = new Map<number, CertificationModule>();
+    const ambiguousCertificationModuleNames = new Set<string>();
+    for (const module of moduleList) {
+      const key = module.name.toLowerCase();
+      if (certificationModuleByName.has(key)) ambiguousCertificationModuleNames.add(key);
+      else certificationModuleByName.set(key, module);
+      certificationModuleById.set(module.id, module);
+    }
+    const certificationList: Certification[] = await executor.select().from(certifications);
+    const certificationByKey = new Map<string, Certification>();
+    const ambiguousCertificationKeys = new Set<string>();
+    for (const certification of certificationList) {
+      const scientist = scientistById.get(certification.scientistId);
+      const module = certificationModuleById.get(certification.moduleId);
+      if (!scientist || !module) continue;
+      const key = `${scientist.email.toLowerCase()}\u0000${module.name.toLowerCase()}\u0000${certification.startDate}`;
+      if (certificationByKey.has(key)) ambiguousCertificationKeys.add(key);
+      else certificationByKey.set(key, certification);
+    }
+    Object.assign(ctx, {
+      certificationModules: moduleList, certificationModuleByName, certificationModuleById,
+      ambiguousCertificationModuleNames, certifications: certificationList,
+      certificationByKey, ambiguousCertificationKeys,
+    });
+  }
+
   return ctx;
 }
 
@@ -844,7 +1045,10 @@ export async function buildExportWorkbook(sectionId: SectionId): Promise<Buffer>
 
   if (sectionId === "research-management") {
     addDataSheet(wb, "Scientists", SCIENTIST_COLS, scientistsToRows(ctx.scientists));
-    addDataSheet(wb, "Grants", GRANT_COLS, grantsToRows(ctx.grants!, ctx.scientistById));
+    addDataSheet(wb, "Buildings", BUILDING_COLS, buildingsToRows(ctx.buildings!));
+    addDataSheet(wb, "Rooms", ROOM_COLS, roomsToRows(ctx.rooms!, ctx.buildingById!, ctx.scientistById));
+    addDataSheet(wb, "Certification Modules", CERTIFICATION_MODULE_COLS, certificationModulesToRows(ctx.certificationModules!));
+    addDataSheet(wb, "Certifications", CERTIFICATION_COLS, certificationsToRows(ctx.certifications!, ctx.scientistById, ctx.certificationModuleById!));
   } else if (sectionId === "pmo-office") {
     addDataSheet(wb, "Programs", PROGRAM_COLS, programsToRows(ctx.programs!, ctx.scientistById));
     addDataSheet(wb, "Projects", PROJECT_COLS, projectsToRows(ctx.projects!, ctx.programByDbId!, ctx.scientistById));
@@ -854,6 +1058,7 @@ export async function buildExportWorkbook(sectionId: SectionId): Promise<Buffer>
     addDataSheet(wb, "IBC Applications", IBC_COLS, ibcToRows(ctx.ibcs!, ctx.scientistById));
   } else if (sectionId === "research-services") {
     addDataSheet(wb, "Research Contracts", CONTRACT_COLS, contractsToRows(ctx.contracts!, ctx.sdrByDbId!, ctx.scientistById));
+    addDataSheet(wb, "Grants", GRANT_COLS, grantsToRows(ctx.grants!, ctx.scientistById));
   } else if (sectionId === "research-output") {
     addDataSheet(wb, "Patents", PATENT_COLS, patentsToRows(ctx.patentList!, ctx.sdrByDbId!));
   }
@@ -920,6 +1125,11 @@ export interface ApplyCounts {
 export interface ApplyResult {
   sectionId: SectionId;
   counts: Record<string, ApplyCounts>;
+}
+
+export interface BulkApplyActor {
+  scientistId?: number | null;
+  email?: string | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -2068,6 +2278,218 @@ function previewPatentRows(
   return entries;
 }
 
+function normalizedValue(value: unknown): string {
+  if (value == null) return "";
+  if (value instanceof Date) return value.toISOString().slice(0, 10);
+  if (Array.isArray(value)) return JSON.stringify(value);
+  return String(value);
+}
+
+function finishStructuredEntry(
+  sheetName: string,
+  rowNumber: number,
+  key: string,
+  existing: Record<string, unknown> | undefined,
+  data: Record<string, unknown>,
+  errors: string[],
+  keyFields: Set<string>,
+): RowEntry {
+  if (errors.length) return { sheetName, rowNumber, action: "error", key, reason: errors.join("; ") };
+  if (!existing) return { sheetName, rowNumber, action: "create", key, data };
+  const changes = Object.entries(data)
+    .filter(([field]) => !field.startsWith("_") && !keyFields.has(field))
+    .filter(([field, value]) => normalizedValue(existing[field]) !== normalizedValue(value))
+    .map(([field]) => field);
+  return changes.length
+    ? { sheetName, rowNumber, action: "update", key, changes, data }
+    : { sheetName, rowNumber, action: "skip", key, reason: "No changes" };
+}
+
+function previewBuildingRows(rows: Record<string, string>[], ctx: DbContext): RowEntry[] {
+  const counts = new Map<string, number>();
+  rows.forEach((r) => { if (r.name) counts.set(r.name.toLowerCase(), (counts.get(r.name.toLowerCase()) ?? 0) + 1); });
+  return rows.map((row, index) => {
+    const rowNumber = index + 1;
+    const name = row.name?.trim() ?? "";
+    const key = name;
+    const lower = name.toLowerCase();
+    const errors: string[] = [];
+    rejectRequiredClear(row, BUILDING_COLS, errors);
+    if (!name || isClear(name)) errors.push("Building Name is required");
+    if ((counts.get(lower) ?? 0) > 1) errors.push("Duplicate building name in workbook");
+    if (ctx.ambiguousBuildingNames!.has(lower)) errors.push("Building name is ambiguous in the database");
+    const existing = ctx.buildingByName!.get(lower);
+    const data: Record<string, unknown> = { name };
+    const textFields = ["address", "description", "emergencyContact", "safetyNotes"];
+    for (const field of textFields) {
+      const value = maybeText(row[field] ?? "", !!existing);
+      if (value !== undefined) data[field] = value;
+    }
+    for (const field of ["totalFloors", "maxOccupancy"]) {
+      const raw = row[field] ?? "";
+      if (raw !== "" || !existing) data[field] = parseIntField(raw, field, errors);
+    }
+    return finishStructuredEntry("Buildings", rowNumber, key, existing as unknown as Record<string, unknown>, data, errors, new Set(["name"]));
+  });
+}
+
+function previewRoomRows(
+  rows: Record<string, string>[],
+  ctx: DbContext,
+  inFileBuildingCounts: Map<string, number>,
+  effectiveScientistByEmail: Map<string, Record<string, unknown>>,
+): RowEntry[] {
+  const counts = new Map<string, number>();
+  rows.forEach((r) => {
+    if (r.buildingName && r.roomNumber) {
+      const key = `${r.buildingName.toLowerCase()}\u0000${r.roomNumber.toLowerCase()}`;
+      counts.set(key, (counts.get(key) ?? 0) + 1);
+    }
+  });
+  return rows.map((row, index) => {
+    const buildingName = row.buildingName?.trim() ?? "";
+    const roomNumber = row.roomNumber?.trim() ?? "";
+    const composite = `${buildingName.toLowerCase()}\u0000${roomNumber.toLowerCase()}`;
+    const displayKey = `${buildingName} / ${roomNumber}`;
+    const errors: string[] = [];
+    rejectRequiredClear(row, ROOM_COLS, errors);
+    if (!buildingName || isClear(buildingName)) errors.push("Building Name is required");
+    if (!roomNumber || isClear(roomNumber)) errors.push("Room Number is required");
+    if ((counts.get(composite) ?? 0) > 1) errors.push("Duplicate room key in workbook");
+    if (ctx.ambiguousRoomKeys!.has(composite)) errors.push("Room key is ambiguous in the database");
+    const inFileBuildingCount = inFileBuildingCounts.get(buildingName.toLowerCase()) ?? 0;
+    if (inFileBuildingCount > 1) errors.push(`Building "${buildingName}" is ambiguous in the workbook`);
+    const dbBuilding = ctx.buildingByName!.get(buildingName.toLowerCase());
+    if (ctx.ambiguousBuildingNames!.has(buildingName.toLowerCase())) errors.push(`Building "${buildingName}" is ambiguous in the database`);
+    if (!dbBuilding && inFileBuildingCount === 0) errors.push(`Building "${buildingName}" was not found`);
+    const existing = ctx.roomByKey!.get(composite);
+    const data: Record<string, unknown> = {
+      roomNumber,
+      ...(dbBuilding ? { buildingId: dbBuilding.id } : { _buildingNameKey: buildingName }),
+    };
+    for (const field of ["floor", "capacity"]) {
+      const raw = row[field] ?? "";
+      if (raw !== "" || !existing) data[field] = parseIntField(raw, field, errors);
+    }
+    const areaRaw = row.area ?? "";
+    if (areaRaw !== "" || !existing) data.area = parseNumericField(areaRaw, "Area", errors);
+    for (const field of ["roomType", "biosafetyLevel", "equipment", "specialFeatures", "accessRestrictions", "maintenanceNotes"]) {
+      const value = maybeText(row[field] ?? "", !!existing);
+      if (value !== undefined) data[field] = value;
+    }
+    for (const [emailField, idField] of [["roomSupervisorEmail", "roomSupervisorId"], ["roomManagerEmail", "roomManagerId"]] as const) {
+      const raw = row[emailField] ?? "";
+      if (raw === "" && existing) continue;
+      if (raw === "" || isClear(raw)) data[idField] = null;
+      else {
+        const scientist = effectiveScientistByEmail.get(raw.toLowerCase());
+        if (!scientist) errors.push(`${emailField}: scientist "${raw}" was not found`);
+        else {
+          if (idField === "roomSupervisorId" && !isRoomSupervisorEligible(scientist)) {
+            errors.push(`${emailField}: ${ROOM_SUPERVISOR_ELIGIBILITY_MESSAGE}`);
+          }
+          if (idField === "roomManagerId" && !isRoomManagerEligible(scientist)) {
+            errors.push(`${emailField}: ${ROOM_MANAGER_ELIGIBILITY_MESSAGE}`);
+          }
+          if (typeof scientist.id === "number") data[idField] = scientist.id;
+          else data[`_${emailField}Key`] = raw;
+        }
+      }
+    }
+    for (const field of ["certifications", "availablePpe"]) {
+      const raw = row[field] ?? "";
+      if (raw === "" && existing) continue;
+      data[field] = raw === "" || isClear(raw) ? null : splitSemicolon(raw);
+    }
+    return finishStructuredEntry("Rooms", index + 1, displayKey, existing as unknown as Record<string, unknown>, data, errors, new Set(["buildingId", "roomNumber"]));
+  });
+}
+
+function previewCertificationModuleRows(rows: Record<string, string>[], ctx: DbContext): RowEntry[] {
+  const counts = new Map<string, number>();
+  rows.forEach((r) => { if (r.name) counts.set(r.name.toLowerCase(), (counts.get(r.name.toLowerCase()) ?? 0) + 1); });
+  return rows.map((row, index) => {
+    const name = row.name?.trim() ?? "";
+    const lower = name.toLowerCase();
+    const errors: string[] = [];
+    rejectRequiredClear(row, CERTIFICATION_MODULE_COLS, errors);
+    if (!name || isClear(name)) errors.push("Module Name is required");
+    if ((counts.get(lower) ?? 0) > 1) errors.push("Duplicate module name in workbook");
+    if (ctx.ambiguousCertificationModuleNames!.has(lower)) errors.push("Module name is ambiguous in the database");
+    const existing = ctx.certificationModuleByName!.get(lower);
+    const data: Record<string, unknown> = { name };
+    const description = maybeText(row.description ?? "", !!existing);
+    if (description !== undefined) data.description = description;
+    for (const field of ["isCore", "isActive"]) {
+      const raw = row[field] ?? "";
+      if (raw !== "" || !existing) {
+        const value = parseBool(raw, field, errors);
+        if (value == null) errors.push(`${field} is required`);
+        else data[field] = value;
+      }
+    }
+    const expirationRaw = row.expirationMonths ?? "";
+    if (expirationRaw !== "" || !existing) {
+      const value = parseIntField(expirationRaw, "Expiration Months", errors);
+      if (value == null) errors.push("Expiration Months is required");
+      else if (value <= 0) errors.push("Expiration Months must be greater than zero");
+      else data.expirationMonths = value;
+    }
+    return finishStructuredEntry("Certification Modules", index + 1, name, existing as unknown as Record<string, unknown>, data, errors, new Set(["name"]));
+  });
+}
+
+function previewCertificationRows(
+  rows: Record<string, string>[],
+  ctx: DbContext,
+  inFileModuleCounts: Map<string, number>,
+  effectiveScientistByEmail: Map<string, Record<string, unknown>>,
+): RowEntry[] {
+  const counts = new Map<string, number>();
+  rows.forEach((r) => {
+    const key = `${r.scientistEmail?.toLowerCase() ?? ""}\u0000${r.moduleName?.toLowerCase() ?? ""}\u0000${r.startDate ?? ""}`;
+    counts.set(key, (counts.get(key) ?? 0) + 1);
+  });
+  return rows.map((row, index) => {
+    const email = row.scientistEmail?.trim() ?? "";
+    const moduleName = row.moduleName?.trim() ?? "";
+    const errors: string[] = [];
+    rejectRequiredClear(row, CERTIFICATION_COLS, errors);
+    const startDate = parseDateStr(row.startDate ?? "", "Start Date", errors);
+    const key = `${email.toLowerCase()}\u0000${moduleName.toLowerCase()}\u0000${startDate ?? row.startDate ?? ""}`;
+    const displayKey = `${email} / ${moduleName} / ${startDate ?? row.startDate ?? ""}`;
+    if (!email || isClear(email)) errors.push("Scientist Email is required");
+    if (!moduleName || isClear(moduleName)) errors.push("Module Name is required");
+    if (!startDate) errors.push("Start Date is required");
+    if ((counts.get(`${email.toLowerCase()}\u0000${moduleName.toLowerCase()}\u0000${row.startDate ?? ""}`) ?? 0) > 1) errors.push("Duplicate certification key in workbook");
+    if (ctx.ambiguousCertificationKeys!.has(key)) errors.push("Certification key is ambiguous in the database");
+    const scientist = effectiveScientistByEmail.get(email.toLowerCase());
+    if (!scientist) errors.push(`Scientist "${email}" was not found`);
+    const module = ctx.certificationModuleByName!.get(moduleName.toLowerCase());
+    const inFileModuleCount = inFileModuleCounts.get(moduleName.toLowerCase()) ?? 0;
+    if (inFileModuleCount > 1) errors.push(`Module "${moduleName}" is ambiguous in the workbook`);
+    if (ctx.ambiguousCertificationModuleNames!.has(moduleName.toLowerCase())) errors.push(`Module "${moduleName}" is ambiguous in the database`);
+    if (!module && inFileModuleCount === 0) errors.push(`Module "${moduleName}" was not found`);
+    const existing = ctx.certificationByKey!.get(key);
+    const data: Record<string, unknown> = {
+      ...(typeof scientist?.id === "number"
+        ? { scientistId: scientist.id }
+        : { _scientistEmailKey: email }),
+      ...(module ? { moduleId: module.id } : { _moduleNameKey: moduleName }),
+      startDate,
+    };
+    const endRaw = row.endDate ?? "";
+    if (endRaw !== "" || !existing) {
+      const endDate = parseDateStr(endRaw, "End Date", errors);
+      if (!endDate) errors.push("End Date is required");
+      else data.endDate = endDate;
+    }
+    const notes = maybeText(row.notes ?? "", !!existing);
+    if (notes !== undefined) data.notes = notes;
+    return finishStructuredEntry("Certifications", index + 1, displayKey, existing as unknown as Record<string, unknown>, data, errors, new Set(["scientistId", "moduleId", "startDate"]));
+  });
+}
+
 // ---------------------------------------------------------------------------
 // Preview orchestration
 // ---------------------------------------------------------------------------
@@ -2091,11 +2513,19 @@ function buildPreviewResult(
   const inFileProgramIds = new Set<string>();
   const inFileProjectIds = new Set<string>();
   const inFileSdrNumbers = new Set<string>();
+  const inFileBuildingCounts = new Map<string, number>();
+  const inFileModuleCounts = new Map<string, number>();
 
   for (const s of sheets) {
     if (s.name === "Programs") s.rows.forEach((r) => { if (r.programId) inFileProgramIds.add(r.programId.toLowerCase()); });
     if (s.name === "Projects") s.rows.forEach((r) => { if (r.projectId) inFileProjectIds.add(r.projectId.toLowerCase()); });
     if (s.name === "Research Activities") s.rows.forEach((r) => { if (r.sdrNumber) inFileSdrNumbers.add(r.sdrNumber.toLowerCase()); });
+    if (s.name === "Buildings") s.rows.forEach((r) => {
+      if (r.name) inFileBuildingCounts.set(r.name.toLowerCase(), (inFileBuildingCounts.get(r.name.toLowerCase()) ?? 0) + 1);
+    });
+    if (s.name === "Certification Modules") s.rows.forEach((r) => {
+      if (r.name) inFileModuleCounts.set(r.name.toLowerCase(), (inFileModuleCounts.get(r.name.toLowerCase()) ?? 0) + 1);
+    });
   }
 
   // Build within-file email and staffId maps for Scientists
@@ -2109,13 +2539,38 @@ function buildPreviewResult(
     });
   }
 
+  const scientistEntries = sciSheet
+    ? previewScientistRows(sciSheet.rows, ctx, inFileByEmail, inFileByStaffId)
+    : [];
+  const effectiveScientistByEmail = new Map<string, Record<string, unknown>>(
+    [...ctx.scientistByEmail.entries()].map(([email, scientist]) => [
+      email,
+      scientist as unknown as Record<string, unknown>,
+    ]),
+  );
+  if (sciSheet) {
+    sciSheet.rows.forEach((row, index) => {
+      const entry = scientistEntries[index];
+      if (!entry || entry.action === "error") return;
+      const email = (row.email ?? "").trim().toLowerCase();
+      const existing = ctx.scientistByEmail.get(email)
+        ?? (row.staffId
+          ? ctx.scientists.find((scientist) => scientist.staffId?.toLowerCase() === row.staffId.toLowerCase())
+          : undefined);
+      effectiveScientistByEmail.set(email, {
+        ...(existing as unknown as Record<string, unknown> | undefined),
+        ...(entry.data ?? {}),
+      });
+    });
+  }
+
   const allRows: RowEntry[] = [];
 
   for (const sheet of sheets) {
     let sheetEntries: RowEntry[] = [];
     switch (sheet.name) {
       case "Scientists":
-        sheetEntries = previewScientistRows(sheet.rows, ctx, inFileByEmail, inFileByStaffId);
+        sheetEntries = scientistEntries;
         break;
       case "Grants":
         sheetEntries = previewGrantRows2(sheet.rows, ctx, new Set(inFileByEmail.keys()));
@@ -2140,6 +2595,18 @@ function buildPreviewResult(
         break;
       case "Patents":
         sheetEntries = previewPatentRows(sheet.rows, ctx, inFileSdrNumbers);
+        break;
+      case "Buildings":
+        sheetEntries = previewBuildingRows(sheet.rows, ctx);
+        break;
+      case "Rooms":
+        sheetEntries = previewRoomRows(sheet.rows, ctx, inFileBuildingCounts, effectiveScientistByEmail);
+        break;
+      case "Certification Modules":
+        sheetEntries = previewCertificationModuleRows(sheet.rows, ctx);
+        break;
+      case "Certifications":
+        sheetEntries = previewCertificationRows(sheet.rows, ctx, inFileModuleCounts, effectiveScientistByEmail);
         break;
     }
     allRows.push(...sheetEntries);
@@ -2189,6 +2656,10 @@ function buildDbSnapshot(ctx: DbContext): Record<string, unknown> {
     ibcs: versions(ctx.ibcs),
     contracts: versions(ctx.contracts),
     patents: versions(ctx.patentList),
+    buildings: versions(ctx.buildings),
+    rooms: versions(ctx.rooms),
+    certificationModules: versions(ctx.certificationModules),
+    certifications: versions(ctx.certifications),
   };
 }
 
@@ -2198,7 +2669,13 @@ function buildDbSnapshot(ctx: DbContext): Record<string, unknown> {
 
 async function lockBulkDataSection(tx: any, sectionId: SectionId): Promise<void> {
   const tablesBySection: Record<SectionId, string[]> = {
-    "research-management": ["scientists", "grants", "grant_research_activities"],
+    "research-management": [
+      "scientists",
+      "buildings",
+      "rooms",
+      "certification_modules",
+      "certifications",
+    ],
     "pmo-office": ["scientists", "programs", "projects", "research_activities"],
     "research-compliance": [
       "scientists",
@@ -2214,6 +2691,8 @@ async function lockBulkDataSection(tx: any, sectionId: SectionId): Promise<void>
       "projects",
       "research_activities",
       "research_contracts",
+      "grants",
+      "grant_research_activities",
     ],
     "research-output": [
       "scientists",
@@ -2233,6 +2712,7 @@ export async function applySection(
   fileBase64: string,
   fileName: string,
   fingerprint: string,
+  actor?: BulkApplyActor,
 ): Promise<ApplyResult> {
   const parsedSheets = await parseSectionWorkbook(sectionId, fileBase64, fileName);
   const counts = await db.transaction(async (tx: any) => {
@@ -2252,12 +2732,43 @@ export async function applySection(
       throw new Error(`Cannot apply: ${errCount} row error(s) must be resolved first.`);
     }
 
+    let applyingScientistId: number | undefined;
+    const createsCertification = preview.rows.some(
+      (row) => row.sheetName === "Certifications" && row.action === "create",
+    );
+    if (createsCertification) {
+      if (actor?.scientistId != null) {
+        const [linked] = await tx
+          .select({ id: scientists.id })
+          .from(scientists)
+          .where(eq(scientists.id, actor.scientistId));
+        applyingScientistId = linked?.id;
+      }
+      if (!applyingScientistId && actor?.email) {
+        const matches = await tx
+          .select({ id: scientists.id })
+          .from(scientists)
+          .where(caseInsensitiveKey(scientists.email, actor.email));
+        if (matches.length > 1) {
+          throw new Error(`Certification apply actor email "${actor.email}" is ambiguous`);
+        }
+        applyingScientistId = matches[0]?.id;
+      }
+      if (!applyingScientistId) {
+        throw new Error(
+          "Certification imports that create records require an auditable applying user linked to a scientist",
+        );
+      }
+    }
+
     const transactionCounts: Record<string, ApplyCounts> = {};
     // We need to resolve deferred references (in-file cross-references)
     // Build local resolution maps as we insert
     const newProgramByKey = new Map<string, number>(); // programId key → db id
     const newProjectByKey = new Map<string, number>(); // projectId key → db id
     const newSdrByKey = new Map<string, number>(); // sdrNumber key → db id
+    const newBuildingByKey = new Map<string, number>();
+    const newModuleByKey = new Map<string, number>();
 
     const sectionSheetOrder: string[] = getSectionSheetOrder(sectionId);
 
@@ -2311,6 +2822,24 @@ export async function applySection(
           await applyPatentRow(tx, entry, rowData, newSdrByKey);
           if (entry.action === "create") sheetCounts.created++;
           else sheetCounts.updated++;
+        } else if (sheetName === "Buildings") {
+          const newId = await applyBuildingRow(tx, entry, rowData);
+          if (newId) newBuildingByKey.set(entry.key.toLowerCase(), newId);
+          if (entry.action === "create") sheetCounts.created++;
+          else sheetCounts.updated++;
+        } else if (sheetName === "Rooms") {
+          await applyRoomRow(tx, entry, rowData, newBuildingByKey);
+          if (entry.action === "create") sheetCounts.created++;
+          else sheetCounts.updated++;
+        } else if (sheetName === "Certification Modules") {
+          const newId = await applyCertificationModuleRow(tx, entry, rowData);
+          if (newId) newModuleByKey.set(entry.key.toLowerCase(), newId);
+          if (entry.action === "create") sheetCounts.created++;
+          else sheetCounts.updated++;
+        } else if (sheetName === "Certifications") {
+          await applyCertificationRow(tx, entry, rowData, newModuleByKey, applyingScientistId);
+          if (entry.action === "create") sheetCounts.created++;
+          else sheetCounts.updated++;
         }
       }
 
@@ -2333,10 +2862,10 @@ export async function applySection(
 
 function getSectionSheetOrder(sectionId: SectionId): string[] {
   switch (sectionId) {
-    case "research-management": return ["Scientists", "Grants"];
+    case "research-management": return ["Scientists", "Buildings", "Rooms", "Certification Modules", "Certifications"];
     case "pmo-office": return ["Programs", "Projects", "Research Activities"];
     case "research-compliance": return ["IRB Applications", "IBC Applications"];
-    case "research-services": return ["Research Contracts"];
+    case "research-services": return ["Research Contracts", "Grants"];
     case "research-output": return ["Patents"];
   }
 }
@@ -2649,5 +3178,139 @@ async function applyPatentRow(tx: TxDb, entry: RowEntry, data: Record<string, un
       .where(caseInsensitiveKey(patents.patentNumber, patentNumber))
       .returning({ id: patents.id });
     requireUpdatedRow(row, "Patent", patentNumber);
+  }
+}
+
+async function applyBuildingRow(tx: TxDb, entry: RowEntry, data: Record<string, unknown>): Promise<number | null> {
+  const { name, ...rest } = data;
+  if (entry.action === "create") {
+    const [row] = await tx.insert(buildings).values({ name: String(name), ...rest }).returning({ id: buildings.id });
+    return row?.id ?? null;
+  }
+  const [row] = await tx
+    .update(buildings)
+    .set(rest)
+    .where(caseInsensitiveKey(buildings.name, name))
+    .returning({ id: buildings.id });
+  requireUpdatedRow(row, "Building", name);
+  return row.id;
+}
+
+async function applyRoomRow(
+  tx: TxDb,
+  entry: RowEntry,
+  data: Record<string, unknown>,
+  newBuildingByKey: Map<string, number>,
+): Promise<void> {
+  const {
+    _buildingNameKey,
+    _roomSupervisorEmailKey,
+    _roomManagerEmailKey,
+    ...payload
+  } = data;
+  if (_buildingNameKey) {
+    const buildingId = newBuildingByKey.get(String(_buildingNameKey).toLowerCase());
+    if (!buildingId) throw new Error(`Building "${String(_buildingNameKey)}" was not found while applying room "${entry.key}"`);
+    payload.buildingId = buildingId;
+  }
+  for (const [emailKey, idField] of [
+    [_roomSupervisorEmailKey, "roomSupervisorId"],
+    [_roomManagerEmailKey, "roomManagerId"],
+  ] as const) {
+    if (!emailKey) continue;
+    const matches = await tx
+      .select({ id: scientists.id })
+      .from(scientists)
+      .where(caseInsensitiveKey(scientists.email, emailKey));
+    if (matches.length !== 1) {
+      throw new Error(`Scientist "${String(emailKey)}" could not be uniquely resolved while applying room "${entry.key}"`);
+    }
+    payload[idField] = matches[0].id;
+  }
+  const buildingId = Number(payload.buildingId);
+  const roomNumber = String(payload.roomNumber);
+  if (typeof payload.roomSupervisorId === "number") {
+    const [supervisor] = await tx.select().from(scientists).where(eq(scientists.id, payload.roomSupervisorId));
+    if (!isRoomSupervisorEligible(supervisor)) {
+      throw new Error(`${ROOM_SUPERVISOR_ELIGIBILITY_MESSAGE} while applying room "${entry.key}"`);
+    }
+  }
+  if (typeof payload.roomManagerId === "number") {
+    const [manager] = await tx.select().from(scientists).where(eq(scientists.id, payload.roomManagerId));
+    if (!isRoomManagerEligible(manager)) {
+      throw new Error(`${ROOM_MANAGER_ELIGIBILITY_MESSAGE} while applying room "${entry.key}"`);
+    }
+  }
+  if (entry.action === "create") {
+    await tx.insert(rooms).values(payload);
+  } else {
+    const { buildingId: _buildingId, roomNumber: _roomNumber, ...rest } = payload;
+    const [row] = await tx
+      .update(rooms)
+      .set(rest)
+      .where(sql`${rooms.buildingId} = ${buildingId} and lower(${rooms.roomNumber}) = ${roomNumber.toLowerCase()}`)
+      .returning({ id: rooms.id });
+    requireUpdatedRow(row, "Room", entry.key);
+  }
+}
+
+async function applyCertificationModuleRow(
+  tx: TxDb,
+  entry: RowEntry,
+  data: Record<string, unknown>,
+): Promise<number | null> {
+  const { name, ...rest } = data;
+  if (entry.action === "create") {
+    const [row] = await tx.insert(certificationModules).values({ name: String(name), ...rest }).returning({ id: certificationModules.id });
+    return row?.id ?? null;
+  }
+  const [row] = await tx
+    .update(certificationModules)
+    .set({ ...rest, updatedAt: new Date() })
+    .where(caseInsensitiveKey(certificationModules.name, name))
+    .returning({ id: certificationModules.id });
+  requireUpdatedRow(row, "Certification module", name);
+  return row.id;
+}
+
+async function applyCertificationRow(
+  tx: TxDb,
+  entry: RowEntry,
+  data: Record<string, unknown>,
+  newModuleByKey: Map<string, number>,
+  applyingScientistId?: number,
+): Promise<void> {
+  const { _moduleNameKey, _scientistEmailKey, ...payload } = data;
+  if (_moduleNameKey) {
+    const moduleId = newModuleByKey.get(String(_moduleNameKey).toLowerCase());
+    if (!moduleId) throw new Error(`Module "${String(_moduleNameKey)}" was not found while applying certification "${entry.key}"`);
+    payload.moduleId = moduleId;
+  }
+  if (_scientistEmailKey) {
+    const matches = await tx
+      .select({ id: scientists.id })
+      .from(scientists)
+      .where(caseInsensitiveKey(scientists.email, _scientistEmailKey));
+    if (matches.length !== 1) {
+      throw new Error(`Scientist "${String(_scientistEmailKey)}" could not be uniquely resolved while applying certification "${entry.key}"`);
+    }
+    payload.scientistId = matches[0].id;
+  }
+  const scientistId = Number(payload.scientistId);
+  const moduleId = Number(payload.moduleId);
+  const startDate = String(payload.startDate);
+  if (entry.action === "create") {
+    if (!applyingScientistId) {
+      throw new Error("Certification create is missing an auditable applying scientist");
+    }
+    await tx.insert(certifications).values({ ...payload, uploadedBy: applyingScientistId });
+  } else {
+    const { scientistId: _scientistId, moduleId: _moduleId, startDate: _startDate, ...rest } = payload;
+    const [row] = await tx
+      .update(certifications)
+      .set({ ...rest, updatedAt: new Date() })
+      .where(sql`${certifications.scientistId} = ${scientistId} and ${certifications.moduleId} = ${moduleId} and ${certifications.startDate} = ${startDate}`)
+      .returning({ id: certifications.id });
+    requireUpdatedRow(row, "Certification", entry.key);
   }
 }

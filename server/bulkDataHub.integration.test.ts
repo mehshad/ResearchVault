@@ -8,7 +8,12 @@ import {
   programs,
   projects,
   researchActivities,
+  researchContracts,
   scientists,
+  buildings,
+  rooms,
+  certificationModules,
+  certifications,
 } from "@shared/schema";
 import { db } from "./db.js";
 import { applySection, previewSection } from "./bulkDataHub.js";
@@ -90,6 +95,33 @@ integrationTest("PMO workbooks apply parents before children and are idempotent"
   assert.equal(secondPreview.rows.every((row) => row.action === "skip"), true);
 });
 
+integrationTest("Research Data Management groups contracts and grants atomically and idempotently", async (t) => {
+  const contractNumber = uniqueKey("CONTRACT");
+  const projectNumber = uniqueKey("GRANT");
+  t.after(async () => {
+    await db.delete(researchContracts).where(eq(researchContracts.contractNumber, contractNumber));
+    await db.delete(grants).where(eq(grants.projectNumber, projectNumber));
+  });
+  const file = await workbookBase64([
+    {
+      name: "Research Contracts",
+      headers: ["Contract Number", "Title", "Status"],
+      rows: [[contractNumber, "Grouped Contract", "submitted"]],
+    },
+    {
+      name: "Grants",
+      headers: ["Project Number", "Title", "Status", "Awarded (Yes/No)"],
+      rows: [[projectNumber, "Grouped Grant", "submitted", "No"]],
+    },
+  ]);
+  const preview = await previewSection("research-services", file, "research-data-management.xlsx");
+  assert.equal(preview.canApply, true);
+  await applySection("research-services", file, "research-data-management.xlsx", preview.fingerprint);
+  assert.equal((await db.select().from(researchContracts).where(eq(researchContracts.contractNumber, contractNumber))).length, 1);
+  assert.equal((await db.select().from(grants).where(eq(grants.projectNumber, projectNumber))).length, 1);
+  assert.equal((await previewSection("research-services", file, "research-data-management.xlsx")).rows.every((row) => row.action === "skip"), true);
+});
+
 integrationTest("an invalid relationship prevents every write in the section", async (t) => {
   const programId = uniqueKey("NO-WRITE-PRM");
   const projectId = uniqueKey("NO-WRITE-PRJ");
@@ -149,14 +181,11 @@ integrationTest("apply rejects a preview after matching database state changes",
   assert.equal(program.name, "External Change");
 });
 
-integrationTest("same-workbook supervisors and grant LPIs resolve after staff upserts", async (t) => {
+integrationTest("same-workbook supervisors resolve after staff upserts", async (t) => {
   const suffix = uniqueKey("STAFF").toLowerCase().replace(/[^a-z0-9-]/g, "");
   const managerEmail = `manager-${suffix}@example.invalid`;
   const reportEmail = `report-${suffix}@example.invalid`;
-  const projectNumber = uniqueKey("GRANT");
-
   t.after(async () => {
-    await db.delete(grants).where(eq(grants.projectNumber, projectNumber));
     await db.delete(scientists).where(inArray(scientists.email, [managerEmail, reportEmail]));
   });
 
@@ -169,11 +198,6 @@ integrationTest("same-workbook supervisors and grant LPIs resolve after staff up
         [managerEmail, "Dr", "Manager", "Scientist", ""],
       ],
     },
-    {
-      name: "Grants",
-      headers: ["Project Number", "Title", "LPI Email", "Status", "Awarded (Yes/No)"],
-      rows: [[projectNumber, "Bulk Hub Integration Grant", reportEmail, "submitted", "No"]],
-    },
   ]);
 
   const preview = await previewSection(
@@ -182,7 +206,7 @@ integrationTest("same-workbook supervisors and grant LPIs resolve after staff up
     "research-management.xlsx",
   );
   assert.equal(preview.canApply, true);
-  assert.equal(preview.rows.filter((row) => row.action === "create").length, 3);
+  assert.equal(preview.rows.filter((row) => row.action === "create").length, 2);
 
   await applySection(
     "research-management",
@@ -193,9 +217,7 @@ integrationTest("same-workbook supervisors and grant LPIs resolve after staff up
 
   const [manager] = await db.select().from(scientists).where(eq(scientists.email, managerEmail));
   const [report] = await db.select().from(scientists).where(eq(scientists.email, reportEmail));
-  const [grant] = await db.select().from(grants).where(eq(grants.projectNumber, projectNumber));
   assert.equal(report.supervisorId, manager.id);
-  assert.equal(grant.lpiId, report.id);
 });
 
 integrationTest("mixed-case business keys update the existing record without creating a duplicate", async (t) => {
@@ -291,7 +313,7 @@ integrationTest("CLEAR nulls supported grant fields while blank cells stay uncha
     },
   ]);
   const preview = await previewSection(
-    "research-management",
+    "research-services",
     fileBase64,
     "clear-grant.xlsx",
   );
@@ -299,7 +321,7 @@ integrationTest("CLEAR nulls supported grant fields while blank cells stay uncha
   assert.equal(preview.rows[0].action, "update");
 
   await applySection(
-    "research-management",
+    "research-services",
     fileBase64,
     "clear-grant.xlsx",
     preview.fingerprint,
@@ -364,4 +386,179 @@ integrationTest("CLEAR on a required IRB principal investigator is rejected duri
   assert.equal(preview.canApply, false);
   assert.equal(preview.rows[0].action, "error");
   assert.match(preview.rows[0].reason ?? "", /PI Email cannot be cleared/);
+});
+
+integrationTest("Facilities applies buildings before rooms, matches keys case-insensitively, and is idempotent", async (t) => {
+  const buildingName = uniqueKey("BUILDING");
+  const importedBuildingName = buildingName.toLowerCase();
+  const roomNumber = uniqueKey("ROOM");
+  const supervisorEmail = `${uniqueKey("ROOM-SUPERVISOR").toLowerCase()}@example.invalid`;
+  t.after(async () => {
+    const matchingBuildings = await db.select().from(buildings);
+    const ids = matchingBuildings.filter((b) => b.name.toLowerCase() === importedBuildingName).map((b) => b.id);
+    if (ids.length) {
+      await db.delete(rooms).where(inArray(rooms.buildingId, ids));
+      await db.delete(buildings).where(inArray(buildings.id, ids));
+    }
+    await db.delete(scientists).where(eq(scientists.email, supervisorEmail));
+  });
+  const fileBase64 = await workbookBase64([
+    {
+      name: "Rooms",
+      headers: ["Building Name", "Room Number", "Floor", "Certifications", "Room Supervisor Email"],
+      rows: [[importedBuildingName, roomNumber.toLowerCase(), "2", "BSL; Chemical", supervisorEmail.toUpperCase()]],
+    },
+    {
+      name: "Buildings",
+      headers: ["Building Name", "Address", "Total Floors"],
+      rows: [[buildingName, "Integration Address", "4"]],
+    },
+    {
+      name: "Scientists",
+      headers: ["Email", "Honorific Title", "First Name", "Last Name", "Job Title"],
+      rows: [[supervisorEmail, "Dr", "Room", "Supervisor", "Investigator"]],
+    },
+  ]);
+  const preview = await previewSection("research-management", fileBase64, "facilities.xlsx");
+  assert.equal(preview.canApply, true);
+  await applySection("research-management", fileBase64, "facilities.xlsx", preview.fingerprint);
+  const allBuildings = await db.select().from(buildings);
+  const building = allBuildings.find((b) => b.name.toLowerCase() === importedBuildingName)!;
+  const [room] = await db.select().from(rooms).where(eq(rooms.buildingId, building.id));
+  assert.equal(room.roomNumber.toLowerCase(), roomNumber.toLowerCase());
+  const [supervisor] = await db.select().from(scientists).where(eq(scientists.email, supervisorEmail));
+  assert.equal(room.roomSupervisorId, supervisor.id);
+  assert.deepEqual(room.certifications, ["BSL", "Chemical"]);
+  const second = await previewSection("research-management", fileBase64, "facilities.xlsx");
+  assert.equal(second.rows.every((row) => row.action === "skip"), true);
+});
+
+integrationTest("Facilities rejects duplicate composite room keys without writing the building", async (t) => {
+  const buildingName = uniqueKey("INVALID-BUILDING");
+  t.after(async () => {
+    await db.delete(buildings).where(eq(buildings.name, buildingName));
+  });
+  const fileBase64 = await workbookBase64([
+    { name: "Buildings", headers: ["Building Name"], rows: [[buildingName]] },
+    {
+      name: "Rooms",
+      headers: ["Building Name", "Room Number"],
+      rows: [[buildingName, "101"], [buildingName.toLowerCase(), "101"]],
+    },
+  ]);
+  const preview = await previewSection("research-management", fileBase64, "invalid-facilities.xlsx");
+  assert.equal(preview.canApply, false);
+  await assert.rejects(applySection("research-management", fileBase64, "invalid-facilities.xlsx", preview.fingerprint), /row error/);
+  assert.equal((await db.select().from(buildings).where(eq(buildings.name, buildingName))).length, 0);
+});
+
+integrationTest("Facilities rejects ineligible room supervisors and managers without any facility write", async (t) => {
+  const suffix = uniqueKey("ROOM-ROLES").toLowerCase().replace(/[^a-z0-9-]/g, "");
+  const supervisorEmail = `invalid-supervisor-${suffix}@example.invalid`;
+  const managerEmail = `invalid-manager-${suffix}@example.invalid`;
+  const buildingNames = [uniqueKey("BAD-SUPERVISOR"), uniqueKey("BAD-MANAGER")];
+  t.after(async () => {
+    const facilityRows = await db.select().from(buildings);
+    const ids = facilityRows.filter((b) => buildingNames.includes(b.name)).map((b) => b.id);
+    if (ids.length) {
+      await db.delete(rooms).where(inArray(rooms.buildingId, ids));
+      await db.delete(buildings).where(inArray(buildings.id, ids));
+    }
+    await db.delete(scientists).where(inArray(scientists.email, [supervisorEmail, managerEmail]));
+  });
+
+  for (const [buildingName, roleHeader, email, jobTitle, expected] of [
+    [buildingNames[0], "Room Supervisor Email", supervisorEmail, "Research Coordinator", /eligible Investigator designation/],
+    [buildingNames[1], "Room Manager Email", managerEmail, "Investigator", /Management, Staff, Post-doctoral, or Research job title/],
+  ] as const) {
+    const file = await workbookBase64([
+      {
+        name: "Scientists",
+        headers: ["Email", "Honorific Title", "First Name", "Last Name", "Job Title"],
+        rows: [[email, "Dr", "Invalid", "Room Role", jobTitle]],
+      },
+      { name: "Buildings", headers: ["Building Name"], rows: [[buildingName]] },
+      {
+        name: "Rooms",
+        headers: ["Building Name", "Room Number", roleHeader],
+        rows: [[buildingName, "101", email]],
+      },
+    ]);
+    const preview = await previewSection("research-management", file, "invalid-room-role.xlsx");
+    assert.equal(preview.canApply, false);
+    assert.match(preview.rows.find((row) => row.sheetName === "Rooms")?.reason ?? "", expected);
+    await assert.rejects(
+      applySection("research-management", file, "invalid-room-role.xlsx", preview.fingerprint),
+      /row error/,
+    );
+    assert.equal((await db.select().from(buildings).where(eq(buildings.name, buildingName))).length, 0);
+    assert.equal((await db.select().from(scientists).where(eq(scientists.email, email))).length, 0);
+  }
+});
+
+integrationTest("Certification Matrix resolves same-workbook modules and supports nullable CLEAR", async (t) => {
+  const suffix = uniqueKey("CERT").toLowerCase().replace(/[^a-z0-9-]/g, "");
+  const email = `${suffix}@example.invalid`;
+  const actorEmail = `actor-${suffix}@example.invalid`;
+  const moduleName = uniqueKey("MODULE");
+  const startDate = "2025-01-01";
+  const [actor] = await db.insert(scientists).values({
+    email: actorEmail, honorificTitle: "Dr", firstName: "Applying", lastName: "Administrator", staffType: "administrative",
+  }).returning({ id: scientists.id });
+  t.after(async () => {
+    const subjects = await db.select().from(scientists).where(eq(scientists.email, email));
+    if (subjects.length) await db.delete(certifications).where(eq(certifications.scientistId, subjects[0].id));
+    const modules = await db.select().from(certificationModules);
+    const ids = modules.filter((m) => m.name.toLowerCase() === moduleName.toLowerCase()).map((m) => m.id);
+    if (ids.length) await db.delete(certificationModules).where(inArray(certificationModules.id, ids));
+    await db.delete(scientists).where(inArray(scientists.id, [...subjects.map((row) => row.id), actor.id]));
+  });
+  const createFile = await workbookBase64([
+    {
+      name: "Scientists",
+      headers: ["Email", "Honorific Title", "First Name", "Last Name"],
+      rows: [[email, "Dr", "Matrix", "Scientist"]],
+    },
+    {
+      name: "Certifications",
+      headers: ["Scientist Email", "Module Name", "Start Date", "End Date", "Notes"],
+      rows: [[email.toUpperCase(), moduleName.toLowerCase(), startDate, "2026-01-01", "Clear me"]],
+    },
+    {
+      name: "Certification Modules",
+      headers: ["Module Name", "Is Core", "Expiration Months", "Is Active"],
+      rows: [[moduleName, "Yes", "12", "Yes"]],
+    },
+  ]);
+  const preview = await previewSection("research-management", createFile, "matrix.xlsx");
+  assert.equal(preview.canApply, true);
+  await assert.rejects(
+    applySection("research-management", createFile, "matrix.xlsx", preview.fingerprint),
+    /auditable applying user linked to a scientist/,
+  );
+  await applySection(
+    "research-management",
+    createFile,
+    "matrix.xlsx",
+    preview.fingerprint,
+    { scientistId: actor.id, email: actorEmail },
+  );
+  const [scientist] = await db.select().from(scientists).where(eq(scientists.email, email));
+  const [created] = await db.select().from(certifications).where(eq(certifications.scientistId, scientist.id));
+  assert.equal(created.notes, "Clear me");
+  assert.equal(created.uploadedBy, actor.id);
+  assert.notEqual(created.uploadedBy, scientist.id);
+  assert.equal((await previewSection("research-management", createFile, "matrix.xlsx")).rows.every((r) => r.action === "skip"), true);
+
+  const clearFile = await workbookBase64([{
+    name: "Certifications",
+    headers: ["Scientist Email", "Module Name", "Start Date", "End Date", "Notes"],
+    rows: [[email, moduleName.toUpperCase(), startDate, "", "CLEAR"]],
+  }]);
+  const clearPreview = await previewSection("research-management", clearFile, "matrix-clear.xlsx");
+  assert.equal(clearPreview.canApply, true);
+  await applySection("research-management", clearFile, "matrix-clear.xlsx", clearPreview.fingerprint);
+  const [updated] = await db.select().from(certifications).where(eq(certifications.id, created.id));
+  assert.equal(updated.endDate, "2026-01-01");
+  assert.equal(updated.notes, null);
 });
