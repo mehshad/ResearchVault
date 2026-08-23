@@ -87,8 +87,12 @@ test("getSectionMeta returns correct meta for research-services", () => {
 
 test("getSectionMeta returns correct meta for research-output", () => {
   const meta = getSectionMeta("research-output");
-  assert.equal(meta.sheets.length, 1);
-  assert.equal(meta.sheets[0].name, "Patents");
+  assert.equal(meta.description, "Patents, Publications, and Journal Impact Factors");
+  assert.deepEqual(meta.sheets.map((sheet) => sheet.name), [
+    "Patents",
+    "Publications",
+    "Journal Impact Factors",
+  ]);
 });
 
 test("getSectionMeta throws for unknown section", () => {
@@ -316,6 +320,8 @@ test("all sheet column headers are non-empty strings", () => {
     "IBC Applications",
     "Research Contracts",
     "Patents",
+    "Publications",
+    "Journal Impact Factors",
     "Buildings",
     "Rooms",
     "Certification Modules",
@@ -349,6 +355,33 @@ test("new templates expose structured fields and exclude workflow and file data"
   ]) {
     assert.equal(certificationHeaders.includes(excluded), false, `${excluded} must be excluded`);
   }
+});
+
+test("research output templates expose safe publication and journal metric columns only", async () => {
+  const workbook = new ExcelJS.Workbook();
+  await workbook.xlsx.load(await buildTemplateWorkbook("research-output"));
+  assert.deepEqual(workbook.worksheets.slice(1).map((sheet) => sheet.name), [
+    "Patents", "Publications", "Journal Impact Factors",
+  ]);
+  const publicationHeaders = (workbook.getWorksheet("Publications")!.getRow(1).values as unknown[]).slice(1);
+  assert.deepEqual(publicationHeaders, [
+    "Publication ID", "Title", "SDR Number", "Abstract", "Authors", "Journal",
+    "Volume", "Issue", "Pages", "DOI", "PMID", "Publication Date",
+    "Publication Type", "Prepublication URL", "Prepublication Site",
+  ]);
+  for (const excluded of [
+    "Status", "Vetted", "Alternate DOIs", "Author Links", "History",
+    "Workflow Status", "File", "Document",
+  ]) {
+    assert.equal(publicationHeaders.some((header) => String(header).includes(excluded)), false);
+  }
+  const metricHeaders = (workbook.getWorksheet("Journal Impact Factors")!.getRow(1).values as unknown[]).slice(1);
+  assert.deepEqual(metricHeaders, [
+    "Journal Name", "Abbreviated Journal", "Publisher", "ISSN", "EISSN", "Field",
+    "Year", "Impact Factor", "Five Year JIF", "JIF Without Self Cites", "JCI",
+    "Quartile", "Rank", "Total Cites", "Total Articles", "Citable Items",
+    "Cited Half Life", "Citing Half Life", "Total Citations",
+  ]);
 });
 
 test("no two sections share the same id", () => {
@@ -436,9 +469,11 @@ test("SECTION_META: research-services groups contracts and grants", () => {
   assert.match(section.sheets[1].businessKey, /projectNumber/);
 });
 
-test("SECTION_META: research-output has patentNumber key", () => {
+test("SECTION_META: research-output documents all stable keys", () => {
   const section = getSectionMeta("research-output");
   assert.match(section.sheets[0].businessKey, /patentNumber/);
+  assert.match(section.sheets[1].businessKey, /DOI/);
+  assert.match(section.sheets[2].businessKey, /journal name \+ year/);
 });
 
 // ---- Additional edge case simulations -------------------------------------

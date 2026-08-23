@@ -14,6 +14,11 @@ import {
   rooms,
   certificationModules,
   certifications,
+  publications,
+  publicationAuthors,
+  manuscriptHistory,
+  journals,
+  journalImpactFactorMetrics,
 } from "@shared/schema";
 import { db } from "./db.js";
 import { applySection, previewSection } from "./bulkDataHub.js";
@@ -561,4 +566,370 @@ integrationTest("Certification Matrix resolves same-workbook modules and support
   const [updated] = await db.select().from(certifications).where(eq(certifications.id, created.id));
   assert.equal(updated.endDate, "2026-01-01");
   assert.equal(updated.notes, null);
+});
+
+integrationTest("Research Output combined publication and JIF workbook is idempotent and updates without duplicates", async (t) => {
+  const suffix = uniqueKey("OUTPUT").toLowerCase();
+  const actorEmail = `${suffix}@example.invalid`;
+  const doi = `10.9999/${suffix}`;
+  const importedDoi = `HTTPS://DX.DOI.ORG/${doi.toUpperCase()}`;
+  const journalName = `Journal ${suffix}`;
+  const [actor] = await db.insert(scientists).values({
+    email: actorEmail, honorificTitle: "Dr", firstName: "Output", lastName: "Actor", staffType: "administrative",
+  }).returning({ id: scientists.id });
+  t.after(async () => {
+    const pubs = await db.select().from(publications).where(eq(publications.doi, doi));
+    if (pubs.length) {
+      await db.delete(manuscriptHistory).where(inArray(manuscriptHistory.publicationId, pubs.map((row) => row.id)));
+      await db.delete(publicationAuthors).where(inArray(publicationAuthors.publicationId, pubs.map((row) => row.id)));
+      await db.delete(publications).where(inArray(publications.id, pubs.map((row) => row.id)));
+    }
+    const journalRows = await db.select().from(journals);
+    const journalIds = journalRows.filter((row) => row.journalName.toLowerCase() === journalName.toLowerCase()).map((row) => row.id);
+    if (journalIds.length) {
+      await db.delete(journalImpactFactorMetrics).where(inArray(journalImpactFactorMetrics.journalId, journalIds));
+      await db.delete(journals).where(inArray(journals.id, journalIds));
+    }
+    await db.delete(scientists).where(eq(scientists.id, actor.id));
+  });
+  const createFile = await workbookBase64([
+    {
+      name: "Publications",
+      headers: ["Title", "DOI", "Journal", "Publication Date", "Abstract"],
+      rows: [["Combined Publication", importedDoi, journalName, "2025-02-03", "Initial abstract"]],
+    },
+    {
+      name: "Journal Impact Factors",
+      headers: ["Journal Name", "Year", "Impact Factor", "Quartile", "Total Cites"],
+      rows: [[journalName, "2025", "4.125", "Q2", "123"]],
+    },
+  ]);
+  const preview = await previewSection("research-output", createFile, "combined-output.xlsx");
+  assert.equal(preview.canApply, true);
+  assert.equal(preview.rows.filter((row) => row.action === "create").length, 2);
+  const applied = await applySection("research-output", createFile, "combined-output.xlsx", preview.fingerprint, {
+    scientistId: actor.id, email: actorEmail,
+  });
+  assert.deepEqual(applied.counts.Publications, { created: 1, updated: 0, skipped: 0 });
+  assert.deepEqual(applied.counts["Journal Impact Factors"], { created: 1, updated: 0, skipped: 0 });
+  const [createdPublication] = await db.select().from(publications).where(eq(publications.doi, doi));
+  assert.ok(createdPublication);
+  assert.equal(createdPublication.doi, doi, "DOI URLs must be persisted in canonical lowercase form");
+  const second = await previewSection("research-output", createFile, "combined-output.xlsx");
+  assert.equal(second.rows.every((row) => row.action === "skip"), true);
+
+  const updateFile = await workbookBase64([
+    {
+      name: "Publications",
+      headers: ["Title", "DOI", "Abstract", "Volume"],
+      rows: [["Combined Publication", `DOI: ${doi.toUpperCase()}`, "Updated abstract", "17"]],
+    },
+    {
+      name: "Journal Impact Factors",
+      headers: ["Journal Name", "Year", "Impact Factor", "Publisher"],
+      rows: [[journalName.toUpperCase(), "2025", "5.250", "Updated Publisher"]],
+    },
+  ]);
+  const updatePreview = await previewSection("research-output", updateFile, "combined-output-update.xlsx");
+  assert.equal(updatePreview.rows.every((row) => row.action === "update"), true);
+  await applySection("research-output", updateFile, "combined-output-update.xlsx", updatePreview.fingerprint);
+  const pubRows = await db.select().from(publications).where(eq(publications.doi, doi));
+  assert.equal(pubRows.length, 1);
+  assert.equal(pubRows[0].abstract, "Updated abstract");
+  assert.equal(pubRows[0].volume, "17");
+  assert.equal(pubRows[0].doi, doi);
+  assert.equal(pubRows[0].status, "Concept");
+  assert.equal(pubRows[0].vettedForSubmissionByIpOffice, false);
+  const allJournals = await db.select().from(journals);
+  const matchingJournals = allJournals.filter((row) => row.journalName.toLowerCase() === journalName.toLowerCase());
+  assert.equal(matchingJournals.length, 1);
+  assert.equal(matchingJournals[0].publisher, "Updated Publisher");
+  const metrics = await db.select().from(journalImpactFactorMetrics).where(eq(journalImpactFactorMetrics.journalId, matchingJournals[0].id));
+  assert.equal(metrics.length, 1);
+  assert.equal(metrics[0].impactFactor, "5.250");
+  const postUpdatePreview = await previewSection("research-output", updateFile, "combined-output-update.xlsx");
+  assert.equal(postUpdatePreview.rows.every((row) => row.action === "skip"), true);
+});
+
+integrationTest("Publications match explicit ID, normalized DOI, and PMID while unknown ID blocks all writes", async (t) => {
+  const suffix = uniqueKey("PUB-MATCH").toLowerCase();
+  const [byId, byDoi, byPmid] = await db.insert(publications).values([
+    { title: "Match by ID", doi: `10.8000/${suffix}-id`, pmid: `ID-CONSISTENT-${suffix}`, status: "Concept" },
+    { title: "Match by DOI", doi: `10.8000/${suffix}-doi`, pmid: `CONSISTENT-${suffix}`, status: "Concept" },
+    { title: "Match by PMID", pmid: `PMID-${suffix}`, status: "Concept" },
+  ]).returning();
+  t.after(async () => {
+    await db.delete(manuscriptHistory).where(inArray(manuscriptHistory.publicationId, [byId.id, byDoi.id, byPmid.id]));
+    await db.delete(publicationAuthors).where(inArray(publicationAuthors.publicationId, [byId.id, byDoi.id, byPmid.id]));
+    await db.delete(publications).where(inArray(publications.id, [byId.id, byDoi.id, byPmid.id]));
+  });
+  const file = await workbookBase64([{
+    name: "Publications",
+    headers: ["Publication ID", "Title", "DOI", "PMID", "Abstract"],
+    rows: [
+      [byId.id, "", `HTTPS://DOI.ORG/${byId.doi!.toUpperCase()}`, byId.pmid!.toLowerCase(), "ID update"],
+      ["", "Match by DOI", `HTTPS://DOI.ORG/10.8000/${suffix}-doi`, `consistent-${suffix}`, "DOI and PMID update"],
+      ["", "Match by PMID", "", `pmid-${suffix}`, "PMID update"],
+    ],
+  }]);
+  const preview = await previewSection("research-output", file, "publication-matches.xlsx");
+  assert.equal(preview.canApply, true);
+  assert.equal(preview.rows.every((row) => row.action === "update"), true);
+  await applySection("research-output", file, "publication-matches.xlsx", preview.fingerprint);
+  assert.equal((await db.select().from(publications).where(eq(publications.id, byId.id)))[0].abstract, "ID update");
+  assert.equal((await db.select().from(publications).where(eq(publications.id, byDoi.id)))[0].abstract, "DOI and PMID update");
+  assert.equal((await db.select().from(publications).where(eq(publications.id, byPmid.id)))[0].abstract, "PMID update");
+
+  const newlyAssignedDoi = `10.8000/${suffix}-newly-assigned`;
+  const assignNewKey = await workbookBase64([{
+    name: "Publications",
+    headers: ["Publication ID", "DOI", "Abstract"],
+    rows: [[byId.id, `DOI: ${newlyAssignedDoi.toUpperCase()}`, "Unclaimed DOI update"]],
+  }]);
+  const assignPreview = await previewSection("research-output", assignNewKey, "publication-new-key.xlsx");
+  assert.equal(assignPreview.canApply, true);
+  assert.equal(assignPreview.rows[0].action, "update");
+  await applySection("research-output", assignNewKey, "publication-new-key.xlsx", assignPreview.fingerprint);
+  const [withNewKey] = await db.select().from(publications).where(eq(publications.id, byId.id));
+  assert.equal(withNewKey.doi, newlyAssignedDoi);
+  assert.equal(withNewKey.abstract, "Unclaimed DOI update");
+
+  const explicitIdConflict = await workbookBase64([{
+    name: "Publications",
+    headers: ["Publication ID", "DOI", "PMID", "Abstract"],
+    rows: [
+      [byId.id, byDoi.doi, byPmid.pmid, "Conflicting explicit-ID update"],
+      [byDoi.id, "", "", "Other workbook row must remain unchanged"],
+    ],
+  }]);
+  const explicitConflictPreview = await previewSection("research-output", explicitIdConflict, "publication-id-key-conflict.xlsx");
+  assert.equal(explicitConflictPreview.canApply, false);
+  assert.equal(explicitConflictPreview.rows[0].action, "error");
+  assert.match(explicitConflictPreview.rows[0].reason ?? "", /keys conflict with Publication ID/);
+  assert.equal(explicitConflictPreview.rows[1].action, "update");
+  await assert.rejects(
+    applySection("research-output", explicitIdConflict, "publication-id-key-conflict.xlsx", explicitConflictPreview.fingerprint),
+    /row error/,
+  );
+  assert.equal((await db.select().from(publications).where(eq(publications.id, byId.id)))[0].abstract, "Unclaimed DOI update");
+  assert.equal((await db.select().from(publications).where(eq(publications.id, byDoi.id)))[0].abstract, "DOI and PMID update");
+  assert.equal((await db.select().from(publications).where(eq(publications.id, byPmid.id)))[0].abstract, "PMID update");
+
+  const conflictingKeys = await workbookBase64([{
+    name: "Publications",
+    headers: ["Publication ID", "Title", "DOI", "PMID", "Abstract"],
+    rows: [
+      ["", "Conflicting Natural Keys", byDoi.doi, byPmid.pmid, "Must not update either match"],
+      [byId.id, "", "", "", "Other workbook row must also remain unchanged"],
+    ],
+  }]);
+  const conflictPreview = await previewSection("research-output", conflictingKeys, "publication-key-conflict.xlsx");
+  assert.equal(conflictPreview.canApply, false);
+  assert.equal(conflictPreview.rows[0].action, "error");
+  assert.match(conflictPreview.rows[0].reason ?? "", /keys resolve to different existing publications/);
+  assert.equal(conflictPreview.rows[1].action, "update");
+  await assert.rejects(
+    applySection("research-output", conflictingKeys, "publication-key-conflict.xlsx", conflictPreview.fingerprint),
+    /row error/,
+  );
+  assert.equal((await db.select().from(publications).where(eq(publications.id, byDoi.id)))[0].abstract, "DOI and PMID update");
+  assert.equal((await db.select().from(publications).where(eq(publications.id, byPmid.id)))[0].abstract, "PMID update");
+  assert.equal((await db.select().from(publications).where(eq(publications.id, byId.id)))[0].abstract, "Unclaimed DOI update");
+
+  const noWriteDoi = `10.8000/${suffix}-must-not-write`;
+  const invalid = await workbookBase64([{
+    name: "Publications",
+    headers: ["Publication ID", "Title", "DOI"],
+    rows: [[2_000_000_000, "Unknown ID", noWriteDoi]],
+  }]);
+  const invalidPreview = await previewSection("research-output", invalid, "unknown-publication-id.xlsx");
+  assert.equal(invalidPreview.canApply, false);
+  assert.match(invalidPreview.rows[0].reason ?? "", /Publication ID .* was not found/);
+  await assert.rejects(
+    applySection("research-output", invalid, "unknown-publication-id.xlsx", invalidPreview.fingerprint),
+    /row error/,
+  );
+  assert.equal((await db.select().from(publications).where(eq(publications.doi, noWriteDoi))).length, 0);
+});
+
+integrationTest("Publication scalar updates link and CLEAR SDR without changing authorship, history, or workflow state", async (t) => {
+  const suffix = uniqueKey("PUB-SDR").toLowerCase();
+  const sdrNumber = uniqueKey("PUB-SDR-LINK");
+  const authorEmail = `${suffix}@example.invalid`;
+  const [author] = await db.insert(scientists).values({
+    email: authorEmail, honorificTitle: "Dr", firstName: "Linked", lastName: "Author", staffType: "scientific",
+  }).returning();
+  const [activity] = await db.insert(researchActivities).values({
+    sdrNumber, title: "Publication SDR", status: "active",
+  }).returning();
+  const [publication] = await db.insert(publications).values({
+    title: "Preserved Publication",
+    doi: `10.7000/${suffix}`,
+    status: "Complete Draft",
+    vettedForSubmissionByIpOffice: true,
+    alternateDois: [`10.7000/${suffix}-alternate`],
+    abstract: "Before",
+  }).returning();
+  const [authorLink] = await db.insert(publicationAuthors).values({
+    publicationId: publication.id,
+    scientistId: author.id,
+    authorshipType: "First Author",
+    authorPosition: 1,
+    linkMethod: "manual",
+  }).returning();
+  const [history] = await db.insert(manuscriptHistory).values({
+    publicationId: publication.id,
+    fromStatus: "Concept",
+    toStatus: "Complete Draft",
+    changedBy: author.id,
+    changeReason: "Fixture history",
+  }).returning();
+  t.after(async () => {
+    await db.delete(publicationAuthors).where(eq(publicationAuthors.id, authorLink.id));
+    await db.delete(manuscriptHistory).where(eq(manuscriptHistory.publicationId, publication.id));
+    await db.delete(publications).where(eq(publications.id, publication.id));
+    await db.delete(researchActivities).where(eq(researchActivities.id, activity.id));
+    await db.delete(scientists).where(eq(scientists.id, author.id));
+  });
+  const linkFile = await workbookBase64([{
+    name: "Publications",
+    headers: ["Publication ID", "SDR Number", "Abstract"],
+    rows: [[publication.id, sdrNumber.toLowerCase(), "After"]],
+  }]);
+  const linkPreview = await previewSection("research-output", linkFile, "publication-sdr.xlsx");
+  assert.equal(linkPreview.rows[0].action, "update");
+  await applySection("research-output", linkFile, "publication-sdr.xlsx", linkPreview.fingerprint);
+  let [updated] = await db.select().from(publications).where(eq(publications.id, publication.id));
+  assert.equal(updated.researchActivityId, activity.id);
+  assert.equal(updated.abstract, "After");
+  assert.equal(updated.status, "Complete Draft");
+  assert.equal(updated.vettedForSubmissionByIpOffice, true);
+  assert.deepEqual(updated.alternateDois, [`10.7000/${suffix}-alternate`]);
+  assert.equal((await db.select().from(publicationAuthors).where(eq(publicationAuthors.publicationId, publication.id))).length, 1);
+  const historiesAfterLink = await db.select().from(manuscriptHistory).where(eq(manuscriptHistory.publicationId, publication.id));
+  assert.equal(historiesAfterLink.length, 1);
+  assert.equal(historiesAfterLink[0].id, history.id);
+
+  const clearFile = await workbookBase64([{
+    name: "Publications",
+    headers: ["Publication ID", "SDR Number", "Abstract"],
+    rows: [[publication.id, "CLEAR", ""]],
+  }]);
+  const clearPreview = await previewSection("research-output", clearFile, "publication-sdr-clear.xlsx");
+  assert.equal(clearPreview.rows[0].action, "update");
+  await applySection("research-output", clearFile, "publication-sdr-clear.xlsx", clearPreview.fingerprint);
+  [updated] = await db.select().from(publications).where(eq(publications.id, publication.id));
+  assert.equal(updated.researchActivityId, null);
+  assert.equal(updated.abstract, "After");
+  assert.equal(updated.status, "Complete Draft");
+  assert.equal((await db.select().from(publicationAuthors).where(eq(publicationAuthors.publicationId, publication.id))).length, 1);
+  assert.equal((await db.select().from(manuscriptHistory).where(eq(manuscriptHistory.publicationId, publication.id))).length, 1);
+});
+
+integrationTest("sealed Published star publications skip while another valid publication update applies", async (t) => {
+  const suffix = uniqueKey("PUB-SEALED").toLowerCase();
+  const [sealed, editable] = await db.insert(publications).values([
+    { title: "Sealed Publication", doi: `10.6000/${suffix}-sealed`, abstract: "Sealed original", status: "Published *" },
+    { title: "Editable Publication", doi: `10.6000/${suffix}-editable`, abstract: "Editable original", status: "Concept" },
+  ]).returning();
+  t.after(async () => {
+    await db.delete(manuscriptHistory).where(inArray(manuscriptHistory.publicationId, [sealed.id, editable.id]));
+    await db.delete(publicationAuthors).where(inArray(publicationAuthors.publicationId, [sealed.id, editable.id]));
+    await db.delete(publications).where(inArray(publications.id, [sealed.id, editable.id]));
+  });
+  const file = await workbookBase64([{
+    name: "Publications",
+    headers: ["Publication ID", "Abstract"],
+    rows: [[sealed.id, "Must not apply"], [editable.id, "Valid update"]],
+  }]);
+  const preview = await previewSection("research-output", file, "sealed-publication.xlsx");
+  assert.equal(preview.canApply, true);
+  assert.equal(preview.rows[0].action, "skip");
+  assert.match(preview.rows[0].reason ?? "", /sealed \(Published \*\)/);
+  assert.equal(preview.rows[1].action, "update");
+  const result = await applySection("research-output", file, "sealed-publication.xlsx", preview.fingerprint);
+  assert.deepEqual(result.counts.Publications, { created: 0, updated: 1, skipped: 1 });
+  assert.equal((await db.select().from(publications).where(eq(publications.id, sealed.id)))[0].abstract, "Sealed original");
+  assert.equal((await db.select().from(publications).where(eq(publications.id, editable.id)))[0].abstract, "Valid update");
+});
+
+integrationTest("JIF mixed-case journals keep distinct years, support metric CLEAR, and reject invalid rows atomically", async (t) => {
+  const suffix = uniqueKey("JIF").toLowerCase();
+  const journalName = `Mixed Case Journal ${suffix}`;
+  const invalidJournalName = `Must Not Write Journal ${suffix}`;
+  const [journal] = await db.insert(journals).values({
+    journalName,
+    publisher: "Original Publisher",
+  }).returning();
+  const [metric2024] = await db.insert(journalImpactFactorMetrics).values({
+    journalId: journal.id,
+    year: 2024,
+    impactFactor: "3.500",
+    fiveYearJif: "4.250",
+    totalCites: 99,
+  }).returning();
+  t.after(async () => {
+    const allJournals = await db.select().from(journals);
+    const ids = allJournals
+      .filter((row) => [journalName.toLowerCase(), invalidJournalName.toLowerCase()].includes(row.journalName.toLowerCase()))
+      .map((row) => row.id);
+    if (ids.length) {
+      await db.delete(journalImpactFactorMetrics).where(inArray(journalImpactFactorMetrics.journalId, ids));
+      await db.delete(journals).where(inArray(journals.id, ids));
+    }
+  });
+  const file = await workbookBase64([{
+    name: "Journal Impact Factors",
+    headers: ["Journal Name", "Year", "Impact Factor", "Five Year JIF", "Total Cites", "Quartile"],
+    rows: [
+      [journalName.toUpperCase(), "2024", "CLEAR", "", "CLEAR", "Q1"],
+      [journalName.toLowerCase(), "2025", "6.125", "7.250", "150", "Q2"],
+    ],
+  }]);
+  const preview = await previewSection("research-output", file, "jif-years-clear.xlsx");
+  assert.equal(preview.canApply, true);
+  assert.deepEqual(preview.rows.map((row) => row.action), ["update", "create"]);
+  await applySection("research-output", file, "jif-years-clear.xlsx", preview.fingerprint);
+  const matchingJournals = (await db.select().from(journals))
+    .filter((row) => row.journalName.toLowerCase() === journalName.toLowerCase());
+  assert.equal(matchingJournals.length, 1);
+  const metrics = await db.select().from(journalImpactFactorMetrics)
+    .where(eq(journalImpactFactorMetrics.journalId, journal.id));
+  assert.equal(metrics.length, 2);
+  const updated2024 = metrics.find((row) => row.year === 2024)!;
+  const created2025 = metrics.find((row) => row.year === 2025)!;
+  assert.equal(updated2024.id, metric2024.id);
+  assert.equal(updated2024.impactFactor, null);
+  assert.equal(updated2024.totalCites, null);
+  assert.equal(updated2024.fiveYearJif, "4.250");
+  assert.equal(updated2024.quartile, "Q1");
+  assert.equal(created2025.impactFactor, "6.125");
+  assert.equal(created2025.totalCites, 150);
+
+  const invalidFile = await workbookBase64([{
+    name: "Journal Impact Factors",
+    headers: ["Journal Name", "Year", "Impact Factor"],
+    rows: [
+      [invalidJournalName, "2026", "2.500"],
+      [journalName, "2025.5", "not-a-number"],
+    ],
+  }]);
+  const invalidPreview = await previewSection("research-output", invalidFile, "jif-invalid-atomic.xlsx");
+  assert.equal(invalidPreview.canApply, false);
+  assert.equal(invalidPreview.rows[0].action, "create");
+  assert.equal(invalidPreview.rows[1].action, "error");
+  assert.match(invalidPreview.rows[1].reason ?? "", /Year: must be a whole number/);
+  assert.match(invalidPreview.rows[1].reason ?? "", /Impact Factor: must be a non-negative decimal/);
+  await assert.rejects(
+    applySection("research-output", invalidFile, "jif-invalid-atomic.xlsx", invalidPreview.fingerprint),
+    /row error/,
+  );
+  assert.equal(
+    (await db.select().from(journals)).filter((row) => row.journalName.toLowerCase() === invalidJournalName.toLowerCase()).length,
+    0,
+  );
+  assert.equal(
+    (await db.select().from(journalImpactFactorMetrics).where(eq(journalImpactFactorMetrics.journalId, journal.id))).length,
+    2,
+  );
 });

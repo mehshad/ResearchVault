@@ -18,6 +18,8 @@
  *   IBC:                ibcNumber
  *   Contracts:          contractNumber
  *   Patents:            patentNumber
+ *   Publications:       id (updates), DOI, PMID, or title + date + journal
+ *   Journal IFs:        journal name + year
  *   Buildings:          building name
  *   Rooms:              building name + room number
  *   Certification Modules: module name
@@ -41,6 +43,10 @@ import {
   ibcApplications,
   researchContracts,
   patents,
+  publications,
+  manuscriptHistory,
+  journals,
+  journalImpactFactorMetrics,
   grantResearchActivities,
   buildings,
   rooms,
@@ -61,6 +67,9 @@ import type {
   Room,
   CertificationModule,
   Certification,
+  Publication,
+  Journal,
+  JournalImpactFactorMetric,
 } from "@shared/schema";
 import {
   reconcileGrantLifecycle,
@@ -159,9 +168,11 @@ export const SECTION_META: SectionMeta[] = [
   {
     id: "research-output",
     label: "Research Output",
-    description: "Patents",
+    description: "Patents, Publications, and Journal Impact Factors",
     sheets: [
       { name: "Patents", description: "Patent records", businessKey: "patentNumber" },
+      { name: "Publications", description: "Publication records", businessKey: "Publication ID, DOI, PMID, or title + publication date + journal" },
+      { name: "Journal Impact Factors", description: "Journal metadata and annual impact metrics", businessKey: "journal name + year" },
     ],
   },
 ];
@@ -322,6 +333,46 @@ const PATENT_COLS: ColDef[] = [
   { header: "Description", key: "description" },
 ];
 
+const PUBLICATION_COLS: ColDef[] = [
+  { header: "Publication ID", key: "publicationId", description: "Existing database ID; updates only" },
+  { header: "Title", key: "title", required: true },
+  { header: "SDR Number", key: "sdrNumber", description: "Existing linked research activity SDR" },
+  { header: "Abstract", key: "abstract" },
+  { header: "Authors", key: "authors" },
+  { header: "Journal", key: "journal" },
+  { header: "Volume", key: "volume" },
+  { header: "Issue", key: "issue" },
+  { header: "Pages", key: "pages" },
+  { header: "DOI", key: "doi" },
+  { header: "PMID", key: "pmid" },
+  { header: "Publication Date", key: "publicationDate", description: "YYYY-MM-DD" },
+  { header: "Publication Type", key: "publicationType" },
+  { header: "Prepublication URL", key: "prepublicationUrl" },
+  { header: "Prepublication Site", key: "prepublicationSite" },
+];
+
+const JOURNAL_IMPACT_FACTOR_COLS: ColDef[] = [
+  { header: "Journal Name", key: "journalName", required: true },
+  { header: "Abbreviated Journal", key: "abbreviatedJournal" },
+  { header: "Publisher", key: "publisher" },
+  { header: "ISSN", key: "issn" },
+  { header: "EISSN", key: "eissn" },
+  { header: "Field", key: "field" },
+  { header: "Year", key: "year", required: true },
+  { header: "Impact Factor", key: "impactFactor" },
+  { header: "Five Year JIF", key: "fiveYearJif" },
+  { header: "JIF Without Self Cites", key: "jifWithoutSelfCites" },
+  { header: "JCI", key: "jci" },
+  { header: "Quartile", key: "quartile", description: "Q1, Q2, Q3, or Q4" },
+  { header: "Rank", key: "rank" },
+  { header: "Total Cites", key: "totalCites" },
+  { header: "Total Articles", key: "totalArticles" },
+  { header: "Citable Items", key: "citableItems" },
+  { header: "Cited Half Life", key: "citedHalfLife" },
+  { header: "Citing Half Life", key: "citingHalfLife" },
+  { header: "Total Citations", key: "totalCitations" },
+];
+
 const BUILDING_COLS: ColDef[] = [
   { header: "Building Name", key: "name", required: true },
   { header: "Address", key: "address" },
@@ -376,6 +427,8 @@ const SHEET_COLS: Record<string, ColDef[]> = {
   "IBC Applications": IBC_COLS,
   "Research Contracts": CONTRACT_COLS,
   "Patents": PATENT_COLS,
+  "Publications": PUBLICATION_COLS,
+  "Journal Impact Factors": JOURNAL_IMPACT_FACTOR_COLS,
   "Buildings": BUILDING_COLS,
   "Rooms": ROOM_COLS,
   "Certification Modules": CERTIFICATION_MODULE_COLS,
@@ -433,7 +486,12 @@ function maybeText(v: string, existing: boolean): string | null | undefined {
 
 function parseDateStr(raw: string, label: string, errors: string[]): string | null {
   if (raw === "" || isClear(raw)) return null;
-  if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) return raw;
+  if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) {
+    const parsed = new Date(`${raw}T00:00:00.000Z`);
+    if (!isNaN(parsed.getTime()) && parsed.toISOString().slice(0, 10) === raw) return raw;
+    errors.push(`${label}: expected a valid YYYY-MM-DD date (got "${raw}")`);
+    return null;
+  }
   const d = new Date(raw);
   if (isNaN(d.getTime())) {
     errors.push(`${label}: expected YYYY-MM-DD (got "${raw}")`);
@@ -466,6 +524,31 @@ function parseNumericField(raw: string, label: string, errors: string[]): string
     return null;
   }
   return cleaned;
+}
+
+function parseStrictNonnegativeDecimal(raw: string, label: string, errors: string[]): string | null {
+  if (raw === "" || isClear(raw)) return null;
+  const trimmed = raw.trim();
+  if (!/^(?:\d+|\d{1,3}(?:,\d{3})+)(?:\.\d+)?$/.test(trimmed)) {
+    errors.push(`${label}: must be a non-negative decimal number (got "${raw}")`);
+    return null;
+  }
+  return trimmed.replace(/,/g, "");
+}
+
+function parseStrictInteger(raw: string, label: string, errors: string[]): number | null {
+  if (raw === "" || isClear(raw)) return null;
+  const trimmed = raw.trim();
+  if (!/^-?(?:0|[1-9]\d*)$/.test(trimmed)) {
+    errors.push(`${label}: must be a whole number (got "${raw}")`);
+    return null;
+  }
+  const value = Number(trimmed);
+  if (!Number.isSafeInteger(value)) {
+    errors.push(`${label}: is outside the supported integer range`);
+    return null;
+  }
+  return value;
 }
 
 function parseBool(raw: string, label: string, errors: string[]): boolean | null {
@@ -532,6 +615,8 @@ function addInstructionsSheet(wb: ExcelJS.Workbook, sectionId: SectionId): void 
     "• IBC Applications: IBC Number",
     "• Research Contracts: Contract Number",
     "• Patents: Patent Number",
+    "• Publications: Publication ID (updates), then DOI, PMID, or Title + Publication Date + Journal",
+    "• Journal Impact Factors: Journal Name + Year",
     "• Buildings: Building Name",
     "• Rooms: Building Name + Room Number",
     "• Certification Modules: Module Name",
@@ -780,6 +865,60 @@ function patentsToRows(
   }));
 }
 
+function publicationsToRows(
+  list: Publication[],
+  sdrByDbId: Map<number, ResearchActivity>,
+): Record<string, unknown>[] {
+  return list.map((p) => ({
+    publicationId: p.id,
+    title: p.title,
+    sdrNumber: p.researchActivityId ? sdrByDbId.get(p.researchActivityId)?.sdrNumber ?? "" : "",
+    abstract: p.abstract ?? "",
+    authors: p.authors ?? "",
+    journal: p.journal ?? "",
+    volume: p.volume ?? "",
+    issue: p.issue ?? "",
+    pages: p.pages ?? "",
+    doi: p.doi ?? "",
+    pmid: p.pmid ?? "",
+    publicationDate: p.publicationDate ? p.publicationDate.toISOString().slice(0, 10) : "",
+    publicationType: p.publicationType ?? "",
+    prepublicationUrl: p.prepublicationUrl ?? "",
+    prepublicationSite: p.prepublicationSite ?? "",
+  }));
+}
+
+function journalImpactFactorsToRows(
+  journalList: Journal[],
+  metrics: JournalImpactFactorMetric[],
+): Record<string, unknown>[] {
+  const journalById = new Map(journalList.map((journal) => [journal.id, journal]));
+  return metrics.map((metric) => {
+    const journal = journalById.get(metric.journalId);
+    return {
+      journalName: journal?.journalName ?? "",
+      abbreviatedJournal: journal?.abbreviatedJournal ?? "",
+      publisher: journal?.publisher ?? "",
+      issn: journal?.issn ?? "",
+      eissn: journal?.eissn ?? "",
+      field: journal?.field ?? "",
+      year: metric.year,
+      impactFactor: metric.impactFactor ?? "",
+      fiveYearJif: metric.fiveYearJif ?? "",
+      jifWithoutSelfCites: metric.jifWithoutSelfCites ?? "",
+      jci: metric.jci ?? "",
+      quartile: metric.quartile ?? "",
+      rank: metric.rank ?? "",
+      totalCites: metric.totalCites ?? "",
+      totalArticles: metric.totalArticles ?? "",
+      citableItems: metric.citableItems ?? "",
+      citedHalfLife: metric.citedHalfLife ?? "",
+      citingHalfLife: metric.citingHalfLife ?? "",
+      totalCitations: metric.totalCitations ?? "",
+    };
+  });
+}
+
 function buildingsToRows(list: Building[]): Record<string, unknown>[] {
   return list.map((b) => ({
     name: b.name,
@@ -868,6 +1007,16 @@ interface DbContext {
   contractByContractNumber?: Map<string, ResearchContract>;
   patentList?: Patent[];
   patentByPatentNumber?: Map<string, Patent>;
+  publicationList?: Publication[];
+  publicationById?: Map<number, Publication>;
+  publicationByDoi?: Map<string, Publication[]>;
+  publicationByPmid?: Map<string, Publication[]>;
+  publicationByComposite?: Map<string, Publication[]>;
+  manuscriptHistoryRows?: Array<{ id: number }>;
+  journals?: Journal[];
+  journalByName?: Map<string, Journal>;
+  journalMetrics?: JournalImpactFactorMetric[];
+  journalMetricByKey?: Map<string, JournalImpactFactorMetric>;
   buildings?: Building[];
   buildingByName?: Map<string, Building>;
   buildingById?: Map<number, Building>;
@@ -976,6 +1125,46 @@ async function loadDbContext(sectionId: SectionId, executor: any = db): Promise<
     }
     ctx.patentList = patentList;
     ctx.patentByPatentNumber = patentByPatentNumber;
+
+    const publicationList: Publication[] = await executor.select().from(publications);
+    const manuscriptHistoryRows: Array<{ id: number }> = await executor
+      .select({ id: manuscriptHistory.id })
+      .from(manuscriptHistory);
+    const publicationById = new Map<number, Publication>();
+    const publicationByDoi = new Map<string, Publication[]>();
+    const publicationByPmid = new Map<string, Publication[]>();
+    const publicationByComposite = new Map<string, Publication[]>();
+    const add = (map: Map<string, Publication[]>, key: string, publication: Publication) =>
+      map.set(key, [...(map.get(key) ?? []), publication]);
+    for (const publication of publicationList) {
+      publicationById.set(publication.id, publication);
+      const doi = normalizeDoi(publication.doi);
+      const pmid = normalizeScalarKey(publication.pmid);
+      const composite = publicationCompositeKey(
+        publication.title,
+        publication.publicationDate,
+        publication.journal,
+      );
+      if (doi) add(publicationByDoi, doi, publication);
+      if (pmid) add(publicationByPmid, pmid, publication);
+      if (composite) add(publicationByComposite, composite, publication);
+    }
+    const journalList: Journal[] = await executor.select().from(journals);
+    const journalByName = new Map(journalList.map((journal) => [
+      normalizeScalarKey(journal.journalName),
+      journal,
+    ]));
+    const journalMetrics: JournalImpactFactorMetric[] =
+      await executor.select().from(journalImpactFactorMetrics);
+    const journalMetricByKey = new Map(journalMetrics.map((metric) => [
+      `${metric.journalId}\u0000${metric.year}`,
+      metric,
+    ]));
+    Object.assign(ctx, {
+      publicationList, publicationById, publicationByDoi, publicationByPmid,
+      publicationByComposite, journals: journalList, journalByName,
+      journalMetrics, journalMetricByKey, manuscriptHistoryRows,
+    });
   }
 
   if (sectionId === "research-management") {
@@ -1061,6 +1250,8 @@ export async function buildExportWorkbook(sectionId: SectionId): Promise<Buffer>
     addDataSheet(wb, "Grants", GRANT_COLS, grantsToRows(ctx.grants!, ctx.scientistById));
   } else if (sectionId === "research-output") {
     addDataSheet(wb, "Patents", PATENT_COLS, patentsToRows(ctx.patentList!, ctx.sdrByDbId!));
+    addDataSheet(wb, "Publications", PUBLICATION_COLS, publicationsToRows(ctx.publicationList!, ctx.sdrByDbId!));
+    addDataSheet(wb, "Journal Impact Factors", JOURNAL_IMPACT_FACTOR_COLS, journalImpactFactorsToRows(ctx.journals!, ctx.journalMetrics!));
   }
 
   const buf = await wb.xlsx.writeBuffer();
@@ -2278,6 +2469,204 @@ function previewPatentRows(
   return entries;
 }
 
+function normalizeScalarKey(value: unknown): string {
+  return String(value ?? "").trim().replace(/\s+/g, " ").toLowerCase();
+}
+
+function normalizeDoi(value: unknown): string {
+  return normalizeScalarKey(value)
+    .replace(/^https?:\/\/(?:dx\.)?doi\.org\//, "")
+    .replace(/^doi:\s*/, "");
+}
+
+function publicationCompositeKey(
+  title: unknown,
+  date: Date | string | null | undefined,
+  journal: unknown,
+): string {
+  const normalizedTitle = normalizeScalarKey(title);
+  const normalizedJournal = normalizeScalarKey(journal);
+  const normalizedDate = date instanceof Date
+    ? date.toISOString().slice(0, 10)
+    : String(date ?? "").slice(0, 10);
+  return normalizedTitle && normalizedDate && normalizedJournal
+    ? `${normalizedTitle}\u0000${normalizedDate}\u0000${normalizedJournal}`
+    : "";
+}
+
+function previewPublicationRows(
+  rows: Record<string, string>[],
+  ctx: DbContext,
+): RowEntry[] {
+  const seenIds = new Set<number>();
+  const seenDois = new Set<string>();
+  const seenPmids = new Set<string>();
+  const seenComposites = new Set<string>();
+  return rows.map((row, index) => {
+    const rowNumber = index + 1;
+    const errors: string[] = [];
+    rejectRequiredClear(row, PUBLICATION_COLS, errors);
+    const idRaw = (row.publicationId ?? "").trim();
+    let suppliedId: number | undefined;
+    let existing: Publication | undefined;
+    if (idRaw) {
+      suppliedId = parseStrictInteger(idRaw, "Publication ID", errors) ?? undefined;
+      if (suppliedId != null && suppliedId <= 0) errors.push("Publication ID must be a positive integer");
+      if (suppliedId != null) {
+        if (seenIds.has(suppliedId)) errors.push(`Duplicate Publication ID "${suppliedId}" in this file`);
+        seenIds.add(suppliedId);
+        existing = ctx.publicationById!.get(suppliedId);
+        if (!existing) errors.push(`Publication ID "${suppliedId}" was not found`);
+      }
+    }
+
+    const doiRaw = (row.doi ?? "").trim();
+    const doi = doiRaw && !isClear(doiRaw) ? normalizeDoi(doiRaw) : "";
+    const pmid = normalizeScalarKey(row.pmid);
+    let publicationDate: Date | null | undefined;
+    if ((row.publicationDate ?? "") !== "") {
+      publicationDate = parseDateTimestamp(row.publicationDate, "Publication Date", errors);
+    }
+    const composite = publicationCompositeKey(row.title, publicationDate, row.journal);
+    for (const [key, seen, label] of [
+      [doi, seenDois, "DOI"],
+      [pmid, seenPmids, "PMID"],
+      [composite, seenComposites, "Title + Publication Date + Journal"],
+    ] as const) {
+      if (!key) continue;
+      if (seen.has(key)) errors.push(`Duplicate normalized ${label} key in this file`);
+      seen.add(key);
+    }
+
+    const candidateById = new Map<number, Publication>();
+    for (const [label, key, candidates] of [
+      ["DOI", doi, doi ? ctx.publicationByDoi!.get(doi) : undefined],
+      ["PMID", pmid, pmid ? ctx.publicationByPmid!.get(pmid) : undefined],
+      ["Title + Publication Date + Journal", composite, composite ? ctx.publicationByComposite!.get(composite) : undefined],
+    ] as const) {
+      if (!key) continue;
+      if ((candidates?.length ?? 0) > 1) {
+        errors.push(`${label} matches multiple publications; supply a unique Publication ID and keys`);
+      }
+      for (const candidate of candidates ?? []) candidateById.set(candidate.id, candidate);
+    }
+    if (candidateById.size > 1) {
+      errors.push("Supplied publication keys resolve to different existing publications");
+    }
+    if (idRaw && existing) {
+      const conflictingIds = [...candidateById.keys()].filter((candidateId) => candidateId !== existing!.id);
+      if (conflictingIds.length) {
+        errors.push(`Supplied publication keys conflict with Publication ID "${existing.id}"`);
+      }
+    } else if (!idRaw && candidateById.size === 1) {
+      existing = candidateById.values().next().value;
+    }
+    const isNew = !existing && !idRaw;
+    const title = (row.title ?? "").trim();
+    if (isNew && !title) errors.push("Title is required");
+    if (isNew && !doi && !pmid && !composite) {
+      errors.push("New publications require DOI, PMID, or Publication Date plus Journal");
+    }
+
+    const data: Record<string, unknown> = {};
+    if (existing) data.id = existing.id;
+    if (title) data.title = title;
+    const textFields = [
+      "abstract", "authors", "journal", "volume", "issue", "pages", "pmid",
+      "publicationType", "prepublicationUrl", "prepublicationSite",
+    ];
+    for (const field of textFields) {
+      const value = maybeText(row[field] ?? "", !!existing);
+      if (value !== undefined) data[field] = value;
+    }
+    if (doiRaw) data.doi = isClear(doiRaw) ? null : doi;
+    if ((row.publicationDate ?? "") !== "") data.publicationDate = publicationDate ?? null;
+    const sdrRaw = (row.sdrNumber ?? "").trim();
+    if (sdrRaw) {
+      if (isClear(sdrRaw)) data.researchActivityId = null;
+      else {
+        const sdr = ctx.sdrBySdrNumber!.get(sdrRaw.toLowerCase());
+        if (!sdr) errors.push(`SDR Number "${sdrRaw}" not found`);
+        else data.researchActivityId = sdr.id;
+      }
+    }
+    const key = existing ? String(existing.id) : doi || pmid || composite || `row ${rowNumber}`;
+    if (existing?.status === "Published *") {
+      return {
+        sheetName: "Publications", rowNumber, action: "skip", key,
+        reason: "Publication is sealed (Published *) and cannot be changed",
+      };
+    }
+    if (errors.length) return { sheetName: "Publications", rowNumber, action: "error", key, reason: errors.join("; ") };
+    return finishStructuredEntry(
+      "Publications", rowNumber, key,
+      existing as unknown as Record<string, unknown> | undefined,
+      data, errors, new Set(["id"]),
+    );
+  });
+}
+
+function previewJournalImpactFactorRows(
+  rows: Record<string, string>[],
+  ctx: DbContext,
+): RowEntry[] {
+  const seen = new Set<string>();
+  return rows.map((row, index) => {
+    const rowNumber = index + 1;
+    const errors: string[] = [];
+    rejectRequiredClear(row, JOURNAL_IMPACT_FACTOR_COLS, errors);
+    const journalName = (row.journalName ?? "").trim();
+    if (!journalName) errors.push("Journal Name is required");
+    const year = parseStrictInteger(row.year ?? "", "Year", errors);
+    if (year == null) errors.push("Year is required");
+    else if (year <= 0) errors.push("Year must be a positive integer");
+    const normalizedName = normalizeScalarKey(journalName);
+    const key = `${normalizedName}\u0000${year ?? ""}`;
+    if (normalizedName && year != null) {
+      if (seen.has(key)) errors.push(`Duplicate Journal Name + Year "${journalName} + ${year}" in this file`);
+      seen.add(key);
+    }
+    const journal = ctx.journalByName!.get(normalizedName);
+    const existing = journal && year != null
+      ? ctx.journalMetricByKey!.get(`${journal.id}\u0000${year}`)
+      : undefined;
+    const data: Record<string, unknown> = { journalName, year };
+    for (const field of ["abbreviatedJournal", "publisher", "issn", "eissn", "field"]) {
+      const value = maybeText(row[field] ?? "", !!journal);
+      if (value !== undefined) data[field] = value;
+    }
+    const decimalFields = [
+      "impactFactor", "fiveYearJif", "jifWithoutSelfCites", "jci",
+      "citedHalfLife", "citingHalfLife",
+    ];
+    for (const field of decimalFields) {
+      if ((row[field] ?? "") !== "") data[field] = parseStrictNonnegativeDecimal(row[field], JOURNAL_IMPACT_FACTOR_COLS.find((c) => c.key === field)!.header, errors);
+    }
+    for (const field of ["rank", "totalCites", "totalArticles", "citableItems", "totalCitations"]) {
+      if ((row[field] ?? "") !== "") {
+        const value = parseStrictInteger(row[field], JOURNAL_IMPACT_FACTOR_COLS.find((c) => c.key === field)!.header, errors);
+        if (value != null && value < 0) errors.push(`${JOURNAL_IMPACT_FACTOR_COLS.find((c) => c.key === field)!.header}: cannot be negative`);
+        data[field] = value;
+      }
+    }
+    if ((row.quartile ?? "") !== "") {
+      if (isClear(row.quartile)) data.quartile = null;
+      else {
+        const quartile = row.quartile.trim().toUpperCase();
+        if (!/^Q[1-4]$/.test(quartile)) errors.push(`Quartile: must be Q1, Q2, Q3, or Q4 (got "${row.quartile}")`);
+        else data.quartile = quartile;
+      }
+    }
+    const comparable = existing
+      ? { ...(journal as unknown as Record<string, unknown>), ...(existing as unknown as Record<string, unknown>) }
+      : undefined;
+    return finishStructuredEntry(
+      "Journal Impact Factors", rowNumber, `${journalName} + ${year ?? ""}`,
+      comparable, data, errors, new Set(["journalName", "year"]),
+    );
+  });
+}
+
 function normalizedValue(value: unknown): string {
   if (value == null) return "";
   if (value instanceof Date) return value.toISOString().slice(0, 10);
@@ -2596,6 +2985,12 @@ function buildPreviewResult(
       case "Patents":
         sheetEntries = previewPatentRows(sheet.rows, ctx, inFileSdrNumbers);
         break;
+      case "Publications":
+        sheetEntries = previewPublicationRows(sheet.rows, ctx);
+        break;
+      case "Journal Impact Factors":
+        sheetEntries = previewJournalImpactFactorRows(sheet.rows, ctx);
+        break;
       case "Buildings":
         sheetEntries = previewBuildingRows(sheet.rows, ctx);
         break;
@@ -2656,6 +3051,10 @@ function buildDbSnapshot(ctx: DbContext): Record<string, unknown> {
     ibcs: versions(ctx.ibcs),
     contracts: versions(ctx.contracts),
     patents: versions(ctx.patentList),
+    publications: versions(ctx.publicationList),
+    manuscriptHistory: versions(ctx.manuscriptHistoryRows),
+    journals: versions(ctx.journals),
+    journalImpactFactorMetrics: versions(ctx.journalMetrics),
     buildings: versions(ctx.buildings),
     rooms: versions(ctx.rooms),
     certificationModules: versions(ctx.certificationModules),
@@ -2700,6 +3099,10 @@ async function lockBulkDataSection(tx: any, sectionId: SectionId): Promise<void>
       "projects",
       "research_activities",
       "patents",
+      "publications",
+      "manuscript_history",
+      "journals",
+      "journal_impact_factor_metrics",
     ],
   };
   await tx.execute(
@@ -2733,10 +3136,11 @@ export async function applySection(
     }
 
     let applyingScientistId: number | undefined;
-    const createsCertification = preview.rows.some(
-      (row) => row.sheetName === "Certifications" && row.action === "create",
+    const createsAuditedRecord = preview.rows.some(
+      (row) => (row.sheetName === "Certifications" || row.sheetName === "Publications")
+        && row.action === "create",
     );
-    if (createsCertification) {
+    if (createsAuditedRecord) {
       if (actor?.scientistId != null) {
         const [linked] = await tx
           .select({ id: scientists.id })
@@ -2756,7 +3160,7 @@ export async function applySection(
       }
       if (!applyingScientistId) {
         throw new Error(
-          "Certification imports that create records require an auditable applying user linked to a scientist",
+          "Certification and Publication imports that create records require an auditable applying user linked to a scientist",
         );
       }
     }
@@ -2822,6 +3226,15 @@ export async function applySection(
           await applyPatentRow(tx, entry, rowData, newSdrByKey);
           if (entry.action === "create") sheetCounts.created++;
           else sheetCounts.updated++;
+        } else if (sheetName === "Publications") {
+          const applied = await applyPublicationRow(tx, entry, rowData, applyingScientistId);
+          if (!applied) sheetCounts.skipped++;
+          else if (entry.action === "create") sheetCounts.created++;
+          else sheetCounts.updated++;
+        } else if (sheetName === "Journal Impact Factors") {
+          await applyJournalImpactFactorRow(tx, entry, rowData);
+          if (entry.action === "create") sheetCounts.created++;
+          else sheetCounts.updated++;
         } else if (sheetName === "Buildings") {
           const newId = await applyBuildingRow(tx, entry, rowData);
           if (newId) newBuildingByKey.set(entry.key.toLowerCase(), newId);
@@ -2866,7 +3279,7 @@ function getSectionSheetOrder(sectionId: SectionId): string[] {
     case "pmo-office": return ["Programs", "Projects", "Research Activities"];
     case "research-compliance": return ["IRB Applications", "IBC Applications"];
     case "research-services": return ["Research Contracts", "Grants"];
-    case "research-output": return ["Patents"];
+    case "research-output": return ["Patents", "Publications", "Journal Impact Factors"];
   }
 }
 
@@ -3178,6 +3591,102 @@ async function applyPatentRow(tx: TxDb, entry: RowEntry, data: Record<string, un
       .where(caseInsensitiveKey(patents.patentNumber, patentNumber))
       .returning({ id: patents.id });
     requireUpdatedRow(row, "Patent", patentNumber);
+  }
+}
+
+async function applyPublicationRow(
+  tx: TxDb,
+  entry: RowEntry,
+  data: Record<string, unknown>,
+  applyingScientistId?: number,
+): Promise<boolean> {
+  const { id, ...payload } = data;
+  if (entry.action === "create") {
+    if (!applyingScientistId) {
+      throw new Error("Publication create is missing an auditable applying scientist");
+    }
+    const [created] = await tx.insert(publications).values({
+      ...payload,
+      title: String(payload.title ?? ""),
+      status: "Concept",
+      vettedForSubmissionByIpOffice: false,
+    }).returning({ id: publications.id });
+    requireUpdatedRow(created, "Publication", entry.key);
+    await tx.insert(manuscriptHistory).values({
+      publicationId: created.id,
+      fromStatus: "",
+      toStatus: "Concept",
+      changedBy: applyingScientistId,
+      changeReason: "Publication created",
+    });
+    return true;
+  }
+  const publicationId = Number(id);
+  const [current] = await tx
+    .select({ id: publications.id, status: publications.status })
+    .from(publications)
+    .where(eq(publications.id, publicationId));
+  requireUpdatedRow(current, "Publication", publicationId);
+  // Defensive final-state check in the same transaction. A sealed row is
+  // intentionally skipped rather than aborting unrelated valid rows.
+  if (current.status === "Published *") return false;
+  const [updated] = await tx
+    .update(publications)
+    .set({ ...payload, updatedAt: new Date() })
+    .where(eq(publications.id, publicationId))
+    .returning({ id: publications.id });
+  requireUpdatedRow(updated, "Publication", publicationId);
+  return true;
+}
+
+async function applyJournalImpactFactorRow(
+  tx: TxDb,
+  entry: RowEntry,
+  data: Record<string, unknown>,
+): Promise<void> {
+  const {
+    journalName, year, abbreviatedJournal, publisher, issn, eissn, field,
+    ...metricPayload
+  } = data;
+  const journalMetadata = { abbreviatedJournal, publisher, issn, eissn, field };
+  for (const key of Object.keys(journalMetadata) as Array<keyof typeof journalMetadata>) {
+    if (journalMetadata[key] === undefined) delete journalMetadata[key];
+  }
+  const matches = await tx
+    .select()
+    .from(journals)
+    .where(caseInsensitiveKey(journals.journalName, journalName));
+  if (matches.length > 1) {
+    throw new Error(`Journal "${String(journalName)}" is ambiguous`);
+  }
+  let journalId = matches[0]?.id;
+  if (!journalId) {
+    const [created] = await tx
+      .insert(journals)
+      .values({ journalName: String(journalName), ...journalMetadata })
+      .returning({ id: journals.id });
+    journalId = created?.id;
+  } else if (Object.keys(journalMetadata).length) {
+    await tx
+      .update(journals)
+      .set({ ...journalMetadata, updatedAt: new Date() })
+      .where(eq(journals.id, journalId));
+  }
+  requireUpdatedRow(journalId, "Journal", journalName);
+  const metricYear = Number(year);
+  if (entry.action === "create") {
+    await tx.insert(journalImpactFactorMetrics).values({
+      journalId,
+      year: metricYear,
+      ...metricPayload,
+    });
+  } else {
+    const [updated] = await tx
+      .update(journalImpactFactorMetrics)
+      .set({ ...metricPayload, updatedAt: new Date() })
+      .where(sql`${journalImpactFactorMetrics.journalId} = ${journalId} and ${journalImpactFactorMetrics.year} = ${metricYear}`)
+      .returning({ id: journalImpactFactorMetrics.id });
+    requireUpdatedRow(updated, "Journal impact factor", entry.key);
   }
 }
 
