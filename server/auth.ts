@@ -109,7 +109,17 @@ export function requireAuth(req: Request, res: Response, next: NextFunction) {
 
 export function requireAdmin(req: Request, res: Response, next: NextFunction) {
   const role = req.session?.user?.role;
-  if (role === "admin" || role === "superadmin") return next();
+  // Demo role switching is intentionally client-side. The demo server session
+  // remains Management even when a tester selects the Super Admin persona, so
+  // treat that fixed demo session as the administrator for protected previews.
+  // Real local/LDAP/OIDC sessions still require admin or superadmin exactly.
+  if (
+    role === "admin" ||
+    role === "superadmin" ||
+    (getAuthMode() === "demo" && role === "Management")
+  ) {
+    return next();
+  }
   authLog(`403 admin required: ${req.method} ${req.path} user=${req.session?.user?.username ?? "anonymous"} role=${role ?? "none"}`);
   res.status(403).json({ message: "Forbidden. Admin access required." });
 }
@@ -204,6 +214,13 @@ function toSessionUser(user: typeof users.$inferSelect): SessionUser {
     scientistId: (user as any).scientistId ?? null,
     needsRegistration: !(user as any).scientistId,
   };
+}
+
+async function recordSuccessfulLogin(userId: number): Promise<void> {
+  await db
+    .update(users)
+    .set({ lastLoginAt: new Date() })
+    .where(eq(users.id, userId));
 }
 
 async function refreshSessionUserFromDatabase(
@@ -326,6 +343,7 @@ export function registerAuthRoutes(app: any) {
         }
       }
 
+      await recordSuccessfulLogin(sessionUser!.id);
       authLog(`login success username=${sessionUser!.username} id=${sessionUser!.id} role=${sessionUser!.role} ip=${ip}`);
       req.session.user = sessionUser;
       return res.json({ user: sessionUser });
@@ -368,6 +386,7 @@ export function registerAuthRoutes(app: any) {
           return res.redirect("/login?error=session_error");
         }
 
+        await recordSuccessfulLogin(sessionUser.id);
         authLog(`OIDC login success username=${sessionUser.username} id=${sessionUser.id} role=${sessionUser.role} ip=${ip}`);
         req.session.user = sessionUser;
         res.redirect("/");

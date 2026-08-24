@@ -5,6 +5,14 @@
 ### One-liner
 Q-BRIDGE is a shared research governance portal that lets Qatar's biomedical institutions run IRB, IBC, grant, and publication workflows in one place.
 
+### Branding
+- Use **Q-BRIDGE** for all product names, labels, generated content, and downloadable filenames.
+- **IRIS is the retired name** and must not be reintroduced in user-facing text.
+
+### Admin data workflows
+- Settings → Data Import & Export must execute authoritative officer import/export workflows inline.
+- Do not replace those operations with redirects, and do not create duplicate backend pipelines for them.
+
 ### What it does
 Q-BRIDGE replaces the scattered spreadsheets, email threads, and PDF forms that research offices use to track compliance and project activity. Investigators submit IRB and IBC applications through structured multi-tab forms, office reviewers move them through a status workflow with timestamped comments, and the same records connect to the underlying scientists, programs, projects, grants, contracts, patents, and publications. Staff can see a unified history of every submission, revision, and approval against the project it belongs to.
 

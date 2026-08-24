@@ -11,6 +11,8 @@ interface PublicationsPanelProps {
   hasOrcid: boolean;
   hasScholar: boolean;
   canImport?: boolean;
+  demoViewerRole?: string;
+  demoViewerScientistId?: number;
 }
 
 export function PublicationsPanel({
@@ -19,6 +21,8 @@ export function PublicationsPanel({
   hasOrcid,
   hasScholar,
   canImport = true,
+  demoViewerRole,
+  demoViewerScientistId,
 }: PublicationsPanelProps) {
   const showMissing = hasOrcid || hasScholar;
 
@@ -34,9 +38,20 @@ export function PublicationsPanel({
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-6">
-        <PublicationsList scientistId={scientistId} yearsSince={yearsSince} embedded />
+        <PublicationsList
+          scientistId={scientistId}
+          yearsSince={yearsSince}
+          embedded
+          demoViewerRole={demoViewerRole}
+          demoViewerScientistId={demoViewerScientistId}
+        />
         <Separator />
-        <PublicationsToFix scientistId={scientistId} embedded />
+        <PublicationsToFix
+          scientistId={scientistId}
+          embedded
+          demoViewerRole={demoViewerRole}
+          demoViewerScientistId={demoViewerScientistId}
+        />
         {showMissing && (
           <>
             <Separator />

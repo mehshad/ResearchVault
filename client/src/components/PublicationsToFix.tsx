@@ -27,20 +27,26 @@ interface PublicationsToFixProps {
   embedded?: boolean;
   /** Scope the scan to the scientist whose profile is being viewed. */
   scientistId?: number;
+  demoViewerRole?: string;
+  demoViewerScientistId?: number;
 }
 
 export function PublicationsToFix({
   className,
   embedded = false,
   scientistId,
+  demoViewerRole,
+  demoViewerScientistId,
 }: PublicationsToFixProps) {
   const [enabled, setEnabled] = useState(false);
-  const endpoint = scientistId
-    ? `/api/publications/needs-author-fix?scientistId=${scientistId}`
-    : "/api/publications/needs-author-fix";
+  const queryParams = new URLSearchParams();
+  if (scientistId) queryParams.set("scientistId", String(scientistId));
+  if (demoViewerRole) queryParams.set("viewerRole", demoViewerRole);
+  if (demoViewerScientistId) queryParams.set("viewerScientistId", String(demoViewerScientistId));
+  const endpoint = `/api/publications/needs-author-fix${queryParams.size ? `?${queryParams.toString()}` : ""}`;
 
   const { data: flagged = [], isLoading, isFetching, refetch } = useQuery<FlaggedPublication[]>({
-    queryKey: ["/api/publications/needs-author-fix", scientistId ?? "current-user"],
+    queryKey: [endpoint],
     queryFn: async () => {
       const response = await apiRequest("GET", endpoint);
       return response.json();

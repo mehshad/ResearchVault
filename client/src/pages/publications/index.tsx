@@ -159,7 +159,19 @@ export default function PublicationsList() {
   }, [location]);
 
   const { data: publications, isLoading } = useQuery<EnhancedPublication[]>({
-    queryKey: ['/api/publications'],
+    queryKey: ['/api/publications', 'visible', currentUser.role, currentUser.id],
+    queryFn: async () => {
+      const params = new URLSearchParams({
+        viewerRole: currentUser.role,
+        viewerScientistId: String(currentUser.id),
+        viewerUserId: String(currentUser.id),
+      });
+      const response = await fetch(`/api/publications?${params.toString()}`, {
+        credentials: "include",
+      });
+      if (!response.ok) throw new Error("Failed to load publications");
+      return response.json();
+    },
   });
   
   // Scientists list for author search suggestions
@@ -678,10 +690,10 @@ export default function PublicationsList() {
                       </div>
                     </TableCell>
                     <TableCell>
-                      {publication.researchActivityId ? (
+                      {publication.researchActivityId && publication.researchActivity?.sdrNumber ? (
                         <Link href={`/research-activities/${publication.researchActivityId}`}>
                           <span className="text-primary-500 hover:text-primary-600 transition-colors text-sm">
-                            SDR-{publication.researchActivityId}
+                            {publication.researchActivity.sdrNumber}
                           </span>
                         </Link>
                       ) : (

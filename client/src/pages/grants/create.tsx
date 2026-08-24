@@ -32,6 +32,12 @@ import { Label } from "@/components/ui/label";
 import { apiRequest } from "@/lib/queryClient";
 import { formatFullName } from "@/utils/nameUtils";
 import { insertGrantSchema, type InsertGrant } from "@shared/schema";
+import {
+  GRANT_STATUS_OPTIONS,
+  grantStatusAllowsProgressTracking,
+  grantStatusImpliesAward,
+  grantStatusRequiresStartDate,
+} from "@shared/grantLifecycle";
 
 type CreateGrantForm = InsertGrant;
 
@@ -40,6 +46,9 @@ export default function CreateGrant() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const [collaboratorsInput, setCollaboratorsInput] = useState("");
+  const [awarded, setAwarded] = useState(false);
+  const [startDate, setStartDate] = useState("");
+  const [endDate, setEndDate] = useState("");
 
   const form = useForm<CreateGrantForm>({
     resolver: zodResolver(insertGrantSchema),
@@ -73,8 +82,23 @@ export default function CreateGrant() {
         .map(line => line.trim())
         .filter(line => line.length > 0);
 
-      const payload = { ...data, collaborators };
-      return apiRequest("POST", `/api/grants`, payload);
+      const payload = {
+        ...data,
+        collaborators,
+        awarded,
+        startDate: startDate || null,
+        endDate: endDate || null,
+      };
+      const res = await apiRequest("POST", `/api/grants`, payload);
+      if (!res.ok) {
+        let msg = "Failed to create grant";
+        try {
+          const body = await res.json();
+          msg = body.message || body.error || msg;
+        } catch (_) {}
+        throw new Error(msg);
+      }
+      return res.json();
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['/api/grants'] });
@@ -93,7 +117,51 @@ export default function CreateGrant() {
     },
   });
 
+  const currentStatus = form.watch("status");
+
+  const handleStatusChange = (value: string) => {
+    form.setValue("status", value as any);
+    if (grantStatusImpliesAward(value)) {
+      setAwarded(true);
+    } else if (value !== "cancelled") {
+      setAwarded(false);
+    }
+  };
+
+  const handleAwardedChange = (checked: boolean) => {
+    if (checked) {
+      setAwarded(true);
+      // If current status is pre-award or rejected, move to Awarded
+      if (!grantStatusImpliesAward(currentStatus)) {
+        form.setValue("status", "awarded" as any);
+      }
+    } else {
+      setAwarded(false);
+      // If current status implies award, reset to Pending
+      if (grantStatusImpliesAward(currentStatus)) {
+        form.setValue("status", "pending" as any);
+      }
+    }
+  };
+
   const handleSubmit = (data: CreateGrantForm) => {
+    // Client-side date validation
+    if (grantStatusRequiresStartDate(currentStatus) && !startDate) {
+      toast({
+        title: "Validation Error",
+        description: `${GRANT_STATUS_OPTIONS.find(o => o.value === currentStatus)?.label} grants require a start date.`,
+        variant: "destructive",
+      });
+      return;
+    }
+    if (startDate && endDate && endDate < startDate) {
+      toast({
+        title: "Validation Error",
+        description: "End date cannot be before the start date.",
+        variant: "destructive",
+      });
+      return;
+    }
     createGrantMutation.mutate(data);
   };
 
@@ -159,18 +227,21 @@ export default function CreateGrant() {
                     render={({ field }) => (
                       <FormItem>
                         <FormLabel>Status *</FormLabel>
-                        <Select onValueChange={field.onChange} defaultValue={field.value}>
+                        <Select
+                          onValueChange={handleStatusChange}
+                          value={field.value}
+                        >
                           <FormControl>
                             <SelectTrigger>
                               <SelectValue placeholder="Select status" />
                             </SelectTrigger>
                           </FormControl>
                           <SelectContent>
-                            <SelectItem value="submitted">Submitted</SelectItem>
-                            <SelectItem value="active">Active</SelectItem>
-                            <SelectItem value="completed">Completed</SelectItem>
-                            <SelectItem value="cancelled">Cancelled</SelectItem>
-                            <SelectItem value="pending">Pending</SelectItem>
+                            {GRANT_STATUS_OPTIONS.map((opt) => (
+                              <SelectItem key={opt.value} value={opt.value}>
+                                {opt.label}
+                              </SelectItem>
+                            ))}
                           </SelectContent>
                         </Select>
                         <FormMessage />
@@ -335,6 +406,20 @@ export default function CreateGrant() {
                       )}
                     />
                   </div>
+
+                  {/* Awarded Switch */}
+                  <div className="flex items-center justify-between rounded-lg border p-3 mt-4">
+                    <div className="space-y-0.5">
+                      <label className="text-sm font-medium">Grant Awarded</label>
+                      <p className="text-xs text-muted-foreground">
+                        A lasting funding milestone required for SDR links
+                      </p>
+                    </div>
+                    <Switch
+                      checked={awarded}
+                      onCheckedChange={handleAwardedChange}
+                    />
+                  </div>
                 </CardContent>
               </Card>
 
@@ -382,6 +467,31 @@ export default function CreateGrant() {
                       )}
                     />
                   </div>
+
+                  {grantStatusAllowsProgressTracking(currentStatus) && (
+                    <div className="grid grid-cols-2 gap-4 mb-4">
+                      <div>
+                        <label className="text-sm font-medium text-gray-700 mb-2 block dark:text-gray-300">
+                          Start Date {grantStatusRequiresStartDate(currentStatus) && <span className="text-red-500">*</span>}
+                        </label>
+                        <Input
+                          type="date"
+                          value={startDate}
+                          onChange={(e) => setStartDate(e.target.value)}
+                        />
+                      </div>
+                      <div>
+                        <label className="text-sm font-medium text-gray-700 mb-2 block dark:text-gray-300">
+                          End Date
+                        </label>
+                        <Input
+                          type="date"
+                          value={endDate}
+                          onChange={(e) => setEndDate(e.target.value)}
+                        />
+                      </div>
+                    </div>
+                  )}
 
                   <div className="grid grid-cols-2 gap-4 mb-4">
                     <FormField

@@ -3,8 +3,18 @@
 import type { Express, Request, Response, NextFunction } from "express";
 import { createServer, type Server } from "http";
 import { createHmac, timingSafeEqual } from "crypto";
-import { storage, normalizeJournalName } from "./databaseStorage";
+import {
+  GrantSdrLifecycleStorageError,
+  storage,
+  normalizeJournalName,
+} from "./databaseStorage";
 import { resolveAuthorCheckSubject } from "./authorCheckSubject";
+import {
+  canViewPublication,
+  canViewUnpublishedScientistPublications,
+  isPublicScientistProfilePublicationStatus,
+  type ScientistPublicationViewer,
+} from "./scientistPublicationVisibility";
 import { ZodError, z } from "zod";
 import { fromZodError } from "zod-validation-error";
 import {
@@ -91,9 +101,56 @@ import {
   isInvestigatorEligible,
   isInvestigatorRoleAssignmentAllowed,
 } from "@shared/investigatorEligibility";
+import {
+  isRoomManagerEligible,
+  isRoomSupervisorEligible,
+  ROOM_MANAGER_ELIGIBILITY_MESSAGE,
+  ROOM_SUPERVISOR_ELIGIBILITY_MESSAGE,
+} from "@shared/roomRoleEligibility";
 import { requireInvestigatorDesignationManager } from "./investigatorDesignationPolicy";
+import {
+  canGrantLinkSdrs,
+  GrantLifecycleError,
+  grantStatusAllowsProgressTracking,
+  reconcileGrantLifecycle,
+} from "@shared/grantLifecycle";
+import {
+  applySection as applyBulkDataSection,
+  buildExportWorkbook as buildBulkDataExportWorkbook,
+  buildTemplateWorkbook as buildBulkDataTemplateWorkbook,
+  getSectionMeta as getBulkDataSectionMeta,
+  previewSection as previewBulkDataSection,
+  SECTION_META as BULK_DATA_SECTIONS,
+  type SectionId as BulkDataSectionId,
+} from "./bulkDataHub";
 
 const isLocalStorage = process.env.STORAGE_TYPE === "local";
+
+function getScientistPublicationViewer(req: Request): ScientistPublicationViewer {
+  const viewer: ScientistPublicationViewer = {
+    userId: req.session.user?.id,
+    role: req.session.user?.role,
+    scientistId: req.session.user?.scientistId,
+  };
+
+  // The demo role selector is client-side. Honor these hints only in demo;
+  // real auth modes always rely exclusively on the signed-in server session.
+  if (getAuthMode() === "demo") {
+    if (typeof req.query.viewerUserId === "string") {
+      const demoUserId = parseInt(req.query.viewerUserId);
+      if (!isNaN(demoUserId)) viewer.userId = demoUserId;
+    }
+    if (typeof req.query.viewerRole === "string") {
+      viewer.role = req.query.viewerRole;
+    }
+    if (typeof req.query.viewerScientistId === "string") {
+      const demoScientistId = parseInt(req.query.viewerScientistId);
+      if (!isNaN(demoScientistId)) viewer.scientistId = demoScientistId;
+    }
+  }
+
+  return viewer;
+}
 
 function getObjectStorageService(): ObjectStorageService | LocalObjectStorageService {
   return isLocalStorage ? new LocalObjectStorageService() : new ObjectStorageService();
@@ -3055,8 +3112,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).json({ message: "Invalid scientist ID" });
       }
 
+      const scientist = await storage.getScientist(id);
+      if (!scientist) {
+        return res.status(404).json({ message: "Scientist not found" });
+      }
+
       const yearsSince = req.query.years ? parseInt(req.query.years as string) : 5;
-      const publications = await storage.getPublicationsForScientist(id, yearsSince);
+      const includeUnpublished = canViewUnpublishedScientistPublications(
+        getScientistPublicationViewer(req),
+        scientist,
+      );
+      const publications = await storage.getPublicationsForScientist(id, yearsSince, includeUnpublished);
       
       res.json(publications);
     } catch (error) {
@@ -3072,8 +3138,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).json({ message: "Invalid scientist ID" });
       }
 
+      const scientist = await storage.getScientist(id);
+      if (!scientist) {
+        return res.status(404).json({ message: "Scientist not found" });
+      }
+
       const yearsSince = req.query.years ? parseInt(req.query.years as string) : 5;
-      const stats = await storage.getAuthorshipStatsByYear(id, yearsSince);
+      const includeUnpublished = canViewUnpublishedScientistPublications(
+        getScientistPublicationViewer(req),
+        scientist,
+      );
+      const stats = await storage.getAuthorshipStatsByYear(id, yearsSince, includeUnpublished);
       
       res.json(stats);
     } catch (error) {
@@ -4330,6 +4405,33 @@ export async function registerRoutes(app: Express): Promise<Server> {
       } else {
         publications = await storage.getPublications();
       }
+
+      const hasOfficeAccess =
+        req.query.officeAccess === "true" &&
+        hasPublicationOfficerRole(req);
+      if (!hasOfficeAccess) {
+        const allAuthors = await storage.getAllPublicationAuthors();
+        const authorsByPublication = new Map<number, Array<{
+          scientistId: number;
+          supervisorId: number | null;
+        }>>();
+        for (const author of allAuthors) {
+          const linked = authorsByPublication.get(author.publicationId) ?? [];
+          linked.push({
+            scientistId: author.scientistId,
+            supervisorId: author.scientist.supervisorId,
+          });
+          authorsByPublication.set(author.publicationId, linked);
+        }
+        const viewer = getScientistPublicationViewer(req);
+        publications = publications.filter((publication) =>
+          canViewPublication(
+            viewer,
+            publication,
+            authorsByPublication.get(publication.id) ?? [],
+          )
+        );
+      }
       
       // Enhance publications with research activity details
       const enhancedPublications = await Promise.all(publications.map(async (pub) => {
@@ -4466,6 +4568,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
         storage.getAllPublicationAuthors(),
       ]);
 
+      let includeUnpublished = false;
+      if (typeof req.query.scientistId === "string") {
+        const targetScientist = await storage.getScientist(Number(req.query.scientistId));
+        includeUnpublished = !!targetScientist && canViewUnpublishedScientistPublications(
+          getScientistPublicationViewer(req),
+          targetScientist,
+        );
+      } else if (req.session.user?.scientistId) {
+        includeUnpublished = true;
+      }
+
       // Group internal author links by publication id.
       const authorsByPublication = new Map<number, (typeof allAuthors)>();
       for (const author of allAuthors) {
@@ -4475,6 +4588,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       const flagged = allPublications
+        .filter(pub =>
+          includeUnpublished ||
+          isPublicScientistProfilePublicationStatus(pub.status)
+        )
         // Only the target scientist/current user's likely publications.
         .filter(pub => matchesAuthorName(pub.authors, firstName, lastName))
         .map(pub => {
@@ -4641,6 +4758,25 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(404).json({ message: "Publication not found" });
       }
 
+      const hasOfficeAccess =
+        req.query.officeAccess === "true" &&
+        hasPublicationOfficerRole(req);
+      if (!hasOfficeAccess) {
+        const linkedAuthors = (await storage.getAllPublicationAuthors())
+          .filter((author) => author.publicationId === publication.id)
+          .map((author) => ({
+            scientistId: author.scientistId,
+            supervisorId: author.scientist.supervisorId,
+          }));
+        if (!canViewPublication(
+          getScientistPublicationViewer(req),
+          publication,
+          linkedAuthors,
+        )) {
+          return res.status(404).json({ message: "Publication not found" });
+        }
+      }
+
       // Get research activity details
       const researchActivity = publication.researchActivityId ? await storage.getResearchActivity(publication.researchActivityId) : null;
       
@@ -4706,7 +4842,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }
       }
       
-      const publication = await storage.createPublication(publicationData);
+      const creatorUserId = req.session?.user?.id ?? null;
+      const publication = await storage.createPublication({
+        ...publicationData,
+        createdByUserId: creatorUserId,
+      } as any);
 
       // Create initial history entry for publication creation. Attribute it
       // to the session user so the timeline shows who created the record;
@@ -4715,7 +4855,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         publicationId: publication.id,
         fromStatus: '',
         toStatus: publication.status || 'Concept',
-        changedBy: req.session?.user?.id ?? 1,
+        changedBy: creatorUserId ?? 1,
         changeReason: 'Publication created',
       });
       
@@ -5612,7 +5752,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
             publicationDate,
           });
 
-          const publication = await storage.createPublication(publicationData);
+          const publication = await storage.createPublication({
+            ...publicationData,
+            createdByUserId: actorId,
+          } as any);
           await storage.createManuscriptHistoryEntry({
             publicationId: publication.id,
             fromStatus: "",
@@ -5663,7 +5806,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Publication Export  
-  app.post('/api/publications/export', async (req: Request, res: Response) => {
+  app.post('/api/publications/export', requirePublicationOfficer, async (req: Request, res: Response) => {
     try {
       const { startDate, endDate, journal, scientist, status } = req.body;
       
@@ -8292,22 +8435,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Validate supervisor and manager roles if provided
       if (parsedData.roomSupervisorId) {
         const supervisor = await storage.getScientist(parsedData.roomSupervisorId);
-        if (!supervisor || !supervisor.title || !supervisor.title.toLowerCase().includes('investigator')) {
+        if (!isRoomSupervisorEligible(supervisor)) {
           return res.status(400).json({ 
-            message: "Room supervisor must be a scientist with 'Investigator' in their title" 
+            message: ROOM_SUPERVISOR_ELIGIBILITY_MESSAGE,
           });
         }
       }
       
       if (parsedData.roomManagerId) {
         const manager = await storage.getScientist(parsedData.roomManagerId);
-        if (!manager || !manager.title || 
-            !(manager.title.toLowerCase().includes('staff') || 
-              manager.title.toLowerCase().includes('management') ||
-              manager.title.toLowerCase().includes('post-doctoral') ||
-              manager.title.toLowerCase().includes('research'))) {
+        if (!isRoomManagerEligible(manager)) {
           return res.status(400).json({ 
-            message: "Room manager must be a scientist with Management, Staff, Post-doctoral, or Research role" 
+            message: ROOM_MANAGER_ELIGIBILITY_MESSAGE,
           });
         }
       }
@@ -8336,22 +8475,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Validate supervisor and manager roles if being updated
       if (parsedData.roomSupervisorId) {
         const supervisor = await storage.getScientist(parsedData.roomSupervisorId);
-        if (!supervisor || !supervisor.title || !supervisor.title.toLowerCase().includes('investigator')) {
+        if (!isRoomSupervisorEligible(supervisor)) {
           return res.status(400).json({ 
-            message: "Room supervisor must be a scientist with 'Investigator' in their title" 
+            message: ROOM_SUPERVISOR_ELIGIBILITY_MESSAGE,
           });
         }
       }
       
       if (parsedData.roomManagerId) {
         const manager = await storage.getScientist(parsedData.roomManagerId);
-        if (!manager || !manager.title || 
-            !(manager.title.toLowerCase().includes('staff') || 
-              manager.title.toLowerCase().includes('management') ||
-              manager.title.toLowerCase().includes('post-doctoral') ||
-              manager.title.toLowerCase().includes('research'))) {
+        if (!isRoomManagerEligible(manager)) {
           return res.status(400).json({ 
-            message: "Room manager must be a scientist with Management, Staff, Post-doctoral, or Research role" 
+            message: ROOM_MANAGER_ELIGIBILITY_MESSAGE,
           });
         }
       }
@@ -8515,7 +8650,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.get('/api/journal-impact-factors/export', async (req: Request, res: Response) => {
+  app.get('/api/journal-impact-factors/export', requirePublicationOfficer, async (req: Request, res: Response) => {
     try {
       const year = parseInt(String(req.query.year ?? ''), 10);
       if (!Number.isFinite(year)) {
@@ -8630,7 +8765,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.patch('/api/journal-impact-factors/:id/field', async (req: Request, res: Response) => {
+  app.patch('/api/journal-impact-factors/:id/field', requirePublicationOfficer, async (req: Request, res: Response) => {
     try {
       const id = parseInt(req.params.id);
       if (isNaN(id)) {
@@ -8680,7 +8815,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post('/api/journal-impact-factors', async (req: Request, res: Response) => {
+  app.post('/api/journal-impact-factors', requirePublicationOfficer, async (req: Request, res: Response) => {
     try {
       const { insertJournalImpactFactorSchema } = await import("@shared/schema");
       const parsedData = insertJournalImpactFactorSchema.parse(req.body);
@@ -8701,7 +8836,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post('/api/journal-impact-factors/import-csv', async (req: Request, res: Response) => {
+  app.post('/api/journal-impact-factors/import-csv', requirePublicationOfficer, async (req: Request, res: Response) => {
     try {
       const { csvData } = req.body;
       if (!csvData || !Array.isArray(csvData)) {
@@ -8747,7 +8882,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.patch('/api/journal-impact-factors/:id', async (req: Request, res: Response) => {
+  app.patch('/api/journal-impact-factors/:id', requirePublicationOfficer, async (req: Request, res: Response) => {
     try {
       const id = parseInt(req.params.id);
       if (isNaN(id)) {
@@ -9122,7 +9257,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
             publicationDate,
           });
 
-          const publication = await storage.createPublication(publicationData);
+          const publication = await storage.createPublication({
+            ...publicationData,
+            createdByUserId: actorId,
+          } as any);
           await storage.createManuscriptHistoryEntry({
             publicationId: publication.id,
             fromStatus: "",
@@ -9154,7 +9292,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.delete('/api/journal-impact-factors/:id', async (req: Request, res: Response) => {
+  app.delete('/api/journal-impact-factors/:id', requirePublicationOfficer, async (req: Request, res: Response) => {
     try {
       const id = parseInt(req.params.id);
       if (isNaN(id)) {
@@ -9228,10 +9366,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.post('/api/grants', async (req: Request, res: Response) => {
     try {
-      const validatedData = insertGrantSchema.parse(nullifyEmptyStrings(req.body));
+      const parsedData = insertGrantSchema.parse(nullifyEmptyStrings(req.body));
+      const lifecycle = reconcileGrantLifecycle(parsedData);
+      const validatedData = insertGrantSchema.parse({
+        ...parsedData,
+        ...lifecycle,
+      });
       const grant = await storage.createGrant(validatedData);
       res.status(201).json(grant);
     } catch (error) {
+      if (error instanceof GrantLifecycleError) {
+        return res.status(400).json({ message: error.message });
+      }
       if (error instanceof ZodError) {
         return res.status(400).json({ 
           message: "Invalid grant data", 
@@ -9250,15 +9396,56 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).json({ message: "Invalid grant ID" });
       }
 
-      const validatedData = insertGrantSchema.partial().parse(nullifyEmptyStrings(req.body));
-      const grant = await storage.updateGrant(id, validatedData);
-      
-      if (!grant) {
+      const existingGrant = await storage.getGrant(id);
+      if (!existingGrant) {
         return res.status(404).json({ message: "Grant not found" });
       }
 
+      const {
+        researchActivityIds: rawResearchActivityIds,
+        ...rawGrantData
+      } = req.body ?? {};
+      const desiredResearchActivityIds = rawResearchActivityIds === undefined
+        ? undefined
+        : z.array(z.coerce.number().int().positive()).parse(rawResearchActivityIds);
+      const parsedData = insertGrantSchema.partial().parse(
+        nullifyEmptyStrings(rawGrantData),
+      );
+      const lifecycle = reconcileGrantLifecycle(parsedData, existingGrant);
+
+      if (existingGrant.awarded && !lifecycle.awarded) {
+        if (
+          desiredResearchActivityIds !== undefined &&
+          desiredResearchActivityIds.length > 0
+        ) {
+          return res.status(409).json({
+            message:
+              "Unlink all SDRs before clearing the Grant Awarded designation. Existing links were left unchanged.",
+          });
+        }
+      }
+
+      const validatedData = insertGrantSchema.partial().parse({
+        ...parsedData,
+        ...lifecycle,
+      });
+      const grant = await storage.updateGrantWithResearchActivities(
+        id,
+        validatedData,
+        desiredResearchActivityIds,
+      );
       res.json(grant);
     } catch (error) {
+      if (error instanceof GrantSdrLifecycleStorageError) {
+        const status = error.code === "GRANT_NOT_FOUND" ||
+          error.code === "RESEARCH_ACTIVITY_NOT_FOUND"
+          ? 404
+          : 409;
+        return res.status(status).json({ message: error.message });
+      }
+      if (error instanceof GrantLifecycleError) {
+        return res.status(400).json({ message: error.message });
+      }
       if (error instanceof ZodError) {
         console.error('Validation error:', fromZodError(error).toString());
         return res.status(400).json({ 
@@ -9285,6 +9472,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       res.status(204).send();
     } catch (error) {
+      if (error instanceof GrantSdrLifecycleStorageError) {
+        return res.status(409).json({ message: error.message });
+      }
       console.error('Error deleting grant:', error);
       res.status(500).json({ message: "Failed to delete grant" });
     }
@@ -9384,13 +9574,34 @@ export async function registerRoutes(app: Express): Promise<Server> {
         if (p.action === 'skip' || !p.data) continue;
         try {
           if (p.action === 'create') {
-            await storage.createGrant(insertGrantSchema.parse(p.data));
+            const parsedData = insertGrantSchema.parse(p.data);
+            const lifecycle = reconcileGrantLifecycle(parsedData);
+            await storage.createGrant(insertGrantSchema.parse({
+              ...parsedData,
+              ...lifecycle,
+            }));
             created++;
           } else {
             const existing = await storage.getGrants().then((gs: any[]) =>
               gs.find((g) => String(g.projectNumber).toLowerCase() === p.projectNumber.toLowerCase()));
             if (!existing) { failed.push({ rowNumber: p.rowNumber, projectNumber: p.projectNumber, reason: "Grant disappeared during import" }); continue; }
-            await storage.updateGrant(existing.id, insertGrantSchema.partial().parse(p.data));
+            const parsedData = insertGrantSchema.partial().parse(p.data);
+            const lifecycle = reconcileGrantLifecycle(parsedData, existing);
+            if (existing.awarded && !lifecycle.awarded) {
+              const linkedSdrs = await storage.getGrantResearchActivities(existing.id);
+              if (linkedSdrs.length > 0) {
+                throw new GrantLifecycleError(
+                  "Unlink all SDRs before clearing the Grant Awarded designation.",
+                );
+              }
+            }
+            await storage.updateGrantWithResearchActivities(
+              existing.id,
+              insertGrantSchema.partial().parse({
+                ...parsedData,
+                ...lifecycle,
+              }),
+            );
             updated++;
           }
         } catch (err) {
@@ -9434,9 +9645,33 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).json({ message: "Invalid grant or research activity ID" });
       }
 
+      const [grant, researchActivity] = await Promise.all([
+        storage.getGrant(grantId),
+        storage.getResearchActivity(researchActivityId),
+      ]);
+      if (!grant) {
+        return res.status(404).json({ message: "Grant not found" });
+      }
+      if (!researchActivity) {
+        return res.status(404).json({ message: "Research activity not found" });
+      }
+      if (!canGrantLinkSdrs(grant)) {
+        return res.status(409).json({
+          message:
+            "SDRs can only be linked after the grant has been awarded.",
+        });
+      }
+
       const relationship = await storage.addGrantResearchActivity(grantId, researchActivityId);
       res.status(201).json(relationship);
     } catch (error) {
+      if (error instanceof GrantSdrLifecycleStorageError) {
+        const status = error.code === "GRANT_NOT_FOUND" ||
+          error.code === "RESEARCH_ACTIVITY_NOT_FOUND"
+          ? 404
+          : 409;
+        return res.status(status).json({ message: error.message });
+      }
       console.error('Error linking grant to research activity:', error);
       res.status(500).json({ message: "Failed to link grant to research activity" });
     }
@@ -9514,6 +9749,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const grantId = parseInt(req.params.id);
       if (isNaN(grantId)) {
         return res.status(400).json({ message: "Invalid grant ID" });
+      }
+
+      const grant = await storage.getGrant(grantId);
+      if (!grant) {
+        return res.status(404).json({ message: "Grant not found" });
+      }
+      if (!grantStatusAllowsProgressTracking(grant.status)) {
+        return res.status(409).json({
+          message: "Progress reports are available after the grant becomes Active.",
+        });
       }
 
       const reportData = {
@@ -10510,6 +10755,104 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       console.error('Error deleting ownership override:', error);
       res.status(500).json({ message: 'Failed to delete ownership override' });
+    }
+  });
+
+  // Section-based, administrator-only structured data import/export hub.
+  // Uploaded documents, workflow history, credentials, and role assignments
+  // are intentionally outside this API.
+  app.get('/api/bulk-data/sections', requireAdmin, (_req: Request, res: Response) => {
+    res.json({ sections: BULK_DATA_SECTIONS });
+  });
+
+  const resolveBulkDataSection = (value: string): BulkDataSectionId => {
+    const sectionId = value as BulkDataSectionId;
+    getBulkDataSectionMeta(sectionId);
+    return sectionId;
+  };
+
+  app.get('/api/bulk-data/:sectionId/export', requireAdmin, async (req: Request, res: Response) => {
+    try {
+      const sectionId = resolveBulkDataSection(req.params.sectionId);
+      const section = getBulkDataSectionMeta(sectionId);
+      const workbook = await buildBulkDataExportWorkbook(sectionId);
+      const stamp = new Date().toISOString().slice(0, 10);
+      res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+      res.setHeader('Content-Disposition', `attachment; filename="${sectionId}-export-${stamp}.xlsx"`);
+      res.send(workbook);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Failed to export section data';
+      const status = message.startsWith('Unknown section') ? 400 : 500;
+      console.error('Bulk data export failed:', error);
+      res.status(status).json({ message });
+    }
+  });
+
+  app.get('/api/bulk-data/:sectionId/template', requireAdmin, async (req: Request, res: Response) => {
+    try {
+      const sectionId = resolveBulkDataSection(req.params.sectionId);
+      const workbook = await buildBulkDataTemplateWorkbook(sectionId);
+      res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+      res.setHeader('Content-Disposition', `attachment; filename="${sectionId}-import-template.xlsx"`);
+      res.send(workbook);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Failed to build import template';
+      const status = message.startsWith('Unknown section') ? 400 : 500;
+      console.error('Bulk data template failed:', error);
+      res.status(status).json({ message });
+    }
+  });
+
+  app.post('/api/bulk-data/:sectionId/preview', requireAdmin, async (req: Request, res: Response) => {
+    try {
+      const sectionId = resolveBulkDataSection(req.params.sectionId);
+      const { fileBase64, fileName } = req.body as { fileBase64?: string; fileName?: string };
+      if (!fileBase64 || !fileName) {
+        return res.status(400).json({ message: 'fileBase64 and fileName are required' });
+      }
+      if (!fileName.toLowerCase().endsWith('.xlsx')) {
+        return res.status(400).json({ message: 'Only .xlsx workbooks are supported' });
+      }
+      const preview = await previewBulkDataSection(sectionId, fileBase64, fileName);
+      res.json(preview);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Failed to preview section import';
+      console.error('Bulk data preview failed:', error);
+      res.status(400).json({ message });
+    }
+  });
+
+  app.post('/api/bulk-data/:sectionId/apply', requireAdmin, async (req: Request, res: Response) => {
+    try {
+      const sectionId = resolveBulkDataSection(req.params.sectionId);
+      const { fileBase64, fileName, fingerprint } = req.body as {
+        fileBase64?: string;
+        fileName?: string;
+        fingerprint?: string;
+      };
+      if (!fileBase64 || !fileName || !fingerprint) {
+        return res.status(400).json({ message: 'fileBase64, fileName, and fingerprint are required' });
+      }
+      const sessionUser = req.session.user;
+      const result = await applyBulkDataSection(
+        sectionId,
+        fileBase64,
+        fileName,
+        fingerprint,
+        {
+          userId: sessionUser?.id,
+          scientistId: sessionUser?.scientistId,
+          email: sessionUser?.email,
+        },
+      );
+      res.json(result);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Failed to apply section import';
+      const status = /fingerprint|preview|row error|unknown section|only \.xlsx|required|auditable applying user|limit|not found|duplicate/i.test(message)
+        ? 400
+        : 500;
+      console.error('Bulk data apply failed:', error);
+      res.status(status).json({ message });
     }
   });
 

@@ -579,6 +579,8 @@ export default function ScientistDetail() {
             hasOrcid={!!scientist.orcidId}
             hasScholar={!!scientist.googleScholarUrl}
             canImport={canImport}
+            demoViewerRole={authConfig.mode === "demo" ? currentUser.role : undefined}
+            demoViewerScientistId={authConfig.mode === "demo" ? currentUser.id : undefined}
           />
         )}
         </div>
@@ -619,7 +621,12 @@ export default function ScientistDetail() {
 
           {/* Publication Charts and Statistics - Only show for scientific staff */}
           {isScientificStaff && (
-            <PublicationCharts scientistId={id} yearsSince={5} />
+            <PublicationCharts
+              scientistId={id}
+              yearsSince={5}
+              demoViewerRole={authConfig.mode === "demo" ? currentUser.role : undefined}
+              demoViewerScientistId={authConfig.mode === "demo" ? currentUser.id : undefined}
+            />
           )}
           {isScientificStaff && <ScientistGrants scientistId={id} canExpand={isOwner} />}
         </div>

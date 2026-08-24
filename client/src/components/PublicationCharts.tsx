@@ -51,6 +51,8 @@ function pickIfRow(rows: JournalImpactFactor[], pubYear: number): JournalImpactF
 interface PublicationChartsProps {
   scientistId: number;
   yearsSince?: number;
+  demoViewerRole?: string;
+  demoViewerScientistId?: number;
 }
 
 const authorshipColors = {
@@ -65,13 +67,22 @@ const authorshipColors = {
 const authorshipOrder = ['First Author', 'Contributing Author', 'Second or Second Last Author', 'Last Author', 'Co-Last Author', 'Corresponding Author'];
 const chartAuthorshipOrder = ['First Author', 'Contributing Author', 'Second or Second Last Author', 'Last Author', 'Co-Last Author']; // Exclude Corresponding Author from chart to avoid overlap
 
-export function PublicationCharts({ scientistId, yearsSince = 5 }: PublicationChartsProps) {
+export function PublicationCharts({
+  scientistId,
+  yearsSince = 5,
+  demoViewerRole,
+  demoViewerScientistId,
+}: PublicationChartsProps) {
+  const queryParams = new URLSearchParams({ years: String(yearsSince) });
+  if (demoViewerRole) queryParams.set("viewerRole", demoViewerRole);
+  if (demoViewerScientistId) queryParams.set("viewerScientistId", String(demoViewerScientistId));
+
   const { data: publications = [], isLoading: pubLoading } = useQuery<Publication[]>({
-    queryKey: [`/api/scientists/${scientistId}/publications?years=${yearsSince}`],
+    queryKey: [`/api/scientists/${scientistId}/publications?${queryParams.toString()}`],
   });
 
   const { data: authorshipStats = [], isLoading: statsLoading } = useQuery<AuthorshipStats[]>({
-    queryKey: [`/api/scientists/${scientistId}/authorship-stats?years=${yearsSince}`],
+    queryKey: [`/api/scientists/${scientistId}/authorship-stats?${queryParams.toString()}`],
   });
 
   // Unique journals among publications that have a journal + date, so we fetch

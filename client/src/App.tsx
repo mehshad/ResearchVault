@@ -6,7 +6,7 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import NotFound from "@/pages/not-found";
 import Layout from "@/components/layout/Layout";
 import { PermissionsProvider } from "@/hooks/usePermissions";
-import { CurrentUserProvider } from "@/hooks/useCurrentUser";
+import { CurrentUserProvider } from "@/providers/CurrentUserProvider";
 import { AuthProvider } from "@/hooks/useAuth";
 import { ThemeProvider } from "@/contexts/ThemeContext";
 import GlobalColorModeInit from "@/components/GlobalColorModeInit";
@@ -129,6 +129,7 @@ import CertificationsPage from "@/pages/certifications";
 
 // Settings
 import SettingsPage from "@/pages/settings";
+import FeatureRequestsPage from "@/pages/feature-requests";
 import { useAuth, RequireAuth } from "@/hooks/useAuth";
 
 // Public Pages
@@ -249,7 +250,9 @@ function AppRouter() {
         <Route path="/publications/:id" component={PublicationDetail} />
         
         {/* Outcome Office */}
-        <Route path="/outcome-office" component={PublicationOffice} />
+        <Route path="/outcome-office">
+          <PublicationOffice />
+        </Route>
         
         {/* Patents */}
         <Route path="/patents" component={PatentsList} />
@@ -320,6 +323,7 @@ function AppRouter() {
         <Route path="/reports" component={ReportsPage} />
         
         {/* Settings */}
+        <Route path="/feature-requests" component={FeatureRequestsPage} />
         <Route path="/settings" component={SettingsPage} />
         <Route path="/settings/users" component={AdminUsersPage} />
         

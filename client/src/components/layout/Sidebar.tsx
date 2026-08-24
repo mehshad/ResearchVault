@@ -6,14 +6,15 @@ import {
   BookOpen, Award, FileText, Table, Handshake, PieChart,
   Settings, LogOut, UserPlus, X, Shield, Biohazard, Building,
   FolderTree, FileCheck, ShieldCheck, TestTube, TrendingUp, ChevronDown, Eye,
-  ClipboardList, Briefcase, ChevronLeft, ChevronRight, Home, UserCog
+  ClipboardList, Briefcase, ChevronLeft, ChevronRight, Home, UserCog, MessageSquarePlus
 } from "lucide-react";
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue
 } from "@/components/ui/select";
 import { usePermissions } from "@/hooks/usePermissions";
 import { useAuth } from "@/hooks/useAuth";
-import { useCurrentUser, DUMMY_USERS, SUPER_ADMIN_USER } from "@/hooks/useCurrentUser";
+import { useCurrentUser } from "@/hooks/useCurrentUser";
+import { DUMMY_USERS, SUPER_ADMIN_USER } from "@/lib/currentUserRoleData";
 import { useTheme, themes } from "@/contexts/ThemeContext";
 import qbridgeLogo from "@assets/image_1767775219373.png";
 
@@ -490,6 +491,14 @@ export default function Sidebar({ mobile = false, onClose, onCollapsedChange }: 
                   <Home className="w-4 h-4" />
                 </button>
               </Link>
+              <Link href="/feature-requests" title="Feature Request" onClick={() => { if (mobile && onClose) onClose(); }}>
+                <button
+                  className="p-2 rounded-lg text-muted-foreground hover:text-primary hover:bg-primary/10 transition-colors"
+                  data-testid="link-feature-requests"
+                >
+                  <MessageSquarePlus className="w-4 h-4" />
+                </button>
+              </Link>
               {(currentUser.role === 'admin' || currentUser.role === 'superadmin' || currentUser.role === 'Management') && (
                 <>
                   <Link href="/settings/users" title="Manage Users" onClick={() => { if (mobile && onClose) onClose(); }}>
@@ -521,6 +530,15 @@ export default function Sidebar({ mobile = false, onClose, onCollapsedChange }: 
                 <button className="flex flex-col items-center gap-0.5 text-muted-foreground hover:text-primary transition-colors p-1">
                   <Home className="w-4 h-4" />
                   <span className="text-[10px]">Home</span>
+                </button>
+              </Link>
+              <Link href="/feature-requests" title="Feature Request" onClick={() => { if (mobile && onClose) onClose(); }}>
+                <button
+                  className="flex flex-col items-center gap-0.5 text-muted-foreground hover:text-primary transition-colors p-1"
+                  data-testid="link-feature-requests"
+                >
+                  <MessageSquarePlus className="w-4 h-4" />
+                  <span className="text-[10px]">Request</span>
                 </button>
               </Link>
               {(currentUser.role === 'admin' || currentUser.role === 'superadmin' || currentUser.role === 'Management') && (

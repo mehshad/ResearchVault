@@ -7,6 +7,10 @@
 // "First Last" name against the scientists table.
 import ExcelJS from "exceljs";
 import type { Grant, InsertGrant, Scientist } from "@shared/schema";
+import {
+  GrantLifecycleError,
+  reconcileGrantLifecycle,
+} from "@shared/grantLifecycle";
 
 export const GRANT_COLUMNS: Array<{ header: string; key: string }> = [
   { header: "Project Number", key: "projectNumber" },
@@ -302,7 +306,9 @@ export function previewGrantRows(
     if (writes("cycle")) data.cycle = textVal("cycle");
     if (writes("investigatorType")) data.investigatorType = textVal("investigatorType");
     if (writes("grantType")) data.grantType = textVal("grantType");
-    if (writes("status") && row.status && !isClear(row.status)) data.status = row.status;
+    if (writes("status") && row.status && !isClear(row.status)) {
+      Object.assign(data, { status: row.status });
+    }
     if (writes("fundingAgency")) data.fundingAgency = textVal("fundingAgency");
     if (writes("requestedAmount")) data.requestedAmount = numVal("requestedAmount", "Requested Amount", parseAmountOrNull);
     if (writes("awardedAmount")) data.awardedAmount = numVal("awardedAmount", "Awarded Amount", parseAmountOrNull);
@@ -322,6 +328,18 @@ export function previewGrantRows(
     }
     if (writes("description")) data.description = textVal("description");
     if (lpiId !== undefined) data.lpiId = lpiId;
+
+    try {
+      const lifecycle = reconcileGrantLifecycle(data, existing);
+      data.status = lifecycle.status;
+      data.awarded = lifecycle.awarded;
+    } catch (error) {
+      errors.push(
+        error instanceof GrantLifecycleError
+          ? error.message
+          : "Invalid grant lifecycle data",
+      );
+    }
 
     if (errors.length > 0) return skip(errors.join("; "));
 

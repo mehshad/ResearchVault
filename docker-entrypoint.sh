@@ -47,10 +47,17 @@ for migration in \
     "migrations/20260816_publication_authors_attribution.sql" \
     "migrations/20260817_publications_alternate_dois.sql" \
     "migrations/20260817_fix_column_types.sql" \
-    "migrations/20260819_add_investigator_designation.sql"; do
+    "migrations/20260819_add_investigator_designation.sql" \
+    "migrations/20260820_grant_lifecycle_consistency.sql"; do
   if [ -f "/app/$migration" ]; then
     echo "  Applying $migration..."
-    psql "$DATABASE_URL" -f "/app/$migration" -v ON_ERROR_STOP=0 2>&1 | grep -v "^$\|already exists\|does not exist\|NOTICE" || true
+    if [ "$migration" = "migrations/20260820_grant_lifecycle_consistency.sql" ]; then
+      # This migration installs lifecycle constraints and concurrency guards.
+      # Do not start the application if those protections fail to apply.
+      psql "$DATABASE_URL" -f "/app/$migration" -v ON_ERROR_STOP=1
+    else
+      psql "$DATABASE_URL" -f "/app/$migration" -v ON_ERROR_STOP=0 2>&1 | grep -v "^$\|already exists\|does not exist\|NOTICE" || true
+    fi
   fi
 done
 echo "==> Migrations complete."

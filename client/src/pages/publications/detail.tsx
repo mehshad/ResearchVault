@@ -120,7 +120,20 @@ export default function PublicationDetail() {
   const [authorsValue, setAuthorsValue] = useState('');
 
   const { data: publication, isLoading: publicationLoading } = useQuery<Publication>({
-    queryKey: [`/api/publications/${id}`],
+    queryKey: [`/api/publications/${id}`, currentUser.role, currentUser.id],
+    queryFn: async () => {
+      const query = new URLSearchParams({
+        viewerRole: currentUser.role,
+        viewerScientistId: String(currentUser.id),
+        viewerUserId: String(currentUser.id),
+      });
+      if (canManageAllPublications) query.set("officeAccess", "true");
+      const response = await fetch(`/api/publications/${id}?${query.toString()}`, {
+        credentials: "include",
+      });
+      if (!response.ok) throw new Error("Publication not found");
+      return response.json();
+    },
   });
 
   // Query for journal impact factor

@@ -1,6 +1,6 @@
 // @ts-nocheck — Pre-existing TypeScript errors in this file are suppressed so `npx tsc --noEmit` runs clean and new code in other files gets reliable type-checking feedback.
 // Most errors here stem from untyped `useQuery` results (data inferred as `unknown`), drifted shared/schema field renames, and form values typed as `unknown`. They are not known runtime bugs but should be fixed file-by-file as each is next touched: remove this directive, run `npx tsc --noEmit`, and resolve what surfaces.
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useLocation, useRoute } from "wouter";
 import { ArrowLeft, DollarSign, Plus, FileText, Trash2, X } from "lucide-react";
@@ -21,6 +21,13 @@ import { Switch } from "@/components/ui/switch";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Label } from "@/components/ui/label";
 import { formatFullName } from "@/utils/nameUtils";
+import {
+  GRANT_STATUS_OPTIONS,
+  grantStatusAllowsProgressTracking,
+  grantStatusImpliesAward,
+  grantStatusRequiresStartDate,
+  canGrantLinkSdrs,
+} from "@shared/grantLifecycle";
 
 export default function EditGrant() {
   const [, navigate] = useLocation();
@@ -70,6 +77,7 @@ export default function EditGrant() {
     queryKey: [`/api/grants/${grantId}`],
     enabled: !!grantId,
   });
+  const canManageProgressReports = grantStatusAllowsProgressTracking(grant?.status);
 
   const { data: scientists = [] } = useQuery({
     queryKey: ['/api/scientists']
@@ -86,14 +94,14 @@ export default function EditGrant() {
 
   const { data: progressReports = [] } = useQuery({
     queryKey: [`/api/grants/${grantId}/progress-reports`],
-    enabled: !!grantId,
+    enabled: !!grantId && canManageProgressReports,
   });
 
-
-  // Load linked SDRs once
+  // Load linked SDRs once when server data arrives
   useEffect(() => {
-    if (grantSdrs) {
-      setLinkedSdrs(grantSdrs.map((sdr: any) => sdr.id));
+    if (grantSdrs && Array.isArray(grantSdrs)) {
+      const ids = grantSdrs.map((sdr: any) => sdr.id);
+      setLinkedSdrs(ids);
     }
   }, [grantSdrs?.length]);
 
@@ -125,37 +133,77 @@ export default function EditGrant() {
     }
   }, [grant]);
 
+  const handleStatusChange = (value: string) => {
+    if (
+      formData.awarded &&
+      !grantStatusImpliesAward(value) &&
+      value !== "cancelled"
+    ) {
+      toast({
+        title: "Clear the award designation first",
+        description:
+          value === "rejected"
+            ? "An awarded grant cannot be Rejected. Use Cancelled if the awarded project will not proceed."
+            : "Unlink any SDRs, then turn off Grant Awarded before returning to a pre-award status.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    setFormData((prev) => {
+      let awarded = prev.awarded;
+      // Moving to an award-implying status always sets awarded = true
+      if (grantStatusImpliesAward(value)) {
+        awarded = true;
+      }
+      return { ...prev, status: value, awarded };
+    });
+  };
+
+  const handleAwardedChange = (checked: boolean) => {
+    if (!checked) {
+      // Block turning off awarded while SDRs are linked
+      if (linkedSdrs.length > 0) {
+        toast({
+          title: "Cannot remove award designation",
+          description: `This grant has ${linkedSdrs.length} linked SDR${linkedSdrs.length > 1 ? "s" : ""}. Unlink all SDRs before removing the award designation.`,
+          variant: "destructive",
+        });
+        return;
+      }
+      // If current status implies award, reset to Pending
+      setFormData((prev) => ({
+        ...prev,
+        awarded: false,
+        status: grantStatusImpliesAward(prev.status) ? "pending" : prev.status,
+      }));
+    } else {
+      // Turning on: if current status is pre-award/rejected, move to Awarded
+      setFormData((prev) => ({
+        ...prev,
+        awarded: true,
+        status: grantStatusImpliesAward(prev.status) ? prev.status : "awarded",
+      }));
+    }
+  };
+
   const updateGrantMutation = useMutation({
     mutationFn: async (data: any) => {
-      // First update the grant
       const response = await fetch(`/api/grants/${grantId}`, {
         method: "PUT",
-        headers: {
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify(data),
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          ...data,
+          researchActivityIds: linkedSdrs,
+        }),
       });
       if (!response.ok) {
-        throw new Error('Failed to update grant');
-      }
-
-      // Then handle SDR links - remove all existing links and add new ones
-      const currentLinkedResponse = await fetch(`/api/grants/${grantId}/research-activities`);
-      const currentLinked = await currentLinkedResponse.json();
-      
-      // Remove all existing links
-      for (const linkedSdr of currentLinked) {
-        await fetch(`/api/grants/${grantId}/research-activities/${linkedSdr.id}`, {
-          method: 'DELETE',
-        });
-      }
-      
-      // Add new links
-      for (const sdrId of linkedSdrs) {
-        await fetch(`/api/grants/${grantId}/research-activities/${sdrId}`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-        });
+        let msg = "Failed to update grant";
+        try {
+          const body = await response.json();
+          msg = body.message || body.error || msg;
+        } catch (_) {}
+        throw new Error(msg);
       }
 
       return response.json();
@@ -181,9 +229,25 @@ export default function EditGrant() {
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    
-    // The form state is the single source of truth — it was seeded from the
-    // loaded grant, so whatever is in the fields is exactly what gets saved.
+
+    // Client-side date validation
+    if (grantStatusRequiresStartDate(formData.status) && !formData.startDate) {
+      toast({
+        title: "Validation Error",
+        description: `${GRANT_STATUS_OPTIONS.find(o => o.value === formData.status)?.label} grants require a start date.`,
+        variant: "destructive",
+      });
+      return;
+    }
+    if (formData.startDate && formData.endDate && formData.endDate < formData.startDate) {
+      toast({
+        title: "Validation Error",
+        description: "End date cannot be before the start date.",
+        variant: "destructive",
+      });
+      return;
+    }
+
     const collaborators = formData.collaborators
       ? formData.collaborators.split('\n').map((line) => line.trim()).filter(Boolean)
       : [];
@@ -206,7 +270,7 @@ export default function EditGrant() {
       awardedYear: toIntOrNull(formData.awardedYear),
       awarded: formData.awarded,
       runningTimeYears: toIntOrNull(formData.runningTimeYears),
-      currentGrantYear: formData.currentGrantYear || null, // Keep as string!
+      currentGrantYear: formData.currentGrantYear || null,
       startDate: formData.startDate || null,
       endDate: formData.endDate || null,
       reportingIntervalMonths: toIntOrNull(String(formData.reportingIntervalMonths ?? "")),
@@ -296,7 +360,6 @@ export default function EditGrant() {
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
-      // Validate file type
       if (file.type !== 'application/pdf') {
         toast({
           title: "Error",
@@ -305,8 +368,6 @@ export default function EditGrant() {
         });
         return;
       }
-      
-      // Validate file size (10MB limit)
       if (file.size > 10 * 1024 * 1024) {
         toast({
           title: "Error",
@@ -315,44 +376,31 @@ export default function EditGrant() {
         });
         return;
       }
-      
       setUploadedFile(file);
     }
   };
 
   const uploadFileToStorage = async (file: File): Promise<{filePath: string, fileName: string, fileSize: number}> => {
     setIsUploading(true);
-    
     try {
-      // Get upload URL
       const uploadResponse = await fetch('/api/objects/upload', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
       });
-      
       if (!uploadResponse.ok) {
         throw new Error('Failed to get upload URL');
       }
-      
       const { uploadURL } = await uploadResponse.json();
-      
-      // Upload file to storage
       const fileUploadResponse = await fetch(uploadURL, {
         method: 'PUT',
         body: file,
-        headers: {
-          'Content-Type': file.type,
-        },
+        headers: { 'Content-Type': file.type },
       });
-      
       if (!fileUploadResponse.ok) {
         throw new Error('Failed to upload file');
       }
-      
-      // Extract object path from upload URL
       const url = new URL(uploadURL);
       const objectPath = url.pathname;
-      
       return {
         filePath: objectPath,
         fileName: file.name,
@@ -365,7 +413,6 @@ export default function EditGrant() {
 
   const handleSubmitReport = async (e: React.FormEvent) => {
     e.preventDefault();
-    
     if (!reportFormData.reportTitle.trim()) {
       toast({
         title: "Error",
@@ -376,8 +423,6 @@ export default function EditGrant() {
     }
 
     let fileInfo = null;
-    
-    // Upload file if selected
     if (uploadedFile) {
       try {
         fileInfo = await uploadFileToStorage(uploadedFile);
@@ -413,6 +458,9 @@ export default function EditGrant() {
   if (!grant) {
     return <div className="p-6">Grant not found</div>;
   }
+
+  // SDR section is visible when awarded is true (includes Active and Completed)
+  const canLinkSdrs = canGrantLinkSdrs({ awarded: formData.awarded });
 
   return (
     <div className="container mx-auto p-6">
@@ -456,19 +504,17 @@ export default function EditGrant() {
                 </label>
                 <Select
                   value={formData.status}
-                  onValueChange={(value) => setFormData({...formData, status: value})}
+                  onValueChange={handleStatusChange}
                 >
                   <SelectTrigger>
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="submitted">Submitted</SelectItem>
-                    <SelectItem value="pending">Pending</SelectItem>
-                    <SelectItem value="in_review">In Review</SelectItem>
-                    <SelectItem value="active">Active</SelectItem>
-                    <SelectItem value="awarded">Awarded</SelectItem>
-                    <SelectItem value="rejected">Rejected</SelectItem>
-                    <SelectItem value="completed">Completed</SelectItem>
+                    {GRANT_STATUS_OPTIONS.map((opt) => (
+                      <SelectItem key={opt.value} value={opt.value}>
+                        {opt.label}
+                      </SelectItem>
+                    ))}
                   </SelectContent>
                 </Select>
               </div>
@@ -594,27 +640,31 @@ export default function EditGrant() {
                 />
               </div>
 
-              <div>
-                <label className="text-sm font-medium text-gray-700 mb-2 block dark:text-gray-300">
-                  Start Date
-                </label>
-                <Input
-                  type="date"
-                  value={formData.startDate}
-                  onChange={(e) => setFormData({...formData, startDate: e.target.value})}
-                />
-              </div>
+              {grantStatusAllowsProgressTracking(formData.status) && (
+                <>
+                  <div>
+                    <label className="text-sm font-medium text-gray-700 mb-2 block dark:text-gray-300">
+                      Start Date {grantStatusRequiresStartDate(formData.status) && <span className="text-red-500">*</span>}
+                    </label>
+                    <Input
+                      type="date"
+                      value={formData.startDate}
+                      onChange={(e) => setFormData({...formData, startDate: e.target.value})}
+                    />
+                  </div>
 
-              <div>
-                <label className="text-sm font-medium text-gray-700 mb-2 block dark:text-gray-300">
-                  End Date
-                </label>
-                <Input
-                  type="date"
-                  value={formData.endDate}
-                  onChange={(e) => setFormData({...formData, endDate: e.target.value})}
-                />
-              </div>
+                  <div>
+                    <label className="text-sm font-medium text-gray-700 mb-2 block dark:text-gray-300">
+                      End Date
+                    </label>
+                    <Input
+                      type="date"
+                      value={formData.endDate}
+                      onChange={(e) => setFormData({...formData, endDate: e.target.value})}
+                    />
+                  </div>
+                </>
+              )}
 
               <div>
                 <label className="text-sm font-medium text-gray-700 mb-2 block dark:text-gray-300">
@@ -687,18 +737,24 @@ export default function EditGrant() {
               </div>
             </div>
 
+            {/* Award Switch */}
             <div className="flex items-center justify-between rounded-lg border p-3 mt-4">
               <div className="space-y-0.5">
                 <label className="text-sm font-medium">Grant Awarded</label>
+                <p className="text-xs text-muted-foreground">
+                  {linkedSdrs.length > 0
+                    ? `${linkedSdrs.length} linked SDR${linkedSdrs.length > 1 ? "s" : ""} — unlink all to remove award designation`
+                    : "A lasting funding milestone required for SDR links"}
+                </p>
               </div>
               <Switch
                 checked={formData.awarded}
-                onCheckedChange={(checked) => setFormData({...formData, awarded: checked})}
+                onCheckedChange={handleAwardedChange}
               />
             </div>
 
-            {/* SDR Linking Section - Only show when grant is awarded */}
-            {formData.awarded && (
+            {/* SDR Linking Section — visible whenever awarded = true (includes Active & Completed) */}
+            {canLinkSdrs && (
               <div className="mt-6 border-t pt-4">
                 <h3 className="text-lg font-medium mb-4">Linked Research Activities (SDRs)</h3>
                 <div className="space-y-2 max-h-64 overflow-y-auto">
@@ -766,8 +822,8 @@ export default function EditGrant() {
           </CardContent>
         </Card>
 
-        {/* Progress Reports Section */}
-        <Card>
+        {/* Progress reports are available after the grant has been saved as Active. */}
+        {canManageProgressReports && <Card>
           <CardHeader>
             <CardTitle className="flex items-center justify-between">
               Progress Reports
@@ -834,7 +890,7 @@ export default function EditGrant() {
               </p>
             )}
           </CardContent>
-        </Card>
+        </Card>}
 
         <div className="flex justify-end gap-4">
           <Button 
@@ -854,7 +910,7 @@ export default function EditGrant() {
       </form>
 
       {/* Progress Report Modal */}
-      <Dialog open={showAddReport} onOpenChange={setShowAddReport}>
+      {canManageProgressReports && <Dialog open={showAddReport} onOpenChange={setShowAddReport}>
         <DialogContent className="max-w-md">
           <DialogHeader>
             <DialogTitle>Add Progress Report</DialogTitle>
@@ -959,7 +1015,7 @@ export default function EditGrant() {
             </div>
           </form>
         </DialogContent>
-      </Dialog>
+      </Dialog>}
     </div>
   );
 }

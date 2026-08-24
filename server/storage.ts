@@ -263,6 +263,11 @@ export interface IStorage {
   getGrantByProjectNumber(projectNumber: string): Promise<Grant | undefined>;
   createGrant(grant: InsertGrant): Promise<Grant>;
   updateGrant(id: number, grant: Partial<InsertGrant>): Promise<Grant | undefined>;
+  updateGrantWithResearchActivities(
+    id: number,
+    grant: Partial<InsertGrant>,
+    desiredResearchActivityIds?: number[],
+  ): Promise<Grant | undefined>;
   deleteGrant(id: number): Promise<boolean>;
 
   // System Configuration operations
