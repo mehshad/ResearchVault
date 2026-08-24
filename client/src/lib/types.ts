@@ -35,6 +35,11 @@ export interface EnhancedPublication extends Publication {
     id: number;
     title: string;
   };
+  researchActivity?: {
+    id: number;
+    sdrNumber: string;
+    title: string;
+  } | null;
 }
 
 export interface EnhancedPatent extends Patent {

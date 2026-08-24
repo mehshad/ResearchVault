@@ -537,7 +537,7 @@ export default function PublicationOffice({ embeddedTab }: PublicationOfficeProp
   const { data: ipVettingSourcePublications = [], isLoading: ipPublicationsLoading } = useQuery<Publication[]>({
     queryKey: ['/api/publications', 'ip-vetting'],
     queryFn: async () => {
-      const response = await fetch('/api/publications');
+      const response = await fetch('/api/publications?officeAccess=true');
       if (!response.ok) throw new Error('Failed to fetch publications');
       return response.json();
     },
@@ -594,7 +594,7 @@ export default function PublicationOffice({ embeddedTab }: PublicationOfficeProp
   const { data: newPublications = [], isLoading: newPublicationsLoading } = useQuery<Publication[]>({
     queryKey: ['/api/publications', 'new-publications'],
     queryFn: async () => {
-      const response = await fetch('/api/publications');
+      const response = await fetch('/api/publications?officeAccess=true');
       if (!response.ok) throw new Error('Failed to fetch publications');
       const publications = await response.json();
       // Surface publications that are NOT yet finalized/vetted by the office so

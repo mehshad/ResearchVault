@@ -9,6 +9,12 @@ import {
   normalizeJournalName,
 } from "./databaseStorage";
 import { resolveAuthorCheckSubject } from "./authorCheckSubject";
+import {
+  canViewPublication,
+  canViewUnpublishedScientistPublications,
+  isPublicScientistProfilePublicationStatus,
+  type ScientistPublicationViewer,
+} from "./scientistPublicationVisibility";
 import { ZodError, z } from "zod";
 import { fromZodError } from "zod-validation-error";
 import {
@@ -119,6 +125,32 @@ import {
 } from "./bulkDataHub";
 
 const isLocalStorage = process.env.STORAGE_TYPE === "local";
+
+function getScientistPublicationViewer(req: Request): ScientistPublicationViewer {
+  const viewer: ScientistPublicationViewer = {
+    userId: req.session.user?.id,
+    role: req.session.user?.role,
+    scientistId: req.session.user?.scientistId,
+  };
+
+  // The demo role selector is client-side. Honor these hints only in demo;
+  // real auth modes always rely exclusively on the signed-in server session.
+  if (getAuthMode() === "demo") {
+    if (typeof req.query.viewerUserId === "string") {
+      const demoUserId = parseInt(req.query.viewerUserId);
+      if (!isNaN(demoUserId)) viewer.userId = demoUserId;
+    }
+    if (typeof req.query.viewerRole === "string") {
+      viewer.role = req.query.viewerRole;
+    }
+    if (typeof req.query.viewerScientistId === "string") {
+      const demoScientistId = parseInt(req.query.viewerScientistId);
+      if (!isNaN(demoScientistId)) viewer.scientistId = demoScientistId;
+    }
+  }
+
+  return viewer;
+}
 
 function getObjectStorageService(): ObjectStorageService | LocalObjectStorageService {
   return isLocalStorage ? new LocalObjectStorageService() : new ObjectStorageService();
@@ -3080,8 +3112,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).json({ message: "Invalid scientist ID" });
       }
 
+      const scientist = await storage.getScientist(id);
+      if (!scientist) {
+        return res.status(404).json({ message: "Scientist not found" });
+      }
+
       const yearsSince = req.query.years ? parseInt(req.query.years as string) : 5;
-      const publications = await storage.getPublicationsForScientist(id, yearsSince);
+      const includeUnpublished = canViewUnpublishedScientistPublications(
+        getScientistPublicationViewer(req),
+        scientist,
+      );
+      const publications = await storage.getPublicationsForScientist(id, yearsSince, includeUnpublished);
       
       res.json(publications);
     } catch (error) {
@@ -3097,8 +3138,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).json({ message: "Invalid scientist ID" });
       }
 
+      const scientist = await storage.getScientist(id);
+      if (!scientist) {
+        return res.status(404).json({ message: "Scientist not found" });
+      }
+
       const yearsSince = req.query.years ? parseInt(req.query.years as string) : 5;
-      const stats = await storage.getAuthorshipStatsByYear(id, yearsSince);
+      const includeUnpublished = canViewUnpublishedScientistPublications(
+        getScientistPublicationViewer(req),
+        scientist,
+      );
+      const stats = await storage.getAuthorshipStatsByYear(id, yearsSince, includeUnpublished);
       
       res.json(stats);
     } catch (error) {
@@ -4355,6 +4405,33 @@ export async function registerRoutes(app: Express): Promise<Server> {
       } else {
         publications = await storage.getPublications();
       }
+
+      const hasOfficeAccess =
+        req.query.officeAccess === "true" &&
+        hasPublicationOfficerRole(req);
+      if (!hasOfficeAccess) {
+        const allAuthors = await storage.getAllPublicationAuthors();
+        const authorsByPublication = new Map<number, Array<{
+          scientistId: number;
+          supervisorId: number | null;
+        }>>();
+        for (const author of allAuthors) {
+          const linked = authorsByPublication.get(author.publicationId) ?? [];
+          linked.push({
+            scientistId: author.scientistId,
+            supervisorId: author.scientist.supervisorId,
+          });
+          authorsByPublication.set(author.publicationId, linked);
+        }
+        const viewer = getScientistPublicationViewer(req);
+        publications = publications.filter((publication) =>
+          canViewPublication(
+            viewer,
+            publication,
+            authorsByPublication.get(publication.id) ?? [],
+          )
+        );
+      }
       
       // Enhance publications with research activity details
       const enhancedPublications = await Promise.all(publications.map(async (pub) => {
@@ -4491,6 +4568,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
         storage.getAllPublicationAuthors(),
       ]);
 
+      let includeUnpublished = false;
+      if (typeof req.query.scientistId === "string") {
+        const targetScientist = await storage.getScientist(Number(req.query.scientistId));
+        includeUnpublished = !!targetScientist && canViewUnpublishedScientistPublications(
+          getScientistPublicationViewer(req),
+          targetScientist,
+        );
+      } else if (req.session.user?.scientistId) {
+        includeUnpublished = true;
+      }
+
       // Group internal author links by publication id.
       const authorsByPublication = new Map<number, (typeof allAuthors)>();
       for (const author of allAuthors) {
@@ -4500,6 +4588,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       const flagged = allPublications
+        .filter(pub =>
+          includeUnpublished ||
+          isPublicScientistProfilePublicationStatus(pub.status)
+        )
         // Only the target scientist/current user's likely publications.
         .filter(pub => matchesAuthorName(pub.authors, firstName, lastName))
         .map(pub => {
@@ -4666,6 +4758,25 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(404).json({ message: "Publication not found" });
       }
 
+      const hasOfficeAccess =
+        req.query.officeAccess === "true" &&
+        hasPublicationOfficerRole(req);
+      if (!hasOfficeAccess) {
+        const linkedAuthors = (await storage.getAllPublicationAuthors())
+          .filter((author) => author.publicationId === publication.id)
+          .map((author) => ({
+            scientistId: author.scientistId,
+            supervisorId: author.scientist.supervisorId,
+          }));
+        if (!canViewPublication(
+          getScientistPublicationViewer(req),
+          publication,
+          linkedAuthors,
+        )) {
+          return res.status(404).json({ message: "Publication not found" });
+        }
+      }
+
       // Get research activity details
       const researchActivity = publication.researchActivityId ? await storage.getResearchActivity(publication.researchActivityId) : null;
       
@@ -4731,7 +4842,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }
       }
       
-      const publication = await storage.createPublication(publicationData);
+      const creatorUserId = req.session?.user?.id ?? null;
+      const publication = await storage.createPublication({
+        ...publicationData,
+        createdByUserId: creatorUserId,
+      } as any);
 
       // Create initial history entry for publication creation. Attribute it
       // to the session user so the timeline shows who created the record;
@@ -4740,7 +4855,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         publicationId: publication.id,
         fromStatus: '',
         toStatus: publication.status || 'Concept',
-        changedBy: req.session?.user?.id ?? 1,
+        changedBy: creatorUserId ?? 1,
         changeReason: 'Publication created',
       });
       
@@ -5637,7 +5752,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
             publicationDate,
           });
 
-          const publication = await storage.createPublication(publicationData);
+          const publication = await storage.createPublication({
+            ...publicationData,
+            createdByUserId: actorId,
+          } as any);
           await storage.createManuscriptHistoryEntry({
             publicationId: publication.id,
             fromStatus: "",
@@ -9139,7 +9257,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
             publicationDate,
           });
 
-          const publication = await storage.createPublication(publicationData);
+          const publication = await storage.createPublication({
+            ...publicationData,
+            createdByUserId: actorId,
+          } as any);
           await storage.createManuscriptHistoryEntry({
             publicationId: publication.id,
             fromStatus: "",
@@ -10719,6 +10840,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         fileName,
         fingerprint,
         {
+          userId: sessionUser?.id,
           scientistId: sessionUser?.scientistId,
           email: sessionUser?.email,
         },

@@ -1319,6 +1319,7 @@ export interface ApplyResult {
 }
 
 export interface BulkApplyActor {
+  userId?: number | null;
   scientistId?: number | null;
   email?: string | null;
 }
@@ -3136,6 +3137,7 @@ export async function applySection(
     }
 
     let applyingScientistId: number | undefined;
+    const applyingUserId = actor?.userId ?? undefined;
     const createsAuditedRecord = preview.rows.some(
       (row) => (row.sheetName === "Certifications" || row.sheetName === "Publications")
         && row.action === "create",
@@ -3163,6 +3165,14 @@ export async function applySection(
           "Certification and Publication imports that create records require an auditable applying user linked to a scientist",
         );
       }
+    }
+    const createsPublication = preview.rows.some(
+      (row) => row.sheetName === "Publications" && row.action === "create",
+    );
+    if (createsPublication && !applyingUserId) {
+      throw new Error(
+        "Publication imports that create records require an auditable applying user account",
+      );
     }
 
     const transactionCounts: Record<string, ApplyCounts> = {};
@@ -3227,7 +3237,13 @@ export async function applySection(
           if (entry.action === "create") sheetCounts.created++;
           else sheetCounts.updated++;
         } else if (sheetName === "Publications") {
-          const applied = await applyPublicationRow(tx, entry, rowData, applyingScientistId);
+          const applied = await applyPublicationRow(
+            tx,
+            entry,
+            rowData,
+            applyingScientistId,
+            applyingUserId,
+          );
           if (!applied) sheetCounts.skipped++;
           else if (entry.action === "create") sheetCounts.created++;
           else sheetCounts.updated++;
@@ -3599,24 +3615,29 @@ async function applyPublicationRow(
   entry: RowEntry,
   data: Record<string, unknown>,
   applyingScientistId?: number,
+  applyingUserId?: number,
 ): Promise<boolean> {
   const { id, ...payload } = data;
   if (entry.action === "create") {
     if (!applyingScientistId) {
       throw new Error("Publication create is missing an auditable applying scientist");
     }
+    if (!applyingUserId) {
+      throw new Error("Publication create is missing an auditable applying user account");
+    }
     const [created] = await tx.insert(publications).values({
       ...payload,
       title: String(payload.title ?? ""),
       status: "Concept",
       vettedForSubmissionByIpOffice: false,
+      createdByUserId: applyingUserId,
     }).returning({ id: publications.id });
     requireUpdatedRow(created, "Publication", entry.key);
     await tx.insert(manuscriptHistory).values({
       publicationId: created.id,
       fromStatus: "",
       toStatus: "Concept",
-      changedBy: applyingScientistId,
+      changedBy: applyingUserId,
       changeReason: "Publication created",
     });
     return true;

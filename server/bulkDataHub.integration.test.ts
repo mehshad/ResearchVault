@@ -19,6 +19,7 @@ import {
   manuscriptHistory,
   journals,
   journalImpactFactorMetrics,
+  users,
 } from "@shared/schema";
 import { db } from "./db.js";
 import { applySection, previewSection } from "./bulkDataHub.js";
@@ -577,6 +578,14 @@ integrationTest("Research Output combined publication and JIF workbook is idempo
   const [actor] = await db.insert(scientists).values({
     email: actorEmail, honorificTitle: "Dr", firstName: "Output", lastName: "Actor", staffType: "administrative",
   }).returning({ id: scientists.id });
+  const [actorUser] = await db.insert(users).values({
+    username: suffix,
+    password: "",
+    name: "Output Actor",
+    email: actorEmail,
+    role: "admin",
+    scientistId: actor.id,
+  }).returning({ id: users.id });
   t.after(async () => {
     const pubs = await db.select().from(publications).where(eq(publications.doi, doi));
     if (pubs.length) {
@@ -590,6 +599,7 @@ integrationTest("Research Output combined publication and JIF workbook is idempo
       await db.delete(journalImpactFactorMetrics).where(inArray(journalImpactFactorMetrics.journalId, journalIds));
       await db.delete(journals).where(inArray(journals.id, journalIds));
     }
+    await db.delete(users).where(eq(users.id, actorUser.id));
     await db.delete(scientists).where(eq(scientists.id, actor.id));
   });
   const createFile = await workbookBase64([
@@ -608,13 +618,14 @@ integrationTest("Research Output combined publication and JIF workbook is idempo
   assert.equal(preview.canApply, true);
   assert.equal(preview.rows.filter((row) => row.action === "create").length, 2);
   const applied = await applySection("research-output", createFile, "combined-output.xlsx", preview.fingerprint, {
-    scientistId: actor.id, email: actorEmail,
+    userId: actorUser.id, scientistId: actor.id, email: actorEmail,
   });
   assert.deepEqual(applied.counts.Publications, { created: 1, updated: 0, skipped: 0 });
   assert.deepEqual(applied.counts["Journal Impact Factors"], { created: 1, updated: 0, skipped: 0 });
   const [createdPublication] = await db.select().from(publications).where(eq(publications.doi, doi));
   assert.ok(createdPublication);
   assert.equal(createdPublication.doi, doi, "DOI URLs must be persisted in canonical lowercase form");
+  assert.equal(createdPublication.createdByUserId, actorUser.id);
   const second = await previewSection("research-output", createFile, "combined-output.xlsx");
   assert.equal(second.rows.every((row) => row.action === "skip"), true);
 

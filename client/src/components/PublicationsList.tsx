@@ -75,6 +75,8 @@ interface PublicationsListProps {
   yearsSince?: number;
   /** Render as a section inside another card (no own Card chrome). */
   embedded?: boolean;
+  demoViewerRole?: string;
+  demoViewerScientistId?: number;
 }
 
 const authorshipColors = {
@@ -109,7 +111,17 @@ function getPublicationIssues(pub: Publication, ifChecked: boolean, hasImpactFac
   return issues;
 }
 
-function PublicationRow({ pub, isOpen, onToggle }: { pub: Publication; isOpen: boolean; onToggle: () => void }) {
+function PublicationRow({
+  pub,
+  isOpen,
+  onToggle,
+  showStatus = false,
+}: {
+  pub: Publication;
+  isOpen: boolean;
+  onToggle: () => void;
+  showStatus?: boolean;
+}) {
   const [, navigate] = useLocation();
   const year = pub.publicationDate ? format(new Date(pub.publicationDate), 'yyyy') : null;
   const displayAuthorship = (pub.authorshipType ?? '').split(',').map(type => {
@@ -150,6 +162,15 @@ function PublicationRow({ pub, isOpen, onToggle }: { pub: Publication; isOpen: b
             >
               {displayAuthorship || 'Unknown authorship'}
             </Badge>
+            {showStatus && (
+              <Badge
+                variant="outline"
+                data-testid={`badge-status-publication-${pub.id}`}
+                className="text-xs font-medium border-amber-300 bg-amber-50 text-amber-800 dark:border-amber-800 dark:bg-amber-950/50 dark:text-amber-300"
+              >
+                {pub.status?.trim() || 'Unpublished'}
+              </Badge>
+            )}
           </div>
         </div>
         {issues.length > 0 && (
@@ -236,12 +257,21 @@ function PublicationRow({ pub, isOpen, onToggle }: { pub: Publication; isOpen: b
 
 type YearsMode = "3" | "5" | "all";
 
-export function PublicationsList({ scientistId, yearsSince = 5, embedded = false }: PublicationsListProps) {
+export function PublicationsList({
+  scientistId,
+  yearsSince = 5,
+  embedded = false,
+  demoViewerRole,
+  demoViewerScientistId,
+}: PublicationsListProps) {
   const [expandedIds, setExpandedIds] = React.useState<Set<number>>(new Set());
   const [yearsMode, setYearsMode] = React.useState<YearsMode>(
     yearsSince === 3 ? "3" : "5"
   );
   const yearsParam = yearsMode === "all" ? 100 : parseInt(yearsMode, 10);
+  const queryParams = new URLSearchParams({ years: String(yearsParam) });
+  if (demoViewerRole) queryParams.set("viewerRole", demoViewerRole);
+  if (demoViewerScientistId) queryParams.set("viewerScientistId", String(demoViewerScientistId));
   const toggleExpanded = (id: number) => {
     setExpandedIds((prev) => {
       const next = new Set(prev);
@@ -250,7 +280,7 @@ export function PublicationsList({ scientistId, yearsSince = 5, embedded = false
     });
   };
   const { data: publications = [], isLoading } = useQuery({
-    queryKey: [`/api/scientists/${scientistId}/publications?years=${yearsParam}`],
+    queryKey: [`/api/scientists/${scientistId}/publications?${queryParams.toString()}`],
   });
 
   const { toast } = useToast();
@@ -319,20 +349,31 @@ export function PublicationsList({ scientistId, yearsSince = 5, embedded = false
     }
   };
 
-  // Split preprints out on top, then group the rest by publication year (desc).
+  // Show unpublished work first, followed by published preprints, then group
+  // the remaining published records by publication year (desc).
   // NOTE: prepublicationSite is deliberately blanked before classification — a
   // published record that absorbed a merged preprint retains the preprint's
   // site/link for provenance, and that retained linkage must not reclassify
   // the published survivor as a preprint. DOI prefix, publication type, and
   // journal text are sufficient to identify true preprint records.
-  const preprints = publications.filter((p: Publication) =>
-    isPreprintRecord({ ...p, prepublicationSite: null, prepublicationUrl: null })
+  const isPublishedStatus = (status: string | null | undefined) => {
+    const normalized = status?.trim().toLowerCase();
+    return normalized === "published" || normalized === "published *";
+  };
+  const unpublished = publications.filter(
+    (p: Publication) => !isPublishedStatus(p.status)
+  );
+  const unpublishedIds = new Set(unpublished.map((p: Publication) => p.id));
+  const preprints = publications.filter(
+    (p: Publication) =>
+      isPublishedStatus(p.status) &&
+      isPreprintRecord({ ...p, prepublicationSite: null, prepublicationUrl: null })
   );
   const preprintIds = new Set(preprints.map((p: Publication) => p.id));
   const yearGroups = React.useMemo(() => {
     const groups = new Map<string, Publication[]>();
     for (const pub of publications as Publication[]) {
-      if (preprintIds.has(pub.id)) continue;
+      if (unpublishedIds.has(pub.id) || preprintIds.has(pub.id)) continue;
       let key = "No date";
       if (pub.publicationDate) {
         const d = new Date(pub.publicationDate);
@@ -435,6 +476,20 @@ export function PublicationsList({ scientistId, yearsSince = 5, embedded = false
             <p className="text-gray-600 text-center py-8 dark:text-gray-300">No publications found for the selected time period.</p>
           ) : (
             <>
+              {unpublished.length > 0 && (
+                <>
+                  {sectionHeader("Unpublished", unpublished.length)}
+                  {unpublished.map((pub: Publication) => (
+                    <PublicationRow
+                      key={pub.id}
+                      pub={pub}
+                      isOpen={expandedIds.has(pub.id)}
+                      onToggle={() => toggleExpanded(pub.id)}
+                      showStatus
+                    />
+                  ))}
+                </>
+              )}
               {preprints.length > 0 && (
                 <>
                   {sectionHeader("Pre-publications", preprints.length)}

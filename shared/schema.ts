@@ -301,12 +301,14 @@ export const publications = pgTable("publications", {
   // DOI merged away as a duplicate). Kept so ORCID/Scholar re-syncs never
   // resurface a merged-away record as a "missing" publication.
   alternateDois: text("alternate_dois").array(),
+  createdByUserId: integer("created_by_user_id").references(() => users.id),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 });
 
 export const insertPublicationSchema = createInsertSchema(publications).omit({
   id: true,
+  createdByUserId: true,
   createdAt: true,
   updatedAt: true,
 }).extend({

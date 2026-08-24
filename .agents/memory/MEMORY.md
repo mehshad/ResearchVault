@@ -18,3 +18,4 @@
 - [Bulk import preview integrity](bulk-import-preview-integrity.md) — verify signed previews under section table locks in the same transaction; key matching is case-insensitive end to end.
 - [Publication bulk identity consistency](publication-bulk-identity-consistency.md) — resolve ID/DOI/PMID/composite together; reject conflicts, never priority-short-circuit.
 - [HMR-stable React contexts](hmr-stable-react-contexts.md) — separate context, provider, hook, and changing fixtures so Vite cannot split context identity.
+- [Unpublished publication visibility](unpublished-publication-visibility.md) — creator/author/direct-manager access is default; Outcome Office uses an explicit authorized view.

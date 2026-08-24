@@ -77,6 +77,20 @@ const SERVER_ENFORCED_RULES = [
       "Only an Outcome Officer or higher authority can move a Complete Draft through IP vetting. Published records are sealed from ordinary changes; researcher corrections are limited to linked records.",
   },
   {
+    category: "Publication visibility",
+    title: "Unpublished publications are relationship-restricted",
+    appliesTo: "Publication lists, direct publication details, staff profiles, profile charts, counts, filters, and author-link checks",
+    enforcement:
+      "Published and Published * records remain generally visible. An unpublished record is visible only to its creator, a linked internal author, the direct line manager of a linked author, or Management/administrators. Creator access remains valid even when no authors are linked.",
+  },
+  {
+    category: "Publication visibility",
+    title: "Outcome Office access is limited to the authorized office view",
+    appliesTo: "Outcome Office publication queues and the ordinary Publications page",
+    enforcement:
+      "Outcome Officers can review all publication workflow records inside the server-authorized office view. That office authority does not expose unrelated unpublished records on the ordinary Publications list or through an ordinary direct-detail request.",
+  },
+  {
     category: "Staff data",
     title: "Bulk staff imports are restricted",
     appliesTo: "Staff import preview and apply actions",
