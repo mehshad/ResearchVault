@@ -293,7 +293,7 @@ export default function Sidebar({ mobile = false, onClose, onCollapsedChange }: 
         mobile ? "h-full w-64" : ""
       )}>
         {/* Logo/Brand */}
-        <div className="h-20 flex items-center border-b border-primary/30 bg-primary px-2 overflow-hidden">
+        <div className="h-28 flex items-center border-b border-primary/30 bg-primary px-2 overflow-hidden">
           {/* Logo image — always visible */}
           <img
             src={qbridgeLogo}
@@ -310,7 +310,7 @@ export default function Sidebar({ mobile = false, onClose, onCollapsedChange }: 
               <div className="font-semibold text-sm text-white leading-tight truncate">
                 Q-BRIDGE
               </div>
-              <div className="text-xs text-white/90 leading-snug line-clamp-2">
+              <div className="text-xs text-white/90 leading-snug">
                 Qatar Biomedical Research Inter-Institutional Data &amp; Governance Ecosystem
               </div>
               <div className="text-xs text-white/70 leading-tight mt-0.5 truncate">
