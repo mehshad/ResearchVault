@@ -59,6 +59,10 @@ export default function CreateGrant() {
       cycle: "",
       status: "pending",
       fundingAgency: "",
+      sourceCategory: "",
+      sourceRecordKey: "",
+      submittingInstitution: "",
+      coInvestigators: [],
       investigatorType: "Researcher",
       lpiId: undefined,
       requestedAmount: "",
@@ -67,6 +71,11 @@ export default function CreateGrant() {
       awardedYear: undefined,
       runningTimeYears: undefined,
       currentGrantYear: undefined,
+      subawardCompletedYear: undefined,
+      durationMonths: undefined,
+      contributionType: "",
+      contributionDetails: "",
+      currency: "QAR",
       collaborators: [],
     },
   });
@@ -81,10 +90,23 @@ export default function CreateGrant() {
         .split('\n')
         .map(line => line.trim())
         .filter(line => line.length > 0);
+      const rawFormValues = form.getValues();
+      const coInvestigators = (rawFormValues.coInvestigators || [])
+        .map((name) => name.trim())
+        .filter(Boolean);
 
       const payload = {
         ...data,
         collaborators,
+        coInvestigators,
+        sourceCategory: rawFormValues.sourceCategory || null,
+        sourceRecordKey: rawFormValues.sourceRecordKey || null,
+        submittingInstitution: rawFormValues.submittingInstitution || null,
+        subawardCompletedYear: rawFormValues.subawardCompletedYear || null,
+        contributionType: rawFormValues.contributionType || null,
+        contributionDetails: rawFormValues.contributionDetails || null,
+        durationMonths: rawFormValues.durationMonths || null,
+        currency: rawFormValues.currency || null,
         awarded,
         startDate: startDate || null,
         endDate: endDate || null,
@@ -309,6 +331,18 @@ export default function CreateGrant() {
                   />
                 </div>
 
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mt-4">
+                  <FormField control={form.control} name="sourceCategory" render={({ field }) => (
+                    <FormItem><FormLabel>Grant Source/Category</FormLabel><FormControl><Input {...field} placeholder="e.g., Internal, External" /></FormControl><FormMessage /></FormItem>
+                  )} />
+                  <FormField control={form.control} name="sourceRecordKey" render={({ field }) => (
+                    <FormItem><FormLabel>Source Record Key</FormLabel><FormControl><Input {...field} placeholder="Source system reference" /></FormControl><FormMessage /></FormItem>
+                  )} />
+                  <FormField control={form.control} name="submittingInstitution" render={({ field }) => (
+                    <FormItem><FormLabel>Submitting Institution</FormLabel><FormControl><Input {...field} placeholder="Institution name" /></FormControl><FormMessage /></FormItem>
+                  )} />
+                </div>
+
                 <div className="mt-4">
                   <FormField
                     control={form.control}
@@ -405,6 +439,9 @@ export default function CreateGrant() {
                         </FormItem>
                       )}
                     />
+                    <FormField control={form.control} name="currency" render={({ field }) => (
+                      <FormItem><FormLabel>Currency</FormLabel><FormControl><Input {...field} placeholder="QAR" /></FormControl><FormMessage /></FormItem>
+                    )} />
                   </div>
 
                   {/* Awarded Switch */}
@@ -466,6 +503,12 @@ export default function CreateGrant() {
                         </FormItem>
                       )}
                     />
+                    <FormField control={form.control} name="durationMonths" render={({ field }) => (
+                      <FormItem><FormLabel>Duration (Months)</FormLabel><FormControl><Input {...field} type="number" placeholder="36" onChange={(e) => field.onChange(e.target.value ? parseInt(e.target.value) : undefined)} /></FormControl><FormMessage /></FormItem>
+                    )} />
+                    <FormField control={form.control} name="subawardCompletedYear" render={({ field }) => (
+                      <FormItem><FormLabel>Subaward Completed Year</FormLabel><FormControl><Input {...field} type="number" placeholder="2024" onChange={(e) => field.onChange(e.target.value ? parseInt(e.target.value) : undefined)} /></FormControl><FormMessage /></FormItem>
+                    )} />
                   </div>
 
                   {grantStatusAllowsProgressTracking(currentStatus) && (
@@ -548,24 +591,28 @@ export default function CreateGrant() {
               </Card>
             </div>
 
-            {/* Collaborators */}
+            {/* Contributions & Collaborators */}
             <Card>
               <CardHeader>
-                <CardTitle>Collaborators</CardTitle>
+                <CardTitle>Contributions & Collaborators</CardTitle>
               </CardHeader>
               <CardContent>
-                <div>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+                  <FormField control={form.control} name="contributionType" render={({ field }) => (
+                    <FormItem><FormLabel>Contribution Type</FormLabel><FormControl><Input {...field} placeholder="e.g., Financial, In-kind" /></FormControl><FormMessage /></FormItem>
+                  )} />
+                  <FormField control={form.control} name="contributionDetails" render={({ field }) => (
+                    <FormItem><FormLabel>Contribution Details</FormLabel><FormControl><Input {...field} placeholder="Describe the contribution" /></FormControl><FormMessage /></FormItem>
+                  )} />
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <label htmlFor="collaborators" className="text-sm font-medium text-gray-700 mb-2 block dark:text-gray-300">
                     Collaborators (one per line)
+                    <Textarea id="collaborators" value={collaboratorsInput} onChange={(e) => setCollaboratorsInput(e.target.value)} placeholder="Dr. John Smith, University of Example&#10;Dr. Jane Doe, Research Institute&#10;..." rows={3} className="w-full mt-2" />
                   </label>
-                  <Textarea
-                    id="collaborators"
-                    value={collaboratorsInput}
-                    onChange={(e) => setCollaboratorsInput(e.target.value)}
-                    placeholder="Dr. John Smith, University of Example&#10;Dr. Jane Doe, Research Institute&#10;..."
-                    rows={3}
-                    className="w-full"
-                  />
+                  <FormField control={form.control} name="coInvestigators" render={({ field }) => (
+                    <FormItem><FormLabel>Co-Investigators (one per line)</FormLabel><FormControl><Textarea value={Array.isArray(field.value) ? field.value.join("\n") : ""} onChange={(e) => field.onChange(e.target.value.split("\n"))} placeholder="Dr. John Smith&#10;Dr. Jane Doe" rows={3} /></FormControl><FormMessage /></FormItem>
+                  )} />
                 </div>
               </CardContent>
             </Card>

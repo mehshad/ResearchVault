@@ -45,6 +45,10 @@ export default function EditGrant() {
     status: "submitted",
     grantType: "Local",
     fundingAgency: "",
+    sourceCategory: "",
+    sourceRecordKey: "",
+    submittingInstitution: "",
+    coInvestigators: "",
     investigatorType: "Researcher",
     lpiId: "",
     requestedAmount: "",
@@ -58,6 +62,11 @@ export default function EditGrant() {
     endDate: "",
     reportingIntervalMonths: "",
     collaborators: "",
+    subawardCompletedYear: "",
+    contributionType: "",
+    contributionDetails: "",
+    durationMonths: "",
+    currency: "QAR",
   });
 
   const [linkedSdrs, setLinkedSdrs] = useState<number[]>([]);
@@ -116,6 +125,10 @@ export default function EditGrant() {
         status: grant.status || "submitted",
         grantType: grant.grantType || "Local",
         fundingAgency: grant.fundingAgency || "",
+        sourceCategory: grant.sourceCategory || "",
+        sourceRecordKey: grant.sourceRecordKey || "",
+        submittingInstitution: grant.submittingInstitution || "",
+        coInvestigators: Array.isArray(grant.coInvestigators) ? grant.coInvestigators.join('\n') : "",
         investigatorType: grant.investigatorType || "Researcher",
         lpiId: grant.lpiId?.toString() || "",
         requestedAmount: grant.requestedAmount?.toString() || "",
@@ -129,6 +142,11 @@ export default function EditGrant() {
         endDate: grant.endDate ? grant.endDate.split('T')[0] : "",
         reportingIntervalMonths: grant.reportingIntervalMonths?.toString() || "",
         collaborators: Array.isArray(grant.collaborators) ? grant.collaborators.join('\n') : "",
+        subawardCompletedYear: grant.subawardCompletedYear?.toString() || "",
+        contributionType: grant.contributionType || "",
+        contributionDetails: grant.contributionDetails || "",
+        durationMonths: grant.durationMonths?.toString() || "",
+        currency: grant.currency || "QAR",
       });
     }
   }, [grant]);
@@ -251,6 +269,9 @@ export default function EditGrant() {
     const collaborators = formData.collaborators
       ? formData.collaborators.split('\n').map((line) => line.trim()).filter(Boolean)
       : [];
+    const coInvestigators = formData.coInvestigators
+      ? formData.coInvestigators.split('\n').map((line) => line.trim()).filter(Boolean)
+      : [];
 
     const toIntOrNull = (v: string) => (v && String(v).trim() ? parseInt(String(v)) : null);
 
@@ -262,6 +283,10 @@ export default function EditGrant() {
       status: formData.status,
       grantType: formData.grantType || null,
       fundingAgency: formData.fundingAgency || null,
+      sourceCategory: formData.sourceCategory || null,
+      sourceRecordKey: formData.sourceRecordKey || null,
+      submittingInstitution: formData.submittingInstitution || null,
+      coInvestigators,
       investigatorType: formData.investigatorType || null,
       lpiId: formData.lpiId && formData.lpiId.trim() ? parseInt(formData.lpiId) : null,
       requestedAmount: formData.requestedAmount || null,
@@ -274,6 +299,11 @@ export default function EditGrant() {
       startDate: formData.startDate || null,
       endDate: formData.endDate || null,
       reportingIntervalMonths: toIntOrNull(String(formData.reportingIntervalMonths ?? "")),
+      subawardCompletedYear: toIntOrNull(formData.subawardCompletedYear),
+      contributionType: formData.contributionType || null,
+      contributionDetails: formData.contributionDetails || null,
+      durationMonths: toIntOrNull(formData.durationMonths),
+      currency: formData.currency || null,
       collaborators,
     };
 
@@ -549,6 +579,21 @@ export default function EditGrant() {
               </div>
             </div>
 
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mt-4">
+              <div>
+                <label className="text-sm font-medium text-gray-700 mb-2 block dark:text-gray-300">Grant Source/Category</label>
+                <Input value={formData.sourceCategory} onChange={(e) => setFormData({...formData, sourceCategory: e.target.value})} placeholder="e.g., Internal, External" />
+              </div>
+              <div>
+                <label className="text-sm font-medium text-gray-700 mb-2 block dark:text-gray-300">Source Record Key</label>
+                <Input value={formData.sourceRecordKey} onChange={(e) => setFormData({...formData, sourceRecordKey: e.target.value})} placeholder="Source system reference" />
+              </div>
+              <div>
+                <label className="text-sm font-medium text-gray-700 mb-2 block dark:text-gray-300">Submitting Institution</label>
+                <Input value={formData.submittingInstitution} onChange={(e) => setFormData({...formData, submittingInstitution: e.target.value})} placeholder="Institution name" />
+              </div>
+            </div>
+
             {/* Project Title - Full Width */}
             <div className="mt-4">
               <label className="text-sm font-medium text-gray-700 mb-2 block dark:text-gray-300">
@@ -700,7 +745,7 @@ export default function EditGrant() {
             <CardTitle>Grant Details</CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
               <div>
                 <label className="text-sm font-medium text-gray-700 mb-2 block dark:text-gray-300">
                   Requested Amount
@@ -734,6 +779,21 @@ export default function EditGrant() {
                   onChange={(e) => setFormData({...formData, awardedYear: e.target.value})}
                   placeholder="2024"
                 />
+              </div>
+              <div>
+                <label className="text-sm font-medium text-gray-700 mb-2 block dark:text-gray-300">Currency</label>
+                <Input value={formData.currency} onChange={(e) => setFormData({...formData, currency: e.target.value})} placeholder="QAR" />
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
+              <div>
+                <label className="text-sm font-medium text-gray-700 mb-2 block dark:text-gray-300">Contribution Type</label>
+                <Input value={formData.contributionType} onChange={(e) => setFormData({...formData, contributionType: e.target.value})} placeholder="e.g., Financial, In-kind" />
+              </div>
+              <div>
+                <label className="text-sm font-medium text-gray-700 mb-2 block dark:text-gray-300">Contribution Details</label>
+                <Input value={formData.contributionDetails} onChange={(e) => setFormData({...formData, contributionDetails: e.target.value})} placeholder="Describe the contribution" />
               </div>
             </div>
 
@@ -806,18 +866,44 @@ export default function EditGrant() {
                   placeholder="e.g., 12 for annual reports"
                 />
               </div>
+              <div>
+                <label className="text-sm font-medium text-gray-700 mb-2 block dark:text-gray-300">
+                  Duration (Months)
+                </label>
+                <Input
+                  type="number"
+                  min="1"
+                  value={formData.durationMonths}
+                  onChange={(e) => setFormData({...formData, durationMonths: e.target.value})}
+                  placeholder="e.g., 36"
+                />
+              </div>
+              <div>
+                <label className="text-sm font-medium text-gray-700 mb-2 block dark:text-gray-300">
+                  Subaward Completed Year
+                </label>
+                <Input
+                  type="number"
+                  value={formData.subawardCompletedYear}
+                  onChange={(e) => setFormData({...formData, subawardCompletedYear: e.target.value})}
+                  placeholder="2024"
+                />
+              </div>
             </div>
 
-            <div>
-              <label className="text-sm font-medium text-gray-700 mb-2 block dark:text-gray-300">
-                Collaborators (one per line)
-              </label>
-              <Textarea
-                value={formData.collaborators}
-                onChange={(e) => setFormData({...formData, collaborators: e.target.value})}
-                placeholder="Dr. John Smith, University of Example&#10;Dr. Jane Doe, Research Institute&#10;..."
-                rows={3}
-              />
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div>
+                <label className="text-sm font-medium text-gray-700 mb-2 block dark:text-gray-300">
+                  Collaborators (one per line)
+                </label>
+                <Textarea value={formData.collaborators} onChange={(e) => setFormData({...formData, collaborators: e.target.value})} placeholder="Dr. John Smith, University of Example&#10;Dr. Jane Doe, Research Institute&#10;..." rows={3} />
+              </div>
+              <div>
+                <label className="text-sm font-medium text-gray-700 mb-2 block dark:text-gray-300">
+                  Co-Investigators (one per line)
+                </label>
+                <Textarea value={formData.coInvestigators} onChange={(e) => setFormData({...formData, coInvestigators: e.target.value})} placeholder="Dr. John Smith&#10;Dr. Jane Doe" rows={3} />
+              </div>
             </div>
           </CardContent>
         </Card>

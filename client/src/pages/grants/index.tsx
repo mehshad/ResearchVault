@@ -110,15 +110,24 @@ export default function GrantsList() {
     },
   });
 
-  const formatCurrency = (amount: string | number | null | undefined) => {
+  const formatCurrency = (
+    amount: string | number | null | undefined,
+    currency = "USD",
+  ) => {
     if (!amount) return "—";
     const numAmount = typeof amount === 'string' ? parseFloat(amount) : amount;
-    return new Intl.NumberFormat('en-US', {
-      style: 'currency',
-      currency: 'USD',
-      minimumFractionDigits: 0,
-      maximumFractionDigits: 0,
-    }).format(numAmount);
+    try {
+      return new Intl.NumberFormat('en-US', {
+        style: 'currency',
+        currency: currency || "USD",
+        minimumFractionDigits: 0,
+        maximumFractionDigits: 0,
+      }).format(numAmount);
+    } catch {
+      return `${currency || "USD"} ${new Intl.NumberFormat("en-US", {
+        maximumFractionDigits: 0,
+      }).format(numAmount)}`;
+    }
   };
 
   const formatDate = (date: string | Date | null | undefined) => {
@@ -481,7 +490,7 @@ export default function GrantsList() {
                       </TableCell>
                       <TableCell className="text-right font-mono text-sm">
                         <div className="flex items-center justify-end gap-2">
-                          {formatCurrency(grant.awardedAmount)}
+                          {formatCurrency(grant.awardedAmount, grant.currency)}
                           {grant.awarded === true && grantSdrCounts[grant.id] > 0 && (
                             <div className="flex items-center gap-1" title={`${grantSdrCounts[grant.id]} linked SDR${grantSdrCounts[grant.id] > 1 ? 's' : ''}`}>
                               <LinkIcon className="h-3 w-3 text-blue-600 dark:text-blue-400" />

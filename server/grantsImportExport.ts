@@ -20,6 +20,10 @@ export const GRANT_COLUMNS: Array<{ header: string; key: string }> = [
   { header: "LPI Name", key: "lpiName" },
   { header: "Investigator Type", key: "investigatorType" },
   { header: "Grant Type", key: "grantType" },
+  { header: "Grant Source", key: "sourceCategory" },
+  { header: "Source Record Key", key: "sourceRecordKey" },
+  { header: "Submitting Institution", key: "submittingInstitution" },
+  { header: "Co-Investigators", key: "coInvestigators" },
   { header: "Status", key: "status" },
   { header: "Funding Agency", key: "fundingAgency" },
   { header: "Requested Amount", key: "requestedAmount" },
@@ -28,7 +32,12 @@ export const GRANT_COLUMNS: Array<{ header: string; key: string }> = [
   { header: "Submitted Year", key: "submittedYear" },
   { header: "Awarded Year", key: "awardedYear" },
   { header: "Running Time (Years)", key: "runningTimeYears" },
+  { header: "Duration (Months)", key: "durationMonths" },
   { header: "Current Grant Year", key: "currentGrantYear" },
+  { header: "Subaward Completed Year", key: "subawardCompletedYear" },
+  { header: "Contribution Type", key: "contributionType" },
+  { header: "Contribution Details", key: "contributionDetails" },
+  { header: "Currency", key: "currency" },
   { header: "Start Date", key: "startDate" },
   { header: "End Date", key: "endDate" },
   { header: "Reporting Interval (Months)", key: "reportingIntervalMonths" },
@@ -59,6 +68,10 @@ export function grantsToRows(
       lpiName: lpi ? scientistDisplayName(lpi) : "",
       investigatorType: g.investigatorType ?? "",
       grantType: g.grantType ?? "",
+      sourceCategory: g.sourceCategory ?? "",
+      sourceRecordKey: g.sourceRecordKey ?? "",
+      submittingInstitution: g.submittingInstitution ?? "",
+      coInvestigators: g.coInvestigators ? g.coInvestigators.join("; ") : "",
       status: g.status ?? "",
       fundingAgency: g.fundingAgency ?? "",
       requestedAmount: g.requestedAmount ?? "",
@@ -67,7 +80,12 @@ export function grantsToRows(
       submittedYear: g.submittedYear ?? "",
       awardedYear: g.awardedYear ?? "",
       runningTimeYears: g.runningTimeYears ?? "",
+      durationMonths: g.durationMonths ?? "",
       currentGrantYear: g.currentGrantYear ?? "",
+      subawardCompletedYear: g.subawardCompletedYear ?? "",
+      contributionType: g.contributionType ?? "",
+      contributionDetails: g.contributionDetails ?? "",
+      currency: g.currency ?? "",
       startDate: g.startDate ?? "",
       endDate: g.endDate ?? "",
       reportingIntervalMonths: g.reportingIntervalMonths ?? "",
@@ -131,6 +149,10 @@ export function buildGrantsTemplateRows(): Record<string, any>[] {
       "LPI Name": "",
       "Investigator Type": "Researcher",
       "Grant Type": "Local",
+      "Grant Source": "QNRF Grant",
+      "Source Record Key": "QNRF:PRJ-2026-001",
+      "Submitting Institution": "Sidra Medicine",
+      "Co-Investigators": "Dr. Example One; Dr. Example Two",
       "Status": "submitted",
       "Funding Agency": "QNRF",
       "Requested Amount": "250000.00",
@@ -139,7 +161,12 @@ export function buildGrantsTemplateRows(): Record<string, any>[] {
       "Submitted Year": "2026",
       "Awarded Year": "",
       "Running Time (Years)": "3",
+      "Duration (Months)": "36",
       "Current Grant Year": "1/3",
+      "Subaward Completed Year": "",
+      "Contribution Type": "",
+      "Contribution Details": "",
+      "Currency": "QAR",
       "Start Date": "2026-09-01",
       "End Date": "2029-08-31",
       "Reporting Interval (Months)": "12",
@@ -306,6 +333,12 @@ export function previewGrantRows(
     if (writes("cycle")) data.cycle = textVal("cycle");
     if (writes("investigatorType")) data.investigatorType = textVal("investigatorType");
     if (writes("grantType")) data.grantType = textVal("grantType");
+    if (writes("sourceCategory")) data.sourceCategory = textVal("sourceCategory");
+    if (writes("sourceRecordKey")) data.sourceRecordKey = textVal("sourceRecordKey");
+    if (writes("submittingInstitution")) data.submittingInstitution = textVal("submittingInstitution");
+    if (writes("contributionType")) data.contributionType = textVal("contributionType");
+    if (writes("contributionDetails")) data.contributionDetails = textVal("contributionDetails");
+    if (writes("currency")) data.currency = textVal("currency");
     if (writes("status") && row.status && !isClear(row.status)) {
       Object.assign(data, { status: row.status });
     }
@@ -316,16 +349,35 @@ export function previewGrantRows(
     if (writes("submittedYear")) data.submittedYear = numVal("submittedYear", "Submitted Year", parseIntOrNull);
     if (writes("awardedYear")) data.awardedYear = numVal("awardedYear", "Awarded Year", parseIntOrNull);
     if (writes("runningTimeYears")) data.runningTimeYears = numVal("runningTimeYears", "Running Time (Years)", parseIntOrNull);
+    if (writes("durationMonths")) data.durationMonths = numVal("durationMonths", "Duration (Months)", parseIntOrNull);
     if (writes("currentGrantYear")) data.currentGrantYear = textVal("currentGrantYear");
+    if (writes("subawardCompletedYear")) data.subawardCompletedYear = numVal("subawardCompletedYear", "Subaward Completed Year", parseIntOrNull);
     if (writes("startDate")) data.startDate = numVal("startDate", "Start Date", parseDateOrNull);
     if (writes("endDate")) data.endDate = numVal("endDate", "End Date", parseDateOrNull);
     if (writes("reportingIntervalMonths")) data.reportingIntervalMonths = numVal("reportingIntervalMonths", "Reporting Interval (Months)", parseIntOrNull);
-    if (writes("collaborators")) {
-      const v = row.collaborators ?? "";
-      data.collaborators = (v === "" || isClear(v))
-        ? null
-        : v.split(/;|\n/).map((c) => c.trim()).filter(Boolean);
-    }
+    const appendUniqueList = (
+      key: "collaborators" | "coInvestigators",
+      current: string[] | null | undefined,
+    ) => {
+      if (!writes(key)) return;
+      const v = row[key] ?? "";
+      if (v === "" || isClear(v)) {
+        data[key] = null;
+        return;
+      }
+      const merged = [...(current ?? [])];
+      const seen = new Set(merged.map((value) => value.trim().toLowerCase()));
+      for (const value of v.split(/;|\n/).map((item) => item.trim()).filter(Boolean)) {
+        const normalized = value.toLowerCase();
+        if (!seen.has(normalized)) {
+          seen.add(normalized);
+          merged.push(value);
+        }
+      }
+      data[key] = merged;
+    };
+    appendUniqueList("coInvestigators", existing?.coInvestigators);
+    appendUniqueList("collaborators", existing?.collaborators);
     if (writes("description")) data.description = textVal("description");
     if (lpiId !== undefined) data.lpiId = lpiId;
 
