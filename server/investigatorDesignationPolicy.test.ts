@@ -89,7 +89,7 @@ test("staff cannot self-promote by submitting the protected designation field", 
   });
 });
 
-test("staff cannot self-promote through a legacy eligible job title", async () => {
+test("staff may update profile job titles without changing their access role", async () => {
   await withPolicyServer("Physician", async (baseUrl) => {
     for (const jobTitle of ["Investigator", "Staff Scientist"]) {
       const updateResponse = await fetch(`${baseUrl}/api/scientists/42`, {
@@ -97,19 +97,19 @@ test("staff cannot self-promote through a legacy eligible job title", async () =
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ jobTitle }),
       });
-      assert.equal(updateResponse.status, 403);
+      assert.equal(updateResponse.status, 204);
 
       const createResponse = await fetch(`${baseUrl}/api/scientists`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ jobTitle }),
       });
-      assert.equal(createResponse.status, 403);
+      assert.equal(createResponse.status, 201);
     }
   });
 });
 
-test("staff registration cannot grant an eligible job title", async () => {
+test("staff registration may use any profile job title", async () => {
   await withPolicyServer("user", async (baseUrl) => {
     for (const jobTitle of ["Investigator", "Staff Scientist"]) {
       const response = await fetch(`${baseUrl}/api/register`, {
@@ -117,7 +117,7 @@ test("staff registration cannot grant an eligible job title", async () => {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ jobTitle }),
       });
-      assert.equal(response.status, 403);
+      assert.equal(response.status, 201);
     }
 
     const ordinaryRegistration = await fetch(`${baseUrl}/api/register`, {

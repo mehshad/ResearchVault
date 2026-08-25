@@ -85,14 +85,14 @@ test("restricted users can access only their own profile endpoints", () => {
   );
 });
 
-test("restricted self-profile updates cannot include access-changing fields", () => {
+test("restricted self-profile updates may change job title but not Investigator designation", () => {
   assert.equal(
     requestsRestrictedProfileAccessChange({ bio: "Updated biography" }),
     false
   );
   assert.equal(
     requestsRestrictedProfileAccessChange({ jobTitle: "Investigator" }),
-    true
+    false
   );
   assert.equal(
     requestsRestrictedProfileAccessChange({ isInvestigator: true }),
@@ -100,7 +100,7 @@ test("restricted self-profile updates cannot include access-changing fields", ()
   );
 });
 
-test("server rejects direct restricted-user access-field patches outside demo", () => {
+test("server rejects direct restricted-user designation patches outside demo", () => {
   const previousMode = process.env.AUTH_MODE;
   process.env.AUTH_MODE = "local";
   let nextCalled = false;
@@ -110,7 +110,7 @@ test("server rejects direct restricted-user access-field patches outside demo", 
   try {
     rejectRestrictedUserProfileAccessChanges(
       {
-        body: { jobTitle: "Investigator" },
+        body: { isInvestigator: true },
         session: { user: request("PATCH", "/api/scientists/42").session.user },
       } as any,
       {
@@ -135,11 +135,11 @@ test("server rejects direct restricted-user access-field patches outside demo", 
   assert.equal(nextCalled, false);
   assert.equal(statusCode, 403);
   assert.deepEqual(responseBody, {
-    message: "An administrator must update your job title or Investigator designation.",
+    message: "An administrator must update your Investigator designation.",
   });
 });
 
-test("server allows ordinary restricted self-profile patches", () => {
+test("server allows ordinary restricted self-profile and job-title patches", () => {
   const previousMode = process.env.AUTH_MODE;
   process.env.AUTH_MODE = "local";
   let nextCalled = false;
@@ -147,7 +147,7 @@ test("server allows ordinary restricted self-profile patches", () => {
   try {
     rejectRestrictedUserProfileAccessChanges(
       {
-        body: { bio: "Updated biography" },
+        body: { bio: "Updated biography", jobTitle: "Investigator" },
         session: { user: request("PATCH", "/api/scientists/42").session.user },
       } as any,
       {} as any,

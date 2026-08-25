@@ -5,7 +5,7 @@ import { RESTRICTED_USER_ROLE } from "@shared/constants";
 export const RESTRICTED_USER_API_MESSAGE =
   "Your account has limited access until an administrator assigns an access role.";
 export const RESTRICTED_PROFILE_ACCESS_FIELDS_MESSAGE =
-  "An administrator must update your job title or Investigator designation.";
+  "An administrator must update your Investigator designation.";
 
 type RestrictedRequest = Pick<Request, "method" | "originalUrl"> & {
   session?: Request["session"];
@@ -101,10 +101,7 @@ export function isRestrictedUserApiRequestAllowed(
 export function requestsRestrictedProfileAccessChange(body: unknown): boolean {
   if (!body || typeof body !== "object") return false;
   const payload = body as Record<string, unknown>;
-  return (
-    Object.prototype.hasOwnProperty.call(payload, "jobTitle") ||
-    Object.prototype.hasOwnProperty.call(payload, "isInvestigator")
-  );
+  return Object.prototype.hasOwnProperty.call(payload, "isInvestigator");
 }
 
 export function rejectRestrictedUserProfileAccessChanges(

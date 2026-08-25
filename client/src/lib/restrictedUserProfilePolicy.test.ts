@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { sanitizeScientistUpdatePayload } from "./restrictedUserProfilePolicy";
 
-test("ordinary self-profile updates omit access-changing fields", () => {
+test("ordinary self-profile updates retain job title but omit the protected designation", () => {
   assert.deepEqual(
     sanitizeScientistUpdatePayload(
       {
@@ -16,6 +16,7 @@ test("ordinary self-profile updates omit access-changing fields", () => {
     {
       firstName: "Amina",
       bio: "Updated bio",
+      jobTitle: "Investigator",
     }
   );
 });

@@ -1,6 +1,5 @@
 import type { NextFunction, Request, Response } from "express";
 import { hasManagementRole } from "./sidraScoreRoutes";
-import { INVESTIGATOR_ELIGIBLE_JOB_TITLES } from "@shared/investigatorEligibility";
 
 export const INVESTIGATOR_DESIGNATION_FIELD = "isInvestigator";
 export const INVESTIGATOR_ELIGIBILITY_MANAGEMENT_MESSAGE =
@@ -12,20 +11,9 @@ export function requestsInvestigatorEligibilityChange(
   if (!body || typeof body !== "object") return false;
 
   const payload = body as Record<string, unknown>;
-  if (
-    Object.prototype.hasOwnProperty.call(
-      payload,
-      INVESTIGATOR_DESIGNATION_FIELD
-    )
-  ) {
-    return true;
-  }
-
-  return (
-    typeof payload.jobTitle === "string" &&
-    INVESTIGATOR_ELIGIBLE_JOB_TITLES.includes(
-      payload.jobTitle as (typeof INVESTIGATOR_ELIGIBLE_JOB_TITLES)[number]
-    )
+  return Object.prototype.hasOwnProperty.call(
+    payload,
+    INVESTIGATOR_DESIGNATION_FIELD
   );
 }
 

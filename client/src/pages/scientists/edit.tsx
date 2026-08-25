@@ -434,16 +434,13 @@ export default function EditScientist() {
                             options={jobTitles.map((t) => ({ value: t, label: t }))}
                             value={field.value || ""}
                             onChange={field.onChange}
-                            disabled={!canManage}
                             placeholder="Select job title"
                             searchPlaceholder="Search job titles..."
                             data-testid="select-job-title"
                           />
                         </FormControl>
                         <FormDescription>
-                          {canManage
-                            ? "Select the job title for this staff member"
-                            : "Contact Management to change your job title"}
+                          Select the profile job title. Account access is assigned separately in User Management.
                         </FormDescription>
                         <FormMessage />
                       </FormItem>

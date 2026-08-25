@@ -6,7 +6,6 @@ export function sanitizeScientistUpdatePayload<T extends Record<string, unknown>
 
   if (!canManageProfileAccess) {
     delete payload.isInvestigator;
-    delete payload.jobTitle;
   }
 
   return payload;
