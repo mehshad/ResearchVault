@@ -129,6 +129,7 @@
   },
   "overrides": {
     "@tootallnate/once": "^3.0.1",
+    "brace-expansion": ">=2.1.4",
     "esbuild": "^0.25.0",
     "uuid": "^11.1.1"
   }

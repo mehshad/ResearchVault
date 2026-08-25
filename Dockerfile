@@ -15,7 +15,7 @@ RUN NODE_ENV=development npm run build
 # ── Stage 2: runtime ──────────────────────────────────────────────────────────
 FROM node:20-alpine
 
-RUN apk add --no-cache postgresql-client
+RUN apk add --no-cache postgresql-client && apk upgrade --no-cache
 
 WORKDIR /app
 
