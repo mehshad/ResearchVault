@@ -1,7 +1,7 @@
 import { createContext, useContext, useState, ReactNode, useEffect } from "react";
 import { RESTRICTED_USER_ROLE } from "@shared/constants";
 import { useAuth } from "@/hooks/useAuth";
-import { NAVIGATION_ITEMS } from "@/lib/navigationPermissions";
+import { isAdministratorRole, NAVIGATION_ITEMS } from "@/lib/navigationPermissions";
 
 export type AccessLevel = "hide" | "view" | "edit";
 
@@ -232,6 +232,10 @@ export function PermissionsProvider({ children }: PermissionsProviderProps) {
   };
 
   const getAccessLevel = (jobTitle: string, navigationItem: string): AccessLevel => {
+    if (isAdministratorRole(jobTitle)) {
+      return "edit";
+    }
+
     if (authConfig.mode !== "demo" && jobTitle === RESTRICTED_USER_ROLE) {
       return navigationItem === "publications" ? "view" : "hide";
     }

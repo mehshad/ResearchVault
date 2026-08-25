@@ -20,3 +20,8 @@ export const NAVIGATION_ITEMS = [
   "grants",
   "certifications",
 ] as const;
+
+export function isAdministratorRole(role: string): boolean {
+  const normalizedRole = role.trim().toLowerCase().replace(/[\s_-]+/g, "");
+  return normalizedRole === "admin" || normalizedRole === "superadmin";
+}
