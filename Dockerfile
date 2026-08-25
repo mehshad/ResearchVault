@@ -20,7 +20,10 @@ RUN apk add --no-cache postgresql-client && apk upgrade --no-cache
 WORKDIR /app
 
 COPY package*.json ./
-RUN NODE_ENV=production npm install --omit=dev
+# Install production dependencies only, then strip esbuild's native binary
+# (esbuild is a build-time bundler; its binary is never executed at runtime)
+RUN NODE_ENV=production npm install --omit=dev && \
+    rm -rf node_modules/esbuild/bin node_modules/.bin/esbuild
 
 COPY --from=builder /app/dist ./dist
 COPY --from=builder /app/migrations ./migrations
