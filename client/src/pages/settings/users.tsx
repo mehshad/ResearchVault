@@ -7,7 +7,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
 import { useCurrentUser } from "@/hooks/useCurrentUser";
-import { Shield, User } from "lucide-react";
+import { AlertTriangle, Shield, User } from "lucide-react";
 
 interface AppUser {
   id: number;
@@ -51,6 +51,9 @@ export default function AdminUsersPage() {
       return res.json();
     },
   });
+  const mismatchCount = users.filter(
+    (user) => user.profileJobTitle && user.role !== user.profileJobTitle
+  ).length;
 
   const roleMutation = useMutation({
     mutationFn: async ({ id, role }: { id: number; role: string }) => {
@@ -90,13 +93,28 @@ export default function AdminUsersPage() {
       <Card>
         <CardHeader>
           <CardTitle>All Users</CardTitle>
-          <CardDescription>{users.length} registered account{users.length !== 1 ? "s" : ""}</CardDescription>
+          <CardDescription>
+            {users.length} registered account{users.length !== 1 ? "s" : ""}
+            {mismatchCount > 0 && (
+              <> · {mismatchCount} access/profile mismatch{mismatchCount !== 1 ? "es" : ""}</>
+            )}
+          </CardDescription>
         </CardHeader>
         <CardContent>
           {isLoading || rolesLoading ? (
             <p className="text-muted-foreground">Loading…</p>
           ) : (
-            <div className="divide-y">
+            <div>
+              {mismatchCount > 0 && (
+                <div className="mb-4 flex items-start gap-2 rounded-md border border-amber-500/40 bg-amber-500/10 p-3 text-sm">
+                  <AlertTriangle className="mt-0.5 h-4 w-4 flex-shrink-0 text-amber-600 dark:text-amber-400" />
+                  <p>
+                    Highlighted users have an access role that differs from their profile job title.
+                    This may be intentional; permissions always follow the access role.
+                  </p>
+                </div>
+              )}
+              <div className="divide-y">
               <div className="hidden md:grid grid-cols-[minmax(0,1fr)_11rem_13rem_16rem] gap-4 pb-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
                 <div>User</div>
                 <div>Last login</div>
@@ -107,14 +125,34 @@ export default function AdminUsersPage() {
                 const isSelf = u.id === me.id;
                 const isSuperAdmin = u.role === "superadmin";
                 const currentRole = pendingRole[u.id] ?? u.role;
+                const hasRoleTitleMismatch =
+                  Boolean(u.profileJobTitle) && u.role !== u.profileJobTitle;
                 return (
-                  <div key={u.id} className="grid gap-3 py-4 md:grid-cols-[minmax(0,1fr)_11rem_13rem_16rem] md:items-center md:gap-4">
+                  <div
+                    key={u.id}
+                    className={`grid gap-3 py-4 md:grid-cols-[minmax(0,1fr)_11rem_13rem_16rem] md:items-center md:gap-4 ${
+                      hasRoleTitleMismatch
+                        ? "border-l-4 border-l-amber-500 bg-amber-500/5 pl-3 pr-2"
+                        : ""
+                    }`}
+                  >
                     <div className="flex items-center gap-3 min-w-0">
                       <div className="h-9 w-9 rounded-full bg-primary/10 flex items-center justify-center text-primary flex-shrink-0">
                         <User className="w-4 h-4" />
                       </div>
                       <div className="min-w-0">
-                        <div className="font-medium truncate">{u.name || u.username}</div>
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className="font-medium truncate">{u.name || u.username}</span>
+                          {hasRoleTitleMismatch && (
+                            <Badge
+                              variant="outline"
+                              className="border-amber-500/60 bg-amber-500/10 text-amber-700 dark:text-amber-300"
+                            >
+                              <AlertTriangle className="mr-1 h-3 w-3" />
+                              Role/title differ
+                            </Badge>
+                          )}
+                        </div>
                         <div className="text-xs text-muted-foreground truncate">{u.email}</div>
                       </div>
                     </div>
@@ -178,6 +216,7 @@ export default function AdminUsersPage() {
                   </div>
                 );
               })}
+              </div>
             </div>
           )}
         </CardContent>
