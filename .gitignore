@@ -14,3 +14,4 @@ QBridge_Infrastructure_Diagram.svg
 QBridge_UserFlow_Diagram.png
 QBridge_UserFlow_Diagram.svg
 ~$chitectIQ_On_Prem_QBRIDGE.docx
+tests/performance/k6/results/

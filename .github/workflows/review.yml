@@ -1,0 +1,60 @@
+name: Code Review
+
+on:
+  pull_request:
+    branches: [main]
+
+jobs:
+  pr-hygiene:
+    name: PR Size & Commit Check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Check PR size
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          ADDITIONS=$(gh pr view ${{ github.event.pull_request.number }} --json additions -q .additions)
+          DELETIONS=$(gh pr view ${{ github.event.pull_request.number }} --json deletions -q .deletions)
+          TOTAL=$((ADDITIONS + DELETIONS))
+          echo "PR size: +${ADDITIONS} -${DELETIONS} (${TOTAL} total lines)"
+          if [ "$TOTAL" -gt 800 ]; then
+            echo "::warning::This PR changes ${TOTAL} lines. Consider splitting into smaller PRs for easier review."
+          fi
+
+  lint:
+    name: ESLint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: NODE_ENV=development npm ci
+
+      - name: Run ESLint
+        run: npx eslint "server/**/*.ts" "client/src/**/*.{ts,tsx}" --max-warnings=0
+
+  typecheck:
+    name: TypeScript
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: NODE_ENV=development npm ci
+
+      - name: TypeScript strict check
+        run: npx tsc --noEmit
