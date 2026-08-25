@@ -43,12 +43,15 @@ for migration in \
     "migrations/20260615_schema_sync.sql" \
     "migrations/20260616_global_app_settings.sql" \
     "migrations/20260616_align_constraint_names.sql" \
+    "migrations/20260618_add_publication_author_attribution.sql" \
     "migrations/manual/2026-08-18-org-structure.sql" \
     "migrations/20260816_publication_authors_attribution.sql" \
     "migrations/20260817_publications_alternate_dois.sql" \
     "migrations/20260817_fix_column_types.sql" \
     "migrations/20260819_add_investigator_designation.sql" \
-    "migrations/20260820_grant_lifecycle_consistency.sql"; do
+    "migrations/20260820_grant_lifecycle_consistency.sql" \
+    "migrations/20260823_add_user_last_login.sql" \
+    "migrations/20260824_add_publication_creator.sql"; do
   if [ -f "/app/$migration" ]; then
     echo "  Applying $migration..."
     if [ "$migration" = "migrations/20260820_grant_lifecycle_consistency.sql" ]; then

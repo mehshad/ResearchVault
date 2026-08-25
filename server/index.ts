@@ -8,32 +8,34 @@ import {
   demoBannerMiddleware,
 } from "./auth";
 import { serveStatic } from "./static";
-import { log } from "./logger";
+import { log, logError, logRequest } from "./logger";
 import session from "express-session";
 import connectPgSimple from "connect-pg-simple";
 import { createHash } from "crypto";
+import { db } from "./db";
+import { sql } from "drizzle-orm";
 
 const PgSession = connectPgSimple(session);
 
+const APP_START = Date.now();
+
 // Global error handlers to prevent crashes from worker processes
 process.on('uncaughtException', (error) => {
-  console.error('Uncaught Exception:', error);
-  if (error.message && error.message.includes('tesseract')) {
-    console.error('Tesseract worker error caught - continuing operation');
-    return; // Don't crash the process for Tesseract errors
-  }
-  // For other uncaught exceptions, we might want to crash
-  console.error('Fatal error, exiting process');
+  const isTesseract = error.message?.includes('tesseract');
+  logError('uncaughtException', 'process', error, { fatal: !isTesseract });
+  if (isTesseract) return;
   process.exit(1);
 });
 
-process.on('unhandledRejection', (reason, promise) => {
-  console.error('Unhandled Rejection at:', promise, 'reason:', reason);
-  if (reason && typeof reason === 'object' && 'message' in reason && 
-      typeof reason.message === 'string' && reason.message.includes('tesseract')) {
-    console.error('Tesseract worker rejection caught - continuing operation');
-    return; // Don't crash the process for Tesseract errors
-  }
+process.on('unhandledRejection', (reason) => {
+  const isTesseract =
+    reason &&
+    typeof reason === 'object' &&
+    'message' in reason &&
+    typeof (reason as any).message === 'string' &&
+    (reason as any).message.includes('tesseract');
+  logError('unhandledRejection', 'process', reason as Error, { fatal: false });
+  if (isTesseract) return;
 });
 
 const app = express();
@@ -73,13 +75,9 @@ const sessionStore = process.env.DATABASE_URL
       tableName: 'session',
       createTableIfMissing: true,
     })
-  : undefined; // falls back to default MemoryStore in dev without a DB
+  : undefined;
 
-// Use a distinct cookie name per auth mode so the production app and the demo
-// app (same hostname, different ports) never share or corrupt each other's
-// sessions. Browsers scope cookies to hostname only — not port — so without
-// distinct names, a demo cookie sent to the production app (or vice versa)
-// would silently invalidate the user's real session.
+// Distinct cookie name per auth mode so production and demo sessions never clash.
 const cookieName = getAuthMode() === 'demo' ? 'rv-demo.sid' : 'rv.sid';
 
 app.use(session({
@@ -91,67 +89,86 @@ app.use(session({
   cookie: {
     secure: isHttps,
     sameSite: 'lax',
-    maxAge: 24 * 60 * 60 * 1000 // 24 hours
+    maxAge: 24 * 60 * 60 * 1000
   }
 }));
 
 // Demo mode: auto-inject a guest user so the app runs without login.
-// Also applies in development when AUTH_MODE is unset or "demo".
 if (getAuthMode() === "demo") {
   app.use("/api", demoBannerMiddleware);
 }
 
-app.use((req, res, next) => {
+// ── Structured HTTP access log middleware ─────────────────────────────────────
+// Logs every request (API + page navigation) as a JSON event so ELK can
+// build per-user traffic, most-visited-page, and error-rate dashboards.
+app.use((req: Request, res: Response, next: NextFunction) => {
   const start = Date.now();
-  const path = req.path;
-  let capturedJsonResponse: Record<string, any> | undefined = undefined;
-
-  const originalResJson = res.json;
-  res.json = function (bodyJson, ...args) {
-    capturedJsonResponse = bodyJson;
-    return originalResJson.apply(res, [bodyJson, ...args]);
-  };
 
   res.on("finish", () => {
-    const duration = Date.now() - start;
-    if (path.startsWith("/api")) {
-      let logLine = `${req.method} ${path} ${res.statusCode} in ${duration}ms`;
-      if (capturedJsonResponse) {
-        logLine += ` :: ${JSON.stringify(capturedJsonResponse)}`;
-      }
+    // Skip health checks to avoid log noise
+    if (req.path === "/api/health") return;
 
-      if (logLine.length > 80) {
-        logLine = logLine.slice(0, 79) + "…";
-      }
-
-      log(logLine);
-    }
+    const user = (req.session as any)?.user;
+    logRequest({
+      method: req.method,
+      path: req.path,
+      statusCode: res.statusCode,
+      durationMs: Date.now() - start,
+      userId: user?.id ?? null,
+      username: user?.username ?? null,
+      ip: req.ip ?? req.socket?.remoteAddress,
+      userAgent: req.headers["user-agent"],
+      contentLength: res.getHeader("content-length") as number | undefined,
+    });
   });
 
   next();
 });
 
 (async () => {
-  // Log auth/SSO status on startup
   logAuthStatus();
 
-  // Register authentication routes (local/ldap/oidc per AUTH_MODE)
   registerAuthRoutes(app);
 
-  // Register API routes
-  const server = await registerRoutes(app);
-
-  app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
-    const status = err.status || err.statusCode || 500;
-    const message = err.message || "Internal Server Error";
-
-    res.status(status).json({ message });
-    throw err;
+  // ── Health / availability endpoint ────────────────────────────────────────
+  // Polled by ELK Heartbeat / uptime monitors.
+  // Returns 200 when healthy, 503 when the DB is unreachable.
+  app.get("/api/health", async (_req: Request, res: Response) => {
+    let dbOk = false;
+    try {
+      await db.execute(sql`SELECT 1`);
+      dbOk = true;
+    } catch {
+      // db unreachable — still respond so the caller gets a 503 not a timeout
+    }
+    const status = dbOk ? "ok" : "degraded";
+    res.status(dbOk ? 200 : 503).json({
+      status,
+      uptime: Math.floor((Date.now() - APP_START) / 1000),
+      db: dbOk ? "ok" : "unreachable",
+      timestamp: new Date().toISOString(),
+    });
   });
 
-  // importantly only setup vite in development and after
-  // setting up all the other routes so the catch-all route
-  // doesn't interfere with the other routes
+  const server = await registerRoutes(app);
+
+  // ── Global error handler ──────────────────────────────────────────────────
+  app.use((err: any, req: Request, res: Response, _next: NextFunction) => {
+    const status = err.status || err.statusCode || 500;
+    const message = err.message || "Internal Server Error";
+    const user = (req.session as any)?.user;
+
+    logError("unhandled request error", "express", err, {
+      method: req.method,
+      path: req.path,
+      statusCode: status,
+      userId: user?.id ?? null,
+      username: user?.username ?? null,
+    });
+
+    res.status(status).json({ message });
+  });
+
   if (app.get("env") === "development") {
     const { setupVite } = await import("./vite.js");
     await setupVite(app, server);
@@ -159,15 +176,12 @@ app.use((req, res, next) => {
     serveStatic(app);
   }
 
-  // ALWAYS serve the app on port 5000
-  // this serves both the API and the client.
-  // It is the only port that is not firewalled.
   const port = 5000;
   server.listen({
     port,
     host: "0.0.0.0",
     reusePort: true,
   }, () => {
-    log(`serving on port ${port}`);
+    log(`serving on port ${port}`, "express", { authMode: getAuthMode(), port });
   });
 })();
