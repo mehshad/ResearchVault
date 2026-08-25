@@ -6,6 +6,7 @@
 // new ones are created. The LPI is resolved by email (preferred) or exact
 // "First Last" name against the scientists table.
 import ExcelJS from "exceljs";
+import { GRANT_CURRENCY_VALUES } from "@shared/schema";
 import type { Grant, InsertGrant, Scientist } from "@shared/schema";
 import {
   GrantLifecycleError,
@@ -338,7 +339,17 @@ export function previewGrantRows(
     if (writes("submittingInstitution")) data.submittingInstitution = textVal("submittingInstitution");
     if (writes("contributionType")) data.contributionType = textVal("contributionType");
     if (writes("contributionDetails")) data.contributionDetails = textVal("contributionDetails");
-    if (writes("currency")) data.currency = textVal("currency");
+    if (writes("currency")) {
+      const currency = textVal("currency")?.toUpperCase() ?? null;
+      if (
+        currency !== null
+        && !GRANT_CURRENCY_VALUES.includes(currency as typeof GRANT_CURRENCY_VALUES[number])
+      ) {
+        errors.push(`Currency must be EUR, USD, or QAR (got "${row.currency}")`);
+      } else {
+        data.currency = currency as typeof GRANT_CURRENCY_VALUES[number] | null;
+      }
+    }
     if (writes("status") && row.status && !isClear(row.status)) {
       Object.assign(data, { status: row.status });
     }

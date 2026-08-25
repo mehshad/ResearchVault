@@ -192,3 +192,33 @@ test("grant import parses the additional masterfile fields", () => {
   assert.equal(preview.data?.durationMonths, 30);
   assert.equal(preview.data?.currency, "QAR");
 });
+
+test("grant import accepts only EUR, USD, or QAR currencies", () => {
+  const [accepted] = previewGrantRows(
+    [{
+      "Project Number": "IMPORT-VALID-CURRENCY",
+      "Title": "Valid currency",
+      "Status": "submitted",
+      "Currency": "eur",
+    }],
+    noExistingGrants,
+    noScientistsByEmail,
+    noScientistsByName,
+  );
+  assert.equal(accepted.action, "create");
+  assert.equal(accepted.data?.currency, "EUR");
+
+  const [rejected] = previewGrantRows(
+    [{
+      "Project Number": "IMPORT-INVALID-CURRENCY",
+      "Title": "Invalid currency",
+      "Status": "submitted",
+      "Currency": "GBP",
+    }],
+    noExistingGrants,
+    noScientistsByEmail,
+    noScientistsByName,
+  );
+  assert.equal(rejected.action, "skip");
+  assert.match(rejected.reason ?? "", /Currency must be EUR, USD, or QAR/);
+});

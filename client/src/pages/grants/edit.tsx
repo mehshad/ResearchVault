@@ -28,6 +28,7 @@ import {
   grantStatusRequiresStartDate,
   canGrantLinkSdrs,
 } from "@shared/grantLifecycle";
+import { GRANT_CURRENCY_VALUES } from "@shared/schema";
 
 export default function EditGrant() {
   const [, navigate] = useLocation();
@@ -782,7 +783,17 @@ export default function EditGrant() {
               </div>
               <div>
                 <label className="text-sm font-medium text-gray-700 mb-2 block dark:text-gray-300">Currency</label>
-                <Input value={formData.currency} onChange={(e) => setFormData({...formData, currency: e.target.value})} placeholder="QAR" />
+                <Select
+                  value={formData.currency || "QAR"}
+                  onValueChange={(value) => setFormData({...formData, currency: value})}
+                >
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    {GRANT_CURRENCY_VALUES.map((currency) => (
+                      <SelectItem key={currency} value={currency}>{currency}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
               </div>
             </div>
 

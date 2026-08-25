@@ -31,7 +31,7 @@ import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Label } from "@/components/ui/label";
 import { apiRequest } from "@/lib/queryClient";
 import { formatFullName } from "@/utils/nameUtils";
-import { insertGrantSchema, type InsertGrant } from "@shared/schema";
+import { GRANT_CURRENCY_VALUES, insertGrantSchema, type InsertGrant } from "@shared/schema";
 import {
   GRANT_STATUS_OPTIONS,
   grantStatusAllowsProgressTracking,
@@ -440,7 +440,18 @@ export default function CreateGrant() {
                       )}
                     />
                     <FormField control={form.control} name="currency" render={({ field }) => (
-                      <FormItem><FormLabel>Currency</FormLabel><FormControl><Input {...field} placeholder="QAR" /></FormControl><FormMessage /></FormItem>
+                      <FormItem>
+                        <FormLabel>Currency</FormLabel>
+                        <Select value={field.value || "QAR"} onValueChange={field.onChange}>
+                          <FormControl><SelectTrigger><SelectValue /></SelectTrigger></FormControl>
+                          <SelectContent>
+                            {GRANT_CURRENCY_VALUES.map((currency) => (
+                              <SelectItem key={currency} value={currency}>{currency}</SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                        <FormMessage />
+                      </FormItem>
                     )} />
                   </div>
 

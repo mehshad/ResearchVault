@@ -1337,12 +1337,15 @@ export const grants = pgTable("grants", {
   };
 });
 
+export const GRANT_CURRENCY_VALUES = ["EUR", "USD", "QAR"] as const;
+
 export const insertGrantSchema = createInsertSchema(grants).omit({
   id: true,
   createdAt: true,
   updatedAt: true,
 }).extend({
   status: z.enum(GRANT_STATUS_VALUES),
+  currency: z.enum(GRANT_CURRENCY_VALUES).nullable().optional(),
 });
 
 export type InsertGrant = z.infer<typeof insertGrantSchema>;

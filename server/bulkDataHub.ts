@@ -52,6 +52,7 @@ import {
   rooms,
   certificationModules,
   certifications,
+  GRANT_CURRENCY_VALUES,
 } from "@shared/schema";
 import type {
   Scientist,
@@ -1688,7 +1689,19 @@ function previewGrantRows2(
     const contributionDetails = maybeText(row.contributionDetails ?? "", !isNew);
     if (contributionDetails !== undefined) data.contributionDetails = contributionDetails;
     const currency = maybeText(row.currency ?? "", !isNew);
-    if (currency !== undefined) data.currency = currency;
+    if (currency !== undefined) {
+      const normalizedCurrency = currency?.toUpperCase() ?? null;
+      if (
+        normalizedCurrency !== null
+        && !GRANT_CURRENCY_VALUES.includes(
+          normalizedCurrency as typeof GRANT_CURRENCY_VALUES[number],
+        )
+      ) {
+        errors.push(`Currency must be EUR, USD, or QAR (got "${row.currency}")`);
+      } else {
+        data.currency = normalizedCurrency;
+      }
+    }
     const fa = maybeText(row.fundingAgency ?? "", !isNew);
     if (fa !== undefined) data.fundingAgency = fa;
 
