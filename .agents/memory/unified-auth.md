@@ -20,9 +20,10 @@ demo APIs use the shared demo-aware authorization middleware. Real auth modes
 still require the actual server role.
 
 **`/api/auth/config` shape is a superset on purpose:** `{ mode, ssoEnabled, provider, providerName }`.
-`ssoEnabled` (= mode is ldap||oidc) is kept so existing consumers — `App.tsx`,
+`ssoEnabled` (= mode is OIDC) is kept so existing consumers — `App.tsx`,
 `useCurrentUser.tsx`, `Sidebar.tsx`, settings — keep working unchanged; `mode`/`providerName`
-are the new fields the login page uses.
+are the new fields the login page uses. LDAP authenticates through the local
+credential form rather than a browser SSO redirect.
 
 **`users.entra_oid` is reused as the generic external subject id** (OIDC `sub`), not just Entra.
 **Why:** avoids a schema rename/migration churn; the existing migration

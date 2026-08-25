@@ -9,33 +9,34 @@ import {
   refreshSessionAuthorization,
 } from "./auth";
 import { serveStatic } from "./static";
-import { log } from "./logger";
+import { log, logError, logRequest } from "./logger";
 import session from "express-session";
 import connectPgSimple from "connect-pg-simple";
 import { createHash } from "crypto";
 import { restrictDefaultUserApiAccess } from "./restrictedUserPolicy";
+import { db } from "./db";
+import { sql } from "drizzle-orm";
 
 const PgSession = connectPgSimple(session);
+const APP_START = Date.now();
 
 // Global error handlers to prevent crashes from worker processes
 process.on('uncaughtException', (error) => {
-  console.error('Uncaught Exception:', error);
-  if (error.message && error.message.includes('tesseract')) {
-    console.error('Tesseract worker error caught - continuing operation');
-    return; // Don't crash the process for Tesseract errors
-  }
-  // For other uncaught exceptions, we might want to crash
-  console.error('Fatal error, exiting process');
+  const isTesseract = error.message?.includes('tesseract');
+  logError('uncaughtException', 'process', error, { fatal: !isTesseract });
+  if (isTesseract) return;
   process.exit(1);
 });
 
-process.on('unhandledRejection', (reason, promise) => {
-  console.error('Unhandled Rejection at:', promise, 'reason:', reason);
-  if (reason && typeof reason === 'object' && 'message' in reason && 
-      typeof reason.message === 'string' && reason.message.includes('tesseract')) {
-    console.error('Tesseract worker rejection caught - continuing operation');
-    return; // Don't crash the process for Tesseract errors
-  }
+process.on('unhandledRejection', (reason) => {
+  const isTesseract =
+    reason &&
+    typeof reason === 'object' &&
+    'message' in reason &&
+    typeof (reason as any).message === 'string' &&
+    (reason as any).message.includes('tesseract');
+  logError('unhandledRejection', 'process', reason as Error, { fatal: false });
+  if (isTesseract) return;
 });
 
 const app = express();
@@ -103,31 +104,24 @@ if (getAuthMode() === "demo") {
   app.use("/api", demoBannerMiddleware);
 }
 
-app.use((req, res, next) => {
+app.use((req: Request, res: Response, next: NextFunction) => {
   const start = Date.now();
-  const path = req.path;
-  let capturedJsonResponse: Record<string, any> | undefined = undefined;
-
-  const originalResJson = res.json;
-  res.json = function (bodyJson, ...args) {
-    capturedJsonResponse = bodyJson;
-    return originalResJson.apply(res, [bodyJson, ...args]);
-  };
 
   res.on("finish", () => {
-    const duration = Date.now() - start;
-    if (path.startsWith("/api")) {
-      let logLine = `${req.method} ${path} ${res.statusCode} in ${duration}ms`;
-      if (capturedJsonResponse) {
-        logLine += ` :: ${JSON.stringify(capturedJsonResponse)}`;
-      }
+    if (req.path === "/api/health") return;
 
-      if (logLine.length > 80) {
-        logLine = logLine.slice(0, 79) + "…";
-      }
-
-      log(logLine);
-    }
+    const user = (req.session as any)?.user;
+    logRequest({
+      method: req.method,
+      path: req.path,
+      statusCode: res.statusCode,
+      durationMs: Date.now() - start,
+      userId: user?.id ?? null,
+      username: user?.username ?? null,
+      ip: req.ip ?? req.socket?.remoteAddress,
+      userAgent: req.headers["user-agent"],
+      contentLength: res.getHeader("content-length") as number | undefined,
+    });
   });
 
   next();
@@ -139,6 +133,22 @@ app.use((req, res, next) => {
 
   // Register authentication routes (local/ldap/oidc per AUTH_MODE)
   registerAuthRoutes(app);
+
+  app.get("/api/health", async (_req: Request, res: Response) => {
+    let dbOk = false;
+    try {
+      await db.execute(sql`SELECT 1`);
+      dbOk = true;
+    } catch {
+      // Return a response rather than timing out when the database is unavailable.
+    }
+    res.status(dbOk ? 200 : 503).json({
+      status: dbOk ? "ok" : "degraded",
+      uptime: Math.floor((Date.now() - APP_START) / 1000),
+      db: dbOk ? "ok" : "unreachable",
+      timestamp: new Date().toISOString(),
+    });
+  });
 
   // Refresh real authenticated principals from users before every application
   // API request so role changes take effect immediately and fail closed.
@@ -152,12 +162,22 @@ app.use((req, res, next) => {
   // Register API routes
   const server = await registerRoutes(app);
 
-  app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
+  app.use((err: any, req: Request, res: Response, _next: NextFunction) => {
     const status = err.status || err.statusCode || 500;
     const message = err.message || "Internal Server Error";
+    const user = (req.session as any)?.user;
 
-    res.status(status).json({ message });
-    throw err;
+    logError("unhandled request error", "express", err, {
+      method: req.method,
+      path: req.path,
+      statusCode: status,
+      userId: user?.id ?? null,
+      username: user?.username ?? null,
+    });
+
+    if (!res.headersSent) {
+      res.status(status).json({ message });
+    }
   });
 
   // importantly only setup vite in development and after
@@ -179,6 +199,6 @@ app.use((req, res, next) => {
     host: "0.0.0.0",
     reusePort: true,
   }, () => {
-    log(`serving on port ${port}`);
+    log(`serving on port ${port}`, "express", { authMode: getAuthMode(), port });
   });
 })();

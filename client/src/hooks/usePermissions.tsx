@@ -1,6 +1,7 @@
 import { createContext, useContext, useState, ReactNode, useEffect } from "react";
 import { RESTRICTED_USER_ROLE } from "@shared/constants";
 import { useAuth } from "@/hooks/useAuth";
+import { NAVIGATION_ITEMS } from "@/lib/navigationPermissions";
 
 export type AccessLevel = "hide" | "view" | "edit";
 
@@ -44,13 +45,6 @@ const JOB_TITLES = [
   "Grant Officer",
   "Contracts Officer",
   "IT Officer"
-];
-
-export const NAVIGATION_ITEMS = [
-  "dashboard", "scientists", "facilities", "programs", "projects", "research-activities",
-  "irb-applications", "irb-office", "irb-reviewer", "ibc-applications", "ibc-office", 
-  "ibc-reviewer", "data-management", "contracts", "publications", "outcome-office", "patents",
-  "reports", "grants", "certifications"
 ];
 
 const createDefaultPermissions = (): NavigationPermission[] => {

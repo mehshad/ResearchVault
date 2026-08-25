@@ -20,3 +20,4 @@
 - [Publication bulk identity consistency](publication-bulk-identity-consistency.md) — resolve ID/DOI/PMID/composite together; reject conflicts, never priority-short-circuit.
 - [HMR-stable React contexts](hmr-stable-react-contexts.md) — separate context, provider, hook, and changing fixtures so Vite cannot split context identity.
 - [Unpublished publication visibility](unpublished-publication-visibility.md) — creator/author/direct-manager access is default; Outcome Office uses an explicit authorized view.
+- [Container migration registration](container-migration-registration.md) — every schema migration must also enter the explicit container startup sequence or fresh deployments silently lag.
