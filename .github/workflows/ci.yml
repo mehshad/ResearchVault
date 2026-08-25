@@ -26,7 +26,7 @@ jobs:
         run: npx tsc --noEmit
 
       - name: Unit tests
-        run: node --experimental-strip-types --test server/**/*.test.ts
+        run: node --import tsx --test server/**/*.test.ts
 
       - name: Build
         run: NODE_ENV=development npm run build

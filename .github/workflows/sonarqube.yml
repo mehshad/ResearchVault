@@ -31,7 +31,7 @@ jobs:
       - name: Run unit tests with coverage
         # Node's built-in test runner with --experimental-test-coverage
         run: |
-          node --experimental-strip-types \
+          node --import tsx \
                --experimental-test-coverage \
                --test-reporter=lcov \
                --test-reporter-destination=coverage/lcov.info \
