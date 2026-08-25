@@ -26,7 +26,7 @@ COPY --from=builder /app/dist ./dist
 COPY --from=builder /app/migrations ./migrations
 COPY --from=builder /app/shared ./shared
 
-RUN mkdir -p /data/uploads
+RUN mkdir -p /data/uploads && mkdir -p /var/log/app
 
 EXPOSE 5000
 
