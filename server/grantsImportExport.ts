@@ -187,6 +187,100 @@ export interface GrantRowPreview {
   reason?: string; // for skips, or informational notes
   changes?: string[]; // for updates: which fields differ
   data?: Partial<InsertGrant>; // parsed values ready to persist
+  unmatchedStaff?: {
+    lpiName: string;
+    lpiEmail: string;
+    reason: string;
+  };
+}
+
+export interface MissingGrantStaffRow {
+  lpiName: string;
+  lpiEmail: string;
+  affectedGrantCount: number;
+  projectNumbers: string[];
+  grantTitles: string[];
+  reason: string;
+}
+
+export function collectMissingGrantStaff(
+  previews: GrantRowPreview[],
+): MissingGrantStaffRow[] {
+  const rows: MissingGrantStaffRow[] = [];
+  const byEmail = new Map<string, MissingGrantStaffRow>();
+  const byName = new Map<string, MissingGrantStaffRow>();
+
+  for (const preview of previews) {
+    const missing = preview.unmatchedStaff;
+    if (!missing) continue;
+    const emailKey = missing.lpiEmail.trim().toLowerCase();
+    const nameKey = missing.lpiName.trim().toLowerCase().replace(/\s+/g, " ");
+    let entry = (emailKey ? byEmail.get(emailKey) : undefined)
+      ?? (nameKey ? byName.get(nameKey) : undefined);
+
+    if (!entry) {
+      entry = {
+        lpiName: missing.lpiName,
+        lpiEmail: missing.lpiEmail,
+        affectedGrantCount: 0,
+        projectNumbers: [],
+        grantTitles: [],
+        reason: missing.reason,
+      };
+      rows.push(entry);
+    }
+
+    if (!entry.lpiName && missing.lpiName) entry.lpiName = missing.lpiName;
+    if (!entry.lpiEmail && missing.lpiEmail) entry.lpiEmail = missing.lpiEmail;
+    if (emailKey) byEmail.set(emailKey, entry);
+    if (nameKey) byName.set(nameKey, entry);
+
+    entry.affectedGrantCount += 1;
+    if (preview.projectNumber && !entry.projectNumbers.includes(preview.projectNumber)) {
+      entry.projectNumbers.push(preview.projectNumber);
+    }
+    if (preview.title && !entry.grantTitles.includes(preview.title)) {
+      entry.grantTitles.push(preview.title);
+    }
+  }
+
+  return rows.sort((a, b) =>
+    (a.lpiName || a.lpiEmail).localeCompare(b.lpiName || b.lpiEmail),
+  );
+}
+
+export async function buildMissingGrantStaffWorkbookBuffer(
+  previews: GrantRowPreview[],
+): Promise<Buffer> {
+  const rows = collectMissingGrantStaff(previews);
+  const workbook = new ExcelJS.Workbook();
+  const sheet = workbook.addWorksheet("Missing Staff");
+  sheet.columns = [
+    { header: "LPI Name", key: "lpiName", width: 28 },
+    { header: "LPI Email", key: "lpiEmail", width: 32 },
+    { header: "Affected Grants", key: "affectedGrantCount", width: 16 },
+    { header: "Project Numbers", key: "projectNumbers", width: 34 },
+    { header: "Grant Titles", key: "grantTitles", width: 60 },
+    { header: "Reason", key: "reason", width: 55 },
+  ];
+  sheet.views = [{ state: "frozen", ySplit: 1 }];
+  sheet.autoFilter = { from: "A1", to: "F1" };
+  sheet.getRow(1).font = { bold: true };
+  sheet.getRow(1).alignment = { vertical: "middle" };
+  for (const row of rows) {
+    sheet.addRow({
+      ...row,
+      projectNumbers: row.projectNumbers.join("\n"),
+      grantTitles: row.grantTitles.join("\n"),
+    });
+  }
+  sheet.eachRow((row, rowNumber) => {
+    if (rowNumber > 1) {
+      row.alignment = { vertical: "top", wrapText: true };
+    }
+  });
+  const buffer = await workbook.xlsx.writeBuffer();
+  return Buffer.from(buffer);
 }
 
 function cellString(v: any): string {
@@ -302,15 +396,24 @@ export function previewGrantRows(
     let lpiId: number | null | undefined = undefined; // undefined = leave unchanged
     const lpiEmail = row.lpiEmail ?? "";
     const lpiName = row.lpiName ?? "";
+    let unmatchedStaff: GrantRowPreview["unmatchedStaff"];
     if (isClear(lpiEmail) || isClear(lpiName)) {
       lpiId = null;
     } else if (lpiEmail) {
       const s = scientistByEmail.get(lpiEmail.toLowerCase());
-      if (!s) errors.push(`No staff member found with email "${lpiEmail}"`);
+      if (!s) {
+        const reason = `No staff member found with email "${lpiEmail}"`;
+        errors.push(reason);
+        unmatchedStaff = { lpiName, lpiEmail, reason };
+      }
       else lpiId = s.id;
     } else if (lpiName) {
       const s = scientistByName.get(lpiName.toLowerCase().replace(/\s+/g, " "));
-      if (!s) errors.push(`No staff member found named "${lpiName}" (use LPI Email for reliable matching)`);
+      if (!s) {
+        const reason = `No staff member found named "${lpiName}" (use LPI Email for reliable matching)`;
+        errors.push(reason);
+        unmatchedStaff = { lpiName, lpiEmail, reason };
+      }
       else lpiId = s.id;
     }
 
@@ -404,7 +507,17 @@ export function previewGrantRows(
       );
     }
 
-    if (errors.length > 0) return skip(errors.join("; "));
+    if (errors.length > 0) {
+      previews.push({
+        rowNumber,
+        action: "skip",
+        projectNumber,
+        title,
+        reason: errors.join("; "),
+        unmatchedStaff,
+      });
+      return;
+    }
 
     if (!existing) {
       previews.push({ rowNumber, action: "create", projectNumber, title, data });

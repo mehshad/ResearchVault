@@ -1,8 +1,13 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import ExcelJS from "exceljs";
 
 import type { Grant, Scientist } from "@shared/schema";
-import { previewGrantRows } from "./grantsImportExport";
+import {
+  buildMissingGrantStaffWorkbookBuffer,
+  collectMissingGrantStaff,
+  previewGrantRows,
+} from "./grantsImportExport";
 
 const noExistingGrants = new Map<string, Grant>();
 const noScientistsByEmail = new Map<string, Scientist>();
@@ -221,4 +226,83 @@ test("grant import accepts only EUR, USD, or QAR currencies", () => {
   );
   assert.equal(rejected.action, "skip");
   assert.match(rejected.reason ?? "", /Currency must be EUR, USD, or QAR/);
+});
+
+test("grant import exposes structured missing staff and consolidates affected grants", () => {
+  const previews = previewGrantRows(
+    [
+      {
+        "Project Number": "MISSING-STAFF-1",
+        "Title": "First affected grant",
+        "Status": "submitted",
+        "LPI Name": "Dr. Missing Person",
+        "LPI Email": "missing.person@example.org",
+      },
+      {
+        "Project Number": "MISSING-STAFF-2",
+        "Title": "Second affected grant",
+        "Status": "submitted",
+        "LPI Name": "dr. missing person",
+      },
+    ],
+    noExistingGrants,
+    noScientistsByEmail,
+    noScientistsByName,
+  );
+
+  assert.equal(previews[0].action, "skip");
+  assert.deepEqual(previews[0].unmatchedStaff, {
+    lpiName: "Dr. Missing Person",
+    lpiEmail: "missing.person@example.org",
+    reason: 'No staff member found with email "missing.person@example.org"',
+  });
+
+  const missingStaff = collectMissingGrantStaff(previews);
+  assert.equal(missingStaff.length, 1);
+  assert.equal(missingStaff[0].affectedGrantCount, 2);
+  assert.equal(missingStaff[0].lpiName, "Dr. Missing Person");
+  assert.equal(missingStaff[0].lpiEmail, "missing.person@example.org");
+  assert.deepEqual(missingStaff[0].projectNumbers, [
+    "MISSING-STAFF-1",
+    "MISSING-STAFF-2",
+  ]);
+  assert.deepEqual(missingStaff[0].grantTitles, [
+    "First affected grant",
+    "Second affected grant",
+  ]);
+});
+
+test("missing grant staff workbook contains forwardable staff and grant details", async () => {
+  const previews = previewGrantRows(
+    [{
+      "Project Number": "MISSING-STAFF-XLSX",
+      "Title": "Workbook affected grant",
+      "Status": "submitted",
+      "LPI Name": "Dr. Workbook Person",
+    }],
+    noExistingGrants,
+    noScientistsByEmail,
+    noScientistsByName,
+  );
+
+  const buffer = await buildMissingGrantStaffWorkbookBuffer(previews);
+  const workbook = new ExcelJS.Workbook();
+  await workbook.xlsx.load(buffer);
+  const sheet = workbook.getWorksheet("Missing Staff");
+  assert.ok(sheet);
+  assert.deepEqual(
+    (sheet.getRow(1).values as unknown[]).slice(1),
+    [
+      "LPI Name",
+      "LPI Email",
+      "Affected Grants",
+      "Project Numbers",
+      "Grant Titles",
+      "Reason",
+    ],
+  );
+  assert.equal(sheet.getCell("A2").value, "Dr. Workbook Person");
+  assert.equal(sheet.getCell("C2").value, 1);
+  assert.equal(sheet.getCell("D2").value, "MISSING-STAFF-XLSX");
+  assert.equal(sheet.getCell("E2").value, "Workbook affected grant");
 });

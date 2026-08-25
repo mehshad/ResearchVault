@@ -282,6 +282,48 @@ export default function GrantsList() {
     },
   });
 
+  const missingStaffMutation = useMutation({
+    mutationFn: async () => {
+      if (!importFile) throw new Error('No file selected');
+      const response = await fetch('/api/grants/import/missing-staff', {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          fileBase64: importFile.base64,
+          fileName: importFile.name,
+        }),
+      });
+      if (!response.ok) {
+        let message = 'Failed to download missing staff list';
+        try {
+          const body = await response.json();
+          message = body.message || message;
+        } catch (_) {}
+        throw new Error(message);
+      }
+      const blob = await response.blob();
+      const disposition = response.headers.get('content-disposition') ?? '';
+      const match = disposition.match(/filename="?([^"]+)"?/i);
+      const fileName = match?.[1] || `missing-grant-staff-${new Date().toISOString().slice(0, 10)}.xlsx`;
+      const url = URL.createObjectURL(blob);
+      const anchor = document.createElement('a');
+      anchor.href = url;
+      anchor.download = fileName;
+      document.body.appendChild(anchor);
+      anchor.click();
+      anchor.remove();
+      URL.revokeObjectURL(url);
+    },
+    onError: (err: any) => {
+      toast({
+        title: 'Could not download missing staff',
+        description: err?.message ?? 'Failed to create missing staff list',
+        variant: 'destructive',
+      });
+    },
+  });
+
   // Get unique years and statuses for filters
   const years = [...new Set(grants?.map(g => g.submittedYear).filter(Boolean))].sort((a, b) => (b || 0) - (a || 0));
   const statuses = GRANT_STATUS_OPTIONS;
@@ -549,54 +591,71 @@ export default function GrantsList() {
       </div>
 
       <Dialog open={importOpen} onOpenChange={(open) => { setImportOpen(open); if (!open) resetImport(); }}>
-        <DialogContent className="max-w-2xl">
-          <DialogHeader>
+        <DialogContent className="grid h-[min(90vh,56rem)] w-[calc(100vw-2rem)] max-w-6xl grid-rows-[auto_minmax(0,1fr)_auto] gap-0 overflow-hidden p-0">
+          <DialogHeader className="border-b px-4 pb-4 pt-5 text-left sm:px-6 sm:pt-6">
             <DialogTitle>Import Grants from Excel</DialogTitle>
-            <DialogDescription>
+            <DialogDescription className="max-w-none break-words [overflow-wrap:anywhere]">
               Upload an Excel (.xlsx) or CSV file. Grants are matched by Project Number:
               existing grants are updated, new project numbers create new grants.
               For existing grants, blank cells leave the current value unchanged —
               type CLEAR in a cell to erase a field. Exported files can be edited and re-imported directly.
             </DialogDescription>
-          </DialogHeader>
-
-          <div className="space-y-4">
-            <div className="flex items-center gap-2">
-              <Button variant="outline" size="sm" onClick={() => window.open('/api/grants/import/template', '_blank')}>
+            <div className="flex flex-wrap items-center gap-2 pt-2">
+              <Button type="button" variant="outline" size="sm" className="shrink-0" onClick={() => window.open('/api/grants/import/template', '_blank')}>
                 <FileSpreadsheet className="h-4 w-4 mr-2" />
                 Download Template
               </Button>
-              <label className="cursor-pointer">
-                <span className="inline-flex items-center px-3 py-1.5 text-sm border rounded-md hover:bg-accent">
-                  <Upload className="h-4 w-4 mr-2" />
-                  {importFile ? importFile.name : 'Choose File'}
+              <label className="min-w-0 max-w-full cursor-pointer">
+                <span className="inline-flex max-w-full items-center rounded-md border px-3 py-1.5 text-sm hover:bg-accent">
+                  <Upload className="mr-2 h-4 w-4 shrink-0" />
+                  <span className="min-w-0 break-all text-left">{importFile ? importFile.name : 'Choose File'}</span>
                 </span>
                 <input type="file" accept=".xlsx,.csv" className="hidden" onChange={handleImportFileChange} />
               </label>
+              {importPreview?.summary?.missingStaff > 0 && (
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="shrink-0"
+                  onClick={() => missingStaffMutation.mutate()}
+                  disabled={missingStaffMutation.isPending}
+                >
+                  {missingStaffMutation.isPending
+                    ? <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    : <Download className="mr-2 h-4 w-4" />}
+                  Download Missing Staff List
+                </Button>
+              )}
               {previewMutation.isPending && <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />}
             </div>
+          </DialogHeader>
 
+          <div className="min-h-0 overflow-y-auto px-4 py-4 sm:px-6">
             {importPreview && !importResult && (
               <div className="space-y-2">
-                <div className="flex gap-2 text-sm">
+                <div className="flex flex-wrap gap-2 text-sm">
                   <Badge className="bg-green-100 text-green-800 hover:bg-green-100">{importPreview.summary.create} new</Badge>
                   <Badge className="bg-blue-100 text-blue-800 hover:bg-blue-100">{importPreview.summary.update} updates</Badge>
                   <Badge variant="secondary">{importPreview.summary.skip} skipped</Badge>
+                  {importPreview.summary.missingStaff > 0 && (
+                    <Badge variant="outline">{importPreview.summary.missingStaff} missing staff</Badge>
+                  )}
                 </div>
-                <div className="max-h-64 overflow-y-auto border rounded-md divide-y text-sm">
+                <div className="divide-y rounded-md border text-sm">
                   {importPreview.rows.map((row: any) => (
-                    <div key={row.rowNumber} className="px-3 py-2 flex items-start gap-2">
+                    <div key={row.rowNumber} className="flex items-start gap-3 px-3 py-3">
                       <Badge
                         variant={row.action === 'skip' ? 'secondary' : 'default'}
-                        className={row.action === 'create' ? 'bg-green-600' : row.action === 'update' ? 'bg-blue-600' : ''}
+                        className={`shrink-0 ${row.action === 'create' ? 'bg-green-600' : row.action === 'update' ? 'bg-blue-600' : ''}`}
                       >
                         {row.action}
                       </Badge>
-                      <div className="min-w-0">
-                        <div className="font-medium truncate">{row.projectNumber || `Row ${row.rowNumber}`} — {row.title || 'Untitled'}</div>
-                        {row.reason && <div className="text-muted-foreground">{row.reason}</div>}
+                      <div className="min-w-0 flex-1 break-words [overflow-wrap:anywhere]">
+                        <div className="font-medium">{row.projectNumber || `Row ${row.rowNumber}`} — {row.title || 'Untitled'}</div>
+                        {row.reason && <div className="mt-0.5 text-muted-foreground">{row.reason}</div>}
                         {row.changes && row.changes.length > 0 && (
-                          <div className="text-muted-foreground">Changes: {row.changes.join(', ')}</div>
+                          <div className="mt-0.5 text-muted-foreground">Changes: {row.changes.join(', ')}</div>
                         )}
                       </div>
                     </div>
@@ -609,13 +668,13 @@ export default function GrantsList() {
             )}
 
             {importResult && (
-              <div className="space-y-2 text-sm">
+              <div className="space-y-2 break-words text-sm [overflow-wrap:anywhere]">
                 <div className="font-medium">
                   Import complete: {importResult.created} created, {importResult.updated} updated,
                   {' '}{importResult.skipped?.length ?? 0} skipped{importResult.failed?.length ? `, ${importResult.failed.length} failed` : ''}.
                 </div>
                 {importResult.failed?.length > 0 && (
-                  <div className="max-h-40 overflow-y-auto border border-red-200 rounded-md divide-y">
+                  <div className="divide-y rounded-md border border-red-200">
                     {importResult.failed.map((f: any, i: number) => (
                       <div key={i} className="px-3 py-2 text-red-700">
                         Row {f.rowNumber} ({f.projectNumber}): {f.reason}
@@ -627,7 +686,7 @@ export default function GrantsList() {
             )}
           </div>
 
-          <DialogFooter>
+          <DialogFooter className="shrink-0 border-t px-4 py-4 sm:px-6">
             <Button variant="outline" onClick={() => { setImportOpen(false); resetImport(); }}>
               {importResult ? 'Close' : 'Cancel'}
             </Button>

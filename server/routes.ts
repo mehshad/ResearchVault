@@ -78,7 +78,7 @@ import { matchesAuthorName, isLinkedAuthorInAuthorsText, isUnambiguousAuthorMatc
 import { detectDuplicateGroups, pickDefaultSurvivorId, normalizeDoi as canonicalDoi, isPreprintRecord } from "@shared/publicationDeduplication";
 import { getObjectAclPolicy, ObjectPermission } from "./objectAcl";
 import { buildLinkImportTemplate, previewLinkImport } from "./publicationLinksImport";
-import { GRANT_COLUMNS, grantsToRows, buildGrantsWorkbookBuffer, buildGrantsTemplateBuffer, previewGrantRows } from "./grantsImportExport";
+import { GRANT_COLUMNS, grantsToRows, buildGrantsWorkbookBuffer, buildGrantsTemplateBuffer, buildMissingGrantStaffWorkbookBuffer, collectMissingGrantStaff, previewGrantRows } from "./grantsImportExport";
 import {
   registerSidraScoreRoutes,
   isOwnScientistProfile,
@@ -9551,11 +9551,34 @@ export async function registerRoutes(app: Express): Promise<Server> {
           create: previews.filter((p) => p.action === 'create').length,
           update: previews.filter((p) => p.action === 'update').length,
           skip: previews.filter((p) => p.action === 'skip').length,
+          missingStaff: collectMissingGrantStaff(previews).length,
         },
       });
     } catch (error) {
       console.error('Error previewing grants import:', error);
       res.status(400).json({ message: error instanceof Error ? error.message : "Failed to parse file" });
+    }
+  });
+
+  app.post('/api/grants/import/missing-staff', requireAuth, async (req: Request, res: Response) => {
+    try {
+      const { fileBase64, fileName } = req.body ?? {};
+      if (typeof fileBase64 !== 'string' || !fileBase64 || typeof fileName !== 'string') {
+        return res.status(400).json({ message: "Provide fileBase64 and fileName" });
+      }
+      const previews = await computeGrantImportPreview(fileBase64, fileName);
+      const missingStaff = collectMissingGrantStaff(previews);
+      if (missingStaff.length === 0) {
+        return res.status(400).json({ message: "No missing staff found in this grant import" });
+      }
+      const buffer = await buildMissingGrantStaffWorkbookBuffer(previews);
+      const stamp = new Date().toISOString().slice(0, 10);
+      res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+      res.setHeader('Content-Disposition', `attachment; filename=missing-grant-staff-${stamp}.xlsx`);
+      res.send(buffer);
+    } catch (error) {
+      console.error('Error exporting missing grant staff:', error);
+      res.status(400).json({ message: error instanceof Error ? error.message : "Failed to export missing staff" });
     }
   });
 
