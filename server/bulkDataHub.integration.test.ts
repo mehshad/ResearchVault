@@ -347,6 +347,92 @@ integrationTest("CLEAR nulls supported grant fields while blank cells stay uncha
   assert.equal(updated.description, null);
 });
 
+integrationTest("repeat grant imports append unique list data and enrich the same record", async (t) => {
+  const projectNumber = uniqueKey("ENRICH-GRANT");
+  const [created] = await db
+    .insert(grants)
+    .values({
+      projectNumber,
+      title: "Existing grant title",
+      status: "submitted",
+      awarded: false,
+      collaborators: ["Existing Institution"],
+      coInvestigators: ["Dr. Existing Person"],
+    })
+    .returning({ id: grants.id });
+
+  t.after(async () => {
+    await db.delete(grants).where(eq(grants.id, created.id));
+  });
+
+  const fileBase64 = await workbookBase64([
+    {
+      name: "Grants",
+      headers: [
+        "Project Number",
+        "Title",
+        "Grant Source",
+        "Source Record Key",
+        "Submitting Institution",
+        "Co-Investigators",
+        "Duration (Months)",
+        "Currency",
+        "Collaborators",
+      ],
+      rows: [[
+        projectNumber,
+        "",
+        "IRF Project",
+        `IRF:${projectNumber}`,
+        "Sidra Medicine",
+        "Dr. Existing Person; Dr. New Person",
+        "30",
+        "QAR",
+        "existing institution; New Institution",
+      ]],
+    },
+  ]);
+
+  const preview = await previewSection(
+    "research-services",
+    fileBase64,
+    "enrich-grant.xlsx",
+  );
+  assert.equal(preview.canApply, true);
+  assert.equal(preview.rows[0].action, "update");
+
+  await applySection(
+    "research-services",
+    fileBase64,
+    "enrich-grant.xlsx",
+    preview.fingerprint,
+  );
+
+  const [updated] = await db.select().from(grants).where(eq(grants.id, created.id));
+  assert.equal(updated.title, "Existing grant title");
+  assert.equal(updated.sourceCategory, "IRF Project");
+  assert.equal(updated.sourceRecordKey, `IRF:${projectNumber}`);
+  assert.equal(updated.submittingInstitution, "Sidra Medicine");
+  assert.equal(updated.durationMonths, 30);
+  assert.equal(updated.currency, "QAR");
+  assert.deepEqual(updated.coInvestigators, [
+    "Dr. Existing Person",
+    "Dr. New Person",
+  ]);
+  assert.deepEqual(updated.collaborators, [
+    "Existing Institution",
+    "New Institution",
+  ]);
+
+  const repeatedPreview = await previewSection(
+    "research-services",
+    fileBase64,
+    "enrich-grant.xlsx",
+  );
+  assert.equal(repeatedPreview.rows[0].action, "skip");
+  assert.equal(repeatedPreview.rows[0].reason, "No changes");
+});
+
 integrationTest("CLEAR on a required IRB principal investigator is rejected during preview", async (t) => {
   const suffix = uniqueKey("IRB-CLEAR").toLowerCase().replace(/[^a-z0-9-]/g, "");
   const email = `${suffix}@example.invalid`;

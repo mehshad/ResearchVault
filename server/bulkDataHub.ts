@@ -52,6 +52,7 @@ import {
   rooms,
   certificationModules,
   certifications,
+  GRANT_CURRENCY_VALUES,
 } from "@shared/schema";
 import type {
   Scientist,
@@ -213,6 +214,10 @@ const GRANT_COLS: ColDef[] = [
   { header: "LPI Email", key: "lpiEmail", description: "Lead PI email — must resolve to a scientist" },
   { header: "Investigator Type", key: "investigatorType", description: "Researcher or Clinician" },
   { header: "Grant Type", key: "grantType", description: "Local or International" },
+  { header: "Grant Source", key: "sourceCategory", description: "QNRF Grant, Subaward Agreement, IRF Project, etc." },
+  { header: "Source Record Key", key: "sourceRecordKey", description: "Stable identifier from the source dataset" },
+  { header: "Submitting Institution", key: "submittingInstitution" },
+  { header: "Co-Investigators", key: "coInvestigators", description: "Semicolon-separated; repeat imports append unique names" },
   { header: "Status", key: "status" },
   { header: "Funding Agency", key: "fundingAgency" },
   { header: "Requested Amount", key: "requestedAmount" },
@@ -221,7 +226,12 @@ const GRANT_COLS: ColDef[] = [
   { header: "Submitted Year", key: "submittedYear" },
   { header: "Awarded Year", key: "awardedYear" },
   { header: "Running Time (Years)", key: "runningTimeYears" },
+  { header: "Duration (Months)", key: "durationMonths" },
   { header: "Current Grant Year", key: "currentGrantYear" },
+  { header: "Subaward Completed Year", key: "subawardCompletedYear" },
+  { header: "Contribution Type", key: "contributionType", description: "In-kind, in-cash, or mixed" },
+  { header: "Contribution Details", key: "contributionDetails" },
+  { header: "Currency", key: "currency", description: "QAR, USD, EUR, etc." },
   { header: "Start Date", key: "startDate", description: "YYYY-MM-DD" },
   { header: "End Date", key: "endDate", description: "YYYY-MM-DD" },
   { header: "Reporting Interval (Months)", key: "reportingIntervalMonths" },
@@ -704,6 +714,10 @@ function grantsToRows(
       lpiEmail: lpi?.email ?? "",
       investigatorType: g.investigatorType ?? "",
       grantType: g.grantType ?? "",
+      sourceCategory: g.sourceCategory ?? "",
+      sourceRecordKey: g.sourceRecordKey ?? "",
+      submittingInstitution: g.submittingInstitution ?? "",
+      coInvestigators: g.coInvestigators ? g.coInvestigators.join("; ") : "",
       status: g.status,
       fundingAgency: g.fundingAgency ?? "",
       requestedAmount: g.requestedAmount ?? "",
@@ -712,7 +726,12 @@ function grantsToRows(
       submittedYear: g.submittedYear ?? "",
       awardedYear: g.awardedYear ?? "",
       runningTimeYears: g.runningTimeYears ?? "",
+      durationMonths: g.durationMonths ?? "",
       currentGrantYear: g.currentGrantYear ?? "",
+      subawardCompletedYear: g.subawardCompletedYear ?? "",
+      contributionType: g.contributionType ?? "",
+      contributionDetails: g.contributionDetails ?? "",
+      currency: g.currency ?? "",
       startDate: g.startDate ?? "",
       endDate: g.endDate ?? "",
       reportingIntervalMonths: g.reportingIntervalMonths ?? "",
@@ -1659,6 +1678,30 @@ function previewGrantRows2(
     if (invType !== undefined) data.investigatorType = invType;
     const grantType = maybeText(row.grantType ?? "", !isNew);
     if (grantType !== undefined) data.grantType = grantType;
+    const sourceCategory = maybeText(row.sourceCategory ?? "", !isNew);
+    if (sourceCategory !== undefined) data.sourceCategory = sourceCategory;
+    const sourceRecordKey = maybeText(row.sourceRecordKey ?? "", !isNew);
+    if (sourceRecordKey !== undefined) data.sourceRecordKey = sourceRecordKey;
+    const submittingInstitution = maybeText(row.submittingInstitution ?? "", !isNew);
+    if (submittingInstitution !== undefined) data.submittingInstitution = submittingInstitution;
+    const contributionType = maybeText(row.contributionType ?? "", !isNew);
+    if (contributionType !== undefined) data.contributionType = contributionType;
+    const contributionDetails = maybeText(row.contributionDetails ?? "", !isNew);
+    if (contributionDetails !== undefined) data.contributionDetails = contributionDetails;
+    const currency = maybeText(row.currency ?? "", !isNew);
+    if (currency !== undefined) {
+      const normalizedCurrency = currency?.toUpperCase() ?? null;
+      if (
+        normalizedCurrency !== null
+        && !GRANT_CURRENCY_VALUES.includes(
+          normalizedCurrency as typeof GRANT_CURRENCY_VALUES[number],
+        )
+      ) {
+        errors.push(`Currency must be EUR, USD, or QAR (got "${row.currency}")`);
+      } else {
+        data.currency = normalizedCurrency;
+      }
+    }
     const fa = maybeText(row.fundingAgency ?? "", !isNew);
     if (fa !== undefined) data.fundingAgency = fa;
 
@@ -1683,6 +1726,9 @@ function previewGrantRows2(
     if (row.runningTimeYears && row.runningTimeYears !== "") {
       data.runningTimeYears = parseIntField(row.runningTimeYears, "Running Time (Years)", errors);
     }
+    if (row.durationMonths && row.durationMonths !== "") {
+      data.durationMonths = parseIntField(row.durationMonths, "Duration (Months)", errors);
+    }
     const cgYear = maybeText(row.currentGrantYear ?? "", !isNew);
     if (cgYear !== undefined) data.currentGrantYear = cgYear;
     if (row.startDate && row.startDate !== "") {
@@ -1694,9 +1740,45 @@ function previewGrantRows2(
     if (row.reportingIntervalMonths && row.reportingIntervalMonths !== "") {
       data.reportingIntervalMonths = parseIntField(row.reportingIntervalMonths, "Reporting Interval (Months)", errors);
     }
+    if (row.subawardCompletedYear && row.subawardCompletedYear !== "") {
+      data.subawardCompletedYear = parseIntField(row.subawardCompletedYear, "Subaward Completed Year", errors);
+    }
+    if (row.coInvestigators !== undefined && (row.coInvestigators !== "" || !isNew)) {
+      if (row.coInvestigators !== "") {
+        if (isClear(row.coInvestigators)) {
+          data.coInvestigators = null;
+        } else {
+          const incoming = splitSemicolon(row.coInvestigators);
+          const merged = [...(existing?.coInvestigators ?? [])];
+          const seen = new Set(merged.map((value) => value.trim().toLowerCase()));
+          for (const value of incoming) {
+            const key = value.trim().toLowerCase();
+            if (key && !seen.has(key)) {
+              seen.add(key);
+              merged.push(value);
+            }
+          }
+          data.coInvestigators = merged;
+        }
+      }
+    }
     if (row.collaborators !== undefined && (row.collaborators !== "" || !isNew)) {
       if (row.collaborators !== "") {
-        data.collaborators = isClear(row.collaborators) ? null : splitSemicolon(row.collaborators);
+        if (isClear(row.collaborators)) {
+          data.collaborators = null;
+        } else {
+          const incoming = splitSemicolon(row.collaborators);
+          const merged = [...(existing?.collaborators ?? [])];
+          const seen = new Set(merged.map((value) => value.trim().toLowerCase()));
+          for (const value of incoming) {
+            const key = value.trim().toLowerCase();
+            if (key && !seen.has(key)) {
+              seen.add(key);
+              merged.push(value);
+            }
+          }
+          data.collaborators = merged;
+        }
       }
     }
     const desc = maybeText(row.description ?? "", !isNew);

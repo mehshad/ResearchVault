@@ -1299,6 +1299,15 @@ export const grants = pgTable("grants", {
   currentGrantYear: text("current_grant_year"), // What year we are in (e.g., "1/3", "2/5")
   status: text("status").notNull().default("submitted"), // active, completed, cancelled, etc.
   grantType: text("grant_type").default("Local"), // International or Local
+  sourceCategory: text("source_category"), // QNRF Grant, Subaward Agreement, IRF Project, etc.
+  sourceRecordKey: text("source_record_key"), // Stable identifier from the source dataset
+  submittingInstitution: text("submitting_institution"),
+  coInvestigators: text("co_investigators").array(),
+  subawardCompletedYear: integer("subaward_completed_year"),
+  contributionType: text("contribution_type"), // In-kind, in-cash, or mixed
+  contributionDetails: text("contribution_details"), // Raw contribution notes/amount details
+  durationMonths: integer("duration_months"), // Exact duration when whole years are insufficient
+  currency: text("currency"), // ISO-style code such as QAR or USD
   startDate: date("start_date"), // Grant start date
   endDate: date("end_date"), // Grant end date
   reportingIntervalMonths: integer("reporting_interval_months"), // Reporting interval in months
@@ -1328,12 +1337,15 @@ export const grants = pgTable("grants", {
   };
 });
 
+export const GRANT_CURRENCY_VALUES = ["EUR", "USD", "QAR"] as const;
+
 export const insertGrantSchema = createInsertSchema(grants).omit({
   id: true,
   createdAt: true,
   updatedAt: true,
 }).extend({
   status: z.enum(GRANT_STATUS_VALUES),
+  currency: z.enum(GRANT_CURRENCY_VALUES).nullable().optional(),
 });
 
 export type InsertGrant = z.infer<typeof insertGrantSchema>;

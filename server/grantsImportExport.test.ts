@@ -1,8 +1,13 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import ExcelJS from "exceljs";
 
 import type { Grant, Scientist } from "@shared/schema";
-import { previewGrantRows } from "./grantsImportExport";
+import {
+  buildMissingGrantStaffWorkbookBuffer,
+  collectMissingGrantStaff,
+  previewGrantRows,
+} from "./grantsImportExport";
 
 const noExistingGrants = new Map<string, Grant>();
 const noScientistsByEmail = new Map<string, Scientist>();
@@ -87,4 +92,217 @@ test("grant import preserves an existing award milestone for Cancelled grants", 
   assert.equal(preview.action, "update");
   assert.equal(preview.data?.status, "cancelled");
   assert.equal(preview.data?.awarded, true);
+});
+
+test("repeat grant imports append unique collaborators and co-investigators", () => {
+  const existing = {
+    id: 18,
+    projectNumber: "IMPORT-ENRICH",
+    title: "Existing grant",
+    status: "submitted",
+    awarded: false,
+    collaborators: ["Qatar University"],
+    coInvestigators: ["Dr. Existing Person"],
+  } as Grant;
+  const existingGrants = new Map<string, Grant>([
+    [existing.projectNumber.toLowerCase(), existing],
+  ]);
+
+  const [preview] = previewGrantRows(
+    [{
+      "Project Number": existing.projectNumber,
+      "Collaborators": "qatar university; Hamad Medical Corporation",
+      "Co-Investigators": "Dr. Existing Person; Dr. New Person",
+      "Submitting Institution": "Sidra Medicine",
+      "Currency": "QAR",
+    }],
+    existingGrants,
+    noScientistsByEmail,
+    noScientistsByName,
+  );
+
+  assert.equal(preview.action, "update");
+  assert.deepEqual(preview.data?.collaborators, [
+    "Qatar University",
+    "Hamad Medical Corporation",
+  ]);
+  assert.deepEqual(preview.data?.coInvestigators, [
+    "Dr. Existing Person",
+    "Dr. New Person",
+  ]);
+  assert.equal(preview.data?.submittingInstitution, "Sidra Medicine");
+  assert.equal(preview.data?.currency, "QAR");
+});
+
+test("repeat grant imports preserve existing values when new cells are blank", () => {
+  const existing = {
+    id: 19,
+    projectNumber: "IMPORT-BLANK-PRESERVE",
+    title: "Existing grant",
+    status: "submitted",
+    awarded: false,
+    sourceCategory: "IRF Project",
+    durationMonths: 30,
+    collaborators: ["Existing Institution"],
+  } as Grant;
+  const existingGrants = new Map<string, Grant>([
+    [existing.projectNumber.toLowerCase(), existing],
+  ]);
+
+  const [preview] = previewGrantRows(
+    [{
+      "Project Number": existing.projectNumber,
+      "Grant Source": "",
+      "Duration (Months)": "",
+      "Collaborators": "",
+    }],
+    existingGrants,
+    noScientistsByEmail,
+    noScientistsByName,
+  );
+
+  assert.equal(preview.action, "skip");
+  assert.equal(preview.reason, "No changes");
+});
+
+test("grant import parses the additional masterfile fields", () => {
+  const [preview] = previewGrantRows(
+    [{
+      "Project Number": "IMPORT-MASTER-FIELDS",
+      "Title": "Grant with masterfile metadata",
+      "Status": "submitted",
+      "Grant Source": "Subaward Agreement",
+      "Source Record Key": "SAA-001",
+      "Submitting Institution": "Hamad Medical Corporation",
+      "Co-Investigators": "Dr. One; Dr. Two",
+      "Subaward Completed Year": "2025",
+      "Contribution Type": "In-kind",
+      "Contribution Details": "Equipment and staff time",
+      "Duration (Months)": "30",
+      "Currency": "QAR",
+    }],
+    noExistingGrants,
+    noScientistsByEmail,
+    noScientistsByName,
+  );
+
+  assert.equal(preview.action, "create");
+  assert.equal(preview.data?.sourceCategory, "Subaward Agreement");
+  assert.equal(preview.data?.sourceRecordKey, "SAA-001");
+  assert.equal(preview.data?.submittingInstitution, "Hamad Medical Corporation");
+  assert.deepEqual(preview.data?.coInvestigators, ["Dr. One", "Dr. Two"]);
+  assert.equal(preview.data?.subawardCompletedYear, 2025);
+  assert.equal(preview.data?.contributionType, "In-kind");
+  assert.equal(preview.data?.contributionDetails, "Equipment and staff time");
+  assert.equal(preview.data?.durationMonths, 30);
+  assert.equal(preview.data?.currency, "QAR");
+});
+
+test("grant import accepts only EUR, USD, or QAR currencies", () => {
+  const [accepted] = previewGrantRows(
+    [{
+      "Project Number": "IMPORT-VALID-CURRENCY",
+      "Title": "Valid currency",
+      "Status": "submitted",
+      "Currency": "eur",
+    }],
+    noExistingGrants,
+    noScientistsByEmail,
+    noScientistsByName,
+  );
+  assert.equal(accepted.action, "create");
+  assert.equal(accepted.data?.currency, "EUR");
+
+  const [rejected] = previewGrantRows(
+    [{
+      "Project Number": "IMPORT-INVALID-CURRENCY",
+      "Title": "Invalid currency",
+      "Status": "submitted",
+      "Currency": "GBP",
+    }],
+    noExistingGrants,
+    noScientistsByEmail,
+    noScientistsByName,
+  );
+  assert.equal(rejected.action, "skip");
+  assert.match(rejected.reason ?? "", /Currency must be EUR, USD, or QAR/);
+});
+
+test("grant import exposes structured missing staff and consolidates affected grants", () => {
+  const previews = previewGrantRows(
+    [
+      {
+        "Project Number": "MISSING-STAFF-1",
+        "Title": "First affected grant",
+        "Status": "submitted",
+        "LPI Name": "Dr. Missing Person",
+        "LPI Email": "missing.person@example.org",
+      },
+      {
+        "Project Number": "MISSING-STAFF-2",
+        "Title": "Second affected grant",
+        "Status": "submitted",
+        "LPI Name": "dr. missing person",
+      },
+    ],
+    noExistingGrants,
+    noScientistsByEmail,
+    noScientistsByName,
+  );
+
+  assert.equal(previews[0].action, "skip");
+  assert.deepEqual(previews[0].unmatchedStaff, {
+    lpiName: "Dr. Missing Person",
+    lpiEmail: "missing.person@example.org",
+    reason: 'No staff member found with email "missing.person@example.org"',
+  });
+
+  const missingStaff = collectMissingGrantStaff(previews);
+  assert.equal(missingStaff.length, 1);
+  assert.equal(missingStaff[0].affectedGrantCount, 2);
+  assert.equal(missingStaff[0].lpiName, "Dr. Missing Person");
+  assert.equal(missingStaff[0].lpiEmail, "missing.person@example.org");
+  assert.deepEqual(missingStaff[0].projectNumbers, [
+    "MISSING-STAFF-1",
+    "MISSING-STAFF-2",
+  ]);
+  assert.deepEqual(missingStaff[0].grantTitles, [
+    "First affected grant",
+    "Second affected grant",
+  ]);
+});
+
+test("missing grant staff workbook contains forwardable staff and grant details", async () => {
+  const previews = previewGrantRows(
+    [{
+      "Project Number": "MISSING-STAFF-XLSX",
+      "Title": "Workbook affected grant",
+      "Status": "submitted",
+      "LPI Name": "Dr. Workbook Person",
+    }],
+    noExistingGrants,
+    noScientistsByEmail,
+    noScientistsByName,
+  );
+
+  const buffer = await buildMissingGrantStaffWorkbookBuffer(previews);
+  const workbook = new ExcelJS.Workbook();
+  await workbook.xlsx.load(buffer);
+  const sheet = workbook.getWorksheet("Missing Staff");
+  assert.ok(sheet);
+  assert.deepEqual(
+    (sheet.getRow(1).values as unknown[]).slice(1),
+    [
+      "LPI Name",
+      "LPI Email",
+      "Affected Grants",
+      "Project Numbers",
+      "Grant Titles",
+      "Reason",
+    ],
+  );
+  assert.equal(sheet.getCell("A2").value, "Dr. Workbook Person");
+  assert.equal(sheet.getCell("C2").value, 1);
+  assert.equal(sheet.getCell("D2").value, "MISSING-STAFF-XLSX");
+  assert.equal(sheet.getCell("E2").value, "Workbook affected grant");
 });

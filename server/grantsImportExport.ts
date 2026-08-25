@@ -6,6 +6,7 @@
 // new ones are created. The LPI is resolved by email (preferred) or exact
 // "First Last" name against the scientists table.
 import ExcelJS from "exceljs";
+import { GRANT_CURRENCY_VALUES } from "@shared/schema";
 import type { Grant, InsertGrant, Scientist } from "@shared/schema";
 import {
   GrantLifecycleError,
@@ -20,6 +21,10 @@ export const GRANT_COLUMNS: Array<{ header: string; key: string }> = [
   { header: "LPI Name", key: "lpiName" },
   { header: "Investigator Type", key: "investigatorType" },
   { header: "Grant Type", key: "grantType" },
+  { header: "Grant Source", key: "sourceCategory" },
+  { header: "Source Record Key", key: "sourceRecordKey" },
+  { header: "Submitting Institution", key: "submittingInstitution" },
+  { header: "Co-Investigators", key: "coInvestigators" },
   { header: "Status", key: "status" },
   { header: "Funding Agency", key: "fundingAgency" },
   { header: "Requested Amount", key: "requestedAmount" },
@@ -28,7 +33,12 @@ export const GRANT_COLUMNS: Array<{ header: string; key: string }> = [
   { header: "Submitted Year", key: "submittedYear" },
   { header: "Awarded Year", key: "awardedYear" },
   { header: "Running Time (Years)", key: "runningTimeYears" },
+  { header: "Duration (Months)", key: "durationMonths" },
   { header: "Current Grant Year", key: "currentGrantYear" },
+  { header: "Subaward Completed Year", key: "subawardCompletedYear" },
+  { header: "Contribution Type", key: "contributionType" },
+  { header: "Contribution Details", key: "contributionDetails" },
+  { header: "Currency", key: "currency" },
   { header: "Start Date", key: "startDate" },
   { header: "End Date", key: "endDate" },
   { header: "Reporting Interval (Months)", key: "reportingIntervalMonths" },
@@ -59,6 +69,10 @@ export function grantsToRows(
       lpiName: lpi ? scientistDisplayName(lpi) : "",
       investigatorType: g.investigatorType ?? "",
       grantType: g.grantType ?? "",
+      sourceCategory: g.sourceCategory ?? "",
+      sourceRecordKey: g.sourceRecordKey ?? "",
+      submittingInstitution: g.submittingInstitution ?? "",
+      coInvestigators: g.coInvestigators ? g.coInvestigators.join("; ") : "",
       status: g.status ?? "",
       fundingAgency: g.fundingAgency ?? "",
       requestedAmount: g.requestedAmount ?? "",
@@ -67,7 +81,12 @@ export function grantsToRows(
       submittedYear: g.submittedYear ?? "",
       awardedYear: g.awardedYear ?? "",
       runningTimeYears: g.runningTimeYears ?? "",
+      durationMonths: g.durationMonths ?? "",
       currentGrantYear: g.currentGrantYear ?? "",
+      subawardCompletedYear: g.subawardCompletedYear ?? "",
+      contributionType: g.contributionType ?? "",
+      contributionDetails: g.contributionDetails ?? "",
+      currency: g.currency ?? "",
       startDate: g.startDate ?? "",
       endDate: g.endDate ?? "",
       reportingIntervalMonths: g.reportingIntervalMonths ?? "",
@@ -131,6 +150,10 @@ export function buildGrantsTemplateRows(): Record<string, any>[] {
       "LPI Name": "",
       "Investigator Type": "Researcher",
       "Grant Type": "Local",
+      "Grant Source": "QNRF Grant",
+      "Source Record Key": "QNRF:PRJ-2026-001",
+      "Submitting Institution": "Sidra Medicine",
+      "Co-Investigators": "Dr. Example One; Dr. Example Two",
       "Status": "submitted",
       "Funding Agency": "QNRF",
       "Requested Amount": "250000.00",
@@ -139,7 +162,12 @@ export function buildGrantsTemplateRows(): Record<string, any>[] {
       "Submitted Year": "2026",
       "Awarded Year": "",
       "Running Time (Years)": "3",
+      "Duration (Months)": "36",
       "Current Grant Year": "1/3",
+      "Subaward Completed Year": "",
+      "Contribution Type": "",
+      "Contribution Details": "",
+      "Currency": "QAR",
       "Start Date": "2026-09-01",
       "End Date": "2029-08-31",
       "Reporting Interval (Months)": "12",
@@ -159,6 +187,100 @@ export interface GrantRowPreview {
   reason?: string; // for skips, or informational notes
   changes?: string[]; // for updates: which fields differ
   data?: Partial<InsertGrant>; // parsed values ready to persist
+  unmatchedStaff?: {
+    lpiName: string;
+    lpiEmail: string;
+    reason: string;
+  };
+}
+
+export interface MissingGrantStaffRow {
+  lpiName: string;
+  lpiEmail: string;
+  affectedGrantCount: number;
+  projectNumbers: string[];
+  grantTitles: string[];
+  reason: string;
+}
+
+export function collectMissingGrantStaff(
+  previews: GrantRowPreview[],
+): MissingGrantStaffRow[] {
+  const rows: MissingGrantStaffRow[] = [];
+  const byEmail = new Map<string, MissingGrantStaffRow>();
+  const byName = new Map<string, MissingGrantStaffRow>();
+
+  for (const preview of previews) {
+    const missing = preview.unmatchedStaff;
+    if (!missing) continue;
+    const emailKey = missing.lpiEmail.trim().toLowerCase();
+    const nameKey = missing.lpiName.trim().toLowerCase().replace(/\s+/g, " ");
+    let entry = (emailKey ? byEmail.get(emailKey) : undefined)
+      ?? (nameKey ? byName.get(nameKey) : undefined);
+
+    if (!entry) {
+      entry = {
+        lpiName: missing.lpiName,
+        lpiEmail: missing.lpiEmail,
+        affectedGrantCount: 0,
+        projectNumbers: [],
+        grantTitles: [],
+        reason: missing.reason,
+      };
+      rows.push(entry);
+    }
+
+    if (!entry.lpiName && missing.lpiName) entry.lpiName = missing.lpiName;
+    if (!entry.lpiEmail && missing.lpiEmail) entry.lpiEmail = missing.lpiEmail;
+    if (emailKey) byEmail.set(emailKey, entry);
+    if (nameKey) byName.set(nameKey, entry);
+
+    entry.affectedGrantCount += 1;
+    if (preview.projectNumber && !entry.projectNumbers.includes(preview.projectNumber)) {
+      entry.projectNumbers.push(preview.projectNumber);
+    }
+    if (preview.title && !entry.grantTitles.includes(preview.title)) {
+      entry.grantTitles.push(preview.title);
+    }
+  }
+
+  return rows.sort((a, b) =>
+    (a.lpiName || a.lpiEmail).localeCompare(b.lpiName || b.lpiEmail),
+  );
+}
+
+export async function buildMissingGrantStaffWorkbookBuffer(
+  previews: GrantRowPreview[],
+): Promise<Buffer> {
+  const rows = collectMissingGrantStaff(previews);
+  const workbook = new ExcelJS.Workbook();
+  const sheet = workbook.addWorksheet("Missing Staff");
+  sheet.columns = [
+    { header: "LPI Name", key: "lpiName", width: 28 },
+    { header: "LPI Email", key: "lpiEmail", width: 32 },
+    { header: "Affected Grants", key: "affectedGrantCount", width: 16 },
+    { header: "Project Numbers", key: "projectNumbers", width: 34 },
+    { header: "Grant Titles", key: "grantTitles", width: 60 },
+    { header: "Reason", key: "reason", width: 55 },
+  ];
+  sheet.views = [{ state: "frozen", ySplit: 1 }];
+  sheet.autoFilter = { from: "A1", to: "F1" };
+  sheet.getRow(1).font = { bold: true };
+  sheet.getRow(1).alignment = { vertical: "middle" };
+  for (const row of rows) {
+    sheet.addRow({
+      ...row,
+      projectNumbers: row.projectNumbers.join("\n"),
+      grantTitles: row.grantTitles.join("\n"),
+    });
+  }
+  sheet.eachRow((row, rowNumber) => {
+    if (rowNumber > 1) {
+      row.alignment = { vertical: "top", wrapText: true };
+    }
+  });
+  const buffer = await workbook.xlsx.writeBuffer();
+  return Buffer.from(buffer);
 }
 
 function cellString(v: any): string {
@@ -274,15 +396,24 @@ export function previewGrantRows(
     let lpiId: number | null | undefined = undefined; // undefined = leave unchanged
     const lpiEmail = row.lpiEmail ?? "";
     const lpiName = row.lpiName ?? "";
+    let unmatchedStaff: GrantRowPreview["unmatchedStaff"];
     if (isClear(lpiEmail) || isClear(lpiName)) {
       lpiId = null;
     } else if (lpiEmail) {
       const s = scientistByEmail.get(lpiEmail.toLowerCase());
-      if (!s) errors.push(`No staff member found with email "${lpiEmail}"`);
+      if (!s) {
+        const reason = `No staff member found with email "${lpiEmail}"`;
+        errors.push(reason);
+        unmatchedStaff = { lpiName, lpiEmail, reason };
+      }
       else lpiId = s.id;
     } else if (lpiName) {
       const s = scientistByName.get(lpiName.toLowerCase().replace(/\s+/g, " "));
-      if (!s) errors.push(`No staff member found named "${lpiName}" (use LPI Email for reliable matching)`);
+      if (!s) {
+        const reason = `No staff member found named "${lpiName}" (use LPI Email for reliable matching)`;
+        errors.push(reason);
+        unmatchedStaff = { lpiName, lpiEmail, reason };
+      }
       else lpiId = s.id;
     }
 
@@ -306,6 +437,22 @@ export function previewGrantRows(
     if (writes("cycle")) data.cycle = textVal("cycle");
     if (writes("investigatorType")) data.investigatorType = textVal("investigatorType");
     if (writes("grantType")) data.grantType = textVal("grantType");
+    if (writes("sourceCategory")) data.sourceCategory = textVal("sourceCategory");
+    if (writes("sourceRecordKey")) data.sourceRecordKey = textVal("sourceRecordKey");
+    if (writes("submittingInstitution")) data.submittingInstitution = textVal("submittingInstitution");
+    if (writes("contributionType")) data.contributionType = textVal("contributionType");
+    if (writes("contributionDetails")) data.contributionDetails = textVal("contributionDetails");
+    if (writes("currency")) {
+      const currency = textVal("currency")?.toUpperCase() ?? null;
+      if (
+        currency !== null
+        && !GRANT_CURRENCY_VALUES.includes(currency as typeof GRANT_CURRENCY_VALUES[number])
+      ) {
+        errors.push(`Currency must be EUR, USD, or QAR (got "${row.currency}")`);
+      } else {
+        data.currency = currency as typeof GRANT_CURRENCY_VALUES[number] | null;
+      }
+    }
     if (writes("status") && row.status && !isClear(row.status)) {
       Object.assign(data, { status: row.status });
     }
@@ -316,16 +463,35 @@ export function previewGrantRows(
     if (writes("submittedYear")) data.submittedYear = numVal("submittedYear", "Submitted Year", parseIntOrNull);
     if (writes("awardedYear")) data.awardedYear = numVal("awardedYear", "Awarded Year", parseIntOrNull);
     if (writes("runningTimeYears")) data.runningTimeYears = numVal("runningTimeYears", "Running Time (Years)", parseIntOrNull);
+    if (writes("durationMonths")) data.durationMonths = numVal("durationMonths", "Duration (Months)", parseIntOrNull);
     if (writes("currentGrantYear")) data.currentGrantYear = textVal("currentGrantYear");
+    if (writes("subawardCompletedYear")) data.subawardCompletedYear = numVal("subawardCompletedYear", "Subaward Completed Year", parseIntOrNull);
     if (writes("startDate")) data.startDate = numVal("startDate", "Start Date", parseDateOrNull);
     if (writes("endDate")) data.endDate = numVal("endDate", "End Date", parseDateOrNull);
     if (writes("reportingIntervalMonths")) data.reportingIntervalMonths = numVal("reportingIntervalMonths", "Reporting Interval (Months)", parseIntOrNull);
-    if (writes("collaborators")) {
-      const v = row.collaborators ?? "";
-      data.collaborators = (v === "" || isClear(v))
-        ? null
-        : v.split(/;|\n/).map((c) => c.trim()).filter(Boolean);
-    }
+    const appendUniqueList = (
+      key: "collaborators" | "coInvestigators",
+      current: string[] | null | undefined,
+    ) => {
+      if (!writes(key)) return;
+      const v = row[key] ?? "";
+      if (v === "" || isClear(v)) {
+        data[key] = null;
+        return;
+      }
+      const merged = [...(current ?? [])];
+      const seen = new Set(merged.map((value) => value.trim().toLowerCase()));
+      for (const value of v.split(/;|\n/).map((item) => item.trim()).filter(Boolean)) {
+        const normalized = value.toLowerCase();
+        if (!seen.has(normalized)) {
+          seen.add(normalized);
+          merged.push(value);
+        }
+      }
+      data[key] = merged;
+    };
+    appendUniqueList("coInvestigators", existing?.coInvestigators);
+    appendUniqueList("collaborators", existing?.collaborators);
     if (writes("description")) data.description = textVal("description");
     if (lpiId !== undefined) data.lpiId = lpiId;
 
@@ -341,7 +507,17 @@ export function previewGrantRows(
       );
     }
 
-    if (errors.length > 0) return skip(errors.join("; "));
+    if (errors.length > 0) {
+      previews.push({
+        rowNumber,
+        action: "skip",
+        projectNumber,
+        title,
+        reason: errors.join("; "),
+        unmatchedStaff,
+      });
+      return;
+    }
 
     if (!existing) {
       previews.push({ rowNumber, action: "create", projectNumber, title, data });
