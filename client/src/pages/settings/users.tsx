@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
-import { useAuth } from "@/hooks/useAuth";
+import { useCurrentUser } from "@/hooks/useCurrentUser";
 import { Shield, User } from "lucide-react";
 
 const ASSIGNABLE_ROLES = [
@@ -52,7 +52,7 @@ function formatLastLogin(value: string | null): string {
 }
 
 export default function AdminUsersPage() {
-  const { user: me } = useAuth();
+  const { currentUser: me } = useCurrentUser();
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const [pendingRole, setPendingRole] = useState<Record<number, string>>({});

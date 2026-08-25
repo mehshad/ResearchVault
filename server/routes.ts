@@ -10577,11 +10577,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // ── Admin: user management ─────────────────────────────────────────────────
 
   // GET /api/admin/users — list all users (admin/superadmin only)
-  app.get('/api/admin/users', requireAuth, async (req: Request, res: Response) => {
-    const role = (req.session as any)?.user?.role;
-    if (role !== 'admin' && role !== 'superadmin') {
-      return res.status(403).json({ message: 'Forbidden' });
-    }
+  app.get('/api/admin/users', requireAuth, requireAdmin, async (req: Request, res: Response) => {
     try {
       const rows = await db
         .select({
@@ -10609,11 +10605,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // PATCH /api/admin/users/:id/role — change a user's role
-  app.patch('/api/admin/users/:id/role', requireAuth, async (req: Request, res: Response) => {
-    const sessionUser = (req.session as any)?.user;
-    if (!sessionUser || (sessionUser.role !== 'admin' && sessionUser.role !== 'superadmin')) {
-      return res.status(403).json({ message: 'Forbidden' });
-    }
+  app.patch('/api/admin/users/:id/role', requireAuth, requireAdmin, async (req: Request, res: Response) => {
     const id = parseInt(req.params.id);
     if (isNaN(id)) return res.status(400).json({ message: 'Invalid user id' });
 
