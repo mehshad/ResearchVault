@@ -1161,8 +1161,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Health check for database connection
   app.get('/api/health/database', async (req: Request, res: Response) => {
     try {
-      // Test database connection with a simple query
-      await storage.getDashboardStats();
+      await db.execute(sql`SELECT 1`);
       res.json(true);
     } catch (error) {
       console.error("Database health check failed:", error);
