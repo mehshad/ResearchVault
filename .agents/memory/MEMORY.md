@@ -21,3 +21,4 @@
 - [HMR-stable React contexts](hmr-stable-react-contexts.md) — separate context, provider, hook, and changing fixtures so Vite cannot split context identity.
 - [Unpublished publication visibility](unpublished-publication-visibility.md) — creator/author/direct-manager access is default; Outcome Office uses an explicit authorized view.
 - [Container migration registration](container-migration-registration.md) — every schema migration must also enter the explicit container startup sequence or fresh deployments silently lag.
+- [Protected GitHub workflows](protected-github-workflows.md) — never add, edit, delete, restore, or include changes under `.github/workflows/`; repository authorization forbids it.
