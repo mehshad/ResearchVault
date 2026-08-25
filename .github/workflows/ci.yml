@@ -20,7 +20,7 @@ jobs:
           cache: npm
 
       - name: Install dependencies
-        run: NODE_ENV=development npm ci
+        run: NODE_ENV=development npm ci --legacy-peer-deps
 
       - name: TypeScript check
         run: npx tsc --noEmit

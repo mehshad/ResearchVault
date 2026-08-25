@@ -37,7 +37,7 @@ jobs:
           cache: npm
 
       - name: Install dependencies
-        run: NODE_ENV=development npm ci
+        run: NODE_ENV=development npm ci --legacy-peer-deps
 
       - name: Run ESLint
         run: npx eslint "server/**/*.ts" "client/src/**/*.{ts,tsx}" --max-warnings=0
@@ -54,7 +54,7 @@ jobs:
           cache: npm
 
       - name: Install dependencies
-        run: NODE_ENV=development npm ci
+        run: NODE_ENV=development npm ci --legacy-peer-deps
 
       - name: TypeScript strict check
         run: npx tsc --noEmit

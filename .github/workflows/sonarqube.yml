@@ -23,7 +23,7 @@ jobs:
           cache: npm
 
       - name: Install dependencies
-        run: NODE_ENV=development npm ci
+        run: NODE_ENV=development npm ci --legacy-peer-deps
 
       - name: TypeScript check (for issue reporting)
         run: npx tsc --noEmit 2>&1 | tee tsc-output.txt || true
