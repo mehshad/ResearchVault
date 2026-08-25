@@ -123,6 +123,7 @@ import {
   SECTION_META as BULK_DATA_SECTIONS,
   type SectionId as BulkDataSectionId,
 } from "./bulkDataHub";
+import { toAdminUserResponse } from "./adminUsers";
 
 const isLocalStorage = process.env.STORAGE_TYPE === "local";
 
@@ -10582,8 +10583,25 @@ export async function registerRoutes(app: Express): Promise<Server> {
       return res.status(403).json({ message: 'Forbidden' });
     }
     try {
-      const allUsers = await storage.getUsers();
-      res.json(allUsers);
+      const rows = await db
+        .select({
+          user: {
+            id: users.id,
+            username: users.username,
+            name: users.name,
+            email: users.email,
+            role: users.role,
+            scientistId: users.scientistId,
+            lastLoginAt: users.lastLoginAt,
+          },
+          profileJobTitle: scientists.jobTitle,
+        })
+        .from(users)
+        .leftJoin(scientists, eq(users.scientistId, scientists.id))
+        .orderBy(users.name);
+      res.json(rows.map(({ user, profileJobTitle }) =>
+        toAdminUserResponse(user, profileJobTitle)
+      ));
     } catch (err) {
       console.error('Error fetching users:', err);
       res.status(500).json({ message: 'Failed to fetch users' });

@@ -37,6 +37,7 @@ interface AppUser {
   email: string;
   role: string;
   scientistId: number | null;
+  profileJobTitle: string | null;
   lastLoginAt: string | null;
 }
 
@@ -70,12 +71,12 @@ export default function AdminUsersPage() {
       return res.json();
     },
     onSuccess: (_data, { id }) => {
-      toast({ title: "Role updated successfully" });
+      toast({ title: "Access role updated successfully" });
       setPendingRole((prev) => { const copy = { ...prev }; delete copy[id]; return copy; });
       queryClient.invalidateQueries({ queryKey: ["/api/admin/users"] });
     },
     onError: (err: any) => {
-      toast({ title: "Failed to update role", description: err.message, variant: "destructive" });
+      toast({ title: "Failed to update access role", description: err.message, variant: "destructive" });
     },
   });
 
@@ -94,8 +95,8 @@ export default function AdminUsersPage() {
           <Shield className="w-6 h-6" /> User Management
         </h1>
         <p className="text-muted-foreground mt-1">
-          Assign roles to users. The super admin account (set via <code>SUPER_ADMIN_EMAIL</code>) cannot
-          be changed here.
+          Access roles assigned here control permissions. Profile job titles are shown for reference
+          and do not grant access. The super admin account (set via <code>SUPER_ADMIN_EMAIL</code>) cannot be changed here.
         </p>
       </div>
 
@@ -109,17 +110,18 @@ export default function AdminUsersPage() {
             <p className="text-muted-foreground">Loading…</p>
           ) : (
             <div className="divide-y">
-              <div className="hidden md:grid grid-cols-[minmax(0,1fr)_12rem_16rem] gap-4 pb-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+              <div className="hidden md:grid grid-cols-[minmax(0,1fr)_11rem_13rem_16rem] gap-4 pb-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
                 <div>User</div>
                 <div>Last login</div>
-                <div>Role</div>
+                <div>Profile job title</div>
+                <div>Access role</div>
               </div>
               {users.map((u) => {
                 const isSelf = u.id === me.id;
                 const isSuperAdmin = u.role === "superadmin";
                 const currentRole = pendingRole[u.id] ?? u.role;
                 return (
-                  <div key={u.id} className="grid gap-3 py-4 md:grid-cols-[minmax(0,1fr)_12rem_16rem] md:items-center md:gap-4">
+                  <div key={u.id} className="grid gap-3 py-4 md:grid-cols-[minmax(0,1fr)_11rem_13rem_16rem] md:items-center md:gap-4">
                     <div className="flex items-center gap-3 min-w-0">
                       <div className="h-9 w-9 rounded-full bg-primary/10 flex items-center justify-center text-primary flex-shrink-0">
                         <User className="w-4 h-4" />
@@ -135,7 +137,19 @@ export default function AdminUsersPage() {
                       {formatLastLogin(u.lastLoginAt)}
                     </div>
 
-                    <div className="flex items-center gap-3 md:justify-start">
+                    <div className="min-w-0 text-sm">
+                      <span className="mr-2 font-medium text-foreground md:hidden">Profile job title:</span>
+                      {u.profileJobTitle ? (
+                        <span className="break-words">{u.profileJobTitle}</span>
+                      ) : (
+                        <span className="text-muted-foreground">
+                          {u.scientistId ? "Not set" : "No linked profile"}
+                        </span>
+                      )}
+                    </div>
+
+                    <div className="flex flex-wrap items-center gap-3 md:justify-start">
+                      <span className="font-medium text-foreground md:hidden">Access role:</span>
                       {isSuperAdmin ? (
                         <Badge variant="destructive">Super Admin</Badge>
                       ) : isSelf ? (
