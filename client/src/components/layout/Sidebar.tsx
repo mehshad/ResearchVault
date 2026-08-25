@@ -293,20 +293,22 @@ export default function Sidebar({ mobile = false, onClose, onCollapsedChange }: 
         mobile ? "h-full w-64" : ""
       )}>
         {/* Logo/Brand */}
-        <div className="h-28 flex items-center border-b border-primary/30 bg-primary px-2 overflow-hidden">
-          {/* Logo image — always visible */}
+        <div className="relative h-28 flex items-center border-b border-primary/30 bg-primary px-2 overflow-hidden">
+          {/* Full-height logo watermark — more visible when the sidebar is collapsed */}
           <img
             src={qbridgeLogo}
             alt="Q-BRIDGE Logo"
             className={cn(
-              "flex-shrink-0 object-contain",
-              isCollapsed ? "h-10 w-10" : "h-16 w-16"
+              "pointer-events-none absolute inset-y-0 h-full w-auto max-w-none object-contain",
+              isCollapsed
+                ? "left-1/2 -translate-x-1/2 opacity-70"
+                : "right-0 opacity-40 mix-blend-multiply"
             )}
           />
 
           {/* Text — only in expanded mode */}
           {!isCollapsed && (
-            <div className="flex flex-col min-w-0 flex-1 ml-2">
+            <div className="relative z-10 flex flex-col min-w-0 flex-1 ml-2 drop-shadow-sm">
               <div className="font-semibold text-sm text-white leading-tight truncate">
                 Q-BRIDGE
               </div>
@@ -334,7 +336,7 @@ export default function Sidebar({ mobile = false, onClose, onCollapsedChange }: 
             <button
               onClick={toggleCollapsed}
               className={cn(
-                "flex-shrink-0 text-white/70 hover:text-white transition-colors rounded p-1 hover:bg-white/10",
+                "relative z-10 flex-shrink-0 text-white/70 hover:text-white transition-colors rounded p-1 hover:bg-white/10",
                 isCollapsed ? "ml-auto" : "ml-auto"
               )}
               title={isCollapsed ? "Expand sidebar" : "Collapse sidebar"}
