@@ -6,7 +6,7 @@ WORKDIR /app
 COPY package*.json ./
 
 # NODE_ENV=development ensures npm installs devDependencies (vite, esbuild…)
-RUN NODE_ENV=development npm install
+RUN NODE_ENV=development npm install --legacy-peer-deps
 
 COPY . .
 
