@@ -29,13 +29,14 @@ jobs:
         run: npx tsc --noEmit 2>&1 | tee tsc-output.txt || true
 
       - name: Run unit tests with coverage
-        # Node's built-in test runner with --experimental-test-coverage
+        env:
+          DATABASE_URL: postgresql://ci:ci@localhost:5432/ci_test
         run: |
           node --import tsx \
                --experimental-test-coverage \
                --test-reporter=lcov \
                --test-reporter-destination=coverage/lcov.info \
-               --test server/**/*.test.ts || true
+               --test $(find server -name '*.test.ts' ! -name '*.integration.test.ts') || true
         continue-on-error: true
 
       - name: SonarQube Scan

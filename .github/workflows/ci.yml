@@ -26,7 +26,11 @@ jobs:
         run: npx tsc --noEmit
 
       - name: Unit tests
-        run: node --import tsx --test server/**/*.test.ts
+        # DATABASE_URL satisfies the import-time check in db.ts.
+        # Unit tests mock the DB; integration tests are excluded from this step.
+        env:
+          DATABASE_URL: postgresql://ci:ci@localhost:5432/ci_test
+        run: node --import tsx --test $(find server -name '*.test.ts' ! -name '*.integration.test.ts')
 
       - name: Build
         run: NODE_ENV=development npm run build
