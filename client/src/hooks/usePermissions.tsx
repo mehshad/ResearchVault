@@ -1,4 +1,6 @@
 import { createContext, useContext, useState, ReactNode, useEffect } from "react";
+import { RESTRICTED_USER_ROLE } from "@shared/constants";
+import { useAuth } from "@/hooks/useAuth";
 
 export type AccessLevel = "hide" | "view" | "edit";
 
@@ -172,6 +174,7 @@ interface PermissionsProviderProps {
 export function PermissionsProvider({ children }: PermissionsProviderProps) {
   const [permissions, setPermissions] = useState<NavigationPermission[]>([]);
   const [isLoaded, setIsLoaded] = useState(false);
+  const { authConfig } = useAuth();
 
   // Load permissions from database on mount
   useEffect(() => {
@@ -234,10 +237,14 @@ export function PermissionsProvider({ children }: PermissionsProviderProps) {
   };
 
   const getAccessLevel = (jobTitle: string, navigationItem: string): AccessLevel => {
-    const permission = permissions.find(p => 
+    if (authConfig.mode !== "demo" && jobTitle === RESTRICTED_USER_ROLE) {
+      return navigationItem === "publications" ? "view" : "hide";
+    }
+
+    const permission = permissions.find(p =>
       p.jobTitle === jobTitle && p.navigationItem === navigationItem
     );
-    return permission?.accessLevel || "edit"; // Default to edit if not found
+    return permission?.accessLevel || "hide";
   };
 
   const canView = (jobTitle: string, navigationItem: string): boolean => {

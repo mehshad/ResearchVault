@@ -23,7 +23,7 @@ import {
 } from "./objectStorage";
 import { LocalObjectStorageService } from "./localObjectStorage";
 import { db } from "./db";
-import { scientists, publicationAuthors, journals, journalImpactFactorMetrics, manuscriptHistory, users, branches, departments, sections } from "@shared/schema";
+import { scientists, publicationAuthors, journals, journalImpactFactorMetrics, manuscriptHistory, users, branches, departments, sections, roleGroups } from "@shared/schema";
 import { eq, inArray, desc, sql } from "drizzle-orm";
 import {
   buildExportBuffer,
@@ -73,6 +73,8 @@ import {
   insertSectionSchema
 } from "@shared/schema";
 import { requireAuth, requireAdmin, requireContractsOfficer, requireContractsRead, requirePublicationOfficer, getAuthMode } from "./auth";
+import { buildAssignableRoles } from "./assignableRoles";
+import { JOB_TITLES } from "@shared/constants";
 import { resolveOwnershipAccess, maxAccess, type AccessLevel as OwnershipAccessLevel } from "./ownershipResolver";
 import { matchesAuthorName, isLinkedAuthorInAuthorsText, isUnambiguousAuthorMatch, suggestInternalAuthors } from "@shared/authorMatching";
 import { detectDuplicateGroups, pickDefaultSurvivorId, normalizeDoi as canonicalDoi, isPreprintRecord } from "@shared/publicationDeduplication";
@@ -108,6 +110,7 @@ import {
   ROOM_SUPERVISOR_ELIGIBILITY_MESSAGE,
 } from "@shared/roomRoleEligibility";
 import { requireInvestigatorDesignationManager } from "./investigatorDesignationPolicy";
+import { rejectRestrictedUserProfileAccessChanges } from "./restrictedUserPolicy";
 import {
   canGrantLinkSdrs,
   GrantLifecycleError,
@@ -3377,6 +3380,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.patch(
     '/api/scientists/:id',
     requireAuth,
+    rejectRestrictedUserProfileAccessChanges,
     requireInvestigatorDesignationManager,
     async (req: Request, res: Response) => {
     try {
@@ -10604,22 +10608,59 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // GET /api/admin/roles — matrix roles plus the two assignable built-ins.
+  // role_groups is the canonical matrix source, so newly-added matrix roles
+  // automatically become available in User Management.
+  const ensureDefaultRoleGroups = async () => {
+    await db
+      .insert(roleGroups)
+      .values(
+        JOB_TITLES.map((name) => ({
+          name,
+          description: 'Default access-matrix role',
+        }))
+      )
+      .onConflictDoNothing({ target: roleGroups.name });
+  };
+
+  app.get('/api/admin/roles', requireAuth, requireAdmin, async (_req: Request, res: Response) => {
+    try {
+      await ensureDefaultRoleGroups();
+      const matrixRoles = await db
+        .select({ name: roleGroups.name })
+        .from(roleGroups)
+        .orderBy(roleGroups.name);
+      res.json(buildAssignableRoles(matrixRoles.map((entry) => entry.name)));
+    } catch (err) {
+      console.error('Error fetching assignable roles:', err);
+      res.status(500).json({ message: 'Failed to fetch assignable roles' });
+    }
+  });
   // PATCH /api/admin/users/:id/role — change a user's role
   app.patch('/api/admin/users/:id/role', requireAuth, requireAdmin, async (req: Request, res: Response) => {
     const id = parseInt(req.params.id);
     if (isNaN(id)) return res.status(400).json({ message: 'Invalid user id' });
 
     const { role } = req.body as { role: string };
-    const allowedRoles = ['user', 'admin', 'Management', 'Investigator', 'Staff Scientist',
-      'Lab Manager', 'Postdoctoral Researcher', 'PhD Student', 'IRB Board Member',
-      'IBC Board Member', 'Outcome Officer', 'PMO Officer', 'IRB Officer',
-      'IBC Officer', 'Grant Officer', 'Contracts Officer', 'IT Officer', 'Physician'];
-    // superadmin role can only be set via SUPER_ADMIN_EMAIL env var — never by UI
-    if (!role || !allowedRoles.includes(role)) {
+    // superadmin can only be set via SUPER_ADMIN_EMAIL — never by this API.
+    if (!role || role === 'superadmin') {
       return res.status(400).json({ message: 'Invalid role' });
     }
 
     try {
+      await ensureDefaultRoleGroups();
+      const isBuiltInRole = role === 'user' || role === 'admin';
+      const [matrixRole] = isBuiltInRole
+        ? [undefined]
+        : await db
+            .select({ name: roleGroups.name })
+            .from(roleGroups)
+            .where(eq(roleGroups.name, role))
+            .limit(1);
+      if (!isBuiltInRole && !matrixRole) {
+        return res.status(400).json({ message: 'Invalid role' });
+      }
+
       const updated = await storage.updateUser(id, { role } as any);
       if (!updated) return res.status(404).json({ message: 'User not found' });
       res.json(updated);

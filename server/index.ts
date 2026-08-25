@@ -6,12 +6,14 @@ import {
   isSsoEnabled,
   getAuthMode,
   demoBannerMiddleware,
+  refreshSessionAuthorization,
 } from "./auth";
 import { serveStatic } from "./static";
 import { log } from "./logger";
 import session from "express-session";
 import connectPgSimple from "connect-pg-simple";
 import { createHash } from "crypto";
+import { restrictDefaultUserApiAccess } from "./restrictedUserPolicy";
 
 const PgSession = connectPgSimple(session);
 
@@ -137,6 +139,15 @@ app.use((req, res, next) => {
 
   // Register authentication routes (local/ldap/oidc per AUTH_MODE)
   registerAuthRoutes(app);
+
+  // Refresh real authenticated principals from users before every application
+  // API request so role changes take effect immediately and fail closed.
+  app.use("/api", refreshSessionAuthorization);
+
+  // Real accounts that still have the built-in "user" onboarding role are
+  // denied by default. Only profile, registration, and ordinary publication
+  // APIs are explicitly allowed. Demo mode is bypassed inside the middleware.
+  app.use("/api", restrictDefaultUserApiAccess);
 
   // Register API routes
   const server = await registerRoutes(app);

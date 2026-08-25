@@ -9,27 +9,6 @@ import { apiRequest } from "@/lib/queryClient";
 import { useCurrentUser } from "@/hooks/useCurrentUser";
 import { Shield, User } from "lucide-react";
 
-const ASSIGNABLE_ROLES = [
-  "user",
-  "admin",
-  "Management",
-  "Investigator",
-  "Staff Scientist",
-  "Physician",
-  "Lab Manager",
-  "Postdoctoral Researcher",
-  "PhD Student",
-  "IRB Board Member",
-  "IBC Board Member",
-  "Outcome Officer",
-  "PMO Officer",
-  "IRB Officer",
-  "IBC Officer",
-  "Grant Officer",
-  "Contracts Officer",
-  "IT Officer",
-];
-
 interface AppUser {
   id: number;
   username: string;
@@ -61,6 +40,14 @@ export default function AdminUsersPage() {
     queryKey: ["/api/admin/users"],
     queryFn: async () => {
       const res = await apiRequest("GET", "/api/admin/users");
+      return res.json();
+    },
+  });
+
+  const { data: assignableRoles = [], isLoading: rolesLoading } = useQuery<string[]>({
+    queryKey: ["/api/admin/roles"],
+    queryFn: async () => {
+      const res = await apiRequest("GET", "/api/admin/roles");
       return res.json();
     },
   });
@@ -106,7 +93,7 @@ export default function AdminUsersPage() {
           <CardDescription>{users.length} registered account{users.length !== 1 ? "s" : ""}</CardDescription>
         </CardHeader>
         <CardContent>
-          {isLoading ? (
+          {isLoading || rolesLoading ? (
             <p className="text-muted-foreground">Loading…</p>
           ) : (
             <div className="divide-y">
@@ -164,7 +151,12 @@ export default function AdminUsersPage() {
                               <SelectValue />
                             </SelectTrigger>
                             <SelectContent>
-                              {ASSIGNABLE_ROLES.map((r) => (
+                              {!assignableRoles.includes(currentRole) && (
+                                <SelectItem value={currentRole} disabled className="text-xs">
+                                  {currentRole} (not assignable)
+                                </SelectItem>
+                              )}
+                              {assignableRoles.map((r) => (
                                 <SelectItem key={r} value={r} className="text-xs">
                                   {r}
                                 </SelectItem>

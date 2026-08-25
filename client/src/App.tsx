@@ -10,6 +10,7 @@ import { CurrentUserProvider } from "@/providers/CurrentUserProvider";
 import { AuthProvider } from "@/hooks/useAuth";
 import { ThemeProvider } from "@/contexts/ThemeContext";
 import GlobalColorModeInit from "@/components/GlobalColorModeInit";
+import { RestrictedUserGate } from "@/components/RestrictedUserGate";
 
 // Dashboard
 import Dashboard from "@/pages/dashboard";
@@ -156,14 +157,20 @@ function AuthenticatedAppRoutes() {
   // Always wrap in RequireAuth so the needsRegistration redirect fires for all auth modes
   return (
     <RequireAuth>
-      <AppRouter />
+      <RestrictedUserGate>
+        <AppRouter />
+      </RestrictedUserGate>
     </RequireAuth>
   );
 }
 
 // Applies the same auth gating without the Layout chrome — used for print routes.
 function AuthGate({ children }: { children: React.ReactNode }) {
-  return <RequireAuth>{children}</RequireAuth>;
+  return (
+    <RequireAuth>
+      <RestrictedUserGate>{children}</RestrictedUserGate>
+    </RequireAuth>
+  );
 }
 
 function AppRouter() {

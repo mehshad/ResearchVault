@@ -131,6 +131,9 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   const logout = async (): Promise<void> => {
     try {
       const response = await fetch('/api/auth/logout', { method: 'POST' });
+      if (user) {
+        sessionStorage.removeItem(`restricted-user-notice:${user.id}`);
+      }
       setUser(null);
 
       // OIDC logout may return an end-session URL to fully sign out at the IdP.

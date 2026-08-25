@@ -13,6 +13,7 @@ interface PublicationsPanelProps {
   canImport?: boolean;
   demoViewerRole?: string;
   demoViewerScientistId?: number;
+  showAuthorFixes?: boolean;
 }
 
 export function PublicationsPanel({
@@ -23,6 +24,7 @@ export function PublicationsPanel({
   canImport = true,
   demoViewerRole,
   demoViewerScientistId,
+  showAuthorFixes = true,
 }: PublicationsPanelProps) {
   const showMissing = hasOrcid || hasScholar;
 
@@ -45,13 +47,17 @@ export function PublicationsPanel({
           demoViewerRole={demoViewerRole}
           demoViewerScientistId={demoViewerScientistId}
         />
-        <Separator />
-        <PublicationsToFix
-          scientistId={scientistId}
-          embedded
-          demoViewerRole={demoViewerRole}
-          demoViewerScientistId={demoViewerScientistId}
-        />
+        {showAuthorFixes && (
+          <>
+            <Separator />
+            <PublicationsToFix
+              scientistId={scientistId}
+              embedded
+              demoViewerRole={demoViewerRole}
+              demoViewerScientistId={demoViewerScientistId}
+            />
+          </>
+        )}
         {showMissing && (
           <>
             <Separator />
