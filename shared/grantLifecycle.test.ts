@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
+  canGrantSetSchedule,
   canGrantLinkSdrs,
   GrantLifecycleError,
   grantStatusAllowsProgressTracking,
@@ -136,4 +137,10 @@ test("dates and progress tracking begin when the grant becomes Active", () => {
   assert.equal(grantStatusAllowsProgressTracking("awarded"), false);
   assert.equal(grantStatusAllowsProgressTracking("active"), true);
   assert.equal(grantStatusAllowsProgressTracking("completed"), true);
+});
+
+test("schedule dates can be entered once a grant is awarded", () => {
+  assert.equal(canGrantSetSchedule({ status: "awarded", awarded: true }), true);
+  assert.equal(canGrantSetSchedule({ status: "active", awarded: false }), true);
+  assert.equal(canGrantSetSchedule({ status: "pending", awarded: false }), false);
 });

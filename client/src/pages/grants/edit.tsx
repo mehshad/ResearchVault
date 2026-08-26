@@ -26,6 +26,7 @@ import {
   grantStatusAllowsProgressTracking,
   grantStatusImpliesAward,
   grantStatusRequiresStartDate,
+  canGrantSetSchedule,
   canGrantLinkSdrs,
 } from "@shared/grantLifecycle";
 import { GRANT_CURRENCY_VALUES } from "@shared/schema";
@@ -696,7 +697,10 @@ export default function EditGrant() {
                 />
               </div>
 
-              {grantStatusAllowsProgressTracking(formData.status) && (
+              {canGrantSetSchedule({
+                status: formData.status,
+                awarded: formData.awarded,
+              }) && (
                 <>
                   <div>
                     <label className="text-sm font-medium text-gray-700 mb-2 block dark:text-gray-300">
