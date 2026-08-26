@@ -129,6 +129,7 @@ import {
   grantStatusAllowsProgressTracking,
   reconcileGrantLifecycle,
 } from "@shared/grantLifecycle";
+import { registerGrantListRoute } from "./grantIssueRoutes";
 import {
   applySection as applyBulkDataSection,
   buildExportWorkbook as buildBulkDataExportWorkbook,
@@ -9618,38 +9619,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Grant routes
-  app.get('/api/grants', async (req: Request, res: Response) => {
-    try {
-      const grants = await storage.getGrants();
-      
-      // Enhance grants with scientist information
-      const enhancedGrants = await Promise.all(grants.map(async (grant) => {
-        const lpi = grant.lpiId ? await storage.getScientist(grant.lpiId) : null;
-        const researcher = grant.researcherId ? await storage.getScientist(grant.researcherId) : null;
-        
-        return {
-          ...grant,
-          lpi: lpi ? {
-            id: lpi.id,
-            firstName: lpi.firstName,
-            lastName: lpi.lastName,
-            honorificTitle: lpi.honorificTitle
-          } : null,
-          researcher: researcher ? {
-            id: researcher.id,
-            firstName: researcher.firstName,
-            lastName: researcher.lastName,
-            honorificTitle: researcher.honorificTitle
-          } : null
-        };
-      }));
-      
-      res.json(enhancedGrants);
-    } catch (error) {
-      console.error('Error fetching grants:', error);
-      res.status(500).json({ message: "Failed to fetch grants" });
-    }
-  });
+  registerGrantListRoute(app);
 
   app.get('/api/grants/:id', async (req: Request, res: Response) => {
     try {
