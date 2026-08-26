@@ -439,6 +439,9 @@ export function registerAuthRoutes(app: any) {
         await recordSuccessfulLogin(sessionUser.id);
         authLog(`OIDC login success username=${sessionUser.username} id=${sessionUser.id} role=${sessionUser.role} ip=${ip}`);
         req.session.user = sessionUser;
+        await new Promise<void>((resolve, reject) => {
+          req.session.save((error) => error ? reject(error) : resolve());
+        });
         res.redirect("/");
       } catch (err) {
         authError("OIDC callback unhandled error", err);

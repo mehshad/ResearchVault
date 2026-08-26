@@ -42,6 +42,7 @@ interface AuthContextType {
   isAuthenticated: boolean;
   isAdmin: boolean;
   refreshUser: () => Promise<void>;
+  completeRegistration: (user: User) => void;
 }
 
 const AuthContext = createContext<AuthContextType | null>(null);
@@ -169,6 +170,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         loginWithSso,
         logout,
         refreshUser,
+        completeRegistration: setUser,
         isAuthenticated: !!user,
         isAdmin: user?.role === 'admin' || user?.role === 'superadmin',
       }}

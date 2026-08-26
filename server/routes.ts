@@ -24,7 +24,7 @@ import {
 import { LocalObjectStorageService } from "./localObjectStorage";
 import { db } from "./db";
 import { scientists, publicationAuthors, journals, journalImpactFactorMetrics, manuscriptHistory, users, branches, departments, sections, roleGroups } from "@shared/schema";
-import { eq, inArray, desc, sql } from "drizzle-orm";
+import { and, eq, inArray, isNull, desc, sql } from "drizzle-orm";
 import {
   buildExportBuffer,
   buildTemplateBuffer,
@@ -10831,27 +10831,57 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
 
     try {
-      const [scientist] = await db
-        .insert(scientists)
-        .values({
-          firstName,
-          lastName,
-          email: sessionUser.email,
-          jobTitle,
-          staffType,
-          honorificTitle: honorificTitle || '',
-          department: department || null,
-        } as any)
-        .returning();
+      let scientistId: number;
+      try {
+        scientistId = await db.transaction(async (tx) => {
+          const [created] = await tx
+            .insert(scientists)
+            .values({
+              firstName,
+              lastName,
+              email: sessionUser.email,
+              jobTitle,
+              staffType,
+              honorificTitle: honorificTitle || '',
+              department: department || null,
+            } as any)
+            .returning({ id: scientists.id });
+          if (!created) throw new Error('Failed to create profile');
 
-      const updated = await storage.updateUser(sessionUser.id, { scientistId: scientist.id } as any);
-      if (!updated) return res.status(500).json({ message: 'Failed to link profile' });
+          const [linkedUser] = await tx
+            .update(users)
+            .set({ scientistId: created.id })
+            .where(and(eq(users.id, sessionUser.id), isNull(users.scientistId)))
+            .returning({ id: users.id });
+          if (!linkedUser) throw new Error('REGISTRATION_ALREADY_LINKED');
+          return created.id;
+        });
+      } catch (error) {
+        if (!(error instanceof Error) || error.message !== 'REGISTRATION_ALREADY_LINKED') {
+          throw error;
+        }
+        const [alreadyLinked] = await db
+          .select({ scientistId: users.scientistId })
+          .from(users)
+          .where(eq(users.id, sessionUser.id))
+          .limit(1);
+        if (!alreadyLinked?.scientistId) throw error;
+        scientistId = alreadyLinked.scientistId;
+      }
 
       (req.session as any).user = {
         ...sessionUser,
-        scientistId: scientist.id,
+        scientistId,
         needsRegistration: false,
       };
+      await new Promise<void>((resolve) => {
+        req.session.save((error) => {
+          if (error) {
+            console.error('Registration session save failed after profile was linked:', error);
+          }
+          resolve();
+        });
+      });
       res.json({ user: (req.session as any).user });
     } catch (err) {
       console.error('Error during registration:', err);
