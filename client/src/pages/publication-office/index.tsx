@@ -1347,7 +1347,7 @@ export default function PublicationOffice({ embeddedTab }: PublicationOfficeProp
       setInvalidReason("");
       toast({
         title: "Correction requested",
-        description: "The publication is now 7. Published - Invalid and its linked authors have been notified.",
+        description: "The publication is now Published - Invalid and its linked authors have been notified.",
       });
     },
     onError: (error: Error) => {
@@ -1747,7 +1747,7 @@ export default function PublicationOffice({ embeddedTab }: PublicationOfficeProp
                                   data-testid={`button-mark-invalid-${pub.id}`}
                                 >
                                   <AlertTriangle className="h-4 w-4 mr-1" />
-                                  7. Published - Invalid
+                                  Published - Invalid
                                 </Button>
                               )}
                             </div>

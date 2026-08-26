@@ -191,7 +191,7 @@ test("only an Outcome Officer can move a Complete Draft to Vetted for submission
 
 test("invalid workflow uses canonical labels and a trimmed bounded reason", () => {
   assert.equal(PUBLISHED_INVALID_STATUS, "Published - Invalid");
-  assert.equal(PUBLISHED_INVALID_LABEL, "7. Published - Invalid");
+  assert.equal(PUBLISHED_INVALID_LABEL, "Published - Invalid");
   assert.deepEqual(validateInvalidPublicationReason("  correction needed  "), {
     ok: true,
     reason: "correction needed",

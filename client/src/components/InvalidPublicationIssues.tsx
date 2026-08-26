@@ -111,7 +111,7 @@ export function InvalidPublicationIssues({
         const timestamp = issue.invalidatedAt ?? issue.publication?.invalidatedAt ?? issue.updatedAt ?? issue.publication?.updatedAt;
         return (
           <div key={publicationId} className="rounded-lg border border-red-300 bg-red-50/60 p-4 dark:border-red-800 dark:bg-red-950/20">
-            <Badge variant="destructive" className="mb-2">7. Published - Invalid</Badge>
+            <Badge variant="destructive" className="mb-2">Published - Invalid</Badge>
             <h4 className="font-medium">{publication.title}</h4>
             <div className="mt-2 rounded-md bg-background/80 p-3 text-sm">
               <span className="font-medium">Outcome Office reason: </span>

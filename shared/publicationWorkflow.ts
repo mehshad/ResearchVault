@@ -4,7 +4,7 @@ export const PUBLISHED_STATUS = "Published";
 export const PUBLISHED_INVALID_STATUS = "Published - Invalid";
 export const PUBLISHED_FINAL_STATUS = "Published *";
 export const WITHDRAWN_STATUS = "Withdrawn";
-export const PUBLISHED_INVALID_LABEL = "7. Published - Invalid";
+export const PUBLISHED_INVALID_LABEL = "Published - Invalid";
 export const INVALID_REASON_MAX_LENGTH = 2000;
 
 export function validateInvalidPublicationReason(reason: unknown):

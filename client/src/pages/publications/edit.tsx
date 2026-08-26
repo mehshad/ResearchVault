@@ -566,7 +566,7 @@ export default function PublicationEdit() {
                 </div>
 
                 <div className="p-3 border rounded-lg border-red-300 bg-red-50 dark:border-red-800 dark:bg-red-950">
-                  <h4 className="font-medium text-sm text-red-800 dark:text-red-300">7. Published - Invalid</h4>
+                  <h4 className="font-medium text-sm text-red-800 dark:text-red-300">Published - Invalid</h4>
                   <p className="text-xs text-gray-600 mt-1 dark:text-gray-300">Outcome Office correction requested</p>
                   <p className="text-xs text-red-700 mt-1 dark:text-red-300">Editable until corrected and resubmitted</p>
                 </div>
