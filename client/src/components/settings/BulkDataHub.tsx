@@ -1,8 +1,10 @@
 import { useEffect, useRef, useState } from "react";
-import { useMutation, useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   AlertCircle,
+  Archive,
   BarChart3,
+  CalendarClock,
   CheckCircle2,
   ChevronDown,
   Download,
@@ -10,6 +12,7 @@ import {
   Globe,
   Info,
   Loader2,
+  RefreshCw,
   ShieldCheck,
   Upload,
 } from "lucide-react";
@@ -66,6 +69,26 @@ type Preview = {
 type ApplyResult = {
   sectionId: string;
   counts: Record<string, { created: number; updated: number; skipped: number }>;
+};
+type BulkDataArchive = {
+  id: string;
+  status: "pending" | "running" | "succeeded" | "failed";
+  source: "manual" | "scheduled";
+  scheduleDate: string | null;
+  fileName: string | null;
+  byteSize: number | null;
+  checksum: string | null;
+  errorMessage: string | null;
+  createdAt: string;
+  completedAt: string | null;
+};
+type ArchiveListResponse = {
+  archives: BulkDataArchive[];
+  schedule: {
+    timezone: string;
+    time: string;
+    retention: number;
+  };
 };
 
 const MAX_FILE_BYTES = 8 * 1024 * 1024;
@@ -194,8 +217,22 @@ function actionClass(action: PreviewRow["action"]) {
   return "border-border bg-muted text-muted-foreground";
 }
 
+function formatBytes(value: number | null) {
+  if (value == null) return "—";
+  if (value < 1024) return `${value} B`;
+  if (value < 1024 * 1024) return `${(value / 1024).toFixed(1)} KB`;
+  return `${(value / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function archiveStatusClass(status: BulkDataArchive["status"]) {
+  if (status === "succeeded") return "border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-900 dark:bg-emerald-950/30 dark:text-emerald-300";
+  if (status === "failed") return "border-red-200 bg-red-50 text-red-700 dark:border-red-900 dark:bg-red-950/30 dark:text-red-300";
+  return "border-blue-200 bg-blue-50 text-blue-700 dark:border-blue-900 dark:bg-blue-950/30 dark:text-blue-300";
+}
+
 export default function BulkDataHub() {
   const { toast } = useToast();
+  const queryClient = useQueryClient();
   const inputRef = useRef<HTMLInputElement>(null);
   const [operation, setOperation] = useState<Operation>("section-workbooks");
   const [publicationOperation, setPublicationOperation] = useState<PublicationOfficeTab>("find-papers");
@@ -211,6 +248,17 @@ export default function BulkDataHub() {
   });
   const sections = sectionsQuery.data?.sections ?? [];
   const selectedSection = sections.find((section) => section.id === sectionId);
+  const archivesQuery = useQuery<ArchiveListResponse>({
+    queryKey: ["/api/bulk-data/archives"],
+    enabled: operation === "section-workbooks",
+    refetchInterval: (query) => {
+      const archives = query.state.data?.archives ?? [];
+      return archives.some((archive) => archive.status === "pending" || archive.status === "running")
+        ? 2_000
+        : false;
+    },
+  });
+  const archives = archivesQuery.data?.archives ?? [];
 
   useEffect(() => {
     if (!sectionId && sections[0]) setSectionId(sections[0].id);
@@ -248,6 +296,18 @@ export default function BulkDataHub() {
       toast({ title: "Workbook applied", description: "The selected records were updated successfully." });
     },
     onError: (error: Error) => toast({ title: "Apply failed", description: error.message, variant: "destructive" }),
+  });
+
+  const generateArchiveMutation = useMutation({
+    mutationFn: async () => {
+      const response = await apiRequest("POST", "/api/bulk-data/archives", {});
+      return response.json() as Promise<{ archive: BulkDataArchive }>;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/bulk-data/archives"] });
+      toast({ title: "Archive generation started", description: "The saved ZIP will appear below when generation finishes." });
+    },
+    onError: (error: Error) => toast({ title: "Archive generation failed", description: error.message, variant: "destructive" }),
   });
 
   const handleSectionChange = (value: string) => {
@@ -293,6 +353,29 @@ export default function BulkDataHub() {
       toast({ title: kind === "export" ? "Export downloaded" : "Template downloaded" });
     } catch (error) {
       toast({ title: "Download failed", description: error instanceof Error ? error.message : "Try again.", variant: "destructive" });
+    }
+  };
+
+  const handleExportAll = async () => {
+    try {
+      const response = await fetch("/api/bulk-data/export-all", { credentials: "include" });
+      if (!response.ok) throw new Error(`${response.status}: ${await response.text()}`);
+      const disposition = response.headers.get("content-disposition") ?? "";
+      const match = disposition.match(/filename="?([^"]+)"?/i);
+      downloadBlob(await response.blob(), match?.[1] ?? `qbridge-bulk-data-${new Date().toISOString().slice(0, 10)}.zip`);
+      toast({ title: "Complete archive downloaded" });
+    } catch (error) {
+      toast({ title: "Export all failed", description: error instanceof Error ? error.message : "Try again.", variant: "destructive" });
+    }
+  };
+
+  const handleArchiveDownload = async (archive: BulkDataArchive) => {
+    try {
+      const response = await fetch(`/api/bulk-data/archives/${archive.id}/download`, { credentials: "include" });
+      if (!response.ok) throw new Error(`${response.status}: ${await response.text()}`);
+      downloadBlob(await response.blob(), archive.fileName ?? `qbridge-bulk-data-archive-${archive.id}.zip`);
+    } catch (error) {
+      toast({ title: "Archive download failed", description: error instanceof Error ? error.message : "Try again.", variant: "destructive" });
     }
   };
 
@@ -364,6 +447,7 @@ export default function BulkDataHub() {
             <div className="flex flex-wrap items-end gap-2">
               <Button variant="outline" onClick={() => handleDownload("template")} disabled={!sectionId} data-testid="button-download-template"><Download className="mr-2 h-4 w-4" />Template</Button>
               <Button variant="outline" onClick={() => handleDownload("export")} disabled={!sectionId} data-testid="button-export-bulk-data"><Download className="mr-2 h-4 w-4" />Export current</Button>
+              <Button onClick={handleExportAll} data-testid="button-export-all-bulk-data"><Archive className="mr-2 h-4 w-4" />Export all</Button>
             </div>
           </div>
 
@@ -399,6 +483,105 @@ export default function BulkDataHub() {
             </div>
           )}
           {result && <div className="rounded-md border border-emerald-200 bg-emerald-50/60 p-4 dark:border-emerald-900 dark:bg-emerald-950/20"><div className="flex items-center gap-2 font-medium text-emerald-800 dark:text-emerald-300"><CheckCircle2 className="h-4 w-4" />Workbook applied successfully</div><div className="mt-2 grid gap-2 text-sm sm:grid-cols-2 lg:grid-cols-3">{Object.entries(result.counts).map(([name, values]) => <div key={name} className="rounded border border-emerald-200/70 bg-background/70 p-2 dark:border-emerald-900"><div className="font-medium">{name}</div><div className="text-muted-foreground">{values.created} created · {values.updated} updated · {values.skipped} skipped</div></div>)}</div></div>}
+        </CardContent>
+      </Card>
+      <Card className="overflow-hidden">
+        <CardHeader className="border-b bg-muted/20">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+            <div>
+              <CardTitle className="flex items-center gap-2 text-lg">
+                <CalendarClock className="h-5 w-5 text-primary" />
+                Saved workbook archives
+              </CardTitle>
+              <CardDescription className="mt-1">
+                A complete ZIP is generated daily at {archivesQuery.data?.schedule.time ?? "02:00"} ({archivesQuery.data?.schedule.timezone ?? "Asia/Riyadh"}).
+                The latest {archivesQuery.data?.schedule.retention ?? 30} successful versions are retained.
+              </CardDescription>
+            </div>
+            <div className="flex gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => archivesQuery.refetch()}
+                disabled={archivesQuery.isFetching}
+                data-testid="button-refresh-bulk-archives"
+              >
+                <RefreshCw className={`mr-2 h-4 w-4 ${archivesQuery.isFetching ? "animate-spin" : ""}`} />
+                Refresh
+              </Button>
+              <Button
+                type="button"
+                size="sm"
+                onClick={() => generateArchiveMutation.mutate()}
+                disabled={generateArchiveMutation.isPending || archives.some((archive) => archive.status === "pending" || archive.status === "running")}
+                data-testid="button-generate-bulk-archive"
+              >
+                {generateArchiveMutation.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Archive className="mr-2 h-4 w-4" />}
+                Generate saved version
+              </Button>
+            </div>
+          </div>
+        </CardHeader>
+        <CardContent className="p-0">
+          {archivesQuery.isLoading ? (
+            <div className="space-y-3 p-5"><Skeleton className="h-10 w-full" /><Skeleton className="h-10 w-full" /></div>
+          ) : archivesQuery.isError ? (
+            <div className="flex items-center gap-2 p-5 text-sm text-destructive">
+              <AlertCircle className="h-4 w-4" />
+              Archive history could not be loaded.
+            </div>
+          ) : archives.length === 0 ? (
+            <div className="p-6 text-center text-sm text-muted-foreground">
+              No saved versions yet. Generate one now or wait for the next scheduled export.
+            </div>
+          ) : (
+            <div className="overflow-x-auto">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Created</TableHead>
+                    <TableHead>Source</TableHead>
+                    <TableHead>Status</TableHead>
+                    <TableHead>Size</TableHead>
+                    <TableHead className="text-right">Download</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {archives.map((archive) => (
+                    <TableRow key={archive.id}>
+                      <TableCell>
+                        <div className="font-medium">{new Date(archive.createdAt).toLocaleString()}</div>
+                        {archive.scheduleDate && <div className="text-xs text-muted-foreground">Scheduled date: {archive.scheduleDate}</div>}
+                      </TableCell>
+                      <TableCell className="capitalize">{archive.source}</TableCell>
+                      <TableCell>
+                        <Badge variant="outline" className={archiveStatusClass(archive.status)}>
+                          {(archive.status === "pending" || archive.status === "running") && <Loader2 className="mr-1 h-3 w-3 animate-spin" />}
+                          {archive.status}
+                        </Badge>
+                        {archive.errorMessage && <div className="mt-1 max-w-sm text-xs text-destructive">{archive.errorMessage}</div>}
+                      </TableCell>
+                      <TableCell>{formatBytes(archive.byteSize)}</TableCell>
+                      <TableCell className="text-right">
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => handleArchiveDownload(archive)}
+                          disabled={archive.status !== "succeeded"}
+                          data-testid={`button-download-bulk-archive-${archive.id}`}
+                        >
+                          <Download className="mr-2 h-4 w-4" />
+                          Download
+                        </Button>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
+          )}
         </CardContent>
       </Card>
       <AlertDialog open={confirmOpen} onOpenChange={setConfirmOpen}>

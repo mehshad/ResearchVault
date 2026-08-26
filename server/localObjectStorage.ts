@@ -1,11 +1,14 @@
 import { randomUUID } from "crypto";
 import { createReadStream, existsSync } from "fs";
-import { mkdir, writeFile } from "fs/promises";
+import { mkdir, readFile, unlink, writeFile } from "fs/promises";
 import path from "path";
 import { type Response } from "express";
 import { ObjectNotFoundError, SAFE_INLINE_MIME_TYPES } from "./objectStorage";
 
-const UPLOADS_DIR = process.env.UPLOADS_DIR || "/data/uploads";
+const UPLOADS_DIR = process.env.UPLOADS_DIR ||
+  (process.env.NODE_ENV === "production"
+    ? "/data/uploads"
+    : path.resolve(process.cwd(), "data/uploads"));
 const APP_URL = process.env.APP_URL || "http://localhost:5000";
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -19,6 +22,11 @@ function localFilePath(id: string): string {
   return path.join(UPLOADS_DIR, id);
 }
 
+function localArchivePath(id: string): string {
+  if (!UUID_RE.test(id)) throw new Error("Invalid archive id: must be a UUID");
+  return path.join(UPLOADS_DIR, "bulk-data-archives", `${id}.zip`);
+}
+
 export class LocalFile {
   constructor(
     public readonly filePath: string,
@@ -27,6 +35,29 @@ export class LocalFile {
 }
 
 export class LocalObjectStorageService {
+  async saveArchive(objectId: string, body: Buffer): Promise<void> {
+    const filePath = localArchivePath(objectId);
+    await mkdir(path.dirname(filePath), { recursive: true });
+    await writeFile(filePath, body);
+  }
+
+  async getArchive(objectId: string): Promise<Buffer> {
+    try {
+      return await readFile(localArchivePath(objectId));
+    } catch (error: any) {
+      if (error?.code === "ENOENT") throw new ObjectNotFoundError();
+      throw error;
+    }
+  }
+
+  async deleteArchive(objectId: string): Promise<void> {
+    try {
+      await unlink(localArchivePath(objectId));
+    } catch (error: any) {
+      if (error?.code !== "ENOENT") throw error;
+    }
+  }
+
   async getObjectEntityUploadURL(): Promise<string> {
     await mkdir(UPLOADS_DIR, { recursive: true });
     const id = randomUUID();

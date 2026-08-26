@@ -16,6 +16,7 @@ import { createHash } from "crypto";
 import { restrictDefaultUserApiAccess } from "./restrictedUserPolicy";
 import { db } from "./db";
 import { sql } from "drizzle-orm";
+import { startBulkDataArchiveScheduler } from "./bulkDataArchives";
 
 const PgSession = connectPgSimple(session);
 const APP_START = Date.now();
@@ -161,6 +162,7 @@ app.use((req: Request, res: Response, next: NextFunction) => {
 
   // Register API routes
   const server = await registerRoutes(app);
+  startBulkDataArchiveScheduler();
 
   app.use((err: any, req: Request, res: Response, _next: NextFunction) => {
     const status = err.status || err.statusCode || 500;

@@ -77,7 +77,10 @@ export default function Settings() {
   const mode = resolvedTheme === 'dark' ? 'dark' : 'light';
   const { authConfig } = useAuth();
   const { currentUser } = useCurrentUser();
-  const userIsAdmin = currentUser.role === 'admin' || currentUser.role === 'superadmin';
+  const userIsAdmin =
+    currentUser.role === 'admin' ||
+    currentUser.role === 'superadmin' ||
+    (authConfig.mode === 'demo' && currentUser.role === 'Management');
   const { toast } = useToast();
 
   // Global default color mode — loaded from server, saved together with other settings

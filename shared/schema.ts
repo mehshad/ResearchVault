@@ -1495,6 +1495,29 @@ export const insertSystemConfigurationSchema = createInsertSchema(systemConfigur
 export type InsertSystemConfiguration = z.infer<typeof insertSystemConfigurationSchema>;
 export type SystemConfiguration = typeof systemConfigurations.$inferSelect;
 
+export const bulkDataArchives = pgTable("bulk_data_archives", {
+  id: text("id").primaryKey(),
+  status: text("status").notNull().default("pending"),
+  source: text("source").notNull(),
+  scheduleDate: date("schedule_date"),
+  fileName: text("file_name"),
+  objectId: text("object_id"),
+  byteSize: integer("byte_size"),
+  checksum: text("checksum"),
+  leaseToken: text("lease_token"),
+  errorMessage: text("error_message"),
+  requestedBy: text("requested_by"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  startedAt: timestamp("started_at"),
+  completedAt: timestamp("completed_at"),
+}, (table) => ({
+  scheduledDateIdx: uniqueIndex("bulk_data_archives_scheduled_date_idx")
+    .on(table.scheduleDate)
+    .where(sql`${table.source} = 'scheduled'`),
+}));
+
+export type BulkDataArchive = typeof bulkDataArchives.$inferSelect;
+
 // PDF Import History - tracks all PDF processing attempts with OCR results
 export const pdfImportHistory = pgTable("pdf_import_history", {
   id: serial("id").primaryKey(),

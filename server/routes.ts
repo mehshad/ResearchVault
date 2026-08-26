@@ -128,6 +128,16 @@ import {
   type SectionId as BulkDataSectionId,
 } from "./bulkDataHub";
 import { toAdminUserResponse } from "./adminUsers";
+import {
+  ARCHIVE_MIME,
+  buildBulkDataArchive,
+  bulkArchiveFileName,
+  createBulkDataArchive,
+  downloadBulkDataArchive,
+  getBulkDataArchive,
+  listBulkDataArchives,
+  queueBulkDataArchive,
+} from "./bulkDataArchives";
 
 const isLocalStorage = process.env.STORAGE_TYPE === "local";
 
@@ -10965,6 +10975,79 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Section-based, administrator-only structured data import/export hub.
   // Uploaded documents, workflow history, credentials, and role assignments
   // are intentionally outside this API.
+  app.get('/api/bulk-data/export-all', requireAdmin, async (_req: Request, res: Response) => {
+    try {
+      const now = new Date();
+      const { buffer } = await buildBulkDataArchive(now);
+      res.setHeader('Content-Type', ARCHIVE_MIME);
+      res.setHeader('Content-Disposition', `attachment; filename="${bulkArchiveFileName(now)}"`);
+      res.setHeader('Content-Length', buffer.length);
+      res.setHeader('Cache-Control', 'private, no-store, max-age=0');
+      res.setHeader('Pragma', 'no-cache');
+      res.setHeader('X-Content-Type-Options', 'nosniff');
+      res.send(buffer);
+    } catch (error) {
+      console.error('Bulk data export-all failed:', error);
+      res.status(500).json({ message: 'Failed to export bulk data archive' });
+    }
+  });
+
+  app.get('/api/bulk-data/archives', requireAdmin, async (_req: Request, res: Response) => {
+    try {
+      res.json({
+        archives: await listBulkDataArchives(),
+        schedule: {
+          timezone: 'Asia/Riyadh',
+          time: '02:00',
+          retention: 30,
+        },
+      });
+    } catch (error) {
+      console.error('Bulk data archive listing failed:', error);
+      res.status(500).json({ message: 'Failed to list bulk data archives' });
+    }
+  });
+
+  app.post('/api/bulk-data/archives', requireAdmin, async (req: Request, res: Response) => {
+    try {
+      const row = await createBulkDataArchive(
+        'manual',
+        req.session.user?.id == null ? undefined : String(req.session.user.id),
+      );
+      if (!row) throw new Error('Failed to create archive record');
+      queueBulkDataArchive(row.id);
+      const { objectId: _objectId, leaseToken: _leaseToken, ...archive } = row;
+      res.status(202).json({ archive });
+    } catch (error) {
+      console.error('Bulk data archive request failed:', error);
+      res.status(500).json({ message: 'Failed to request bulk data archive' });
+    }
+  });
+
+  app.get('/api/bulk-data/archives/:id/download', requireAdmin, async (req: Request, res: Response) => {
+    try {
+      const row = await getBulkDataArchive(req.params.id);
+      if (!row) return res.status(404).json({ message: 'Archive not found' });
+      if (row.status !== 'succeeded') {
+        return res.status(409).json({ message: 'Archive is not ready', status: row.status });
+      }
+      const buffer = await downloadBulkDataArchive(row);
+      res.setHeader('Content-Type', ARCHIVE_MIME);
+      res.setHeader('Content-Disposition', `attachment; filename="${row.fileName || 'bulk-data-export.zip'}"`);
+      res.setHeader('Content-Length', buffer.length);
+      res.setHeader('Cache-Control', 'private, no-store, max-age=0');
+      res.setHeader('Pragma', 'no-cache');
+      res.setHeader('X-Content-Type-Options', 'nosniff');
+      res.send(buffer);
+    } catch (error) {
+      if (error instanceof ObjectNotFoundError) {
+        return res.status(404).json({ message: 'Archive object not found' });
+      }
+      console.error('Bulk data archive download failed:', error);
+      res.status(500).json({ message: 'Failed to download bulk data archive' });
+    }
+  });
+
   app.get('/api/bulk-data/sections', requireAdmin, (_req: Request, res: Response) => {
     res.json({ sections: BULK_DATA_SECTIONS });
   });
