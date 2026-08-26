@@ -294,6 +294,7 @@ export const publications = pgTable("publications", {
   publicationDate: timestamp("publication_date"),
   publicationType: text("publication_type"), // Journal Article, Conference Paper, Book, etc.
   status: text("status").default("Concept"), // Workflow status
+  invalidReason: text("invalid_reason"),
   vettedForSubmissionByIpOffice: boolean("vetted_for_submission_by_ip_office").default(false),
   prepublicationUrl: text("prepublication_url"), // URL/DOI for prepublication
   prepublicationSite: text("prepublication_site"), // bioRxiv, arXiv, etc.

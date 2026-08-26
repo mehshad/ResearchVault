@@ -348,6 +348,18 @@ test("calculateScientistScore: unsupported status → excluded", () => {
   assert.ok(result.excludedPublications[0].action.length > 0);
 });
 
+test("calculateScientistScore: Published - Invalid is never scored", () => {
+  const bundle = makeBundle("First Author", 2023, 10);
+  const pub = makePub({ status: "Published - Invalid" });
+  const result = calculateScientistScore(SCIENTIST, [pub], bundle, {
+    ...BASE_SETTINGS,
+    includeNonVetted: true,
+  });
+  assert.equal(result.publicationsCount, 0);
+  assert.equal(result.calculationDetails.length, 0);
+  assert.match(result.excludedPublications[0].reason, /Unsupported status/);
+});
+
 test("calculateScientistScore: empty journal → excluded with action", () => {
   const bundle = makeBundle("First Author", 2023, 10);
   const pub = makePub({ journal: "" });

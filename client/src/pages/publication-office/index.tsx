@@ -25,7 +25,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Switch } from "@/components/ui/switch";
 import * as SliderPrimitive from "@radix-ui/react-slider";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Pencil, Save, X, Upload, Search, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, ChevronDown, ArrowUpDown, ArrowUp, ArrowDown, Star, Shield, FileText, BarChart3, Download, Calendar, User, Users, BookOpen, Award, TrendingUp, CopyCheck, AlertTriangle, UserX, Unlink, CheckCircle2, Sparkles, Loader2, Globe, Plus, RefreshCw, ExternalLink, Info } from "lucide-react";
 import { UploadingModal } from "@/components/ui/upload-modal";
 import { PublicationDuplicates } from "@/components/PublicationDuplicates";
@@ -1322,6 +1322,39 @@ export default function PublicationOffice({ embeddedTab }: PublicationOfficeProp
     },
   });
 
+  const [invalidPublication, setInvalidPublication] = useState<Publication | null>(null);
+  const [invalidReason, setInvalidReason] = useState("");
+  const markInvalidMutation = useMutation({
+    mutationFn: async ({ id, reason }: { id: number; reason: string }) => {
+      const response = await fetch(`/api/publications/${id}/mark-invalid`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ reason: reason.trim() }),
+      });
+      if (!response.ok) {
+        const body = await response.json().catch(() => null);
+        throw new Error(body?.message || "Failed to mark publication invalid");
+      }
+      return response.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/publications"] });
+      queryClient.invalidateQueries({
+        predicate: (query) => String(query.queryKey[0]).startsWith("/api/publications/invalid-issues"),
+      });
+      setInvalidPublication(null);
+      setInvalidReason("");
+      toast({
+        title: "Correction requested",
+        description: "The publication is now 7. Published - Invalid and its linked authors have been notified.",
+      });
+    },
+    onError: (error: Error) => {
+      toast({ title: "Could not request correction", description: error.message, variant: "destructive" });
+    },
+  });
+
   // Revert final approval (Export tab, rarely used)
   const [revertSearch, setRevertSearch] = useState("");
   const [revertConfirmId, setRevertConfirmId] = useState<number | null>(null);
@@ -1662,8 +1695,10 @@ export default function PublicationOffice({ embeddedTab }: PublicationOfficeProp
                         </div>
                         <div className="flex items-center gap-2">
                           <Badge 
-                            variant={pub.status?.includes('*') ? 'default' : 'outline'}
-                            className={pub.status?.includes('*') ? 'bg-green-600 hover:bg-green-700' : ''}
+                            variant={pub.status === "Published - Invalid" ? "destructive" : pub.status?.includes('*') ? 'default' : 'outline'}
+                            className={pub.status === "Published - Invalid"
+                              ? "bg-red-100 text-red-800 dark:bg-red-950 dark:text-red-300"
+                              : pub.status?.includes('*') ? 'bg-green-600 hover:bg-green-700' : ''}
                           >
                             {pub.status?.includes('*') ? (
                               <div className="flex items-center gap-1">
@@ -1687,22 +1722,44 @@ export default function PublicationOffice({ embeddedTab }: PublicationOfficeProp
                                   Auto-connect authors
                                 </Button>
                               )}
-                              <Button 
-                                size="sm"
-                                onClick={() => markAsPublishedMutation.mutate(pub.id)}
-                                disabled={markAsPublishedMutation.isPending || hasIssues}
-                                title={hasIssues
-                                  ? `Resolve all issues first${missingFields.length ? ` (missing: ${missingFields.join(', ')})` : ''}${!hasSdr ? ' (no linked SDR)' : ''}${!hasInternalAuthors ? ' (no linked internal authors)' : ''}`
-                                  : 'Finalize and seal this publication'}
-                                data-testid={`button-mark-published-${pub.id}`}
-                              >
-                                <Star className="h-4 w-4 mr-1" />
-                                Mark as Published *
-                              </Button>
+                              {pub.status !== "Published - Invalid" && (
+                                <Button
+                                  size="sm"
+                                  onClick={() => markAsPublishedMutation.mutate(pub.id)}
+                                  disabled={markAsPublishedMutation.isPending || hasIssues}
+                                  title={hasIssues
+                                    ? `Resolve all issues first${missingFields.length ? ` (missing: ${missingFields.join(', ')})` : ''}${!hasSdr ? ' (no linked SDR)' : ''}${!hasInternalAuthors ? ' (no linked internal authors)' : ''}`
+                                    : 'Finalize and seal this publication'}
+                                  data-testid={`button-mark-published-${pub.id}`}
+                                >
+                                  <Star className="h-4 w-4 mr-1" />
+                                  Mark as Published *
+                                </Button>
+                              )}
+                              {pub.status === "Published" && (
+                                <Button
+                                  size="sm"
+                                  variant="destructive"
+                                  onClick={() => {
+                                    setInvalidPublication(pub);
+                                    setInvalidReason("");
+                                  }}
+                                  data-testid={`button-mark-invalid-${pub.id}`}
+                                >
+                                  <AlertTriangle className="h-4 w-4 mr-1" />
+                                  7. Published - Invalid
+                                </Button>
+                              )}
                             </div>
                           )}
                         </div>
                       </div>
+                      {pub.status === "Published - Invalid" && pub.invalidReason && (
+                        <div className="rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-900 dark:border-red-800 dark:bg-red-950/40 dark:text-red-200">
+                          <span className="font-medium">Correction reason: </span>
+                          <span className="whitespace-pre-wrap">{pub.invalidReason}</span>
+                        </div>
+                      )}
                       <div className="flex flex-wrap items-center gap-2" data-testid={`flags-publication-${pub.id}`}>
                         {!hasIssues ? (
                           <Badge
@@ -2319,6 +2376,7 @@ export default function PublicationOffice({ embeddedTab }: PublicationOfficeProp
                         <SelectItem value="Under review">Under review</SelectItem>
                         <SelectItem value="Accepted/In Press">Accepted/In Press</SelectItem>
                         <SelectItem value="Published">Published</SelectItem>
+                        <SelectItem value="Published - Invalid">Published - Invalid</SelectItem>
                         <SelectItem value="Published *">Published *</SelectItem>
                       </SelectContent>
                     </Select>
@@ -4046,6 +4104,71 @@ export default function PublicationOffice({ embeddedTab }: PublicationOfficeProp
               </div>
             </div>
           )}
+        </DialogContent>
+      </Dialog>
+      <Dialog
+        open={invalidPublication !== null}
+        onOpenChange={(open) => {
+          if (!open && !markInvalidMutation.isPending) {
+            setInvalidPublication(null);
+            setInvalidReason("");
+          }
+        }}
+      >
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Mark publication as invalid</DialogTitle>
+            <DialogDescription>
+              Request a correction from every linked author of “{invalidPublication?.title}”.
+              The publication will remain editable and will not be treated as finalized.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-2">
+            <Label htmlFor="invalid-publication-reason">Reason for correction</Label>
+            <Textarea
+              id="invalid-publication-reason"
+              value={invalidReason}
+              onChange={(event) => setInvalidReason(event.target.value.slice(0, 2000))}
+              placeholder="Clearly describe what the authors need to correct…"
+              rows={6}
+              maxLength={2000}
+              disabled={markInvalidMutation.isPending}
+              aria-describedby="invalid-reason-help"
+              data-testid="textarea-invalid-reason"
+            />
+            <div id="invalid-reason-help" className="flex justify-between text-xs text-muted-foreground">
+              <span>A reason is required.</span>
+              <span>{invalidReason.length}/2000</span>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => {
+                setInvalidPublication(null);
+                setInvalidReason("");
+              }}
+              disabled={markInvalidMutation.isPending}
+            >
+              Cancel
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={() => {
+                if (invalidPublication && invalidReason.trim()) {
+                  markInvalidMutation.mutate({ id: invalidPublication.id, reason: invalidReason });
+                }
+              }}
+              disabled={!invalidReason.trim() || invalidReason.trim().length > 2000 || markInvalidMutation.isPending}
+              data-testid="button-confirm-mark-invalid"
+            >
+              {markInvalidMutation.isPending ? (
+                <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Marking invalid…</>
+              ) : (
+                "Mark Published - Invalid"
+              )}
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
     </div>

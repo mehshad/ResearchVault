@@ -119,7 +119,22 @@ export interface IStorage {
   createManuscriptHistoryEntry(entry: InsertManuscriptHistory): Promise<ManuscriptHistory>;
   
   // Publication Status Management
-  updatePublicationStatus(id: number, status: string, changedBy: number, changes?: {field: string, oldValue: string, newValue: string}[]): Promise<Publication | undefined>;
+  updatePublicationStatus(
+    id: number,
+    status: string,
+    changedBy: number,
+    changes?: {field: string, oldValue: string, newValue: string}[],
+    expectedStatus?: string,
+    updatedFields?: Partial<InsertPublication>,
+  ): Promise<Publication | undefined>;
+  updatePublicationCorrectionStatus(
+    id: number,
+    expectedStatus: string,
+    status: string,
+    invalidReason: string | null,
+    changedBy: number,
+    changeReason: string,
+  ): Promise<Publication | undefined>;
   repairPreprintPublication(id: number, changedBy: number): Promise<{ publication?: Publication; reason?: string }>;
 
   // Patent operations
@@ -650,6 +665,66 @@ export class MemStorage implements IStorage {
     } as ManuscriptHistory;
     this.manuscriptHistory.set(created.id, created);
     return created;
+  }
+
+  async updatePublicationStatus(
+    id: number,
+    status: string,
+    changedBy: number,
+    changes?: { field: string; oldValue: string; newValue: string }[],
+    expectedStatus?: string,
+    updatedFields?: Partial<InsertPublication>,
+  ): Promise<Publication | undefined> {
+    const current = this.publications.get(id);
+    if (!current || (expectedStatus != null && current.status !== expectedStatus)) {
+      return undefined;
+    }
+    const updated = await this.updatePublication(id, {
+      ...updatedFields,
+      status,
+      invalidReason: null,
+    });
+    await this.createManuscriptHistoryEntry({
+      publicationId: id,
+      fromStatus: current.status || "Unknown",
+      toStatus: status,
+      changedBy,
+      changeReason: `Status changed from ${current.status || "Unknown"} to ${status}`,
+    });
+    for (const change of changes ?? []) {
+      await this.createManuscriptHistoryEntry({
+        publicationId: id,
+        fromStatus: current.status || "Unknown",
+        toStatus: status,
+        changedField: change.field,
+        oldValue: change.oldValue,
+        newValue: change.newValue,
+        changedBy,
+        changeReason: `${change.field} changed during status transition`,
+      });
+    }
+    return updated;
+  }
+
+  async updatePublicationCorrectionStatus(
+    id: number,
+    expectedStatus: string,
+    status: string,
+    invalidReason: string | null,
+    changedBy: number,
+    changeReason: string,
+  ): Promise<Publication | undefined> {
+    const current = this.publications.get(id);
+    if (!current || current.status !== expectedStatus) return undefined;
+    const updated = await this.updatePublication(id, { status, invalidReason });
+    await this.createManuscriptHistoryEntry({
+      publicationId: id,
+      fromStatus: expectedStatus,
+      toStatus: status,
+      changedBy,
+      changeReason,
+    });
+    return updated;
   }
 
   async deletePublication(id: number): Promise<boolean> {

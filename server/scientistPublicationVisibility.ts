@@ -19,7 +19,12 @@ export interface PublicationVisibilityAuthor {
   supervisorId?: number | null;
 }
 
-const FULL_VISIBILITY_ROLES = new Set(["Management", "admin", "superadmin"]);
+const FULL_VISIBILITY_ROLES = new Set([
+  "Outcome Officer",
+  "Management",
+  "admin",
+  "superadmin",
+]);
 
 export function isPublicScientistProfilePublicationStatus(
   status: string | null | undefined,

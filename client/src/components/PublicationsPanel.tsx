@@ -4,6 +4,7 @@ import { FileText } from "lucide-react";
 import { PublicationsList } from "./PublicationsList";
 import { PublicationsToFix } from "./PublicationsToFix";
 import { MissingPapers } from "./MissingPapers";
+import { InvalidPublicationIssues } from "./InvalidPublicationIssues";
 
 interface PublicationsPanelProps {
   scientistId: number;
@@ -14,6 +15,8 @@ interface PublicationsPanelProps {
   demoViewerRole?: string;
   demoViewerScientistId?: number;
   showAuthorFixes?: boolean;
+  showInvalidIssues?: boolean;
+  canActOnInvalid?: boolean;
 }
 
 export function PublicationsPanel({
@@ -25,6 +28,8 @@ export function PublicationsPanel({
   demoViewerRole,
   demoViewerScientistId,
   showAuthorFixes = true,
+  showInvalidIssues = false,
+  canActOnInvalid = false,
 }: PublicationsPanelProps) {
   const showMissing = hasOrcid || hasScholar;
 
@@ -40,6 +45,17 @@ export function PublicationsPanel({
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-6">
+        {showInvalidIssues && (
+          <>
+            <InvalidPublicationIssues
+              scientistId={scientistId}
+              canAct={canActOnInvalid}
+              demoViewerRole={demoViewerRole}
+              demoViewerScientistId={demoViewerScientistId}
+            />
+            <Separator />
+          </>
+        )}
         <PublicationsList
           scientistId={scientistId}
           yearsSince={yearsSince}

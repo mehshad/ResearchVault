@@ -585,6 +585,8 @@ export default function ScientistDetail() {
             demoViewerRole={authConfig.mode === "demo" ? currentUser.role : undefined}
             demoViewerScientistId={authConfig.mode === "demo" ? currentUser.id : undefined}
             showAuthorFixes={!isRestrictedRealUser}
+            showInvalidIssues={isOwner || ["Outcome Officer", "Management", "admin", "superadmin"].includes(effectiveRole)}
+            canActOnInvalid={isOwner}
           />
         )}
         </div>

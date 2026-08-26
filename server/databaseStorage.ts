@@ -726,6 +726,10 @@ export class DatabaseStorage implements IStorage {
 
       // Apply the officer's chosen field values to the survivor.
       const updateData: Record<string, any> = { ...overrides, updatedAt: new Date() };
+      const effectiveStatus = updateData.status ?? survivor.status;
+      if (effectiveStatus !== "Published - Invalid") {
+        updateData.invalidReason = null;
+      }
       updateData.createdByUserId =
         survivor.createdByUserId ??
         [survivor, ...targets]
@@ -875,31 +879,48 @@ export class DatabaseStorage implements IStorage {
   }
 
   // Publication Status Management
-  async updatePublicationStatus(id: number, status: string, changedBy: number, changes?: {field: string, oldValue: string, newValue: string}[]): Promise<Publication | undefined> {
+  async updatePublicationStatus(
+    id: number,
+    status: string,
+    changedBy: number,
+    changes?: {field: string, oldValue: string, newValue: string}[],
+    expectedStatus?: string,
+    updatedFields?: Partial<InsertPublication>,
+  ): Promise<Publication | undefined> {
     // Get current publication to track changes
     const currentPublication = await this.getPublication(id);
     if (!currentPublication) return undefined;
 
-    // Update the publication status (only status and updatedAt)
-    const [updatedPublication] = await db
-      .update(publications)
-      .set({ status, updatedAt: new Date() })
-      .where(eq(publications.id, id))
-      .returning();
+    // Generic status transitions can never enter the invalid state, so clear
+    // any stale active reason whenever one of those transitions succeeds.
+    return db.transaction(async (tx) => {
+      const conditions = [eq(publications.id, id)];
+      if (expectedStatus != null) {
+        conditions.push(eq(publications.status, expectedStatus));
+      }
+      const [updatedPublication] = await tx
+        .update(publications)
+        .set({
+          ...updatedFields,
+          status,
+          invalidReason: null,
+          updatedAt: new Date(),
+        })
+        .where(and(...conditions))
+        .returning();
+      if (!updatedPublication) return undefined;
 
-    // Record status change in history
-    await this.createManuscriptHistoryEntry({
-      publicationId: id,
-      fromStatus: currentPublication.status || 'Unknown',
-      toStatus: status,
-      changedBy,
-      changeReason: `Status changed from ${currentPublication.status || 'Unknown'} to ${status}`,
-    });
+      await tx.insert(manuscriptHistory).values({
+        publicationId: id,
+        fromStatus: currentPublication.status || 'Unknown',
+        toStatus: status,
+        changedBy,
+        changeReason: `Status changed from ${currentPublication.status || 'Unknown'} to ${status}`,
+      });
 
-    // Record field changes if any
-    if (changes && changes.length > 0) {
-      for (const change of changes) {
-        await this.createManuscriptHistoryEntry({
+      if (changes && changes.length > 0) {
+        for (const change of changes) {
+          await tx.insert(manuscriptHistory).values({
           publicationId: id,
           fromStatus: currentPublication.status || 'Unknown',
           toStatus: status,
@@ -908,11 +929,42 @@ export class DatabaseStorage implements IStorage {
           newValue: change.newValue,
           changedBy,
           changeReason: `${change.field} changed during status transition`,
-        });
+          });
+        }
       }
-    }
 
-    return updatedPublication;
+      return updatedPublication;
+    });
+  }
+
+  async updatePublicationCorrectionStatus(
+    id: number,
+    expectedStatus: string,
+    status: string,
+    invalidReason: string | null,
+    changedBy: number,
+    changeReason: string,
+  ): Promise<Publication | undefined> {
+    return db.transaction(async (tx) => {
+      const [updated] = await tx
+        .update(publications)
+        .set({ status, invalidReason, updatedAt: new Date() })
+        .where(and(
+          eq(publications.id, id),
+          eq(publications.status, expectedStatus),
+        ))
+        .returning();
+      if (!updated) return undefined;
+
+      await tx.insert(manuscriptHistory).values({
+        publicationId: id,
+        fromStatus: expectedStatus,
+        toStatus: status,
+        changedBy,
+        changeReason,
+      });
+      return updated;
+    });
   }
 
   // Publication Author operations

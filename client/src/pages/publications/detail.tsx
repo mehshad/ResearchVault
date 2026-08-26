@@ -1074,6 +1074,7 @@ export default function PublicationDetail() {
                     <p className="text-sm font-medium">Current Status</p>
                     <Badge variant={
                       publication.status === 'Published *' ? 'default' :
+                      publication.status === 'Published - Invalid' ? 'destructive' :
                       publication.status === 'Published' ? 'secondary' :
                       publication.status === 'Accepted/In Press' ? 'secondary' :
                       publication.status === 'Under review' ? 'secondary' :
@@ -1084,6 +1085,7 @@ export default function PublicationDetail() {
                       'outline'
                     } className={
                       publication.status === 'Published *' ? 'bg-green-600 text-white hover:bg-green-700' :
+                      publication.status === 'Published - Invalid' ? 'bg-red-100 text-red-800 hover:bg-red-200 dark:bg-red-950 dark:text-red-300' :
                       publication.status === 'Published' ? 'bg-green-100 text-green-800 hover:bg-green-200 dark:bg-green-950 dark:text-green-300 dark:hover:bg-green-900' :
                       publication.status === 'Accepted/In Press' ? 'bg-blue-100 text-blue-800 hover:bg-blue-200 dark:bg-blue-950 dark:text-blue-300 dark:hover:bg-blue-900' :
                       publication.status === 'Under review' ? 'bg-yellow-100 text-yellow-800 hover:bg-yellow-200 dark:bg-yellow-950 dark:text-yellow-300 dark:hover:bg-yellow-900' :

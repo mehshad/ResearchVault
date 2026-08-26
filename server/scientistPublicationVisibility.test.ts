@@ -31,6 +31,21 @@ test("Management and administrator roles can view unpublished publications", () 
   }
 });
 
+test("Outcome Officers can view invalid unpublished publications", () => {
+  assert.equal(
+    canViewPublication(
+      { role: "Outcome Officer" },
+      { status: "Published - Invalid" },
+      [],
+    ),
+    true,
+  );
+  assert.equal(
+    isPublicScientistProfilePublicationStatus("Published - Invalid"),
+    false,
+  );
+});
+
 test("unrelated and anonymous viewers cannot view unpublished publications", () => {
   assert.equal(
     canViewUnpublishedScientistPublications({ role: "Investigator", scientistId: 8 }, target),

@@ -8,6 +8,7 @@
 - [Preprint classification](preprint-classification.md) — never use prepublicationSite/Url to decide a record is a preprint; merges copy them onto published survivors.
 - [Demo mode bypasses auth guards](demo-mode-open-access.md) — AUTH_MODE=demo injects a Management session; anonymous curl 200 doesn't mean a route guard is missing.
 - [Sealed publications](sealed-publications.md) — `Published *` is sealed; every publication-mutating route must 403/skip sealed records; only the officer revert route unseals.
+- [Publication workflow concurrency](publication-workflow-concurrency.md) — status transitions must compare-and-swap the authorized source status and commit fields, status, and history atomically.
 - [Server code needs manual restart](server-no-hot-reload.md) — `tsx` runs without --watch; backend edits don't reload, new API routes return Vite HTML (200) until `restart_workflow`.
 - [Publication correction authorization](publication-correction-authorization.md) — researcher-facing fix links must be backed by record-level server authorization, not UI visibility alone.
 - [IP vetting workflow stage](ip-vetting-workflow.md) — Complete Draft is the active IP queue; imported Published records stay in the year-based backlog until they enter the workflow.
