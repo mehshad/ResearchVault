@@ -5,6 +5,8 @@ networks:
 volumes:
   pg-data:
   pg-demo-data:
+  app-logs:
+
 
 services:
   # ── Production database ────────────────────────────────────────────────────
@@ -18,7 +20,7 @@ services:
     volumes:
       - pg-data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      test: [ "CMD-SHELL", "pg_isready -U postgres" ]
       interval: 5s
       timeout: 5s
       retries: 10
@@ -36,7 +38,7 @@ services:
     volumes:
       - pg-demo-data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      test: [ "CMD-SHELL", "pg_isready -U postgres" ]
       interval: 5s
       timeout: 5s
       retries: 10
@@ -58,7 +60,7 @@ services:
     volumes:
       - ./nginx.conf.template:/etc/nginx/nginx.conf.template:ro
       - ./docker/nginx-entrypoint.sh:/docker-entrypoint.sh:ro
-    entrypoint: ["/bin/sh", "/docker-entrypoint.sh"]
+    entrypoint: [ "/bin/sh", "/docker-entrypoint.sh" ]
     depends_on:
       - app
       - app-demo
@@ -78,6 +80,7 @@ services:
       APP_URL: ${APP_URL:-http://localhost}
       SUPER_ADMIN_EMAIL: ${SUPER_ADMIN_EMAIL:-}
       AUTH_MODE: ${AUTH_MODE:-local}
+      LOG_FILE: /var/log/app/qbridge.log
       DEMO_PORT: ${DEMO_PORT:-8080}
       # LDAP (only used when AUTH_MODE=ldap)
       LDAP_URL: ${LDAP_URL:-}
@@ -102,6 +105,7 @@ services:
       OIDC_CLAIM_EMAIL: ${OIDC_CLAIM_EMAIL:-}
     volumes:
       - ${UPLOADS_DATA_DIR:-./data/uploads}:/data/uploads
+      - app-logs:/var/log/app
     depends_on:
       postgres:
         condition: service_healthy

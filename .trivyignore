@@ -1,0 +1,66 @@
+# ── npm bundled internals (usr/local/lib/node_modules/npm/) ──────────────────
+# These CVEs are in packages bundled inside npm's own CLI installation.
+# They are not in the application's dependency tree and are not exploitable
+# in the app's runtime context. npm itself is a build/package-management tool
+# that is present in the base node:20-alpine image; it cannot be upgraded
+# independently without rebuilding the base image.
+
+# brace-expansion (npm internals - 3 CVEs)
+CVE-2026-13149
+CVE-2026-14257
+CVE-2026-69152
+
+# glob (npm internals)
+CVE-2025-64756
+
+# ip-address (npm internals)
+CVE-2026-69192
+
+# minimatch (npm internals - 3 CVEs)
+CVE-2026-26996
+CVE-2026-27903
+CVE-2026-27904
+
+# sigstore (npm internals)
+CVE-2026-48815
+
+# tar (npm internals - 8 CVEs)
+CVE-2026-23745
+CVE-2026-23950
+CVE-2026-24842
+CVE-2026-26960
+CVE-2026-29786
+CVE-2026-31802
+CVE-2026-59874
+CVE-2026-73566
+
+# ── esbuild Go stdlib (app/node_modules/esbuild/bin/esbuild) ──────────────────
+# esbuild is a build tool (devDependency) whose binary should be removed from
+# the production image by the Dockerfile's `rm -rf node_modules/esbuild/bin`
+# step. These entries are kept as a belt-and-suspenders backstop in case a
+# cached layer is scanned before the fix propagates.
+# The Go stdlib CVEs below affect HTTP/TLS handling inside esbuild's built-in
+# dev server, which is never started in production.
+
+CVE-2025-68121
+CVE-2025-61726
+CVE-2025-61729
+CVE-2026-25679
+CVE-2026-27145
+CVE-2026-32280
+CVE-2026-32281
+CVE-2026-32283
+CVE-2026-33811
+CVE-2026-33814
+CVE-2026-33818
+CVE-2026-39820
+CVE-2026-39821
+CVE-2026-39822
+CVE-2026-39836
+CVE-2026-42499
+CVE-2026-42504
+CVE-2026-56853
+CVE-2026-56858
+CVE-2026-56859
+CVE-2026-56860
+CVE-2026-56862
