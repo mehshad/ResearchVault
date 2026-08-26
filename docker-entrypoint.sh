@@ -54,8 +54,8 @@ for migration in \
     "migrations/20260824_add_publication_creator.sql" \
     "migrations/20260825_add_grant_master_fields.sql" \
     "migrations/20260826_add_bulk_data_archives.sql" \
+    "migrations/20260826_publications_authors_nullable.sql" \
     "migrations/20260827_add_publication_invalid_reason.sql"; do
-    "migrations/20260824_add_publication_creator.sql"; do
   if [ -f "/app/$migration" ]; then
     echo "  Applying $migration..."
     if [ "$migration" = "migrations/20260820_grant_lifecycle_consistency.sql" ] || \
