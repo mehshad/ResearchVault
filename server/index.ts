@@ -16,10 +16,9 @@ import { createHash } from "crypto";
 import { restrictDefaultUserApiAccess } from "./restrictedUserPolicy";
 import { db } from "./db";
 import { sql } from "drizzle-orm";
+import { startBulkDataArchiveScheduler } from "./bulkDataArchives";
 
 const PgSession = connectPgSimple(session);
-const APP_START = Date.now();
-
 const APP_START = Date.now();
 
 // Global error handlers to prevent crashes from worker processes
