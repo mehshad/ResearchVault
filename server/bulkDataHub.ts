@@ -159,7 +159,7 @@ export const SECTION_META: SectionMeta[] = [
   },
   {
     id: "research-services",
-    label: "Research Data Management",
+    label: "Research Office",
     description: "Research Contracts and Grants",
     sheets: [
       { name: "Research Contracts", description: "Contract records", businessKey: "contractNumber" },

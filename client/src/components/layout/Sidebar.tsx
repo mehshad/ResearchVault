@@ -237,7 +237,7 @@ export default function Sidebar({ mobile = false, onClose, onCollapsedChange }: 
       ]
     },
     {
-      title: "Research Data Management",
+      title: "Research Office",
       items: [
         {
           href: "/data-management",
