@@ -154,6 +154,7 @@ import PmoOfficeReview from "@/pages/pmo/office/index";
 import PmoOfficeReviewDetail from "@/pages/pmo/office/review";
 import ResearchOfficeDashboard from "@/pages/research-office";
 import OutcomeOfficeDashboard from "@/pages/outcome-office/dashboard";
+import ManagementHub from "@/pages/management";
 
 function AuthenticatedAppRoutes() {
   // Always wrap in RequireAuth so the needsRegistration redirect fires for all auth modes
@@ -184,6 +185,7 @@ function AppRouter() {
 
         {/* Dashboard */}
         <Route path="/app" component={Dashboard} />
+        <Route path="/management" component={ManagementHub} />
         
         {/* Scientists & Staff */}
         <Route path="/scientists" component={ScientistsList} />

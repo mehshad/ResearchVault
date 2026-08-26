@@ -165,6 +165,14 @@ export function requirePublicationOfficer(req: Request, res: Response, next: Nex
   res.status(403).json({ message: "Forbidden. Publication office access required." });
 }
 
+/** Restricts Management Hub/report endpoints to the management tier. */
+export function requireManagement(req: Request, res: Response, next: NextFunction) {
+  const role = req.session?.user?.role;
+  if (role === "Management" || role === "admin" || role === "superadmin") return next();
+  authLog(`403 management required: ${req.method} ${req.path} user=${req.session?.user?.username ?? "anonymous"} role=${role ?? "none"}`);
+  res.status(403).json({ message: "Forbidden. Management access required." });
+}
+
 export function requireContractsRead(req: Request, res: Response, next: NextFunction) {
   if (req.session?.user) {
     (req as any).currentUser = req.session.user;

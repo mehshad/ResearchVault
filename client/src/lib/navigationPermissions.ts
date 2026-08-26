@@ -21,6 +21,7 @@ export const NAVIGATION_ITEMS = [
   "reports",
   "grants",
   "certifications",
+  "management",
 ] as const;
 
 export function getOfficeDashboardDefaultAccess(
@@ -36,6 +37,9 @@ export function getOfficeDashboardDefaultAccess(
       role === "Management"
       ? "edit"
       : "hide";
+  }
+  if (navigationItem === "management") {
+    return role === "Management" ? "edit" : "hide";
   }
   return null;
 }

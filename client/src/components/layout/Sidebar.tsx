@@ -132,7 +132,8 @@ export default function Sidebar({ mobile = false, onClose, onCollapsedChange }: 
       "/reports": "reports",
       "/grants": "grants",
       "/certifications": "certifications",
-      "/settings": "settings"
+      "/settings": "settings",
+      "/management": "management"
     };
     return pathMap[href] || href.substring(1);
   };
@@ -145,6 +146,16 @@ export default function Sidebar({ mobile = false, onClose, onCollapsedChange }: 
           href: "/app",
           label: "Dashboard",
           icon: LayoutDashboard
+        }
+      ]
+    },
+    {
+      title: "Management",
+      items: [
+        {
+          href: "/management",
+          label: "Management Hub",
+          icon: Briefcase
         }
       ]
     },

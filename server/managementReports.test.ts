@@ -1,0 +1,329 @@
+import assert from "node:assert/strict";
+import test from "node:test";
+import { managementReportConfigSchema } from "../shared/managementReports.js";
+import { requireManagement } from "./auth.js";
+import {
+  assembleManagementReport,
+  buildManagementReportPdf,
+  buildManagementReportPdfLayout,
+  ManagementReportTargetNotFoundError,
+  ManagementReportTooLargeError,
+} from "./managementReports.js";
+import {
+  createManagementReportHandlers,
+  sendManagementReportError,
+} from "./managementReportRoutes.js";
+import { PDFDocument } from "pdf-lib";
+
+const config = managementReportConfigSchema.parse({
+  targetType: "staff",
+  targetId: 7,
+  domains: ["sdrs", "publications"],
+  lookbackYears: 5,
+  activeSdrOnly: true,
+  awardedGrantsOnly: false,
+  publicationStatuses: ["Published *"],
+  contractStatuses: [],
+  patentStatuses: [],
+});
+
+test("management authorization allows only management tier roles", () => {
+  for (const role of ["Management", "admin", "superadmin"]) {
+    let next = false;
+    requireManagement({ method: "GET", path: "/", session: { user: { role } } } as any, {} as any, () => { next = true; });
+    assert.equal(next, true);
+  }
+  let status = 0;
+  let body: unknown;
+  requireManagement(
+    { method: "GET", path: "/", session: { user: { username: "scientist", role: "Scientist" } } } as any,
+    { status(code: number) { status = code; return this; }, json(value: unknown) { body = value; } } as any,
+    () => assert.fail("must reject"),
+  );
+  assert.equal(status, 403);
+  assert.deepEqual(body, { message: "Forbidden. Management access required." });
+});
+
+test("report config rejects invalid targets, empty domains, and lookback", () => {
+  assert.equal(managementReportConfigSchema.safeParse({ ...config, targetId: 0 }).success, false);
+  assert.equal(managementReportConfigSchema.safeParse({ ...config, domains: [] }).success, false);
+  assert.equal(managementReportConfigSchema.safeParse({ ...config, lookbackYears: 21 }).success, false);
+  assert.equal(managementReportConfigSchema.safeParse({ ...config, domains: ["compliance"] }).success, false);
+});
+
+test("staff assembly uses canonical joins and applies date/status filters", async () => {
+  const queries: string[] = [];
+  const report = await assembleManagementReport(config, async (sql) => {
+    queries.push(sql);
+    if (sql.includes("FROM scientists WHERE")) {
+      return { rows: [{ id: 7, first_name: "Ada", last_name: "Lovelace", staff_id: "7", section_id: 2 }] };
+    }
+    if (sql.includes("FROM research_activities")) {
+      return { rows: [{ id: 10, reference: "SDR-10", title: "Study", status: "active", date: "2024-01-01", scientistId: 7 }] };
+    }
+    return { rows: [{ id: 20, reference: "10/x", title: "Paper", status: "Published *", date: "2024-02-01", scientistId: 7 }] };
+  });
+  assert.equal(report.total, 2);
+  assert.equal(report.counts.sdrs, 1);
+  assert.match(queries.find((sql) => sql.includes("research_activities"))!, /JOIN project_members/);
+  assert.match(queries.find((sql) => sql.includes("publications"))!, /JOIN publication_authors/);
+  assert.match(queries.find((sql) => sql.includes("publications"))!, /publication_date >= \$2/);
+  assert.match(queries.find((sql) => sql.includes("publications"))!, /lower\(p.status\)/);
+});
+
+test("section assembly deduplicates records and preserves structured membership", async () => {
+  const sectionConfig = { ...config, targetType: "section" as const, targetId: 3, domains: ["patents" as const] };
+  const report = await assembleManagementReport(sectionConfig, async (sql) => {
+    if (sql.includes("FROM sections sec")) return { rows: [{
+      id: 3, section_name: "Lab", department_name: "Research", branch_name: "Science",
+    }] };
+    if (sql.includes("FROM scientists WHERE section_id")) return { rows: [
+      { id: 7, first_name: "Ada", last_name: "Lovelace", section_id: 3, section_name: "Lab" },
+      { id: 8, first_name: "Grace", last_name: "Hopper", section_id: 3, section_name: "Lab" },
+    ] };
+    return { rows: [
+      { id: 30, reference: "P-1", title: "Patent", status: "Filed", date: "2024-01-01", scientistId: 7 },
+      { id: 30, reference: "P-1", title: "Patent", status: "Filed", date: "2024-01-01", scientistId: 8 },
+    ] };
+  });
+  assert.equal(report.counts.patents, 1);
+  assert.deepEqual(report.rows.patents?.[0].scientistIds, [7, 8]);
+});
+
+test("shared section records are limited after aggregation, not by raw relationship rows", async () => {
+  const scientistIds = Array.from({ length: 250 }, (_, index) => index + 1);
+  const sectionConfig = {
+    ...config,
+    targetType: "section" as const,
+    targetId: 3,
+    domains: ["overview" as const],
+    activeSdrOnly: false,
+  };
+  const categoryQueries: string[] = [];
+  const report = await assembleManagementReport(sectionConfig, async (sql) => {
+    if (sql.includes("FROM sections sec")) return { rows: [{
+      id: 3, section_name: "Shared Lab", department_name: "Research", branch_name: "Science",
+    }] };
+    if (sql.includes("FROM scientists WHERE section_id")) {
+      return { rows: scientistIds.map((id) => ({
+        id,
+        first_name: `Staff${id}`,
+        last_name: "Member",
+        section_id: 3,
+        section_name: "Shared Lab",
+      })) };
+    }
+    categoryQueries.push(sql);
+    // Five records x 250 people represents 1,250 raw relationship rows per
+    // domain. SQL aggregation returns five distinct records and all people.
+    return { rows: Array.from({ length: 5 }, (_, id) => ({
+      id,
+      title: `Shared record ${id}`,
+      status: "active",
+      date: "2024-01-01",
+      scientistIds,
+    })) };
+  });
+  assert.equal(report.total, 25);
+  assert.equal(report.rows.sdrs?.[0].scientistIds.length, 250);
+  assert.equal(report.rows.publications?.[0].scientistIds.length, 250);
+  assert.equal(report.rows.grants?.[0].scientistIds.length, 250);
+  assert.equal(report.rows.contracts?.[0].scientistIds.length, 250);
+  assert.equal(report.rows.patents?.[0].scientistIds.length, 250);
+  assert.equal(categoryQueries.length, 5);
+  for (const sql of categoryQueries) {
+    assert.match(sql, /array_agg\(DISTINCT/);
+    assert.match(sql, /GROUP BY [rpcg]\.id ORDER BY title, id LIMIT/);
+  }
+});
+
+test("existing empty section produces empty overview, categories, SIDRA, and a valid PDF", async () => {
+  const emptyConfig = {
+    ...config,
+    targetType: "section" as const,
+    targetId: 44,
+    domains: ["overview" as const, "sdrs" as const, "publications" as const, "grants" as const,
+      "contracts" as const, "patents" as const, "sidra" as const],
+  };
+  let categoryQueries = 0;
+  const report = await assembleManagementReport(emptyConfig, async (sql) => {
+    if (sql.includes("FROM sections sec")) return { rows: [{
+      id: 44,
+      section_name: "New Lab",
+      department_name: "Discovery",
+      branch_name: "Research",
+    }] };
+    if (sql.includes("FROM scientists WHERE section_id")) return { rows: [] };
+    categoryQueries++;
+    return { rows: [] };
+  });
+  assert.equal(report.targetLabel, "Research / Discovery / New Lab");
+  assert.deepEqual(report.staff, []);
+  assert.equal(report.total, 0);
+  assert.equal(report.overview?.scope.staffCount, 0);
+  assert.ok(report.overview?.domains.every((domain) => domain.count === 0));
+  assert.deepEqual(report.officialSidra, []);
+  assert.equal(categoryQueries, 0, "empty membership must not issue domain ANY(empty) queries");
+  const pdf = await buildManagementReportPdf(report);
+  assert.equal(pdf.subarray(0, 5).toString(), "%PDF-");
+  assert.ok((await PDFDocument.load(pdf)).getPageCount() >= 2);
+
+  const handlers = createManagementReportHandlers({
+    assemble: async () => report,
+    buildPdf: buildManagementReportPdf,
+  });
+  let previewBody: any;
+  await handlers.preview(
+    { body: emptyConfig } as any,
+    { json(value: unknown) { previewBody = value; return this; } } as any,
+  );
+  assert.equal(previewBody.overview.scope.staffCount, 0);
+  let routePdf: Buffer | undefined;
+  const headers: Record<string, string> = {};
+  await handlers.pdf(
+    { body: emptyConfig } as any,
+    {
+      setHeader(name: string, value: string) { headers[name] = value; },
+      send(value: Buffer) { routePdf = value; return this; },
+    } as any,
+  );
+  assert.equal(headers["Content-Type"], "application/pdf");
+  assert.equal(routePdf?.subarray(0, 5).toString(), "%PDF-");
+});
+
+test("missing section remains a typed 404 at service and route error boundary", async () => {
+  const missingConfig = {
+    ...config,
+    targetType: "section" as const,
+    targetId: 999,
+    domains: ["overview" as const],
+  };
+  await assert.rejects(
+    assembleManagementReport(missingConfig, async () => ({ rows: [] })),
+    ManagementReportTargetNotFoundError,
+  );
+  let status = 0;
+  let body: any;
+  sendManagementReportError(
+    new ManagementReportTargetNotFoundError("section"),
+    {
+      status(code: number) { status = code; return this; },
+      json(value: unknown) { body = value; return this; },
+    } as any,
+  );
+  assert.equal(status, 404);
+  assert.equal(body.message, "Report section target not found.");
+
+  const handlers = createManagementReportHandlers({
+    assemble: async () => { throw new ManagementReportTargetNotFoundError("section"); },
+    buildPdf: buildManagementReportPdf,
+  });
+  status = 0;
+  body = undefined;
+  await handlers.preview(
+    { body: missingConfig } as any,
+    {
+      status(code: number) { status = code; return this; },
+      json(value: unknown) { body = value; return this; },
+    } as any,
+  );
+  assert.equal(status, 404);
+  assert.equal(body.message, "Report section target not found.");
+});
+
+test("more than 1000 distinct records fails gracefully before rendering", async () => {
+  await assert.rejects(
+    assembleManagementReport({ ...config, domains: ["sdrs"] }, async (sql) => {
+      if (sql.includes("FROM scientists WHERE")) {
+        return { rows: [{ id: 7, first_name: "Ada", last_name: "Lovelace", section_id: 2 }] };
+      }
+      return { rows: Array.from({ length: 1001 }, (_, id) => ({
+        id, title: `Study ${id}`, status: "active", date: "2024-01-01", scientistId: 7,
+      })) };
+    }),
+    ManagementReportTooLargeError,
+  );
+});
+
+test("generated report is a valid PDF", async () => {
+  const report = await assembleManagementReport(config, async (sql) => {
+    if (sql.includes("FROM scientists WHERE")) {
+      return { rows: [{ id: 7, first_name: "Ada", last_name: "Lovelace", section_id: 2 }] };
+    }
+    return { rows: [] };
+  });
+  const pdf = await buildManagementReportPdf(report);
+  assert.equal(pdf.subarray(0, 5).toString(), "%PDF-");
+  assert.ok(pdf.length > 500);
+});
+
+test("overview has a real scoped cross-domain model and status counts", async () => {
+  const overviewConfig = { ...config, domains: ["overview" as const] };
+  const report = await assembleManagementReport(overviewConfig, async (sql) => {
+    if (sql.includes("FROM scientists WHERE")) {
+      return { rows: [{ id: 7, first_name: "Ada", last_name: "Lovelace", section_id: 2 }] };
+    }
+    if (sql.includes("FROM research_activities")) {
+      return { rows: [{ id: 1, title: "SDR", status: "active", date: "2024-01-01", scientistId: 7 }] };
+    }
+    if (sql.includes("FROM publications")) {
+      return { rows: [
+        { id: 2, title: "Paper A", status: "Published *", date: "2024-01-01", scientistId: 7 },
+        { id: 3, title: "Paper B", status: "Published *", date: "2024-01-01", scientistId: 7 },
+      ] };
+    }
+    return { rows: [] };
+  });
+  assert.deepEqual(report.overview?.scope, { targetType: "staff", targetId: 7, staffCount: 1 });
+  assert.equal(report.overview?.totalRecords, 3);
+  assert.deepEqual(
+    report.overview?.domains.find((domain) => domain.domain === "publications"),
+    { domain: "publications", count: 2, statusCounts: { "Published *": 2 } },
+  );
+});
+
+test("multipage PDF layout has page-referenced contents, wrapped rows, repeated headers, and X/Y footers", async () => {
+  const longTitle = "A deliberately long publication title ".repeat(8);
+  const manyRows = Array.from({ length: 110 }, (_, id) => ({
+    id,
+    reference: `DOI-${id}`,
+    title: `${longTitle}${id}`,
+    status: "Published *",
+    date: "2024-01-01",
+    scientistIds: [7],
+  }));
+  const report = {
+    generatedAt: "2025-01-01T00:00:00.000Z",
+    config: { ...config, domains: ["publications" as const] },
+    filterDefinitions: {
+      dateRange: "date",
+      statuses: "status",
+      relationships: "relationships",
+    },
+    targetLabel: "Ada Lovelace",
+    staff: [{ id: 7, name: "Ada Lovelace", staffId: "7", sectionId: 2 }],
+    rows: { publications: manyRows },
+    totals: { sdrs: 0, publications: manyRows.length, grants: 0, contracts: 0, patents: 0 },
+    counts: { sdrs: 0, publications: manyRows.length, grants: 0, contracts: 0, patents: 0 },
+    total: manyRows.length,
+  };
+  const layout = buildManagementReportPdfLayout(report);
+  assert.ok(layout.pages.length > 3);
+  const publicationEntry = layout.contents.find((entry) => entry.title.startsWith("PUBLICATIONS"));
+  assert.equal(publicationEntry?.page, 2);
+  assert.ok(layout.pages[0].lines.some((line) =>
+    line.text.includes(`PUBLICATIONS (${manyRows.length})`) && line.text.endsWith(" 2"),
+  ));
+  for (const page of layout.pages.filter((page) => page.section.startsWith("PUBLICATIONS"))) {
+    assert.equal(page.lines[0].text, `PUBLICATIONS (${manyRows.length})`);
+    assert.equal(page.lines[1].text, "Reference | Title | Status | Date");
+  }
+  assert.ok(layout.pages.some((page) => page.lines.some((line) =>
+    line.text.includes("publication title") && !line.text.startsWith("DOI-"),
+  )), "long titles should wrap onto continuation lines");
+  assert.equal(layout.pages.at(-1)?.footer, `Page ${layout.pages.length} of ${layout.pages.length}`);
+
+  const bytes = await buildManagementReportPdf(report);
+  const document = await PDFDocument.load(bytes);
+  assert.equal(document.getPageCount(), layout.pages.length);
+});

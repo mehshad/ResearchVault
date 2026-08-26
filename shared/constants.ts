@@ -55,6 +55,7 @@ export const NAVIGATION_ITEMS = [
   { id: "patents", name: "Patents", description: "Intellectual property" },
   { id: "reports", name: "Reports", description: "System reports and analytics" },
   { id: "grants", name: "Grants", description: "Research grants and funding" },
+  { id: "management", name: "Management Hub", description: "Cross-office oversight and management reporting" },
 ] as const;
 
 export type NavigationItemId = typeof NAVIGATION_ITEMS[number]["id"];

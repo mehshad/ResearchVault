@@ -7,7 +7,14 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 // ── Import pure helpers ────────────────────────────────────────────────────────
-import { normalizeAuthorshipType, calculateScientistScore, lookupIf } from "./sidraScoreService";
+import {
+  normalizeAuthorshipType,
+  calculateScientistScore,
+  calculateSelectedScientistScores,
+  lookupIf,
+  MAX_SCOPED_SIDRA_PUBLICATIONS,
+  SidraScopeTooLargeError,
+} from "./sidraScoreService";
 import {
   isOwnScientistProfile,
   isDemo,
@@ -550,4 +557,65 @@ test("calculateScientistScore: fallback IF year is used when primary missing", (
   assert.equal(result.publicationsCount, 1);
   assert.equal(result.calculationDetails[0].usedFallback, true);
   assert.equal(result.calculationDetails[0].actualYear, 2022);
+});
+
+test("selected SIDRA calculation passes only deduplicated target ids and a hard publication limit", async () => {
+  const calls: Array<{ kind: string; ids: number[]; limit?: number }> = [];
+  const results = await calculateSelectedScientistScores(
+    [8, 7, 8],
+    DEFAULT_SIDRA_SCORE_SETTINGS,
+    {
+      async loadPublications(ids, limit) {
+        calls.push({ kind: "publications", ids, limit });
+        return [];
+      },
+      async loadBundle(ids) {
+        calls.push({ kind: "bundle", ids });
+        return {
+          authorshipByScientist: new Map(),
+          ifByJournalYear: new Map(),
+          currentYear: 2025,
+        };
+      },
+      async loadScientists(ids) {
+        calls.push({ kind: "scientists", ids });
+        return ids.map((id) => ({ id, firstName: `Staff${id}`, lastName: "Member" }));
+      },
+    },
+  );
+  assert.deepEqual(calls.map((call) => call.ids), [[8, 7], [8, 7], [8, 7]]);
+  assert.equal(calls[0].limit, MAX_SCOPED_SIDRA_PUBLICATIONS + 1);
+  assert.deepEqual(results.map((result) => result.id), [8, 7]);
+});
+
+test("selected SIDRA calculation rejects publication scope beyond its resource envelope", async () => {
+  let downstreamLoads = 0;
+  await assert.rejects(
+    calculateSelectedScientistScores(
+      [7],
+      DEFAULT_SIDRA_SCORE_SETTINGS,
+      {
+        async loadPublications() {
+          return Array.from({ length: MAX_SCOPED_SIDRA_PUBLICATIONS + 1 }, (_, id) => ({
+            id,
+            title: `Publication ${id}`,
+          }));
+        },
+        async loadBundle() {
+          downstreamLoads++;
+          return {
+            authorshipByScientist: new Map(),
+            ifByJournalYear: new Map(),
+            currentYear: 2025,
+          };
+        },
+        async loadScientists() {
+          downstreamLoads++;
+          return [{ id: 7, firstName: "Ada", lastName: "Lovelace" }];
+        },
+      },
+    ),
+    SidraScopeTooLargeError,
+  );
+  assert.equal(downstreamLoads, 0, "oversize publication scope must stop before downstream loads");
 });
