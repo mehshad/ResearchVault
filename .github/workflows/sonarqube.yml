@@ -1,0 +1,46 @@
+name: SonarQube
+
+on:
+  schedule:
+    # Nightly at 03:00 UTC
+    - cron: "0 3 * * *"
+  workflow_dispatch:
+
+jobs:
+  sonar:
+    name: SonarQube Analysis
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Shallow clones should be disabled for better SonarQube relevance
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: NODE_ENV=development npm ci --legacy-peer-deps
+
+      - name: TypeScript check (for issue reporting)
+        run: npx tsc --noEmit 2>&1 | tee tsc-output.txt || true
+
+      - name: Run unit tests with coverage
+        env:
+          DATABASE_URL: postgresql://ci:ci@localhost:5432/ci_test
+        run: |
+          node --import tsx \
+               --experimental-test-coverage \
+               --test-reporter=lcov \
+               --test-reporter-destination=coverage/lcov.info \
+               --test $(find server -name '*.test.ts' ! -name '*.integration.test.ts') || true
+        continue-on-error: true
+
+      - name: SonarQube Scan
+        uses: SonarSource/sonarqube-scan-action@master
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+          SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }}

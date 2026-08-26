@@ -16,9 +16,10 @@ import { createHash } from "crypto";
 import { restrictDefaultUserApiAccess } from "./restrictedUserPolicy";
 import { db } from "./db";
 import { sql } from "drizzle-orm";
-import { startBulkDataArchiveScheduler } from "./bulkDataArchives";
 
 const PgSession = connectPgSimple(session);
+const APP_START = Date.now();
+
 const APP_START = Date.now();
 
 // Global error handlers to prevent crashes from worker processes
@@ -77,13 +78,9 @@ const sessionStore = process.env.DATABASE_URL
       tableName: 'session',
       createTableIfMissing: true,
     })
-  : undefined; // falls back to default MemoryStore in dev without a DB
+  : undefined;
 
-// Use a distinct cookie name per auth mode so the production app and the demo
-// app (same hostname, different ports) never share or corrupt each other's
-// sessions. Browsers scope cookies to hostname only — not port — so without
-// distinct names, a demo cookie sent to the production app (or vice versa)
-// would silently invalidate the user's real session.
+// Distinct cookie name per auth mode so production and demo sessions never clash.
 const cookieName = getAuthMode() === 'demo' ? 'rv-demo.sid' : 'rv.sid';
 
 app.use(session({
@@ -95,12 +92,11 @@ app.use(session({
   cookie: {
     secure: isHttps,
     sameSite: 'lax',
-    maxAge: 24 * 60 * 60 * 1000 // 24 hours
+    maxAge: 24 * 60 * 60 * 1000
   }
 }));
 
 // Demo mode: auto-inject a guest user so the app runs without login.
-// Also applies in development when AUTH_MODE is unset or "demo".
 if (getAuthMode() === "demo") {
   app.use("/api", demoBannerMiddleware);
 }
@@ -129,10 +125,8 @@ app.use((req: Request, res: Response, next: NextFunction) => {
 });
 
 (async () => {
-  // Log auth/SSO status on startup
   logAuthStatus();
 
-  // Register authentication routes (local/ldap/oidc per AUTH_MODE)
   registerAuthRoutes(app);
 
   app.get("/api/health", async (_req: Request, res: Response) => {
@@ -161,6 +155,26 @@ app.use((req: Request, res: Response, next: NextFunction) => {
   app.use("/api", restrictDefaultUserApiAccess);
 
   // Register API routes
+  // ── Health / availability endpoint ────────────────────────────────────────
+  // Polled by ELK Heartbeat / uptime monitors.
+  // Returns 200 when healthy, 503 when the DB is unreachable.
+  app.get("/api/health", async (_req: Request, res: Response) => {
+    let dbOk = false;
+    try {
+      await db.execute(sql`SELECT 1`);
+      dbOk = true;
+    } catch {
+      // db unreachable — still respond so the caller gets a 503 not a timeout
+    }
+    const status = dbOk ? "ok" : "degraded";
+    res.status(dbOk ? 200 : 503).json({
+      status,
+      uptime: Math.floor((Date.now() - APP_START) / 1000),
+      db: dbOk ? "ok" : "unreachable",
+      timestamp: new Date().toISOString(),
+    });
+  });
+
   const server = await registerRoutes(app);
   startBulkDataArchiveScheduler();
 
@@ -177,14 +191,9 @@ app.use((req: Request, res: Response, next: NextFunction) => {
       username: user?.username ?? null,
     });
 
-    if (!res.headersSent) {
-      res.status(status).json({ message });
-    }
+    res.status(status).json({ message });
   });
 
-  // importantly only setup vite in development and after
-  // setting up all the other routes so the catch-all route
-  // doesn't interfere with the other routes
   if (app.get("env") === "development") {
     const { setupVite } = await import("./vite.js");
     await setupVite(app, server);
@@ -192,9 +201,6 @@ app.use((req: Request, res: Response, next: NextFunction) => {
     serveStatic(app);
   }
 
-  // ALWAYS serve the app on port 5000
-  // this serves both the API and the client.
-  // It is the only port that is not firewalled.
   const port = 5000;
   server.listen({
     port,

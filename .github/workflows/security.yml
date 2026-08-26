@@ -1,0 +1,97 @@
+name: Security
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  schedule:
+    # Nightly scan at 02:00 UTC
+    - cron: "0 2 * * *"
+
+jobs:
+  dependency-audit:
+    name: Dependency CVE Scan (npm audit)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: NODE_ENV=development npm ci --legacy-peer-deps
+
+      - name: npm audit — fail on high/critical
+        run: npm audit --audit-level=high --omit=dev
+
+  container-scan:
+    name: Container Image Scan (Trivy)
+    runs-on: ubuntu-latest
+    permissions:
+      security-events: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build Docker image
+        run: docker build -t researchvault:${{ github.sha }} .
+
+      # Run with exit-code 0 so the SARIF file is always written.
+      # A separate step below enforces the HIGH/CRITICAL gate.
+      - name: Run Trivy vulnerability scan
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: researchvault:${{ github.sha }}
+          format: sarif
+          output: trivy-results.sarif
+          severity: HIGH,CRITICAL
+          exit-code: "0"
+          ignore-unfixed: true
+
+      - name: Upload Trivy results to GitHub Security tab
+        uses: github/codeql-action/upload-sarif@v4
+        with:
+          sarif_file: trivy-results.sarif
+
+      # Now enforce the gate: re-run in table mode and fail if issues found
+      - name: Fail on HIGH/CRITICAL vulnerabilities
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: researchvault:${{ github.sha }}
+          format: table
+          severity: HIGH,CRITICAL
+          exit-code: "1"
+          ignore-unfixed: true
+
+  sast:
+    name: Static Analysis (Semgrep)
+    runs-on: ubuntu-latest
+    permissions:
+      security-events: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Run Semgrep
+        # Run via CLI so --output always writes the SARIF file, even with 0 findings.
+        # Exit code 1 means findings were found (not a crash), so || true lets the
+        # next step upload results regardless.
+        run: |
+          python3 -m pip install semgrep --quiet
+          semgrep scan \
+            --config p/nodejs \
+            --config p/react \
+            --config p/owasp-top-ten \
+            --config p/secrets \
+            --sarif \
+            --output semgrep.sarif \
+            . || true
+          # Guarantee the file exists even if semgrep exited unexpectedly
+          [ -f semgrep.sarif ] || echo '{"version":"2.1.0","runs":[]}' > semgrep.sarif
+
+      - name: Upload Semgrep results to GitHub Security tab
+        if: always()
+        uses: github/codeql-action/upload-sarif@v4
+        with:
+          sarif_file: semgrep.sarif

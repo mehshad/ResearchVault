@@ -1,0 +1,48 @@
+name: Performance
+
+on:
+  schedule:
+    # Nightly at 03:30 UTC (offset from SonarQube to avoid runner contention)
+    - cron: "30 3 * * *"
+  workflow_dispatch:
+    inputs:
+      target_url:
+        description: Base URL to test (defaults to demo)
+        required: false
+        default: ""
+
+jobs:
+  k6:
+    name: Load Test (k6 → demo)
+    runs-on: ubuntu-latest
+
+    env:
+      # Falls back to the demo instance on Sidra's server.
+      # Override via workflow_dispatch or by setting the secret TARGET_URL.
+      BASE_URL: ${{ inputs.target_url || secrets.PERF_TARGET_URL || 'http://172.32.79.20/demo' }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install k6
+        run: |
+          sudo gpg -k
+          sudo gpg --no-default-keyring --keyring /usr/share/keyrings/k6-archive-keyring.gpg \
+            --keyserver hkp://keyserver.ubuntu.com:80 --recv-keys C5AD17C747E3415A3642D57D77C6C491D6AC1D69
+          echo "deb [signed-by=/usr/share/keyrings/k6-archive-keyring.gpg] https://dl.k6.io/deb stable main" \
+            | sudo tee /etc/apt/sources.list.d/k6.list
+          sudo apt-get update && sudo apt-get install -y k6
+
+      - name: Health check
+        run: k6 run --env BASE_URL=${{ env.BASE_URL }} tests/performance/k6/health.js
+
+      - name: API core load test
+        run: k6 run --env BASE_URL=${{ env.BASE_URL }} tests/performance/k6/api-core.js
+
+      - name: Upload k6 summary
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: k6-results-${{ github.run_id }}
+          path: tests/performance/k6/results/
+          retention-days: 30

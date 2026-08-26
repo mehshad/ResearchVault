@@ -239,7 +239,9 @@ export function PermissionsProvider({ children }: PermissionsProviderProps) {
   };
 
   const getAccessLevel = (jobTitle: string, navigationItem: string): AccessLevel => {
-    if (isAdministratorRole(jobTitle)) {
+    // Administrators always have full access — they are not in the configurable
+    // permissions matrix, so we must short-circuit before the DB lookup.
+    if (jobTitle === "superadmin" || jobTitle === "admin") {
       return "edit";
     }
 
