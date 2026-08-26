@@ -3,6 +3,7 @@
 import { eq, and, desc, asc, or, sql, inArray, notInArray, gte, ilike } from "drizzle-orm";
 import { db } from "./db";
 import { IStorage } from "./storage";
+import { isGrantSdrEligible } from "@shared/grantSdrEligibility";
 import {
   users, User, InsertUser,
   scientists, Scientist, InsertScientist,
@@ -61,7 +62,8 @@ export type GrantSdrLifecycleStorageErrorCode =
   | "GRANT_NOT_FOUND"
   | "GRANT_NOT_AWARDED"
   | "GRANT_HAS_SDR_LINKS"
-  | "RESEARCH_ACTIVITY_NOT_FOUND";
+  | "RESEARCH_ACTIVITY_NOT_FOUND"
+  | "SDR_PI_MISMATCH";
 
 export class GrantSdrLifecycleStorageError extends Error {
   constructor(
@@ -2711,13 +2713,27 @@ export class DatabaseStorage implements IStorage {
 
       if (desiredIds && desiredIds.length > 0) {
         const matchingActivities = await tx
-          .select({ id: researchActivities.id })
+          .select({
+            id: researchActivities.id,
+            budgetHolderId: researchActivities.budgetHolderId,
+          })
           .from(researchActivities)
           .where(inArray(researchActivities.id, desiredIds));
         if (matchingActivities.length !== desiredIds.length) {
           throw new GrantSdrLifecycleStorageError(
             "RESEARCH_ACTIVITY_NOT_FOUND",
             "One or more selected research activities no longer exist.",
+          );
+        }
+        const effectiveLpiId = Object.prototype.hasOwnProperty.call(grant, "lpiId")
+          ? grant.lpiId
+          : currentGrant.lpiId;
+        if (!effectiveLpiId || matchingActivities.some(
+          (activity) => !isGrantSdrEligible(effectiveLpiId, activity.budgetHolderId),
+        )) {
+          throw new GrantSdrLifecycleStorageError(
+            "SDR_PI_MISMATCH",
+            "Only SDRs whose Principal Investigator is the grant Lead PI can be linked.",
           );
         }
       }
@@ -2808,7 +2824,8 @@ export class DatabaseStorage implements IStorage {
       })
       .from(grantResearchActivities)
       .innerJoin(researchActivities, eq(grantResearchActivities.researchActivityId, researchActivities.id))
-      .where(eq(grantResearchActivities.grantId, grantId));
+      .where(eq(grantResearchActivities.grantId, grantId))
+      .orderBy(asc(researchActivities.sdrNumber));
     return result;
   }
 
@@ -2849,13 +2866,22 @@ export class DatabaseStorage implements IStorage {
       }
 
       const [researchActivity] = await tx
-        .select({ id: researchActivities.id })
+        .select({
+          id: researchActivities.id,
+          budgetHolderId: researchActivities.budgetHolderId,
+        })
         .from(researchActivities)
         .where(eq(researchActivities.id, researchActivityId));
       if (!researchActivity) {
         throw new GrantSdrLifecycleStorageError(
           "RESEARCH_ACTIVITY_NOT_FOUND",
           "Research activity not found",
+        );
+      }
+      if (!isGrantSdrEligible(grant.lpiId, researchActivity.budgetHolderId)) {
+        throw new GrantSdrLifecycleStorageError(
+          "SDR_PI_MISMATCH",
+          "Only SDRs whose Principal Investigator is the grant Lead PI can be linked.",
         );
       }
 

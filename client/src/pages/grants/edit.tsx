@@ -29,6 +29,10 @@ import {
   canGrantLinkSdrs,
 } from "@shared/grantLifecycle";
 import { GRANT_CURRENCY_VALUES } from "@shared/schema";
+import {
+  getGrantSdrCandidates,
+  isGrantSdrEligible,
+} from "@shared/grantSdrEligibility";
 
 export default function EditGrant() {
   const [, navigate] = useLocation();
@@ -492,6 +496,12 @@ export default function EditGrant() {
 
   // SDR section is visible when awarded is true (includes Active and Completed)
   const canLinkSdrs = canGrantLinkSdrs({ awarded: formData.awarded });
+  const selectedLpiId = formData.lpiId ? Number(formData.lpiId) : null;
+  const lpiResearchActivities = getGrantSdrCandidates(
+    researchActivities,
+    selectedLpiId,
+    linkedSdrs,
+  );
 
   return (
     <div className="container mx-auto p-6">
@@ -829,27 +839,39 @@ export default function EditGrant() {
               <div className="mt-6 border-t pt-4">
                 <h3 className="text-lg font-medium mb-4">Linked Research Activities (SDRs)</h3>
                 <div className="space-y-2 max-h-64 overflow-y-auto">
-                  {researchActivities.length > 0 ? (
-                    researchActivities.map((sdr: any) => {
+                  {lpiResearchActivities.length > 0 ? (
+                    lpiResearchActivities.map((sdr: any) => {
                       const isLinked = linkedSdrs.includes(sdr.id);
+                      const belongsToLpi = isGrantSdrEligible(
+                        selectedLpiId,
+                        sdr.budgetHolderId,
+                      );
                       return (
                         <div key={sdr.id} className="flex items-center space-x-3 p-2 border rounded-lg hover:bg-gray-50 dark:hover:bg-gray-900">
                           <input
                             type="checkbox"
                             checked={isLinked}
                             onChange={(e) => handleSdrToggle(sdr.id, e.target.checked)}
+                            disabled={!belongsToLpi && !isLinked}
                             className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded dark:text-blue-400 dark:border-gray-600"
                           />
                           <div className="flex-1">
                             <div className="font-medium text-sm">{sdr.sdrNumber}</div>
                             <div className="text-sm text-gray-500 truncate dark:text-gray-400">{sdr.title}</div>
                             <div className="text-xs text-gray-400 dark:text-gray-500">{sdr.status}</div>
+                            {!belongsToLpi && isLinked && (
+                              <div className="text-xs text-amber-600 dark:text-amber-400">
+                                Different PI — unlink this SDR before saving
+                              </div>
+                            )}
                           </div>
                         </div>
                       );
                     })
                   ) : (
-                    <p className="text-gray-500 text-sm dark:text-gray-400">No research activities available to link.</p>
+                    <p className="text-gray-500 text-sm dark:text-gray-400">
+                      No SDRs for this grant&apos;s Lead PI are available to link.
+                    </p>
                   )}
                 </div>
               </div>
