@@ -149,6 +149,7 @@ import {
   listBulkDataArchives,
   queueBulkDataArchive,
 } from "./bulkDataArchives";
+import { registerOfficeDashboardRoutes } from "./officeDashboardRoutes";
 
 const isLocalStorage = process.env.STORAGE_TYPE === "local";
 
@@ -1176,6 +1177,8 @@ const DISCOVERY_FETCHERS: Record<
 export async function registerRoutes(app: Express): Promise<Server> {
   // Set up API routes
   const apiRouter = app.route('/api');
+
+  registerOfficeDashboardRoutes(app);
 
   // Sidra Score settings + per-scientist endpoints (registered early so literal
   // routes beat the /api/scientists/:id param route). Also registers

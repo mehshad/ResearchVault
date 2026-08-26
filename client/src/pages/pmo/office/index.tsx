@@ -1,5 +1,5 @@
-import { useState } from "react";
-import { Link } from "wouter";
+import { useEffect, useState } from "react";
+import { Link, useSearch } from "wouter";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -10,6 +10,7 @@ import {
 } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import type { Scientist } from "@shared/schema";
+import { OfficeDashboard } from "@/components/office-dashboard";
 
 interface PmoApplication {
   id: number;
@@ -42,8 +43,13 @@ const statusIcons: Record<string, typeof Clock> = {
 };
 
 export default function PmoOfficeReview() {
+  const search = useSearch();
   const [searchTerm, setSearchTerm] = useState("");
-  const [statusFilter, setStatusFilter] = useState<string>("all");
+  const [statusFilter, setStatusFilter] = useState<string>(() => new URLSearchParams(search).get("status") || "all");
+
+  useEffect(() => {
+    setStatusFilter(new URLSearchParams(search).get("status") || "all");
+  }, [search]);
 
   const { data: applications = [], isLoading } = useQuery<PmoApplication[]>({
     queryKey: ['/api/pmo-applications']
@@ -83,7 +89,8 @@ export default function PmoOfficeReview() {
   };
 
   return (
-    <div className="p-6 space-y-6">
+    <div className="p-4 md:p-6 space-y-6">
+      <OfficeDashboard kind="pmo" />
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>

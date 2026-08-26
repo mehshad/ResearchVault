@@ -1,7 +1,11 @@
 import { createContext, useContext, useState, ReactNode, useEffect } from "react";
 import { RESTRICTED_USER_ROLE } from "@shared/constants";
 import { useAuth } from "@/hooks/useAuth";
-import { isAdministratorRole, NAVIGATION_ITEMS } from "@/lib/navigationPermissions";
+import {
+  getOfficeDashboardDefaultAccess,
+  isAdministratorRole,
+  NAVIGATION_ITEMS,
+} from "@/lib/navigationPermissions";
 
 export type AccessLevel = "hide" | "view" | "edit";
 
@@ -102,6 +106,9 @@ const createDefaultPermissions = (): NavigationPermission[] => {
           defaultAccess = "view";
         }
       }
+
+      const officeDashboardAccess = getOfficeDashboardDefaultAccess(jobTitle, navItem);
+      if (officeDashboardAccess) defaultAccess = officeDashboardAccess;
       
       defaultPermissions.push({
         id: `${jobTitle}-${navItem}`,

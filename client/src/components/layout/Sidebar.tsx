@@ -116,6 +116,7 @@ export default function Sidebar({ mobile = false, onClose, onCollapsedChange }: 
       "/pmo/research-activities": "research-activities",
       "/pmo/applications": "pmo-applications",
       "/pmo/office": "pmo-office",
+       "/research-office": "research-office",
       "/irb": "irb-applications",
       "/irb-office": "irb-office",
       "/irb-reviewer": "irb-reviewer",
@@ -125,6 +126,7 @@ export default function Sidebar({ mobile = false, onClose, onCollapsedChange }: 
       "/data-management": "data-management",
       "/contracts": "contracts",
       "/publications": "publications",
+      "/outcome-office/overview": "outcome-office",
       "/outcome-office": "outcome-office",
       "/patents": "patents",
       "/reports": "reports",
@@ -191,7 +193,7 @@ export default function Sidebar({ mobile = false, onClose, onCollapsedChange }: 
         },
         {
           href: "/pmo/office",
-          label: "PMO Office Review",
+           label: "PMO Dashboard & Review",
           icon: Eye
         }
       ]
@@ -240,6 +242,11 @@ export default function Sidebar({ mobile = false, onClose, onCollapsedChange }: 
       title: "Research Office",
       items: [
         {
+          href: "/research-office",
+          label: "Research Office Dashboard",
+          icon: LayoutDashboard
+        },
+        {
           href: "/data-management",
           label: "Data Management Plans",
           icon: FileText
@@ -265,8 +272,13 @@ export default function Sidebar({ mobile = false, onClose, onCollapsedChange }: 
           icon: BookOpen
         },
         {
+          href: "/outcome-office/overview",
+          label: "Outcome Dashboard",
+          icon: LayoutDashboard
+        },
+        {
           href: "/outcome-office",
-          label: "Outcome Office",
+          label: "Outcome Workflows",
           icon: Building
         },
         {

@@ -5,6 +5,8 @@ export const NAVIGATION_ITEMS = [
   "programs",
   "projects",
   "research-activities",
+  "pmo-office",
+  "research-office",
   "irb-applications",
   "irb-office",
   "irb-reviewer",
@@ -20,6 +22,23 @@ export const NAVIGATION_ITEMS = [
   "grants",
   "certifications",
 ] as const;
+
+export function getOfficeDashboardDefaultAccess(
+  role: string,
+  navigationItem: string,
+): "edit" | "hide" | null {
+  if (navigationItem === "pmo-office") {
+    return role === "PMO Officer" || role === "Management" ? "edit" : "hide";
+  }
+  if (navigationItem === "research-office") {
+    return role === "Grant Officer" ||
+      role === "Contracts Officer" ||
+      role === "Management"
+      ? "edit"
+      : "hide";
+  }
+  return null;
+}
 
 export function isAdministratorRole(role: string): boolean {
   const normalizedRole = role.trim().toLowerCase().replace(/[\s_-]+/g, "");

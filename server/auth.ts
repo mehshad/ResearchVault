@@ -126,9 +126,29 @@ export function requireAdmin(req: Request, res: Response, next: NextFunction) {
 
 export function requireContractsOfficer(req: Request, res: Response, next: NextFunction) {
   const role = req.session?.user?.role;
-  if (role === "Contracts Officer" || role === "admin" || role === "Management") return next();
+  if (role === "Contracts Officer" || role === "admin" || role === "superadmin" || role === "Management") return next();
   authLog(`403 contracts officer required: ${req.method} ${req.path} user=${req.session?.user?.username ?? "anonymous"} role=${role ?? "none"}`);
   res.status(403).json({ message: "Forbidden. Contracts officer access required." });
+}
+
+export function requireResearchOfficer(req: Request, res: Response, next: NextFunction) {
+  const role = req.session?.user?.role;
+  if (
+    role === "Grant Officer" ||
+    role === "Contracts Officer" ||
+    role === "admin" ||
+    role === "superadmin" ||
+    role === "Management"
+  ) return next();
+  authLog(`403 research officer required: ${req.method} ${req.path} user=${req.session?.user?.username ?? "anonymous"} role=${role ?? "none"}`);
+  res.status(403).json({ message: "Forbidden. Research office access required." });
+}
+
+export function requirePmoOfficer(req: Request, res: Response, next: NextFunction) {
+  const role = req.session?.user?.role;
+  if (role === "PMO Officer" || role === "admin" || role === "superadmin" || role === "Management") return next();
+  authLog(`403 PMO officer required: ${req.method} ${req.path} user=${req.session?.user?.username ?? "anonymous"} role=${role ?? "none"}`);
+  res.status(403).json({ message: "Forbidden. PMO access required." });
 }
 
 export function requirePublicationOfficer(req: Request, res: Response, next: NextFunction) {
