@@ -238,6 +238,12 @@ export function PermissionsProvider({ children }: PermissionsProviderProps) {
   };
 
   const getAccessLevel = (jobTitle: string, navigationItem: string): AccessLevel => {
+    // Administrators always have full access — they are not in the configurable
+    // permissions matrix, so we must short-circuit before the DB lookup.
+    if (jobTitle === "superadmin" || jobTitle === "admin") {
+      return "edit";
+    }
+
     if (authConfig.mode !== "demo" && jobTitle === RESTRICTED_USER_ROLE) {
       return navigationItem === "publications" ? "view" : "hide";
     }
