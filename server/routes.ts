@@ -78,7 +78,7 @@ import { buildAssignableRoles } from "./assignableRoles";
 import { JOB_TITLES } from "@shared/constants";
 import { resolveOwnershipAccess, maxAccess, type AccessLevel as OwnershipAccessLevel } from "./ownershipResolver";
 import { matchesAuthorName, isLinkedAuthorInAuthorsText, isUnambiguousAuthorMatch, suggestInternalAuthors } from "@shared/authorMatching";
-import { detectDuplicateGroups, pickDefaultSurvivorId, normalizeDoi as canonicalDoi, isPreprintRecord } from "@shared/publicationDeduplication";
+import { detectDuplicateGroups, pickDefaultSurvivorId, normalizeDoi as canonicalDoi, isPreprintRecord, classifyResolvedPublication, preprintRepairEvidence } from "@shared/publicationDeduplication";
 import { getObjectAclPolicy, ObjectPermission } from "./objectAcl";
 import { buildLinkImportTemplate, previewLinkImport } from "./publicationLinksImport";
 import { GRANT_COLUMNS, grantsToRows, buildGrantsWorkbookBuffer, buildGrantsTemplateBuffer, buildMissingGrantStaffWorkbookBuffer, collectMissingGrantStaff, previewGrantRows } from "./grantsImportExport";
@@ -620,6 +620,7 @@ async function fetchCrossrefPublication(doi: string): Promise<{
   pages: string;
   doi: string;
   abstract: string;
+  type: string;
   publicationDate: Date | null;
 } | null> {
   try {
@@ -649,6 +650,7 @@ async function fetchCrossrefPublication(doi: string): Promise<{
       pages: work.page || "",
       doi: work.DOI || doi,
       abstract: work.abstract ? stripXml(work.abstract) : "",
+      type: typeof work.type === "string" ? work.type : "",
       publicationDate,
     };
   } catch {
@@ -4770,6 +4772,71 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Literal publication maintenance routes must stay above /api/publications/:id,
+  // otherwise Express treats their final segment as an invalid numeric id.
+  app.get('/api/publications/preprint-repair-candidates', requirePublicationOfficer, async (_req: Request, res: Response) => {
+    try {
+      const candidates = (await storage.getPublications())
+        .map((publication) => {
+          const evidence = preprintRepairEvidence(publication);
+          if (!evidence.length) return null;
+          const proposed = classifyResolvedPublication(publication);
+          return {
+            id: publication.id,
+            title: publication.title,
+            doi: publication.doi,
+            publicationType: publication.publicationType,
+            status: publication.status,
+            prepublicationUrl: publication.prepublicationUrl,
+            prepublicationSite: publication.prepublicationSite,
+            evidence,
+            proposed,
+          };
+        })
+        .filter(Boolean);
+      res.json({ candidates, count: candidates.length });
+    } catch (error) {
+      console.error("Error listing preprint repair candidates:", error);
+      res.status(500).json({ message: "Failed to list preprint repair candidates" });
+    }
+  });
+
+  app.post('/api/publications/preprint-repair', requirePublicationOfficer, async (req: Request, res: Response) => {
+    const rawIds = req.body?.publicationIds;
+    if (!Array.isArray(rawIds) || rawIds.length === 0) {
+      return res.status(400).json({ message: "Provide a non-empty publicationIds array." });
+    }
+    const ids = [...new Set(rawIds.map(Number).filter(Number.isInteger))];
+    if (!ids.length) {
+      return res.status(400).json({ message: "publicationIds must contain integer IDs." });
+    }
+    const actorId = req.session?.user?.id;
+    if (actorId == null) {
+      return res.status(401).json({ message: "Authentication required" });
+    }
+    try {
+      const updated: { id: number; title: string }[] = [];
+      const skipped: { id: number; reason: string }[] = [];
+      for (const id of ids) {
+        const result = await storage.repairPreprintPublication(id, actorId);
+        if (result.publication) {
+          updated.push({ id: result.publication.id, title: result.publication.title });
+        } else {
+          skipped.push({ id, reason: result.reason || "not updated" });
+        }
+      }
+      res.json({
+        updated,
+        skipped,
+        updatedCount: updated.length,
+        skippedCount: skipped.length,
+      });
+    } catch (error) {
+      console.error("Error repairing preprint publications:", error);
+      res.status(500).json({ message: "Failed to repair preprint publications" });
+    }
+  });
+
   app.get('/api/publications/:id', async (req: Request, res: Response) => {
     try {
       const id = parseInt(req.params.id);
@@ -5722,7 +5789,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const existingDois = buildExistingWorkDois(existingPublications);
       const allScientists = await storage.getScientists();
 
-      const created: { doi: string; title: string; linkedAuthors: number }[] = [];
+      const created: {
+        id: number;
+        doi: string;
+        title: string;
+        linkedAuthors: number;
+        status: string | null;
+        publicationType: string | null;
+        prepublicationUrl: string | null;
+        prepublicationSite: string | null;
+      }[] = [];
       const skipped: { doi: string; reason: string }[] = [];
 
       for (const paper of requestedPapers) {
@@ -5759,6 +5835,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
         const enrichedFromAnySource = Boolean(crossref || pubmed);
 
+        const primaryDoi = normalizeDoi(crossref?.doi || doi) || doi;
+        const classification = classifyResolvedPublication({
+          id: 0,
+          doi: primaryDoi,
+          publicationType: crossref?.type,
+          journal,
+        });
         try {
           const publicationData = insertPublicationSchema.parse({
             researchActivityId: null,
@@ -5768,26 +5851,24 @@ export async function registerRoutes(app: Express): Promise<Server> {
             volume,
             issue,
             pages,
-            doi: crossref?.doi || doi,
+            doi: primaryDoi,
             pmid: pmid || null,
             abstract,
-            publicationType: "Journal Article",
-            status: "Published",
+            ...classification,
             publicationDate,
           });
 
-          const publication = await storage.createPublication({
+          const changeReason = enrichedFromAnySource
+            ? "Imported via Paper Discovery"
+            : "Imported via Paper Discovery (metadata not enriched via CrossRef/PubMed)";
+          const publication = await storage.createPublicationWithHistory({
             ...publicationData,
             createdByUserId: actorId,
-          } as any);
-          await storage.createManuscriptHistoryEntry({
-            publicationId: publication.id,
+          }, {
             fromStatus: "",
-            toStatus: publication.status || "Published",
+            toStatus: publicationData.status || "Published",
             changedBy: actorId,
-            changeReason: enrichedFromAnySource
-              ? "Imported via Paper Discovery"
-              : "Imported via Paper Discovery (metadata not enriched via CrossRef/PubMed)",
+            changeReason,
           });
 
           // Auto-link matching internal scientists from the resolved author text.
@@ -5810,7 +5891,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
           }
 
           existingDois.add(identity);
-          created.push({ doi, title, linkedAuthors });
+          created.push({
+            doi: primaryDoi,
+            id: publication.id,
+            title,
+            linkedAuthors,
+            status: publication.status,
+            publicationType: publication.publicationType,
+            prepublicationUrl: publication.prepublicationUrl,
+            prepublicationSite: publication.prepublicationSite,
+          });
         } catch (err) {
           console.error(`Failed to import discovered DOI ${doi}:`, err);
           skipped.push({ doi, reason: "failed to save" });
@@ -9213,7 +9303,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const existingPublications = await storage.getPublications();
       const existingDois = buildExistingWorkDois(existingPublications);
 
-      const created: { doi: string; title: string }[] = [];
+      const created: {
+        id: number;
+        doi: string;
+        title: string;
+        status: string | null;
+        publicationType: string | null;
+        prepublicationUrl: string | null;
+        prepublicationSite: string | null;
+      }[] = [];
       const skipped: { doi: string; reason: string }[] = [];
 
       for (const paper of requestedPapers) {
@@ -9264,6 +9362,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
         const enrichedFromAnySource = Boolean(crossref || pubmed);
 
+        const primaryDoi = normalizeDoi(crossref?.doi || doi) || doi;
+        const classification = classifyResolvedPublication({
+          id: 0,
+          doi: primaryDoi,
+          publicationType: crossref?.type,
+          journal,
+        });
         try {
           const publicationData = insertPublicationSchema.parse({
             researchActivityId: null,
@@ -9273,31 +9378,37 @@ export async function registerRoutes(app: Express): Promise<Server> {
             volume,
             issue,
             pages,
-            doi: crossref?.doi || doi,
+            doi: primaryDoi,
             pmid: pmid || null,
             abstract,
-            publicationType: "Journal Article",
-            status: "Published",
+            ...classification,
             publicationDate,
           });
 
-          const publication = await storage.createPublication({
+          const changeReason = enrichedFromAnySource
+            ? "Imported from ORCID/Google Scholar"
+            : "Imported from ORCID/Google Scholar (metadata not enriched via CrossRef/PubMed)";
+          const publication = await storage.createPublicationWithHistory({
             ...publicationData,
             createdByUserId: actorId,
-          } as any);
-          await storage.createManuscriptHistoryEntry({
-            publicationId: publication.id,
+          }, {
             fromStatus: "",
-            toStatus: publication.status || "Published",
+            toStatus: publicationData.status || "Published",
             changedBy: actorId,
-            changeReason: enrichedFromAnySource
-              ? "Imported from ORCID/Google Scholar"
-              : "Imported from ORCID/Google Scholar (metadata not enriched via CrossRef/PubMed)",
+            changeReason,
           });
 
           // Mark as present so a duplicate inside the same batch is skipped.
           existingDois.add(identity);
-          created.push({ doi, title });
+          created.push({
+            doi: primaryDoi,
+            id: publication.id,
+            title,
+            status: publication.status,
+            publicationType: publication.publicationType,
+            prepublicationUrl: publication.prepublicationUrl,
+            prepublicationSite: publication.prepublicationSite,
+          });
         } catch (err) {
           console.error(`Failed to import DOI ${doi}:`, err);
           skipped.push({ doi, reason: "failed to save" });

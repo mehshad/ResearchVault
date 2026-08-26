@@ -72,7 +72,7 @@ export class GrantSdrLifecycleStorageError extends Error {
     this.name = "GrantSdrLifecycleStorageError";
   }
 }
-import { isPreprintRecord, preprintServerName, preprintLink, normalizeDoi } from "@shared/publicationDeduplication";
+import { isPreprintRecord, preprintServerName, preprintLink, normalizeDoi, classifyResolvedPublication, preprintRepairEvidence } from "@shared/publicationDeduplication";
 
 /**
  * Normalize a journal name for tolerant matching across the slightly different
@@ -438,6 +438,31 @@ export class DatabaseStorage implements IStorage {
     return newPublication;
   }
 
+  async createPublicationWithHistory(
+    publication: InsertPublication & { createdByUserId?: number | null },
+    history: Omit<InsertManuscriptHistory, "publicationId">,
+  ): Promise<Publication> {
+    const publicationData = { ...publication };
+    if (publicationData.authors && typeof publicationData.authors === "string") {
+      publicationData.authors = this.standardizeAuthorNames(publicationData.authors);
+    }
+    if (publicationData.title && typeof publicationData.title === "string") {
+      publicationData.title = this.capitalizeTitle(publicationData.title);
+    }
+
+    return await db.transaction(async (tx) => {
+      const [created] = await tx
+        .insert(publications)
+        .values(publicationData)
+        .returning();
+      await tx.insert(manuscriptHistory).values({
+        ...history,
+        publicationId: created.id,
+      });
+      return created;
+    });
+  }
+
   async updatePublication(id: number, publication: Partial<InsertPublication>): Promise<Publication | undefined> {
     // Handle date conversions properly
     const updateData = { ...publication };
@@ -463,6 +488,36 @@ export class DatabaseStorage implements IStorage {
       .where(eq(publications.id, id))
       .returning();
     return updatedPublication;
+  }
+
+  async repairPreprintPublication(id: number, changedBy: number): Promise<{ publication?: Publication; reason?: string }> {
+    return await db.transaction(async (tx) => {
+      const [current] = await tx
+        .select()
+        .from(publications)
+        .where(eq(publications.id, id))
+        .for("update");
+      if (!current) return { reason: "not found" };
+      if (!preprintRepairEvidence(current).length) return { reason: "no longer eligible" };
+      const correction = classifyResolvedPublication(current);
+      const [updated] = await tx
+        .update(publications)
+        .set({ ...correction, updatedAt: new Date() })
+        .where(and(
+          eq(publications.id, id),
+          eq(publications.status, "Published"),
+        ))
+        .returning();
+      if (!updated) return { reason: "no longer eligible" };
+      await tx.insert(manuscriptHistory).values({
+        publicationId: id,
+        fromStatus: current.status || "Published",
+        toStatus: correction.status,
+        changedBy,
+        changeReason: "Corrected published preprint classification from current primary DOI/publication type evidence",
+      });
+      return { publication: updated };
+    });
   }
 
   // Helper function to standardize author names
