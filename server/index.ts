@@ -14,12 +14,11 @@ import session from "express-session";
 import connectPgSimple from "connect-pg-simple";
 import { createHash } from "crypto";
 import { restrictDefaultUserApiAccess } from "./restrictedUserPolicy";
+import { startBulkDataArchiveScheduler } from "./bulkDataArchives";
 import { db } from "./db";
 import { sql } from "drizzle-orm";
 
 const PgSession = connectPgSimple(session);
-const APP_START = Date.now();
-
 const APP_START = Date.now();
 
 // Global error handlers to prevent crashes from worker processes
