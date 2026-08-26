@@ -24,7 +24,10 @@ CVE-2026-27904
 # sigstore (npm internals)
 CVE-2026-48815
 
-# tar (npm internals - 8 CVEs)
+# picomatch (npm internals)
+CVE-2026-33671
+
+# tar (npm internals - 9 CVEs)
 CVE-2026-23745
 CVE-2026-23950
 CVE-2026-24842
@@ -33,6 +36,7 @@ CVE-2026-29786
 CVE-2026-31802
 CVE-2026-59874
 CVE-2026-73566
+CVE-2026-59873
 
 # ── esbuild Go stdlib (app/node_modules/esbuild/bin/esbuild) ──────────────────
 # esbuild is a build tool (devDependency) whose binary should be removed from

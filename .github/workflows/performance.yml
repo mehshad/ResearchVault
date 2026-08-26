@@ -1,9 +1,9 @@
 name: Performance
 
 on:
-  push:
-    branches: [main]
-  # Allow manual trigger with a custom target URL
+  schedule:
+    # Nightly at 03:30 UTC (offset from SonarQube to avoid runner contention)
+    - cron: "30 3 * * *"
   workflow_dispatch:
     inputs:
       target_url:
