@@ -21,7 +21,7 @@ export const TOGGLEABLE_SECTIONS = [
   'PMO Office',
   'IRB Compliance',
   'IBC Compliance',
-  'Research Data Management',
+  'Research Office',
   'Outcomes & Reports',
 ] as const;
 
@@ -50,7 +50,7 @@ export const TOGGLEABLE_PAGES: Record<string, { href: string; label: string }[]>
     { href: '/ibc-office', label: 'IBC Office' },
     { href: '/ibc-reviewer', label: 'IBC Reviewer' },
   ],
-  'Research Data Management': [
+  'Research Office': [
     { href: '/data-management', label: 'Data Management Plans' },
     { href: '/contracts', label: 'Research Contracts' },
     { href: '/grants', label: 'Grants Office' },
@@ -64,6 +64,21 @@ export const TOGGLEABLE_PAGES: Record<string, { href: string; label: string }[]>
 };
 
 export type SectionVisibility = Record<string, boolean>;
+
+function migrateSectionVisibility(value: SectionVisibility): SectionVisibility {
+  if (
+    value['Research Office'] === undefined &&
+    value['Research Data Management'] !== undefined
+  ) {
+    const migrated: SectionVisibility = {
+      ...value,
+      'Research Office': value['Research Data Management'],
+    };
+    delete migrated['Research Data Management'];
+    return migrated;
+  }
+  return value;
+}
 
 export const defaultInstitutionLabels: InstitutionConfig = {
   sidra: { tier1: 'Program', tier2: 'Project', tier3: 'Research Activity', abbr1: 'PRM', abbr2: 'PRJ', abbr3: 'SDR' },
@@ -196,7 +211,9 @@ export function ThemeProvider({ children }: ThemeProviderProps) {
   const [sectionVisibility, setSectionVisibility] = useState<SectionVisibility>(() => {
     const stored = localStorage.getItem('section-visibility');
     if (stored) {
-      try { return JSON.parse(stored) as SectionVisibility; } catch { /**/ }
+      try {
+        return migrateSectionVisibility(JSON.parse(stored) as SectionVisibility);
+      } catch { /**/ }
     }
     return {};
   });
@@ -232,8 +249,9 @@ export function ThemeProvider({ children }: ThemeProviderProps) {
           localStorage.setItem('institution-labels', JSON.stringify(merged));
         }
         if (sections && typeof sections === 'object') {
-          setSectionVisibility(sections as SectionVisibility);
-          localStorage.setItem('section-visibility', JSON.stringify(sections));
+          const migrated = migrateSectionVisibility(sections as SectionVisibility);
+          setSectionVisibility(migrated);
+          localStorage.setItem('section-visibility', JSON.stringify(migrated));
         }
       } catch {
         // Server unreachable — localStorage fallback already applied

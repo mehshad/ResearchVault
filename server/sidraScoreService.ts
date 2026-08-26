@@ -4,7 +4,7 @@
  */
 import { db } from "./db";
 import { storage, normalizeJournalName } from "./databaseStorage";
-import { publicationAuthors, journals, journalImpactFactorMetrics } from "@shared/schema";
+import { publicationAuthors, publications, scientists, journals, journalImpactFactorMetrics } from "@shared/schema";
 import { eq, inArray } from "drizzle-orm";
 import {
   SidraScoreSettings,
@@ -637,4 +637,82 @@ export async function calculateSingleScientistScore(
   ]);
 
   return calculateScientistScore(scientist, allPublications, bundle, settings);
+}
+
+export const MAX_SCOPED_SIDRA_PUBLICATIONS = 2_000;
+
+export class SidraScopeTooLargeError extends Error {
+  constructor() {
+    super("The selected staff have too many linked publications for a single report.");
+    this.name = "SidraScopeTooLargeError";
+  }
+}
+
+type ScopedSidraDependencies = {
+  loadPublications: (scientistIds: number[], limit: number) => Promise<PublicationLike[]>;
+  loadBundle: (scientistIds: number[]) => Promise<SidraDataBundle>;
+  loadScientists: (scientistIds: number[]) => Promise<ScientistLike[]>;
+};
+
+async function loadScopedPublications(
+  scientistIds: number[],
+  limit: number,
+): Promise<PublicationLike[]> {
+  if (scientistIds.length === 0) return [];
+  const linkedIds = await db
+    .selectDistinct({ id: publicationAuthors.publicationId })
+    .from(publicationAuthors)
+    .where(inArray(publicationAuthors.scientistId, scientistIds))
+    .limit(limit);
+  if (linkedIds.length === 0) return [];
+  return db.select().from(publications).where(inArray(
+    publications.id,
+    linkedIds.map((row: { id: number }) => row.id),
+  ));
+}
+
+async function loadScopedScientists(scientistIds: number[]): Promise<ScientistLike[]> {
+  if (scientistIds.length === 0) return [];
+  return db.select({
+    id: scientists.id,
+    honorificTitle: scientists.honorificTitle,
+    firstName: scientists.firstName,
+    lastName: scientists.lastName,
+    jobTitle: scientists.jobTitle,
+    department: scientists.department,
+  }).from(scientists).where(inArray(scientists.id, scientistIds));
+}
+
+/**
+ * Calculates official scores only for the selected scientists and only loads
+ * publications linked to those scientists. The hard publication cap prevents
+ * a section report from turning into an unbounded office-wide calculation.
+ */
+export async function calculateSelectedScientistScores(
+  scientistIds: number[],
+  settings: SidraScoreSettings,
+  dependencies: ScopedSidraDependencies = {
+    loadPublications: loadScopedPublications,
+    loadBundle: fetchSidraDataBundle,
+    loadScientists: loadScopedScientists,
+  },
+): Promise<SidraScoreResult[]> {
+  const ids = [...new Set(scientistIds)];
+  if (ids.length === 0) return [];
+  // Load and enforce the smallest/cheapest hard bound first. Do not start the
+  // authorship/IF bundle when the publication envelope has already overflowed.
+  const scopedPublications = await dependencies.loadPublications(
+    ids,
+    MAX_SCOPED_SIDRA_PUBLICATIONS + 1,
+  );
+  if (scopedPublications.length > MAX_SCOPED_SIDRA_PUBLICATIONS) {
+    throw new SidraScopeTooLargeError();
+  }
+  const [bundle, selectedScientists] = await Promise.all([
+    dependencies.loadBundle(ids),
+    dependencies.loadScientists(ids),
+  ]);
+  return selectedScientists
+    .map((scientist) => calculateScientistScore(scientist, scopedPublications, bundle, settings))
+    .sort((a, b) => b.sidraScore - a.sidraScore);
 }

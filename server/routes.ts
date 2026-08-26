@@ -24,9 +24,10 @@ import {
 import { LocalObjectStorageService } from "./localObjectStorage";
 import { db } from "./db";
 import { scientists, publicationAuthors, journals, journalImpactFactorMetrics, manuscriptHistory, users, branches, departments, sections, roleGroups } from "@shared/schema";
-import { eq, inArray, desc, sql } from "drizzle-orm";
+import { and, eq, inArray, isNull, desc, sql } from "drizzle-orm";
 import {
   buildExportBuffer,
+  buildTemplateBuffer,
   parseUploadedFile,
   buildImportPreview,
   enrichDeletesWithReferences,
@@ -77,7 +78,7 @@ import { buildAssignableRoles } from "./assignableRoles";
 import { JOB_TITLES } from "@shared/constants";
 import { resolveOwnershipAccess, maxAccess, type AccessLevel as OwnershipAccessLevel } from "./ownershipResolver";
 import { matchesAuthorName, isLinkedAuthorInAuthorsText, isUnambiguousAuthorMatch, suggestInternalAuthors } from "@shared/authorMatching";
-import { detectDuplicateGroups, pickDefaultSurvivorId, normalizeDoi as canonicalDoi, isPreprintRecord } from "@shared/publicationDeduplication";
+import { detectDuplicateGroups, pickDefaultSurvivorId, normalizeDoi as canonicalDoi, isPreprintRecord, classifyResolvedPublication, preprintRepairEvidence } from "@shared/publicationDeduplication";
 import { getObjectAclPolicy, ObjectPermission } from "./objectAcl";
 import { buildLinkImportTemplate, previewLinkImport } from "./publicationLinksImport";
 import { GRANT_COLUMNS, grantsToRows, buildGrantsWorkbookBuffer, buildGrantsTemplateBuffer, buildMissingGrantStaffWorkbookBuffer, collectMissingGrantStaff, previewGrantRows } from "./grantsImportExport";
@@ -98,7 +99,18 @@ import {
   rejectProtectedPublicationStatusFields,
   getStatusTransitionWorkflowViolation,
 } from "./publicationMutationPolicy";
-import { createIpVettingHandler } from "./publicationWorkflowRoutes";
+import {
+  createIpVettingHandler,
+  createInvalidatePublishedHandler,
+  createInvalidAuthorActionHandler,
+  createRevertFinalHandler,
+  selectInvalidLinkedPublications,
+} from "./publicationWorkflowRoutes";
+import {
+  PUBLISHED_INVALID_STATUS,
+  PUBLISHED_STATUS,
+  WITHDRAWN_STATUS,
+} from "@shared/publicationWorkflow";
 import {
   isInvestigatorEligible,
   isInvestigatorRoleAssignmentAllowed,
@@ -127,6 +139,18 @@ import {
   type SectionId as BulkDataSectionId,
 } from "./bulkDataHub";
 import { toAdminUserResponse } from "./adminUsers";
+import {
+  ARCHIVE_MIME,
+  buildBulkDataArchive,
+  bulkArchiveFileName,
+  createBulkDataArchive,
+  downloadBulkDataArchive,
+  getBulkDataArchive,
+  listBulkDataArchives,
+  queueBulkDataArchive,
+} from "./bulkDataArchives";
+import { registerOfficeDashboardRoutes } from "./officeDashboardRoutes";
+import { registerManagementReportRoutes } from "./managementReportRoutes";
 
 const isLocalStorage = process.env.STORAGE_TYPE === "local";
 
@@ -619,6 +643,7 @@ async function fetchCrossrefPublication(doi: string): Promise<{
   pages: string;
   doi: string;
   abstract: string;
+  type: string;
   publicationDate: Date | null;
 } | null> {
   try {
@@ -648,6 +673,7 @@ async function fetchCrossrefPublication(doi: string): Promise<{
       pages: work.page || "",
       doi: work.DOI || doi,
       abstract: work.abstract ? stripXml(work.abstract) : "",
+      type: typeof work.type === "string" ? work.type : "",
       publicationDate,
     };
   } catch {
@@ -1153,6 +1179,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Set up API routes
   const apiRouter = app.route('/api');
 
+  registerOfficeDashboardRoutes(app);
+  registerManagementReportRoutes(app);
+
   // Sidra Score settings + per-scientist endpoints (registered early so literal
   // routes beat the /api/scientists/:id param route). Also registers
   // /api/scientists/sidra-scores (office-wide) and /api/scientists/:id/sidra-score.
@@ -1161,8 +1190,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Health check for database connection
   app.get('/api/health/database', async (req: Request, res: Response) => {
     try {
-      // Test database connection with a simple query
-      await storage.getDashboardStats();
+      await db.execute(sql`SELECT 1`);
       res.json(true);
     } catch (error) {
       console.error("Database health check failed:", error);
@@ -3060,13 +3088,30 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const format = (req.query.format === 'csv' ? 'csv' : 'xlsx') as 'csv' | 'xlsx';
       const allScientists = await storage.getScientists();
-      const { buffer, mime, filename } = await buildExportBuffer(allScientists, format);
+      const org = {
+        branches: await storage.getBranches(),
+        departments: await storage.getDepartments(),
+        sections: await storage.getSections(),
+      };
+      const { buffer, mime, filename } = await buildExportBuffer(allScientists, format, org);
       res.setHeader('Content-Type', mime);
       res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
       res.send(buffer);
     } catch (error) {
       console.error('Staff export failed:', error);
       res.status(500).json({ message: 'Failed to export staff' });
+    }
+  });
+
+  app.get('/api/scientists/import/template', requireAdmin, async (_req: Request, res: Response) => {
+    try {
+      const buffer = await buildTemplateBuffer();
+      res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+      res.setHeader('Content-Disposition', 'attachment; filename="staff-import-template.xlsx"');
+      res.send(buffer);
+    } catch (error) {
+      console.error('Staff import template failed:', error);
+      res.status(500).json({ message: 'Failed to build staff import template' });
     }
   });
 
@@ -3185,7 +3230,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).json({ message: `Could not parse file: ${e?.message || e}` });
       }
       const existing = await storage.getScientists();
-      const preview = buildImportPreview(fileRows, existing);
+      const org = { branches: await storage.getBranches(), departments: await storage.getDepartments(), sections: await storage.getSections() };
+      const preview = buildImportPreview(fileRows, existing, org);
       await enrichDeletesWithReferences(preview, db, existing);
       res.json(preview);
     } catch (error) {
@@ -3212,7 +3258,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       const existing = await storage.getScientists();
-      const preview = buildImportPreview(fileRows, existing);
+      const org = { branches: await storage.getBranches(), departments: await storage.getDepartments(), sections: await storage.getSections() };
+      const preview = buildImportPreview(fileRows, existing, org);
       await enrichDeletesWithReferences(preview, db, existing);
 
       if (preview.errors.length > 0) {
@@ -4410,17 +4457,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
       } else {
         publications = await storage.getPublications();
       }
+      const allPublicationAuthors = await storage.getAllPublicationAuthors();
 
       const hasOfficeAccess =
         req.query.officeAccess === "true" &&
         hasPublicationOfficerRole(req);
       if (!hasOfficeAccess) {
-        const allAuthors = await storage.getAllPublicationAuthors();
         const authorsByPublication = new Map<number, Array<{
           scientistId: number;
           supervisorId: number | null;
         }>>();
-        for (const author of allAuthors) {
+        for (const author of allPublicationAuthors) {
           const linked = authorsByPublication.get(author.publicationId) ?? [];
           linked.push({
             scientistId: author.scientistId,
@@ -4441,8 +4488,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Enhance publications with research activity details
       const enhancedPublications = await Promise.all(publications.map(async (pub) => {
         const researchActivity = pub.researchActivityId ? await storage.getResearchActivity(pub.researchActivityId) : null;
+        const canSeeInvalidReason =
+          hasPublicationOfficerRole(req) ||
+          (req.session.user?.scientistId != null &&
+            allPublicationAuthors.some((author) =>
+              author.publicationId === pub.id &&
+              author.scientistId === req.session.user!.scientistId
+            ));
+        const { invalidReason: _privateInvalidReason, ...safePublication } = pub;
         return {
-          ...pub,
+          ...safePublication,
+          ...(canSeeInvalidReason ? { invalidReason: pub.invalidReason } : {}),
           researchActivity: researchActivity ? {
             id: researchActivity.id,
             sdrNumber: researchActivity.sdrNumber,
@@ -4633,12 +4689,70 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Active correction issues are based only on explicit publication-author
+  // links. This literal route must remain before /api/publications/:id.
+  app.get('/api/publications/invalid-issues', requireAuth, async (req: Request, res: Response) => {
+    try {
+      const actorScientistId = req.session.user?.scientistId ?? null;
+      const requestedScientistId =
+        typeof req.query.scientistId === "string"
+          ? Number(req.query.scientistId)
+          : null;
+      if (
+        requestedScientistId != null &&
+        (!Number.isInteger(requestedScientistId) || requestedScientistId <= 0)
+      ) {
+        return res.status(400).json({ message: "Invalid scientist ID" });
+      }
+      if (
+        !hasPublicationOfficerRole(req) &&
+        requestedScientistId != null &&
+        requestedScientistId !== actorScientistId
+      ) {
+        return res.status(403).json({ message: "You may only view your own linked publication issues." });
+      }
+      const targetScientistId = hasPublicationOfficerRole(req)
+        ? requestedScientistId
+        : actorScientistId;
+      if (!hasPublicationOfficerRole(req) && targetScientistId == null) {
+        return res.status(403).json({ message: "Your account is not linked to a scientist profile." });
+      }
+
+      const [allPublications, allAuthors] = await Promise.all([
+        storage.getPublications(),
+        storage.getAllPublicationAuthors(),
+      ]);
+      const invalidPublications = selectInvalidLinkedPublications(
+        allPublications,
+        allAuthors,
+        targetScientistId,
+      );
+      const issues = await Promise.all(invalidPublications.map(async (publication) => {
+        const history = await storage.getManuscriptHistory(publication.id);
+        const invalidation = history.find((entry) =>
+          entry.toStatus === PUBLISHED_INVALID_STATUS
+        );
+        return {
+          publicationId: publication.id,
+          title: publication.title,
+          status: PUBLISHED_INVALID_STATUS,
+          invalidReason: publication.invalidReason,
+          invalidatedAt: invalidation?.createdAt ?? publication.updatedAt ?? null,
+        };
+      }));
+      res.json(issues);
+    } catch (error) {
+      console.error("Error fetching invalid publication issues:", error);
+      res.status(500).json({ message: "Failed to fetch invalid publication issues" });
+    }
+  });
+
   // Duplicate publication detection. Returns groups of likely-duplicate
   // publications (same DOI / PMID / fuzzy metadata, or preprint<->published
   // pairs) with the records needed to render a side-by-side merge review.
   // Registered before "/api/publications/:id" so the literal path isn't
   // swallowed by the id param route.
-  app.get('/api/publications/duplicates', async (req: Request, res: Response) => {
+  app.get('/api/publications/duplicates', requirePublicationOfficer, async (req: Request, res: Response) => {
     try {
       const [allPublications, allAuthors] = await Promise.all([
         storage.getPublications(),
@@ -4664,10 +4778,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
           reasons: group.reasons,
           isPreprintPair: group.isPreprintPair,
           defaultSurvivorId: pickDefaultSurvivorId(groupPubs),
-          publications: groupPubs.map((p) => ({
-            ...p,
-            authorCount: authorCountByPublication.get(p.id) || 0,
-          })),
+          publications: groupPubs.map((p) => {
+            const { invalidReason: _privateInvalidReason, ...safePublication } = p;
+            return {
+              ...safePublication,
+              ...(hasPublicationOfficerRole(req)
+                ? { invalidReason: p.invalidReason }
+                : {}),
+              authorCount: authorCountByPublication.get(p.id) || 0,
+            };
+          }),
         };
       });
 
@@ -4679,7 +4799,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Lightweight count of duplicate groups for the tab badge.
-  app.get('/api/publications/duplicates/count', async (req: Request, res: Response) => {
+  app.get('/api/publications/duplicates/count', requirePublicationOfficer, async (req: Request, res: Response) => {
     try {
       const allPublications = await storage.getPublications();
       const groups = detectDuplicateGroups(allPublications);
@@ -4701,6 +4821,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
         fields: z.record(z.any()).optional(),
       });
       const { survivorId, mergeIds, fields } = mergeSchema.parse(req.body);
+      if (fields?.status === PUBLISHED_INVALID_STATUS) {
+        return res.status(400).json({
+          message: "Use the dedicated invalidation action and provide a reason.",
+        });
+      }
 
       const targetIds = Array.from(new Set(mergeIds)).filter((id) => id !== survivorId);
       if (targetIds.length === 0) {
@@ -4728,6 +4853,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
           message: `Cannot merge: publication(s) ${sealed.map((p) => p!.id).join(', ')} are sealed (Published *). Revert the final approval first.`,
         });
       }
+      const invalid = involved.filter((p) => p?.status === PUBLISHED_INVALID_STATUS);
+      if (invalid.length > 0) {
+        return res.status(403).json({
+          message: `Cannot merge: publication(s) ${invalid.map((p) => p!.id).join(', ')} are awaiting linked-author correction or withdrawal.`,
+        });
+      }
 
       const changedBy = req.session?.user?.id || 1;
 
@@ -4751,6 +4882,71 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Literal publication maintenance routes must stay above /api/publications/:id,
+  // otherwise Express treats their final segment as an invalid numeric id.
+  app.get('/api/publications/preprint-repair-candidates', requirePublicationOfficer, async (_req: Request, res: Response) => {
+    try {
+      const candidates = (await storage.getPublications())
+        .map((publication) => {
+          const evidence = preprintRepairEvidence(publication);
+          if (!evidence.length) return null;
+          const proposed = classifyResolvedPublication(publication);
+          return {
+            id: publication.id,
+            title: publication.title,
+            doi: publication.doi,
+            publicationType: publication.publicationType,
+            status: publication.status,
+            prepublicationUrl: publication.prepublicationUrl,
+            prepublicationSite: publication.prepublicationSite,
+            evidence,
+            proposed,
+          };
+        })
+        .filter(Boolean);
+      res.json({ candidates, count: candidates.length });
+    } catch (error) {
+      console.error("Error listing preprint repair candidates:", error);
+      res.status(500).json({ message: "Failed to list preprint repair candidates" });
+    }
+  });
+
+  app.post('/api/publications/preprint-repair', requirePublicationOfficer, async (req: Request, res: Response) => {
+    const rawIds = req.body?.publicationIds;
+    if (!Array.isArray(rawIds) || rawIds.length === 0) {
+      return res.status(400).json({ message: "Provide a non-empty publicationIds array." });
+    }
+    const ids = [...new Set(rawIds.map(Number).filter(Number.isInteger))];
+    if (!ids.length) {
+      return res.status(400).json({ message: "publicationIds must contain integer IDs." });
+    }
+    const actorId = req.session?.user?.id;
+    if (actorId == null) {
+      return res.status(401).json({ message: "Authentication required" });
+    }
+    try {
+      const updated: { id: number; title: string }[] = [];
+      const skipped: { id: number; reason: string }[] = [];
+      for (const id of ids) {
+        const result = await storage.repairPreprintPublication(id, actorId);
+        if (result.publication) {
+          updated.push({ id: result.publication.id, title: result.publication.title });
+        } else {
+          skipped.push({ id, reason: result.reason || "not updated" });
+        }
+      }
+      res.json({
+        updated,
+        skipped,
+        updatedCount: updated.length,
+        skippedCount: skipped.length,
+      });
+    } catch (error) {
+      console.error("Error repairing preprint publications:", error);
+      res.status(500).json({ message: "Failed to repair preprint publications" });
+    }
+  });
+
   app.get('/api/publications/:id', async (req: Request, res: Response) => {
     try {
       const id = parseInt(req.params.id);
@@ -4766,13 +4962,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const hasOfficeAccess =
         req.query.officeAccess === "true" &&
         hasPublicationOfficerRole(req);
+      const linkedAuthors = (await storage.getAllPublicationAuthors())
+        .filter((author) => author.publicationId === publication.id)
+        .map((author) => ({
+          scientistId: author.scientistId,
+          supervisorId: author.scientist.supervisorId,
+        }));
       if (!hasOfficeAccess) {
-        const linkedAuthors = (await storage.getAllPublicationAuthors())
-          .filter((author) => author.publicationId === publication.id)
-          .map((author) => ({
-            scientistId: author.scientistId,
-            supervisorId: author.scientist.supervisorId,
-          }));
         if (!canViewPublication(
           getScientistPublicationViewer(req),
           publication,
@@ -4786,7 +4982,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const researchActivity = publication.researchActivityId ? await storage.getResearchActivity(publication.researchActivityId) : null;
       
       const enhancedPublication = {
-        ...publication,
+        ...(() => {
+          const canSeeInvalidReason =
+            hasPublicationOfficerRole(req) ||
+            (req.session.user?.scientistId != null &&
+              linkedAuthors.some((author) =>
+                author.scientistId === req.session.user!.scientistId
+              ));
+          const { invalidReason: _privateInvalidReason, ...safePublication } = publication;
+          return {
+            ...safePublication,
+            ...(canSeeInvalidReason ? { invalidReason: publication.invalidReason } : {}),
+          };
+        })(),
         researchActivity: researchActivity ? {
           id: researchActivity.id,
           sdrNumber: researchActivity.sdrNumber,
@@ -4966,6 +5174,27 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (isNaN(id)) {
         return res.status(400).json({ message: "Invalid publication ID" });
       }
+      const historyPublication = await storage.getPublication(id);
+      if (!historyPublication) {
+        return res.status(404).json({ message: "Publication not found" });
+      }
+      const historyAuthors = await storage.getPublicationAuthors(id);
+      if (!canViewPublication(
+        getScientistPublicationViewer(req),
+        historyPublication,
+        historyAuthors.map((author) => ({
+          scientistId: author.scientistId,
+          supervisorId: author.scientist?.supervisorId ?? null,
+        })),
+      )) {
+        return res.status(404).json({ message: "Publication not found" });
+      }
+      const canSeeCorrectionReason =
+        hasPublicationOfficerRole(req) ||
+        (req.session.user?.scientistId != null &&
+          historyAuthors.some((author) =>
+            author.scientistId === req.session.user!.scientistId
+          ));
 
       // Status changes now record the real session user id in `changed_by`.
       // Older rows may instead hold a scientist id (or the legacy default
@@ -5007,7 +5236,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
           newValue: r.newValue,
           changedBy: r.changedBy,
           changedByName: r.userName ?? scientistName ?? null,
-          changeReason: r.changeReason,
+          changeReason:
+            canSeeCorrectionReason ||
+            (
+              r.fromStatus !== PUBLISHED_INVALID_STATUS &&
+              r.toStatus !== PUBLISHED_INVALID_STATUS
+            )
+              ? r.changeReason
+              : null,
           createdAt: r.createdAt,
         };
       });
@@ -5024,6 +5260,24 @@ export async function registerRoutes(app: Express): Promise<Server> {
     '/api/publications/:id/ip-vet',
     requirePublicationOfficer,
     createIpVettingHandler(storage)
+  );
+
+  app.post(
+    '/api/publications/:id/mark-invalid',
+    requirePublicationOfficer,
+    createInvalidatePublishedHandler(storage),
+  );
+
+  app.post(
+    '/api/publications/:id/submit-correction',
+    requireAuth,
+    createInvalidAuthorActionHandler(storage, PUBLISHED_STATUS),
+  );
+
+  app.post(
+    '/api/publications/:id/withdraw-invalid',
+    requireAuth,
+    createInvalidAuthorActionHandler(storage, WITHDRAWN_STATUS),
   );
 
   app.post('/api/publications/:id/finalize', requirePublicationOfficer, async (req: Request, res: Response) => {
@@ -5048,6 +5302,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
             "This publication is already sealed. Revert the final approval before making changes.",
         });
       }
+      if (publication.status === PUBLISHED_INVALID_STATUS) {
+        return res.status(400).json({
+          message:
+            "An invalid publication cannot be finalized. A linked author must submit a correction first.",
+        });
+      }
+      if (publication.status !== PUBLISHED_STATUS) {
+        return res.status(400).json({
+          message: `Only a current ${PUBLISHED_STATUS} publication can be finalized as Published *.`,
+        });
+      }
 
       const issues: string[] = [];
       if (!publication.journal?.trim()) issues.push("missing journal");
@@ -5070,9 +5335,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const updated = await storage.updatePublicationStatus(
         id,
         "Published *",
-        sessionUserId
+        sessionUserId,
+        undefined,
+        PUBLISHED_STATUS,
       );
-
+      if (!updated) {
+        return res.status(409).json({
+          message: "The publication changed before final approval completed. Refresh and try again.",
+        });
+      }
       res.json(updated);
     } catch (error) {
       console.error("Error finalizing publication:", error);
@@ -5134,6 +5405,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         'Under review': ['Accepted/In Press', 'Submitted for review with pre-publication', 'Submitted for review without pre-publication', 'Rejected', 'Withdrawn'],
         'Accepted/In Press': ['Published', 'Under review', 'Withdrawn'],
         'Published': ['Accepted/In Press'],
+        'Published - Invalid': [],
         // Sealed: only the Outcome Office revert route can leave this state.
         'Published *': [],
         'Rejected': ['Under review', 'Vetted for submission'],
@@ -5202,16 +5474,21 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).json({ message: validationErrors.join('; ') });
       }
 
-      // First update publication fields if provided
-      if (updatedFields && Object.keys(updatedFields).length > 0) {
-        await storage.updatePublication(id, updatedFields);
-      }
-
-      // Then update status and create history
-      const updatedPublication = await storage.updatePublicationStatus(id, status, changedBy, changes);
+      // Commit fields, status, and history together, only if the status that
+      // was authorized above is still current.
+      const updatedPublication = await storage.updatePublicationStatus(
+        id,
+        status,
+        changedBy,
+        changes,
+        currentStatus,
+        updatedFields,
+      );
       
       if (!updatedPublication) {
-        return res.status(404).json({ message: "Publication not found" });
+        return res.status(409).json({
+          message: "The publication changed before this status update completed. Refresh and try again.",
+        });
       }
       
       res.json(updatedPublication);
@@ -5222,31 +5499,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Outcome Office: revert the final "Published *" approval (unseals the record).
-  app.post('/api/publications/:id/revert-final', requirePublicationOfficer, async (req: Request, res: Response) => {
-    try {
-      const id = parseInt(req.params.id);
-      if (isNaN(id)) {
-        return res.status(400).json({ message: "Invalid publication ID" });
-      }
-      // `== null` (not falsy) — the demo-mode user has id 0.
-      const sessionUserId = req.session?.user?.id;
-      if (sessionUserId == null) {
-        return res.status(401).json({ message: "You must be signed in." });
-      }
-      const publication = await storage.getPublication(id);
-      if (!publication) {
-        return res.status(404).json({ message: "Publication not found" });
-      }
-      if (publication.status !== 'Published *') {
-        return res.status(400).json({ message: "This publication is not in the final Published * state." });
-      }
-      const updated = await storage.updatePublicationStatus(id, 'Published', sessionUserId);
-      res.json(updated);
-    } catch (error) {
-      console.error('Error reverting final approval:', error);
-      res.status(500).json({ message: "Failed to revert final approval" });
-    }
-  });
+  app.post(
+    '/api/publications/:id/revert-final',
+    requirePublicationOfficer,
+    createRevertFinalHandler(storage),
+  );
 
   // Publication Authors
   app.get('/api/publications/:id/authors', async (req: Request, res: Response) => {
@@ -5703,7 +5960,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const existingDois = buildExistingWorkDois(existingPublications);
       const allScientists = await storage.getScientists();
 
-      const created: { doi: string; title: string; linkedAuthors: number }[] = [];
+      const created: {
+        id: number;
+        doi: string;
+        title: string;
+        linkedAuthors: number;
+        status: string | null;
+        publicationType: string | null;
+        prepublicationUrl: string | null;
+        prepublicationSite: string | null;
+      }[] = [];
       const skipped: { doi: string; reason: string }[] = [];
 
       for (const paper of requestedPapers) {
@@ -5740,6 +6006,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
         const enrichedFromAnySource = Boolean(crossref || pubmed);
 
+        const primaryDoi = normalizeDoi(crossref?.doi || doi) || doi;
+        const classification = classifyResolvedPublication({
+          id: 0,
+          doi: primaryDoi,
+          publicationType: crossref?.type,
+          journal,
+        });
         try {
           const publicationData = insertPublicationSchema.parse({
             researchActivityId: null,
@@ -5749,26 +6022,24 @@ export async function registerRoutes(app: Express): Promise<Server> {
             volume,
             issue,
             pages,
-            doi: crossref?.doi || doi,
+            doi: primaryDoi,
             pmid: pmid || null,
             abstract,
-            publicationType: "Journal Article",
-            status: "Published",
+            ...classification,
             publicationDate,
           });
 
-          const publication = await storage.createPublication({
+          const changeReason = enrichedFromAnySource
+            ? "Imported via Paper Discovery"
+            : "Imported via Paper Discovery (metadata not enriched via CrossRef/PubMed)";
+          const publication = await storage.createPublicationWithHistory({
             ...publicationData,
             createdByUserId: actorId,
-          } as any);
-          await storage.createManuscriptHistoryEntry({
-            publicationId: publication.id,
+          }, {
             fromStatus: "",
-            toStatus: publication.status || "Published",
+            toStatus: publicationData.status || "Published",
             changedBy: actorId,
-            changeReason: enrichedFromAnySource
-              ? "Imported via Paper Discovery"
-              : "Imported via Paper Discovery (metadata not enriched via CrossRef/PubMed)",
+            changeReason,
           });
 
           // Auto-link matching internal scientists from the resolved author text.
@@ -5791,7 +6062,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
           }
 
           existingDois.add(identity);
-          created.push({ doi, title, linkedAuthors });
+          created.push({
+            doi: primaryDoi,
+            id: publication.id,
+            title,
+            linkedAuthors,
+            status: publication.status,
+            publicationType: publication.publicationType,
+            prepublicationUrl: publication.prepublicationUrl,
+            prepublicationSite: publication.prepublicationSite,
+          });
         } catch (err) {
           console.error(`Failed to import discovered DOI ${doi}:`, err);
           skipped.push({ doi, reason: "failed to save" });
@@ -9194,7 +9474,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const existingPublications = await storage.getPublications();
       const existingDois = buildExistingWorkDois(existingPublications);
 
-      const created: { doi: string; title: string }[] = [];
+      const created: {
+        id: number;
+        doi: string;
+        title: string;
+        status: string | null;
+        publicationType: string | null;
+        prepublicationUrl: string | null;
+        prepublicationSite: string | null;
+      }[] = [];
       const skipped: { doi: string; reason: string }[] = [];
 
       for (const paper of requestedPapers) {
@@ -9245,6 +9533,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
         const enrichedFromAnySource = Boolean(crossref || pubmed);
 
+        const primaryDoi = normalizeDoi(crossref?.doi || doi) || doi;
+        const classification = classifyResolvedPublication({
+          id: 0,
+          doi: primaryDoi,
+          publicationType: crossref?.type,
+          journal,
+        });
         try {
           const publicationData = insertPublicationSchema.parse({
             researchActivityId: null,
@@ -9254,31 +9549,37 @@ export async function registerRoutes(app: Express): Promise<Server> {
             volume,
             issue,
             pages,
-            doi: crossref?.doi || doi,
+            doi: primaryDoi,
             pmid: pmid || null,
             abstract,
-            publicationType: "Journal Article",
-            status: "Published",
+            ...classification,
             publicationDate,
           });
 
-          const publication = await storage.createPublication({
+          const changeReason = enrichedFromAnySource
+            ? "Imported from ORCID/Google Scholar"
+            : "Imported from ORCID/Google Scholar (metadata not enriched via CrossRef/PubMed)";
+          const publication = await storage.createPublicationWithHistory({
             ...publicationData,
             createdByUserId: actorId,
-          } as any);
-          await storage.createManuscriptHistoryEntry({
-            publicationId: publication.id,
+          }, {
             fromStatus: "",
-            toStatus: publication.status || "Published",
+            toStatus: publicationData.status || "Published",
             changedBy: actorId,
-            changeReason: enrichedFromAnySource
-              ? "Imported from ORCID/Google Scholar"
-              : "Imported from ORCID/Google Scholar (metadata not enriched via CrossRef/PubMed)",
+            changeReason,
           });
 
           // Mark as present so a duplicate inside the same batch is skipped.
           existingDois.add(identity);
-          created.push({ doi, title });
+          created.push({
+            doi: primaryDoi,
+            id: publication.id,
+            title,
+            status: publication.status,
+            publicationType: publication.publicationType,
+            prepublicationUrl: publication.prepublicationUrl,
+            prepublicationSite: publication.prepublicationSite,
+          });
         } catch (err) {
           console.error(`Failed to import DOI ${doi}:`, err);
           skipped.push({ doi, reason: "failed to save" });
@@ -10691,27 +10992,57 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
 
     try {
-      const [scientist] = await db
-        .insert(scientists)
-        .values({
-          firstName,
-          lastName,
-          email: sessionUser.email,
-          jobTitle,
-          staffType,
-          honorificTitle: honorificTitle || '',
-          department: department || null,
-        } as any)
-        .returning();
+      let scientistId: number;
+      try {
+        scientistId = await db.transaction(async (tx) => {
+          const [created] = await tx
+            .insert(scientists)
+            .values({
+              firstName,
+              lastName,
+              email: sessionUser.email,
+              jobTitle,
+              staffType,
+              honorificTitle: honorificTitle || '',
+              department: department || null,
+            } as any)
+            .returning({ id: scientists.id });
+          if (!created) throw new Error('Failed to create profile');
 
-      const updated = await storage.updateUser(sessionUser.id, { scientistId: scientist.id } as any);
-      if (!updated) return res.status(500).json({ message: 'Failed to link profile' });
+          const [linkedUser] = await tx
+            .update(users)
+            .set({ scientistId: created.id })
+            .where(and(eq(users.id, sessionUser.id), isNull(users.scientistId)))
+            .returning({ id: users.id });
+          if (!linkedUser) throw new Error('REGISTRATION_ALREADY_LINKED');
+          return created.id;
+        });
+      } catch (error) {
+        if (!(error instanceof Error) || error.message !== 'REGISTRATION_ALREADY_LINKED') {
+          throw error;
+        }
+        const [alreadyLinked] = await db
+          .select({ scientistId: users.scientistId })
+          .from(users)
+          .where(eq(users.id, sessionUser.id))
+          .limit(1);
+        if (!alreadyLinked?.scientistId) throw error;
+        scientistId = alreadyLinked.scientistId;
+      }
 
       (req.session as any).user = {
         ...sessionUser,
-        scientistId: scientist.id,
+        scientistId,
         needsRegistration: false,
       };
+      await new Promise<void>((resolve) => {
+        req.session.save((error) => {
+          if (error) {
+            console.error('Registration session save failed after profile was linked:', error);
+          }
+          resolve();
+        });
+      });
       res.json({ user: (req.session as any).user });
     } catch (err) {
       console.error('Error during registration:', err);
@@ -10835,6 +11166,79 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Section-based, administrator-only structured data import/export hub.
   // Uploaded documents, workflow history, credentials, and role assignments
   // are intentionally outside this API.
+  app.get('/api/bulk-data/export-all', requireAdmin, async (_req: Request, res: Response) => {
+    try {
+      const now = new Date();
+      const { buffer } = await buildBulkDataArchive(now);
+      res.setHeader('Content-Type', ARCHIVE_MIME);
+      res.setHeader('Content-Disposition', `attachment; filename="${bulkArchiveFileName(now)}"`);
+      res.setHeader('Content-Length', buffer.length);
+      res.setHeader('Cache-Control', 'private, no-store, max-age=0');
+      res.setHeader('Pragma', 'no-cache');
+      res.setHeader('X-Content-Type-Options', 'nosniff');
+      res.send(buffer);
+    } catch (error) {
+      console.error('Bulk data export-all failed:', error);
+      res.status(500).json({ message: 'Failed to export bulk data archive' });
+    }
+  });
+
+  app.get('/api/bulk-data/archives', requireAdmin, async (_req: Request, res: Response) => {
+    try {
+      res.json({
+        archives: await listBulkDataArchives(),
+        schedule: {
+          timezone: 'Asia/Riyadh',
+          time: '02:00',
+          retention: 30,
+        },
+      });
+    } catch (error) {
+      console.error('Bulk data archive listing failed:', error);
+      res.status(500).json({ message: 'Failed to list bulk data archives' });
+    }
+  });
+
+  app.post('/api/bulk-data/archives', requireAdmin, async (req: Request, res: Response) => {
+    try {
+      const row = await createBulkDataArchive(
+        'manual',
+        req.session.user?.id == null ? undefined : String(req.session.user.id),
+      );
+      if (!row) throw new Error('Failed to create archive record');
+      queueBulkDataArchive(row.id);
+      const { objectId: _objectId, leaseToken: _leaseToken, ...archive } = row;
+      res.status(202).json({ archive });
+    } catch (error) {
+      console.error('Bulk data archive request failed:', error);
+      res.status(500).json({ message: 'Failed to request bulk data archive' });
+    }
+  });
+
+  app.get('/api/bulk-data/archives/:id/download', requireAdmin, async (req: Request, res: Response) => {
+    try {
+      const row = await getBulkDataArchive(req.params.id);
+      if (!row) return res.status(404).json({ message: 'Archive not found' });
+      if (row.status !== 'succeeded') {
+        return res.status(409).json({ message: 'Archive is not ready', status: row.status });
+      }
+      const buffer = await downloadBulkDataArchive(row);
+      res.setHeader('Content-Type', ARCHIVE_MIME);
+      res.setHeader('Content-Disposition', `attachment; filename="${row.fileName || 'bulk-data-export.zip'}"`);
+      res.setHeader('Content-Length', buffer.length);
+      res.setHeader('Cache-Control', 'private, no-store, max-age=0');
+      res.setHeader('Pragma', 'no-cache');
+      res.setHeader('X-Content-Type-Options', 'nosniff');
+      res.send(buffer);
+    } catch (error) {
+      if (error instanceof ObjectNotFoundError) {
+        return res.status(404).json({ message: 'Archive object not found' });
+      }
+      console.error('Bulk data archive download failed:', error);
+      res.status(500).json({ message: 'Failed to download bulk data archive' });
+    }
+  });
+
   app.get('/api/bulk-data/sections', requireAdmin, (_req: Request, res: Response) => {
     res.json({ sections: BULK_DATA_SECTIONS });
   });

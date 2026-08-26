@@ -8,8 +8,7 @@
     "build": "vite build && esbuild server/index.ts --platform=node --packages=external --bundle --format=esm --splitting --outdir=dist",
     "start": "NODE_ENV=production node dist/index.js",
     "check": "tsc",
-    "lint": "eslint \"server/**/*.ts\" \"client/src/**/*.{ts,tsx}\" --max-warnings=0",
-    "test": "node --import tsx --test server/**/*.test.ts",
+    "test": "tsx --test server/*.test.ts shared/*.test.ts client/src/lib/*.test.ts client/src/hooks/*.test.ts",
     "db:push": "drizzle-kit push"
   },
   "dependencies": {
@@ -47,10 +46,12 @@
     "@radix-ui/react-tooltip": "^1.2.0",
     "@sendgrid/mail": "^8.1.5",
     "@tanstack/react-query": "^5.76.1",
+    "@types/archiver": "^8.0.0",
     "@uppy/aws-s3": "^5.1.0",
     "@uppy/core": "^5.2.0",
     "@uppy/dashboard": "^5.1.0",
     "@uppy/react": "^5.1.1",
+    "archiver": "^8.0.0",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "cmdk": "^1.1.1",

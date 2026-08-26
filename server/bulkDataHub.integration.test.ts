@@ -101,7 +101,7 @@ integrationTest("PMO workbooks apply parents before children and are idempotent"
   assert.equal(secondPreview.rows.every((row) => row.action === "skip"), true);
 });
 
-integrationTest("Research Data Management groups contracts and grants atomically and idempotently", async (t) => {
+integrationTest("Research Office groups contracts and grants atomically and idempotently", async (t) => {
   const contractNumber = uniqueKey("CONTRACT");
   const projectNumber = uniqueKey("GRANT");
   t.after(async () => {

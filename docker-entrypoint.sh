@@ -51,10 +51,16 @@ for migration in \
     "migrations/20260819_add_investigator_designation.sql" \
     "migrations/20260820_grant_lifecycle_consistency.sql" \
     "migrations/20260823_add_user_last_login.sql" \
+    "migrations/20260824_add_publication_creator.sql" \
+    "migrations/20260825_add_grant_master_fields.sql" \
+    "migrations/20260826_add_bulk_data_archives.sql" \
+    "migrations/20260827_add_publication_invalid_reason.sql"; do
     "migrations/20260824_add_publication_creator.sql"; do
   if [ -f "/app/$migration" ]; then
     echo "  Applying $migration..."
-    if [ "$migration" = "migrations/20260820_grant_lifecycle_consistency.sql" ]; then
+    if [ "$migration" = "migrations/20260820_grant_lifecycle_consistency.sql" ] || \
+       [ "$migration" = "migrations/20260826_add_bulk_data_archives.sql" ] || \
+       [ "$migration" = "migrations/20260827_add_publication_invalid_reason.sql" ]; then
       # This migration installs lifecycle constraints and concurrency guards.
       # Do not start the application if those protections fail to apply.
       psql "$DATABASE_URL" -f "/app/$migration" -v ON_ERROR_STOP=1

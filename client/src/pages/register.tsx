@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useLocation } from "wouter";
 import { useMutation } from "@tanstack/react-query";
 import { useAuth } from "@/hooks/useAuth";
@@ -8,7 +8,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
-import { apiRequest } from "@/lib/queryClient";
+import { apiRequest, queryClient } from "@/lib/queryClient";
 import { INVESTIGATOR_ELIGIBLE_JOB_TITLES } from "@shared/investigatorEligibility";
 
 const JOB_TITLES = [
@@ -60,7 +60,7 @@ function deriveJobTitle(role: string | undefined): string {
 }
 
 export default function RegisterPage() {
-  const { user, refreshUser } = useAuth();
+  const { user, loading, isAuthenticated, completeRegistration } = useAuth();
   const [, navigate] = useLocation();
   const { toast } = useToast();
 
@@ -76,6 +76,15 @@ export default function RegisterPage() {
     department: "",
   });
 
+  useEffect(() => {
+    if (loading) return;
+    if (!isAuthenticated) {
+      navigate("/");
+    } else if (!user?.needsRegistration) {
+      navigate("/app");
+    }
+  }, [isAuthenticated, loading, navigate, user?.needsRegistration]);
+
   const mutation = useMutation({
     mutationFn: async (data: typeof form) => {
       const res = await apiRequest("POST", "/api/register", data);
@@ -85,15 +94,24 @@ export default function RegisterPage() {
       }
       return res.json();
     },
-    onSuccess: async () => {
+    onSuccess: async ({ user: registeredUser }) => {
+      completeRegistration(registeredUser);
+      void queryClient.invalidateQueries();
       toast({ title: "Profile created", description: "Welcome to the platform!" });
-      await refreshUser();
-      navigate("/app");
+      navigate("/app", { replace: true });
     },
     onError: (err: any) => {
       toast({ title: "Registration failed", description: err.message || "Please try again.", variant: "destructive" });
     },
   });
+
+  if (loading || !isAuthenticated || !user?.needsRegistration) {
+    return (
+      <div className="flex min-h-screen items-center justify-center">
+        <p className="text-muted-foreground">Loading…</p>
+      </div>
+    );
+  }
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();

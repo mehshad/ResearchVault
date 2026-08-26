@@ -4,30 +4,103 @@ import { stringify as csvStringify } from "csv-stringify/sync";
 import { z } from "zod";
 import { sql } from "drizzle-orm";
 import type { PgDatabase } from "drizzle-orm/pg-core";
-import { Scientist, InsertScientist } from "@shared/schema";
+import { Scientist, InsertScientist, Branch, Department, Section } from "@shared/schema";
 
-export const EXPORT_COLUMNS: Array<{ header: string; key: keyof Scientist | "supervisorEmail" }> = [
-  { header: "Staff ID", key: "staffId" },
-  { header: "Honorific Title", key: "honorificTitle" },
-  { header: "First Name", key: "firstName" },
-  { header: "Last Name", key: "lastName" },
-  { header: "Email", key: "email" },
-  { header: "Job Title", key: "jobTitle" },
-  { header: "Staff Type", key: "staffType" },
-  { header: "Department", key: "department" },
-  { header: "Initials", key: "profileImageInitials" },
-  { header: "Line Manager Email", key: "supervisorEmail" },
-  { header: "ORCID ID", key: "orcidId" },
-  { header: "LinkedIn URL", key: "linkedInUrl" },
-  { header: "Google Scholar URL", key: "googleScholarUrl" },
-  { header: "Web of Science ID", key: "webOfScienceId" },
-  { header: "Bio", key: "bio" },
+type StaffFileKey = keyof Scientist | "supervisorEmail";
+
+export const EXPORT_COLUMNS: Array<{ header: string; key: StaffFileKey; description: string }> = [
+  { header: "Staff ID", key: "staffId", description: "Unique staff identifier" },
+  { header: "Honorific Title", key: "honorificTitle", description: "Required, e.g. Dr, Prof, Mr, Ms" },
+  { header: "First Name", key: "firstName", description: "Required" },
+  { header: "Last Name", key: "lastName", description: "Required" },
+  { header: "Email", key: "email", description: "Required unique email" },
+  { header: "Job Title", key: "jobTitle", description: "Profile job title" },
+  { header: "Staff Type", key: "staffType", description: "scientific or administrative" },
+  { header: "Investigator", key: "isInvestigator", description: "Yes or No" },
+  { header: "Department ID", key: "departmentId", description: "Numeric ID from Settings > Organization" },
+  { header: "Section ID", key: "sectionId", description: "Numeric ID; must belong to Department ID" },
+  { header: "Legacy Department", key: "department", description: "Older free-text department value" },
+  { header: "Initials", key: "profileImageInitials", description: "Up to two characters" },
+  { header: "Line Manager Email", key: "supervisorEmail", description: "Email of another staff row in this file" },
+  { header: "ORCID ID", key: "orcidId", description: "ORCID identifier" },
+  { header: "LinkedIn URL", key: "linkedInUrl", description: "LinkedIn profile URL" },
+  { header: "Google Scholar URL", key: "googleScholarUrl", description: "Google Scholar profile URL" },
+  { header: "Web of Science ID", key: "webOfScienceId", description: "Web of Science researcher ID" },
+  { header: "Bio", key: "bio", description: "Profile biography" },
 ];
 
 const HEADER_TO_KEY: Record<string, string> = EXPORT_COLUMNS.reduce((acc, col) => {
   acc[col.header.toLowerCase().trim()] = col.key as string;
   return acc;
 }, {} as Record<string, string>);
+// Backward compatibility for exports created before the structured
+// organization fields were added.
+HEADER_TO_KEY["department"] = "department";
+
+export interface StaffOrgData {
+  branches: Branch[];
+  departments: Department[];
+  sections: Section[];
+}
+
+function compareScientists(a: Scientist, b: Scientist): number {
+  return a.lastName.localeCompare(b.lastName, undefined, { sensitivity: "base" })
+    || a.firstName.localeCompare(b.firstName, undefined, { sensitivity: "base" })
+    || a.id - b.id;
+}
+
+export function orderScientistsForExport(scientists: Scientist[], org: StaffOrgData): Scientist[] {
+  const departmentById = new Map(org.departments.map(d => [d.id, d]));
+  const branchById = new Map(org.branches.map(b => [b.id, b]));
+  const sectionById = new Map(org.sections.map(s => [s.id, s]));
+  const groupKey = (s: Scientist) => `${s.departmentId ?? "z"}:${s.sectionId ?? "z"}`;
+  const groups = new Map<string, Scientist[]>();
+  for (const scientist of scientists) {
+    const key = groupKey(scientist);
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key)!.push(scientist);
+  }
+  const groupSort = ([, a]: [string, Scientist[]], [, b]: [string, Scientist[]]) => {
+    const orgName = (s: Scientist) => {
+      const department = s.departmentId ? departmentById.get(s.departmentId) : undefined;
+      const branch = department ? branchById.get(department.branchId) : undefined;
+      const section = s.sectionId ? sectionById.get(s.sectionId) : undefined;
+      return `${branch?.name ?? "\uffff"}\0${department?.name ?? "\uffff"}\0${section?.name ?? "\uffff"}`;
+    };
+    return orgName(a[0]).localeCompare(orgName(b[0]), undefined, { sensitivity: "base" });
+  };
+  // Organization order is the baseline. Reporting edges are then applied
+  // globally so a department-level or cross-section manager always precedes
+  // their reports, even when that necessarily interrupts a contiguous group.
+  const baseline = [...groups.entries()]
+    .sort(groupSort)
+    .flatMap(([, members]) => members.slice().sort(compareScientists));
+  const allIds = new Set(scientists.map(s => s.id));
+  const baselineIndex = new Map(baseline.map((s, index) => [s.id, index]));
+  const children = new Map<number, Scientist[]>();
+  for (const scientist of scientists) {
+    if (scientist.supervisorId && allIds.has(scientist.supervisorId)) {
+      if (!children.has(scientist.supervisorId)) children.set(scientist.supervisorId, []);
+      children.get(scientist.supervisorId)!.push(scientist);
+    }
+  }
+  children.forEach(list => list.sort((a, b) =>
+    (baselineIndex.get(a.id) ?? 0) - (baselineIndex.get(b.id) ?? 0) || compareScientists(a, b)
+  ));
+  const ordered: Scientist[] = [];
+  const visited = new Set<number>();
+  const visit = (scientist: Scientist) => {
+    if (visited.has(scientist.id)) return;
+    visited.add(scientist.id);
+    ordered.push(scientist);
+    for (const child of children.get(scientist.id) ?? []) visit(child);
+  };
+  baseline
+    .filter(s => !s.supervisorId || !allIds.has(s.supervisorId))
+    .forEach(visit);
+  baseline.forEach(visit); // cycles and malformed hierarchies remain deterministic
+  return ordered;
+}
 
 export function scientistsToRows(scientists: Scientist[]): Record<string, any>[] {
   const idToEmail = new Map<number, string>();
@@ -40,7 +113,7 @@ export function scientistsToRows(scientists: Scientist[]): Record<string, any>[]
         row[col.header] = s.supervisorId ? idToEmail.get(s.supervisorId) ?? "" : "";
       } else {
         const v = (s as any)[col.key];
-        row[col.header] = v == null ? "" : v;
+        row[col.header] = col.key === "isInvestigator" ? (v ? "Yes" : "No") : v == null ? "" : v;
       }
     }
     return row;
@@ -49,9 +122,10 @@ export function scientistsToRows(scientists: Scientist[]): Record<string, any>[]
 
 export async function buildExportBuffer(
   scientists: Scientist[],
-  format: "xlsx" | "csv"
+  format: "xlsx" | "csv",
+  org?: StaffOrgData
 ): Promise<{ buffer: Buffer; mime: string; filename: string }> {
-  const rows = scientistsToRows(scientists);
+  const rows = scientistsToRows(org ? orderScientistsForExport(scientists, org) : scientists);
   const stamp = new Date().toISOString().slice(0, 10);
 
   if (format === "csv") {
@@ -80,6 +154,26 @@ export async function buildExportBuffer(
     mime: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
     filename: `staff-export-${stamp}.xlsx`,
   };
+}
+
+export async function buildTemplateBuffer(): Promise<Buffer> {
+  const workbook = new ExcelJS.Workbook();
+  const worksheet = workbook.addWorksheet("Staff");
+  worksheet.columns = EXPORT_COLUMNS.map(c => ({
+    header: c.header,
+    key: c.header,
+    width: Math.max(c.header.length + 2, 18),
+  }));
+  worksheet.views = [{ state: "frozen", ySplit: 1 }];
+  worksheet.getRow(1).font = { bold: true };
+  const instructions = workbook.addWorksheet("Instructions");
+  instructions.columns = [
+    { header: "Column", key: "column", width: 26 },
+    { header: "Guidance", key: "guidance", width: 70 },
+  ];
+  EXPORT_COLUMNS.forEach(c => instructions.addRow({ column: c.header, guidance: c.description }));
+  instructions.getRow(1).font = { bold: true };
+  return Buffer.from(await workbook.xlsx.writeBuffer());
 }
 
 export async function parseUploadedFile(base64: string, fileName: string): Promise<Record<string, any>[]> {
@@ -126,6 +220,16 @@ export async function parseUploadedFile(base64: string, fileName: string): Promi
 }
 
 
+const optionalInteger = z.preprocess(v => v === "" || v == null ? undefined : Number(v), z.number().int().positive().optional());
+const optionalBoolean = z.preprocess(v => {
+  if (v === "" || v == null) return undefined;
+  if (typeof v === "boolean") return v;
+  const value = String(v).trim().toLowerCase();
+  if (["yes", "true", "1"].includes(value)) return true;
+  if (["no", "false", "0"].includes(value)) return false;
+  return v;
+}, z.boolean({ invalid_type_error: "Use Yes or No" }).optional());
+
 const fileRowSchema = z.object({
   staffId: z.string().trim().optional(),
   honorificTitle: z.string().trim().min(1, "Honorific Title is required"),
@@ -134,6 +238,9 @@ const fileRowSchema = z.object({
   email: z.string().trim().toLowerCase().email("Invalid email"),
   jobTitle: z.string().trim().optional(),
   staffType: z.enum(["scientific", "administrative"]).default("scientific"),
+  isInvestigator: optionalBoolean,
+  departmentId: optionalInteger,
+  sectionId: optionalInteger,
   department: z.string().trim().optional(),
   profileImageInitials: z.string().trim().max(2).optional(),
   supervisorEmail: z.string().trim().toLowerCase().optional(),
@@ -186,7 +293,8 @@ function normaliseRow(raw: Record<string, any>): Record<string, any> {
 
 export function buildImportPreview(
   fileRows: Record<string, any>[],
-  existing: Scientist[]
+  existing: Scientist[],
+  org?: StaffOrgData
 ): ImportPreview {
   const errors: ImportRowError[] = [];
   const toInsert: FileRow[] = [];
@@ -205,6 +313,9 @@ export function buildImportPreview(
   // Each entry: { row, rowNumber, matchedId }
   const matched: Array<{ row: FileRow; rowNumber: number; matchedId: number | null }> = [];
 
+  const presentKeys = new Set(Object.keys(fileRows[0] ?? {}).map(h => HEADER_TO_KEY[h.toLowerCase().trim()]).filter(Boolean));
+  const departmentsById = new Map((org?.departments ?? []).map(d => [d.id, d]));
+  const sectionsById = new Map((org?.sections ?? []).map(s => [s.id, s]));
   fileRows.forEach((raw, idx) => {
     const rowNumber = idx + 2; // header is row 1
     const normalised = normaliseRow(raw);
@@ -262,6 +373,23 @@ export function buildImportPreview(
     }
 
     const matchedRecord = staffIdMatch ?? emailMatch ?? null;
+    if (!presentKeys.has("isInvestigator")) row.isInvestigator = matchedRecord?.isInvestigator ?? false;
+    if (!presentKeys.has("departmentId")) row.departmentId = matchedRecord?.departmentId ?? undefined;
+    if (!presentKeys.has("sectionId")) row.sectionId = matchedRecord?.sectionId ?? undefined;
+    if (org) {
+      const department = row.departmentId ? departmentsById.get(row.departmentId) : undefined;
+      const section = row.sectionId ? sectionsById.get(row.sectionId) : undefined;
+      if (row.departmentId && !department) rowErrors.push(`Department ID '${row.departmentId}' does not exist`);
+      if (row.sectionId && !section) rowErrors.push(`Section ID '${row.sectionId}' does not exist`);
+      if (section && row.departmentId && section.departmentId !== row.departmentId) {
+        rowErrors.push(`Section ID '${row.sectionId}' does not belong to Department ID '${row.departmentId}'`);
+      }
+      if (section && !row.departmentId) row.departmentId = section.departmentId;
+    }
+    if (rowErrors.length) {
+      errors.push({ rowNumber, identifier, errors: rowErrors });
+      return;
+    }
     matched.push({ row, rowNumber, matchedId: matchedRecord ? matchedRecord.id : null });
   });
 
@@ -272,6 +400,11 @@ export function buildImportPreview(
   // will be deleted and pointing at them would resolve to nothing at apply
   // time.
   const allKnownEmails = new Set<string>(matched.map(m => m.row.email));
+  const finalExistingIdByEmail = new Map<string, number>(
+    matched
+      .filter((m): m is typeof m & { matchedId: number } => m.matchedId != null)
+      .map(m => [m.row.email, m.matchedId])
+  );
 
   matched.forEach(({ row, rowNumber, matchedId }) => {
     if (row.supervisorEmail && !allKnownEmails.has(row.supervisorEmail)) {
@@ -289,9 +422,14 @@ export function buildImportPreview(
     }
 
     const existingRecord = existing.find(s => s.id === matchedId)!;
-    const supervisorIdNow = row.supervisorEmail
-      ? existing.find(s => s.email.toLowerCase() === row.supervisorEmail)?.id ?? null
+    const desiredExistingSupervisorId = row.supervisorEmail
+      ? finalExistingIdByEmail.get(row.supervisorEmail) ?? null
       : null;
+    // A manager newly inserted by this file has no id yet. Treat that as a
+    // change so apply will patch the relationship after inserts complete.
+    const supervisorMatches = row.supervisorEmail
+      ? desiredExistingSupervisorId != null && existingRecord.supervisorId === desiredExistingSupervisorId
+      : existingRecord.supervisorId == null;
 
     const matches =
       (existingRecord.staffId ?? "") === (row.staffId ?? "") &&
@@ -301,9 +439,12 @@ export function buildImportPreview(
       existingRecord.email.toLowerCase() === row.email &&
       (existingRecord.jobTitle ?? "") === (row.jobTitle ?? "") &&
       existingRecord.staffType === row.staffType &&
+      existingRecord.isInvestigator === (row.isInvestigator ?? false) &&
+      (existingRecord.departmentId ?? null) === (row.departmentId ?? null) &&
+      (existingRecord.sectionId ?? null) === (row.sectionId ?? null) &&
       (existingRecord.department ?? "") === (row.department ?? "") &&
       (existingRecord.profileImageInitials ?? "") === (row.profileImageInitials ?? "") &&
-      (existingRecord.supervisorId ?? null) === supervisorIdNow &&
+      supervisorMatches &&
       (existingRecord.orcidId ?? "") === (row.orcidId ?? "") &&
       (existingRecord.linkedInUrl ?? "") === (row.linkedInUrl ?? "") &&
       (existingRecord.googleScholarUrl ?? "") === (row.googleScholarUrl ?? "") &&
@@ -568,6 +709,9 @@ export function rowToInsertScientist(
       row.profileImageInitials ?? `${row.firstName[0] ?? ""}${row.lastName[0] ?? ""}`,
     supervisorId,
     staffType: row.staffType,
+    isInvestigator: row.isInvestigator ?? false,
+    departmentId: row.departmentId ?? null,
+    sectionId: row.sectionId ?? null,
     orcidId: row.orcidId ?? null,
     linkedInUrl: row.linkedInUrl ?? null,
     googleScholarUrl: row.googleScholarUrl ?? null,

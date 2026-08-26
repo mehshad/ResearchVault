@@ -8,6 +8,7 @@
 - [Preprint classification](preprint-classification.md) — never use prepublicationSite/Url to decide a record is a preprint; merges copy them onto published survivors.
 - [Demo mode bypasses auth guards](demo-mode-open-access.md) — AUTH_MODE=demo injects a Management session; anonymous curl 200 doesn't mean a route guard is missing.
 - [Sealed publications](sealed-publications.md) — `Published *` is sealed; every publication-mutating route must 403/skip sealed records; only the officer revert route unseals.
+- [Publication workflow concurrency](publication-workflow-concurrency.md) — status transitions must compare-and-swap the authorized source status and commit fields, status, and history atomically.
 - [Server code needs manual restart](server-no-hot-reload.md) — `tsx` runs without --watch; backend edits don't reload, new API routes return Vite HTML (200) until `restart_workflow`.
 - [Publication correction authorization](publication-correction-authorization.md) — researcher-facing fix links must be backed by record-level server authorization, not UI visibility alone.
 - [IP vetting workflow stage](ip-vetting-workflow.md) — Complete Draft is the active IP queue; imported Published records stay in the year-based backlog until they enter the workflow.
@@ -20,3 +21,7 @@
 - [Publication bulk identity consistency](publication-bulk-identity-consistency.md) — resolve ID/DOI/PMID/composite together; reject conflicts, never priority-short-circuit.
 - [HMR-stable React contexts](hmr-stable-react-contexts.md) — separate context, provider, hook, and changing fixtures so Vite cannot split context identity.
 - [Unpublished publication visibility](unpublished-publication-visibility.md) — creator/author/direct-manager access is default; Outcome Office uses an explicit authorized view.
+- [Container migration registration](container-migration-registration.md) — every schema migration must also enter the explicit container startup sequence or fresh deployments silently lag.
+- [Protected GitHub workflows](protected-github-workflows.md) — never add, edit, delete, restore, or include changes under `.github/workflows/`; repository authorization forbids it.
+- [Staff import compatibility](staff-import-compatibility.md) — preserve omitted newer fields and legacy headers; resolve manager links against the file’s intended final identities.
+- [PostgreSQL compatibility floor](postgres-compatibility-floor.md) — avoid newer validation helpers in runtime SQL; supported deployments include PostgreSQL 14.

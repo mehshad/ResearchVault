@@ -25,8 +25,10 @@ export interface DedupPublication {
   journal?: string | null;
   doi?: string | null;
   pmid?: string | null;
+  alternateDois?: string[] | null;
   publicationDate?: string | Date | null;
   publicationType?: string | null;
+  status?: string | null;
   prepublicationUrl?: string | null;
   prepublicationSite?: string | null;
   abstract?: string | null;
@@ -47,7 +49,7 @@ export interface DuplicateGroup {
 // DOI prefixes of common preprint servers (openRxiv, arXiv, Research Square,
 // ChemRxiv, PsyArXiv). Used both to strip version suffixes and to flag a record
 // as a preprint.
-const PREPRINT_DOI_PREFIXES = [
+export const PREPRINT_DOI_PREFIXES = [
   "10.1101/", // bioRxiv / medRxiv
   "10.48550/", // arXiv
   "10.21203/", // Research Square
@@ -232,6 +234,52 @@ export function preprintServerName(pub: DedupPublication): string | null {
   }
 
   return null;
+}
+
+/**
+ * Server-side classification for a newly resolved primary DOI.  This deliberately
+ * derives every preprint field from metadata returned by the resolver rather
+ * than accepting a client supplied `isPreprint` flag.
+ */
+export function classifyResolvedPublication(pub: DedupPublication): {
+  status: "Published" | "Submitted for review with pre-publication";
+  publicationType: "Journal Article" | "Preprint";
+  prepublicationUrl: string | null;
+  prepublicationSite: string | null;
+} {
+  const doi = normalizeDoi(pub.doi);
+  if (!isPreprintRecord({ ...pub, doi })) {
+    return {
+      status: "Published",
+      publicationType: "Journal Article",
+      prepublicationUrl: null,
+      prepublicationSite: null,
+    };
+  }
+  return {
+    status: "Submitted for review with pre-publication",
+    publicationType: "Preprint",
+    prepublicationUrl: doi ? `https://doi.org/${doi}` : null,
+    prepublicationSite: preprintServerName({ ...pub, doi }) || "Other",
+  };
+}
+
+/**
+ * Repair eligibility is intentionally stricter than normal classification:
+ * historical URL/site fields and alternate DOIs are not evidence that the
+ * current primary record is itself a preprint.
+ */
+export function preprintRepairEvidence(pub: DedupPublication): string[] {
+  if (pub.status !== "Published") return [];
+  const evidence: string[] = [];
+  const doi = normalizeDoi(pub.doi);
+  if (doi && PREPRINT_DOI_PREFIXES.some((prefix) => doi.startsWith(prefix))) {
+    evidence.push("current primary DOI matches a known preprint prefix");
+  }
+  if ((pub.publicationType || "").toLowerCase().includes("preprint")) {
+    evidence.push("publication type explicitly contains preprint");
+  }
+  return evidence;
 }
 
 /**

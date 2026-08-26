@@ -116,6 +116,7 @@ export default function Sidebar({ mobile = false, onClose, onCollapsedChange }: 
       "/pmo/research-activities": "research-activities",
       "/pmo/applications": "pmo-applications",
       "/pmo/office": "pmo-office",
+       "/research-office": "research-office",
       "/irb": "irb-applications",
       "/irb-office": "irb-office",
       "/irb-reviewer": "irb-reviewer",
@@ -125,12 +126,14 @@ export default function Sidebar({ mobile = false, onClose, onCollapsedChange }: 
       "/data-management": "data-management",
       "/contracts": "contracts",
       "/publications": "publications",
+      "/outcome-office/overview": "outcome-office",
       "/outcome-office": "outcome-office",
       "/patents": "patents",
       "/reports": "reports",
       "/grants": "grants",
       "/certifications": "certifications",
-      "/settings": "settings"
+      "/settings": "settings",
+      "/management": "management"
     };
     return pathMap[href] || href.substring(1);
   };
@@ -143,6 +146,16 @@ export default function Sidebar({ mobile = false, onClose, onCollapsedChange }: 
           href: "/app",
           label: "Dashboard",
           icon: LayoutDashboard
+        }
+      ]
+    },
+    {
+      title: "Management",
+      items: [
+        {
+          href: "/management",
+          label: "Management Hub",
+          icon: Briefcase
         }
       ]
     },
@@ -191,7 +204,7 @@ export default function Sidebar({ mobile = false, onClose, onCollapsedChange }: 
         },
         {
           href: "/pmo/office",
-          label: "PMO Office Review",
+           label: "PMO Dashboard & Review",
           icon: Eye
         }
       ]
@@ -237,8 +250,13 @@ export default function Sidebar({ mobile = false, onClose, onCollapsedChange }: 
       ]
     },
     {
-      title: "Research Data Management",
+      title: "Research Office",
       items: [
+        {
+          href: "/research-office",
+          label: "Research Office Dashboard",
+          icon: LayoutDashboard
+        },
         {
           href: "/data-management",
           label: "Data Management Plans",
@@ -265,8 +283,13 @@ export default function Sidebar({ mobile = false, onClose, onCollapsedChange }: 
           icon: BookOpen
         },
         {
+          href: "/outcome-office/overview",
+          label: "Outcome Dashboard",
+          icon: LayoutDashboard
+        },
+        {
           href: "/outcome-office",
-          label: "Outcome Office",
+          label: "Outcome Workflows",
           icon: Building
         },
         {
@@ -293,24 +316,26 @@ export default function Sidebar({ mobile = false, onClose, onCollapsedChange }: 
         mobile ? "h-full w-64" : ""
       )}>
         {/* Logo/Brand */}
-        <div className="h-20 flex items-center border-b border-primary/30 bg-primary px-2 overflow-hidden">
-          {/* Logo image — always visible */}
+        <div className="relative h-28 flex items-center border-b border-primary/30 bg-primary px-2 overflow-hidden">
+          {/* Full-height logo watermark — more visible when the sidebar is collapsed */}
           <img
             src={qbridgeLogo}
             alt="Q-BRIDGE Logo"
             className={cn(
-              "flex-shrink-0 object-contain",
-              isCollapsed ? "h-10 w-10" : "h-16 w-16"
+              "pointer-events-none absolute inset-y-0 h-full w-auto max-w-none object-contain",
+              isCollapsed
+                ? "left-1/2 -translate-x-1/2 opacity-70"
+                : "right-0 opacity-40 mix-blend-multiply"
             )}
           />
 
           {/* Text — only in expanded mode */}
           {!isCollapsed && (
-            <div className="flex flex-col min-w-0 flex-1 ml-2">
+            <div className="relative z-10 flex flex-col min-w-0 flex-1 ml-2 drop-shadow-sm">
               <div className="font-semibold text-sm text-white leading-tight truncate">
                 Q-BRIDGE
               </div>
-              <div className="text-xs text-white/90 leading-snug line-clamp-2">
+              <div className="text-xs text-white/90 leading-snug">
                 Qatar Biomedical Research Inter-Institutional Data &amp; Governance Ecosystem
               </div>
               <div className="text-xs text-white/70 leading-tight mt-0.5 truncate">
@@ -334,7 +359,7 @@ export default function Sidebar({ mobile = false, onClose, onCollapsedChange }: 
             <button
               onClick={toggleCollapsed}
               className={cn(
-                "flex-shrink-0 text-white/70 hover:text-white transition-colors rounded p-1 hover:bg-white/10",
+                "relative z-10 flex-shrink-0 text-white/70 hover:text-white transition-colors rounded p-1 hover:bg-white/10",
                 isCollapsed ? "ml-auto" : "ml-auto"
               )}
               title={isCollapsed ? "Expand sidebar" : "Collapse sidebar"}

@@ -18,6 +18,7 @@ import { db } from "./db";
 import { sql } from "drizzle-orm";
 
 const PgSession = connectPgSimple(session);
+const APP_START = Date.now();
 
 const APP_START = Date.now();
 
@@ -100,14 +101,10 @@ if (getAuthMode() === "demo") {
   app.use("/api", demoBannerMiddleware);
 }
 
-// ── Structured HTTP access log middleware ─────────────────────────────────────
-// Logs every request (API + page navigation) as a JSON event so ELK can
-// build per-user traffic, most-visited-page, and error-rate dashboards.
 app.use((req: Request, res: Response, next: NextFunction) => {
   const start = Date.now();
 
   res.on("finish", () => {
-    // Skip health checks to avoid log noise
     if (req.path === "/api/health") return;
 
     const user = (req.session as any)?.user;
@@ -131,6 +128,22 @@ app.use((req: Request, res: Response, next: NextFunction) => {
   logAuthStatus();
 
   registerAuthRoutes(app);
+
+  app.get("/api/health", async (_req: Request, res: Response) => {
+    let dbOk = false;
+    try {
+      await db.execute(sql`SELECT 1`);
+      dbOk = true;
+    } catch {
+      // Return a response rather than timing out when the database is unavailable.
+    }
+    res.status(dbOk ? 200 : 503).json({
+      status: dbOk ? "ok" : "degraded",
+      uptime: Math.floor((Date.now() - APP_START) / 1000),
+      db: dbOk ? "ok" : "unreachable",
+      timestamp: new Date().toISOString(),
+    });
+  });
 
   // Refresh real authenticated principals from users before every application
   // API request so role changes take effect immediately and fail closed.
@@ -163,8 +176,8 @@ app.use((req: Request, res: Response, next: NextFunction) => {
   });
 
   const server = await registerRoutes(app);
+  startBulkDataArchiveScheduler();
 
-  // ── Global error handler ──────────────────────────────────────────────────
   app.use((err: any, req: Request, res: Response, _next: NextFunction) => {
     const status = err.status || err.statusCode || 500;
     const message = err.message || "Internal Server Error";

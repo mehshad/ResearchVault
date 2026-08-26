@@ -80,7 +80,7 @@ test("getSectionMeta returns correct meta for research-compliance", () => {
 
 test("getSectionMeta returns correct meta for research-services", () => {
   const meta = getSectionMeta("research-services");
-  assert.equal(meta.label, "Research Data Management");
+  assert.equal(meta.label, "Research Office");
   assert.equal(meta.description, "Research Contracts and Grants");
   assert.deepEqual(meta.sheets.map((s) => s.name), ["Research Contracts", "Grants"]);
 });

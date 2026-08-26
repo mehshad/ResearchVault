@@ -126,9 +126,29 @@ export function requireAdmin(req: Request, res: Response, next: NextFunction) {
 
 export function requireContractsOfficer(req: Request, res: Response, next: NextFunction) {
   const role = req.session?.user?.role;
-  if (role === "Contracts Officer" || role === "admin" || role === "Management") return next();
+  if (role === "Contracts Officer" || role === "admin" || role === "superadmin" || role === "Management") return next();
   authLog(`403 contracts officer required: ${req.method} ${req.path} user=${req.session?.user?.username ?? "anonymous"} role=${role ?? "none"}`);
   res.status(403).json({ message: "Forbidden. Contracts officer access required." });
+}
+
+export function requireResearchOfficer(req: Request, res: Response, next: NextFunction) {
+  const role = req.session?.user?.role;
+  if (
+    role === "Grant Officer" ||
+    role === "Contracts Officer" ||
+    role === "admin" ||
+    role === "superadmin" ||
+    role === "Management"
+  ) return next();
+  authLog(`403 research officer required: ${req.method} ${req.path} user=${req.session?.user?.username ?? "anonymous"} role=${role ?? "none"}`);
+  res.status(403).json({ message: "Forbidden. Research office access required." });
+}
+
+export function requirePmoOfficer(req: Request, res: Response, next: NextFunction) {
+  const role = req.session?.user?.role;
+  if (role === "PMO Officer" || role === "admin" || role === "superadmin" || role === "Management") return next();
+  authLog(`403 PMO officer required: ${req.method} ${req.path} user=${req.session?.user?.username ?? "anonymous"} role=${role ?? "none"}`);
+  res.status(403).json({ message: "Forbidden. PMO access required." });
 }
 
 export function requirePublicationOfficer(req: Request, res: Response, next: NextFunction) {
@@ -143,6 +163,14 @@ export function requirePublicationOfficer(req: Request, res: Response, next: Nex
   }
   authLog(`403 publication officer required: ${req.method} ${req.path} user=${req.session?.user?.username ?? "anonymous"} role=${role ?? "none"}`);
   res.status(403).json({ message: "Forbidden. Publication office access required." });
+}
+
+/** Restricts Management Hub/report endpoints to the management tier. */
+export function requireManagement(req: Request, res: Response, next: NextFunction) {
+  const role = req.session?.user?.role;
+  if (role === "Management" || role === "admin" || role === "superadmin") return next();
+  authLog(`403 management required: ${req.method} ${req.path} user=${req.session?.user?.username ?? "anonymous"} role=${role ?? "none"}`);
+  res.status(403).json({ message: "Forbidden. Management access required." });
 }
 
 export function requireContractsRead(req: Request, res: Response, next: NextFunction) {
@@ -439,6 +467,9 @@ export function registerAuthRoutes(app: any) {
         await recordSuccessfulLogin(sessionUser.id);
         authLog(`OIDC login success username=${sessionUser.username} id=${sessionUser.id} role=${sessionUser.role} ip=${ip}`);
         req.session.user = sessionUser;
+        await new Promise<void>((resolve, reject) => {
+          req.session.save((error) => error ? reject(error) : resolve());
+        });
         res.redirect("/");
       } catch (err) {
         authError("OIDC callback unhandled error", err);

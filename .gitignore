@@ -5,6 +5,7 @@ server/public
 vite.config.ts.*
 *.tar.gz
 attached_assets
+data/uploads/
 .env
 IRIS_Architecture_Solution_Document.docx
 ArchitectIQ_On_Prem_QBRIDGE.docx

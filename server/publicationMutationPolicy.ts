@@ -12,6 +12,13 @@ export type PublicationWorkflowViolation = {
 export function getGenericPublicationPatchWorkflowViolation(
   update: Record<string, unknown>
 ): PublicationWorkflowViolation | null {
+  if (Object.prototype.hasOwnProperty.call(update, "invalidReason")) {
+    return {
+      statusCode: 403,
+      message:
+        "The active invalid reason can only be changed through the publication correction workflow.",
+    };
+  }
   if (
     Object.prototype.hasOwnProperty.call(
       update,
@@ -39,6 +46,13 @@ export function getGenericPublicationPatchWorkflowViolation(
 export function getPublicationCreateWorkflowViolation(
   publication: Record<string, unknown>
 ): PublicationWorkflowViolation | null {
+  if (Object.prototype.hasOwnProperty.call(publication, "invalidReason")) {
+    return {
+      statusCode: 403,
+      message:
+        "New publications cannot be created with an active invalid reason.",
+    };
+  }
   if (publication.vettedForSubmissionByIpOffice === true) {
     return {
       statusCode: 403,
@@ -66,6 +80,16 @@ export function getStatusTransitionWorkflowViolation(
   targetStatus: string
 ): PublicationWorkflowViolation | null {
   if (
+    currentStatus === "Published - Invalid" ||
+    targetStatus === "Published - Invalid"
+  ) {
+    return {
+      statusCode: 403,
+      message:
+        "Published correction status can only be changed through its dedicated Outcome Office or linked-author action.",
+    };
+  }
+  if (
     currentStatus === IP_VETTING_READY_STATUS &&
     targetStatus === IP_VETTED_STATUS
   ) {
@@ -82,6 +106,16 @@ export function getStatusTransitionWorkflowViolation(
 export function getStatusUpdatedFieldsWorkflowViolation(
   updatedFields: Record<string, unknown> | null | undefined
 ): PublicationWorkflowViolation | null {
+  if (
+    updatedFields &&
+    Object.prototype.hasOwnProperty.call(updatedFields, "invalidReason")
+  ) {
+    return {
+      statusCode: 403,
+      message:
+        "The active invalid reason can only be changed through the publication correction workflow.",
+    };
+  }
   if (
     updatedFields &&
     Object.prototype.hasOwnProperty.call(

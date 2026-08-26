@@ -9,7 +9,7 @@ import {
   researchActivities, ResearchActivity, InsertResearchActivity,
   projectMembers, ProjectMember, InsertProjectMember,
   dataManagementPlans, DataManagementPlan, InsertDataManagementPlan,
-  publications, Publication, InsertPublication,
+  publications, Publication, InsertPublication, ManuscriptHistory, InsertManuscriptHistory,
   patents, Patent, InsertPatent,
   irbApplications, IrbApplication, InsertIrbApplication,
   ibcApplications, IbcApplication, InsertIbcApplication,
@@ -32,6 +32,10 @@ import {
   teamMembers, TeamMember, InsertTeamMember
 } from "@shared/schema";
 import { isInvestigatorEligible } from "@shared/investigatorEligibility";
+import {
+  classifyResolvedPublication,
+  preprintRepairEvidence,
+} from "@shared/publicationDeduplication";
 
 // Storage interface with CRUD operations for all entities
 export interface IStorage {
@@ -102,6 +106,10 @@ export interface IStorage {
   getPublication(id: number): Promise<Publication | undefined>;
   getPublicationsForResearchActivity(researchActivityId: number): Promise<Publication[]>;
   createPublication(publication: InsertPublication): Promise<Publication>;
+  createPublicationWithHistory(
+    publication: InsertPublication & { createdByUserId?: number | null },
+    history: Omit<InsertManuscriptHistory, "publicationId">,
+  ): Promise<Publication>;
   updatePublication(id: number, publication: Partial<InsertPublication>): Promise<Publication | undefined>;
   deletePublication(id: number): Promise<boolean>;
   mergePublications(survivorId: number, mergeIds: number[], overrides: Partial<InsertPublication>, changedBy: number): Promise<Publication | undefined>;
@@ -111,7 +119,23 @@ export interface IStorage {
   createManuscriptHistoryEntry(entry: InsertManuscriptHistory): Promise<ManuscriptHistory>;
   
   // Publication Status Management
-  updatePublicationStatus(id: number, status: string, changedBy: number, changes?: {field: string, oldValue: string, newValue: string}[]): Promise<Publication | undefined>;
+  updatePublicationStatus(
+    id: number,
+    status: string,
+    changedBy: number,
+    changes?: {field: string, oldValue: string, newValue: string}[],
+    expectedStatus?: string,
+    updatedFields?: Partial<InsertPublication>,
+  ): Promise<Publication | undefined>;
+  updatePublicationCorrectionStatus(
+    id: number,
+    expectedStatus: string,
+    status: string,
+    invalidReason: string | null,
+    changedBy: number,
+    changeReason: string,
+  ): Promise<Publication | undefined>;
+  repairPreprintPublication(id: number, changedBy: number): Promise<{ publication?: Publication; reason?: string }>;
 
   // Patent operations
   getPatents(): Promise<Patent[]>;
@@ -329,6 +353,7 @@ export class MemStorage implements IStorage {
   private projectMembers: Map<number, ProjectMember> = new Map();
   private dataManagementPlans: Map<number, DataManagementPlan> = new Map();
   private publications: Map<number, Publication> = new Map();
+  private manuscriptHistory: Map<number, ManuscriptHistory> = new Map();
   private patents: Map<number, Patent> = new Map();
   private irbApplications: Map<number, IrbApplication> = new Map();
   private ibcApplications: Map<number, IbcApplication> = new Map();
@@ -341,6 +366,7 @@ export class MemStorage implements IStorage {
   private projectMemberIdCounter = 1;
   private dataManagementPlanIdCounter = 1;
   private publicationIdCounter = 1;
+  private manuscriptHistoryIdCounter = 1;
   private patentIdCounter = 1;
   private irbApplicationIdCounter = 1;
   private ibcApplicationIdCounter = 1;
@@ -578,6 +604,18 @@ export class MemStorage implements IStorage {
     return publication;
   }
 
+  async createPublicationWithHistory(
+    insertPublication: InsertPublication & { createdByUserId?: number | null },
+    history: Omit<InsertManuscriptHistory, "publicationId">,
+  ): Promise<Publication> {
+    const publication = await this.createPublication(insertPublication);
+    await this.createManuscriptHistoryEntry({
+      ...history,
+      publicationId: publication.id,
+    });
+    return publication;
+  }
+
   async updatePublication(id: number, updateData: Partial<InsertPublication>): Promise<Publication | undefined> {
     const publication = this.publications.get(id);
     if (!publication) return undefined;
@@ -589,6 +627,104 @@ export class MemStorage implements IStorage {
     };
     this.publications.set(id, updatedPublication);
     return updatedPublication;
+  }
+
+  async repairPreprintPublication(id: number, changedBy: number): Promise<{ publication?: Publication; reason?: string }> {
+    const initial = this.publications.get(id);
+    if (!initial) return { reason: "not found" };
+    if (!preprintRepairEvidence(initial).length) return { reason: "no longer eligible" };
+    const correction = classifyResolvedPublication(initial);
+    // Re-read immediately before the synchronous map update so demo/test storage
+    // mirrors the production status guard and can never overwrite a new seal.
+    const current = this.publications.get(id);
+    if (!current || !preprintRepairEvidence(current).length) {
+      return { reason: "no longer eligible" };
+    }
+    const updated = await this.updatePublication(id, correction);
+    await this.createManuscriptHistoryEntry({
+      publicationId: id,
+      fromStatus: current.status || "Published",
+      toStatus: correction.status,
+      changedBy,
+      changeReason: "Corrected published preprint classification from current primary DOI/publication type evidence",
+    });
+    return { publication: updated };
+  }
+
+  async getManuscriptHistory(publicationId: number): Promise<ManuscriptHistory[]> {
+    return Array.from(this.manuscriptHistory.values())
+      .filter((entry) => entry.publicationId === publicationId)
+      .sort((a, b) => (b.createdAt?.getTime?.() ?? 0) - (a.createdAt?.getTime?.() ?? 0));
+  }
+
+  async createManuscriptHistoryEntry(entry: InsertManuscriptHistory): Promise<ManuscriptHistory> {
+    const created: ManuscriptHistory = {
+      ...entry,
+      id: this.manuscriptHistoryIdCounter++,
+      createdAt: new Date(),
+    } as ManuscriptHistory;
+    this.manuscriptHistory.set(created.id, created);
+    return created;
+  }
+
+  async updatePublicationStatus(
+    id: number,
+    status: string,
+    changedBy: number,
+    changes?: { field: string; oldValue: string; newValue: string }[],
+    expectedStatus?: string,
+    updatedFields?: Partial<InsertPublication>,
+  ): Promise<Publication | undefined> {
+    const current = this.publications.get(id);
+    if (!current || (expectedStatus != null && current.status !== expectedStatus)) {
+      return undefined;
+    }
+    const updated = await this.updatePublication(id, {
+      ...updatedFields,
+      status,
+      invalidReason: null,
+    });
+    await this.createManuscriptHistoryEntry({
+      publicationId: id,
+      fromStatus: current.status || "Unknown",
+      toStatus: status,
+      changedBy,
+      changeReason: `Status changed from ${current.status || "Unknown"} to ${status}`,
+    });
+    for (const change of changes ?? []) {
+      await this.createManuscriptHistoryEntry({
+        publicationId: id,
+        fromStatus: current.status || "Unknown",
+        toStatus: status,
+        changedField: change.field,
+        oldValue: change.oldValue,
+        newValue: change.newValue,
+        changedBy,
+        changeReason: `${change.field} changed during status transition`,
+      });
+    }
+    return updated;
+  }
+
+  async updatePublicationCorrectionStatus(
+    id: number,
+    expectedStatus: string,
+    status: string,
+    invalidReason: string | null,
+    changedBy: number,
+    changeReason: string,
+  ): Promise<Publication | undefined> {
+    const current = this.publications.get(id);
+    if (!current || current.status !== expectedStatus) return undefined;
+    const updated = await this.updatePublication(id, { status, invalidReason });
+    await this.createManuscriptHistoryEntry({
+      publicationId: id,
+      fromStatus: expectedStatus,
+      toStatus: status,
+      changedBy,
+      changeReason,
+    });
+    return updated;
   }
 
   async deletePublication(id: number): Promise<boolean> {

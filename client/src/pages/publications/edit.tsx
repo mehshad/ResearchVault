@@ -564,6 +564,12 @@ export default function PublicationEdit() {
                   <p className="text-xs text-gray-600 mt-1 dark:text-gray-300">Final published version</p>
                   <p className="text-xs text-green-600 mt-1 dark:text-green-400">Required: Publication date, DOI</p>
                 </div>
+
+                <div className="p-3 border rounded-lg border-red-300 bg-red-50 dark:border-red-800 dark:bg-red-950">
+                  <h4 className="font-medium text-sm text-red-800 dark:text-red-300">Published - Invalid</h4>
+                  <p className="text-xs text-gray-600 mt-1 dark:text-gray-300">Outcome Office correction requested</p>
+                  <p className="text-xs text-red-700 mt-1 dark:text-red-300">Editable until corrected and resubmitted</p>
+                </div>
                 
                 <div className="p-3 border rounded-lg bg-green-100 dark:bg-green-950">
                   <h4 className="font-medium text-sm text-green-900 flex items-center gap-1 dark:text-green-200">

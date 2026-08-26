@@ -180,6 +180,70 @@ export default function PublicationOffice({ embeddedTab }: PublicationOfficeProp
   }>>([]);
   const [fpSelectedDois, setFpSelectedDois] = useState<Set<string>>(new Set());
   const [fpSearched, setFpSearched] = useState(false);
+
+  type PreprintRepairCandidate = {
+    id: number;
+    title: string;
+    doi: string | null;
+    publicationType: string | null;
+    status: string | null;
+    prepublicationUrl: string | null;
+    prepublicationSite: string | null;
+    evidence: string[];
+    proposed: {
+      status: string;
+      publicationType: string;
+      prepublicationUrl: string | null;
+      prepublicationSite: string | null;
+    };
+  };
+  type PreprintRepairResult = {
+    updated: Array<{ id: number; title: string }>;
+    skipped: Array<{ id: number; reason: string }>;
+    updatedCount: number;
+    skippedCount: number;
+  };
+  const [repairSelectedIds, setRepairSelectedIds] = useState<Set<number>>(new Set());
+  const [repairConfirmOpen, setRepairConfirmOpen] = useState(false);
+  const [repairResult, setRepairResult] = useState<PreprintRepairResult | null>(null);
+
+  const preprintRepairQuery = useQuery<{ candidates: PreprintRepairCandidate[]; count: number }>({
+    queryKey: ["/api/publications/preprint-repair-candidates"],
+    queryFn: async () => {
+      const response = await fetch("/api/publications/preprint-repair-candidates", { credentials: "include" });
+      if (!response.ok) throw new Error("Unable to load preprint repair candidates");
+      return response.json();
+    },
+    enabled: activeTab === "find-papers",
+  });
+  const preprintRepairCandidates = preprintRepairQuery.data?.candidates ?? [];
+  const repairMutation = useMutation({
+    mutationFn: async (publicationIds: number[]) => {
+      const response = await fetch("/api/publications/preprint-repair", {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ publicationIds }),
+      });
+      if (!response.ok) {
+        const body = await response.json().catch(() => null);
+        throw new Error(body?.message || "Unable to apply preprint repair");
+      }
+      return response.json() as Promise<PreprintRepairResult>;
+    },
+    onSuccess: (result) => {
+      setRepairResult(result);
+      setRepairSelectedIds(new Set());
+      setRepairConfirmOpen(false);
+      queryClient.invalidateQueries({ queryKey: ["/api/publications"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/publications/preprint-repair-candidates"] });
+      toast({
+        title: "Repair review complete",
+        description: `${result.updatedCount} record${result.updatedCount === 1 ? "" : "s"} updated${result.skippedCount ? `; ${result.skippedCount} skipped` : ""}.`,
+      });
+    },
+    onError: (error: Error) => toast({ title: "Repair could not be applied", description: error.message, variant: "destructive" }),
+  });
   
   // Export tab state
   const [exportStartDate, setExportStartDate] = useState("");
@@ -1638,8 +1702,10 @@ export default function PublicationOffice({ embeddedTab }: PublicationOfficeProp
                         </div>
                         <div className="flex items-center gap-2">
                           <Badge 
-                            variant={pub.status?.includes('*') ? 'default' : 'outline'}
-                            className={pub.status?.includes('*') ? 'bg-green-600 hover:bg-green-700' : ''}
+                            variant={pub.status === "Published - Invalid" ? "destructive" : pub.status?.includes('*') ? 'default' : 'outline'}
+                            className={pub.status === "Published - Invalid"
+                              ? "bg-red-100 text-red-800 dark:bg-red-950 dark:text-red-300"
+                              : pub.status?.includes('*') ? 'bg-green-600 hover:bg-green-700' : ''}
                           >
                             {pub.status?.includes('*') ? (
                               <div className="flex items-center gap-1">
@@ -1694,6 +1760,12 @@ export default function PublicationOffice({ embeddedTab }: PublicationOfficeProp
                           )}
                         </div>
                       </div>
+                      {pub.status === "Published - Invalid" && pub.invalidReason && (
+                        <div className="rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-900 dark:border-red-800 dark:bg-red-950/40 dark:text-red-200">
+                          <span className="font-medium">Correction reason: </span>
+                          <span className="whitespace-pre-wrap">{pub.invalidReason}</span>
+                        </div>
+                      )}
                       <div className="flex flex-wrap items-center gap-2" data-testid={`flags-publication-${pub.id}`}>
                         {!hasIssues ? (
                           <Badge
@@ -2051,6 +2123,189 @@ export default function PublicationOffice({ embeddedTab }: PublicationOfficeProp
               </CardContent>
             </Card>
           )}
+        {/* Preprint repair is intentionally adjacent to discovery: it turns
+            evidence from external indexes into a controlled office action. */}
+          <Card className="border-amber-200 shadow-sm dark:border-amber-900/60">
+            <CardHeader className="border-b border-amber-100 bg-amber-50/60 dark:border-amber-900/50 dark:bg-amber-950/20">
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                <div>
+                  <CardTitle className="flex items-center gap-2 text-base">
+                    <RefreshCw className="h-5 w-5 text-amber-700 dark:text-amber-400" />
+                    Preprint status repair
+                  </CardTitle>
+                  <CardDescription className="mt-1 max-w-3xl">
+                    Review strong primary-record evidence where a preprint was recorded as published.
+                    Select records to apply the proposed correction. Sealed records and published
+                    survivors carrying only preprint lineage are excluded.
+                  </CardDescription>
+                </div>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => { setRepairResult(null); preprintRepairQuery.refetch(); }}
+                  disabled={preprintRepairQuery.isFetching}
+                  className="shrink-0 gap-2"
+                  data-testid="button-refresh-preprint-repairs"
+                >
+                  <RefreshCw className={`h-4 w-4 ${preprintRepairQuery.isFetching ? "animate-spin" : ""}`} />
+                  Refresh candidates
+                </Button>
+              </div>
+            </CardHeader>
+            <CardContent className="space-y-4 pt-5">
+              <div className="flex items-start gap-2 rounded-md border border-amber-200 bg-amber-50 px-3 py-2.5 text-sm text-amber-950 dark:border-amber-900/60 dark:bg-amber-950/30 dark:text-amber-100">
+                <Info className="mt-0.5 h-4 w-4 shrink-0" />
+                <p><span className="font-semibold">Evidence safeguard:</span> a prepublication link alone is not sufficient. Each candidate below includes the evidence used for review.</p>
+              </div>
+
+              {preprintRepairQuery.isLoading ? (
+                <div className="space-y-3" aria-label="Loading repair candidates">
+                  {Array.from({ length: 3 }).map((_, index) => (
+                    <div key={index} className="grid gap-3 rounded-lg border p-4 md:grid-cols-[auto_1.5fr_1fr_1fr]">
+                      <Skeleton className="h-4 w-4" />
+                      <div className="space-y-2"><Skeleton className="h-4 w-3/4" /><Skeleton className="h-3 w-1/2" /></div>
+                      <Skeleton className="h-12 w-full" />
+                      <Skeleton className="h-12 w-full" />
+                    </div>
+                  ))}
+                </div>
+              ) : preprintRepairQuery.isError ? (
+                <div className="rounded-lg border border-destructive/30 bg-destructive/5 p-5 text-sm">
+                  <p className="font-medium text-destructive">Candidates could not be loaded.</p>
+                  <p className="mt-1 text-muted-foreground">Try again before making a publication status change.</p>
+                  <Button variant="outline" size="sm" className="mt-3" onClick={() => preprintRepairQuery.refetch()}>Try again</Button>
+                </div>
+              ) : preprintRepairCandidates.length === 0 ? (
+                <div className="rounded-lg border border-dashed p-8 text-center">
+                  <CheckCircle2 className="mx-auto h-8 w-8 text-primary" />
+                  <p className="mt-3 font-medium">No repair candidates</p>
+                  <p className="mt-1 text-sm text-muted-foreground">The publication register has no eligible ORCID preprint corrections right now.</p>
+                </div>
+              ) : (
+                <>
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <div className="text-sm text-muted-foreground">
+                      <span className="font-semibold text-foreground">{preprintRepairCandidates.length}</span> candidate{preprintRepairCandidates.length === 1 ? "" : "s"} · <span className="font-semibold text-foreground">{repairSelectedIds.size}</span> selected
+                    </div>
+                    <div className="flex items-center gap-3">
+                      <button
+                        type="button"
+                        className="text-sm font-medium text-primary hover:underline"
+                        onClick={() => setRepairSelectedIds(new Set(preprintRepairCandidates.map((candidate) => candidate.id)))}
+                        data-testid="button-select-all-preprint-repairs"
+                      >
+                        Select all
+                      </button>
+                      <button
+                        type="button"
+                        className="text-sm text-muted-foreground hover:text-foreground hover:underline"
+                        onClick={() => setRepairSelectedIds(new Set())}
+                      >
+                        Clear
+                      </button>
+                      <Button
+                        size="sm"
+                        className="gap-2"
+                        disabled={repairSelectedIds.size === 0 || repairMutation.isPending}
+                        onClick={() => setRepairConfirmOpen(true)}
+                        data-testid="button-review-preprint-repair"
+                      >
+                        <Shield className="h-4 w-4" />
+                        Review & apply ({repairSelectedIds.size})
+                      </Button>
+                    </div>
+                  </div>
+
+                  <div className="overflow-hidden rounded-lg border">
+                    <div className="hidden grid-cols-[auto_1.5fr_1fr_1fr] gap-4 border-b bg-muted/40 px-4 py-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground md:grid">
+                      <span className="w-4" />
+                      <span>Publication</span><span>Current record</span><span>Proposed correction</span>
+                    </div>
+                    <div className="divide-y">
+                      {preprintRepairCandidates.map((candidate) => {
+                        const selected = repairSelectedIds.has(candidate.id);
+                        return (
+                          <div key={candidate.id} className={`grid gap-3 px-4 py-4 transition-colors md:grid-cols-[auto_1.5fr_1fr_1fr] ${selected ? "bg-primary/[0.04]" : "bg-card"}`} data-testid={`row-preprint-repair-${candidate.id}`}>
+                            <Checkbox
+                              checked={selected}
+                              onCheckedChange={(checked) => setRepairSelectedIds((previous) => {
+                                const next = new Set(previous);
+                                if (checked) next.add(candidate.id); else next.delete(candidate.id);
+                                return next;
+                              })}
+                              aria-label={`Select ${candidate.title}`}
+                              className="mt-1"
+                            />
+                            <div className="min-w-0">
+                              <p className="font-medium leading-snug">{candidate.title}</p>
+                              <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">
+                                <span>Publication #{candidate.id}</span>
+                                {candidate.doi && <a href={`https://doi.org/${candidate.doi}`} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-primary hover:underline"><ExternalLink className="h-3 w-3" />{candidate.doi}</a>}
+                              </div>
+                              <div className="mt-3 space-y-1">
+                                <p className="text-xs font-semibold text-muted-foreground">Evidence</p>
+                                {candidate.evidence.length > 0 ? candidate.evidence.map((item, index) => <p key={index} className="text-xs leading-relaxed text-muted-foreground">• {item}</p>) : <p className="text-xs italic text-muted-foreground">No evidence details returned</p>}
+                              </div>
+                            </div>
+                            <div className="rounded-md bg-muted/40 p-3 text-sm">
+                              <p className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Current</p>
+                              <p><span className="text-muted-foreground">Status:</span> {candidate.status || "Not set"}</p>
+                              <p><span className="text-muted-foreground">Type:</span> {candidate.publicationType || "Not set"}</p>
+                              {(candidate.prepublicationSite || candidate.prepublicationUrl) && <p className="mt-1 truncate text-xs text-muted-foreground">{candidate.prepublicationSite || candidate.prepublicationUrl}</p>}
+                            </div>
+                            <div className="rounded-md border border-primary/20 bg-primary/[0.04] p-3 text-sm">
+                              <p className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-primary">Proposed</p>
+                              <p><span className="text-muted-foreground">Status:</span> {candidate.proposed.status}</p>
+                              <p><span className="text-muted-foreground">Type:</span> {candidate.proposed.publicationType}</p>
+                              {(candidate.proposed.prepublicationSite || candidate.proposed.prepublicationUrl) && <p className="mt-1 truncate text-xs text-muted-foreground">{candidate.proposed.prepublicationSite || candidate.proposed.prepublicationUrl}</p>}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                </>
+              )}
+
+              {repairResult && (
+                <div className="rounded-lg border border-primary/25 bg-primary/[0.04] p-4" data-testid="preprint-repair-result">
+                  <div className="flex items-start gap-2">
+                    <CheckCircle2 className="mt-0.5 h-5 w-5 text-primary" />
+                    <div>
+                      <p className="font-medium">Repair results</p>
+                      <p className="text-sm text-muted-foreground">{repairResult.updatedCount} updated{repairResult.skippedCount ? ` · ${repairResult.skippedCount} skipped` : ""}</p>
+                      {repairResult.skipped.length > 0 && <div className="mt-2 space-y-1 text-xs text-muted-foreground">{repairResult.skipped.map((item) => <p key={item.id}>Publication #{item.id}: {item.reason}</p>)}</div>}
+                    </div>
+                  </div>
+                </div>
+              )}
+              <Dialog open={repairConfirmOpen} onOpenChange={setRepairConfirmOpen}>
+                <DialogContent>
+                  <DialogHeader>
+                    <DialogTitle>Confirm preprint status repair</DialogTitle>
+                    <DialogDescription>
+                      You are about to update {repairSelectedIds.size} publication record{repairSelectedIds.size === 1 ? "" : "s"}. The selected records will receive the proposed status and publication type shown above.
+                    </DialogDescription>
+                  </DialogHeader>
+                  <div className="rounded-md border bg-muted/40 p-3 text-sm text-muted-foreground">
+                    This is an auditable record change. Confirm that the evidence supports the correction; a prepublication link by itself is not sufficient.
+                  </div>
+                  <div className="flex justify-end gap-2">
+                    <Button variant="outline" onClick={() => setRepairConfirmOpen(false)} disabled={repairMutation.isPending}>Cancel</Button>
+                    <Button
+                      onClick={() => repairMutation.mutate(Array.from(repairSelectedIds))}
+                      disabled={repairMutation.isPending || repairSelectedIds.size === 0}
+                      className="gap-2"
+                      data-testid="button-confirm-preprint-repair"
+                    >
+                      {repairMutation.isPending && <Loader2 className="h-4 w-4 animate-spin" />}
+                      {repairMutation.isPending ? "Applying repair..." : "Confirm and apply"}
+                    </Button>
+                  </div>
+                </DialogContent>
+              </Dialog>
+            </CardContent>
+          </Card>
         </TabsContent>
 
         {/* Duplicates Tab */}
@@ -2127,6 +2382,7 @@ export default function PublicationOffice({ embeddedTab }: PublicationOfficeProp
                         <SelectItem value="Under review">Under review</SelectItem>
                         <SelectItem value="Accepted/In Press">Accepted/In Press</SelectItem>
                         <SelectItem value="Published">Published</SelectItem>
+                        <SelectItem value="Published - Invalid">Published - Invalid</SelectItem>
                         <SelectItem value="Published *">Published *</SelectItem>
                       </SelectContent>
                     </Select>
@@ -3854,6 +4110,71 @@ export default function PublicationOffice({ embeddedTab }: PublicationOfficeProp
               </div>
             </div>
           )}
+        </DialogContent>
+      </Dialog>
+      <Dialog
+        open={invalidPublication !== null}
+        onOpenChange={(open) => {
+          if (!open && !markInvalidMutation.isPending) {
+            setInvalidPublication(null);
+            setInvalidReason("");
+          }
+        }}
+      >
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Mark publication as invalid</DialogTitle>
+            <DialogDescription>
+              Request a correction from every linked author of “{invalidPublication?.title}”.
+              The publication will remain editable and will not be treated as finalized.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-2">
+            <Label htmlFor="invalid-publication-reason">Reason for correction</Label>
+            <Textarea
+              id="invalid-publication-reason"
+              value={invalidReason}
+              onChange={(event) => setInvalidReason(event.target.value.slice(0, 2000))}
+              placeholder="Clearly describe what the authors need to correct…"
+              rows={6}
+              maxLength={2000}
+              disabled={markInvalidMutation.isPending}
+              aria-describedby="invalid-reason-help"
+              data-testid="textarea-invalid-reason"
+            />
+            <div id="invalid-reason-help" className="flex justify-between text-xs text-muted-foreground">
+              <span>A reason is required.</span>
+              <span>{invalidReason.length}/2000</span>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => {
+                setInvalidPublication(null);
+                setInvalidReason("");
+              }}
+              disabled={markInvalidMutation.isPending}
+            >
+              Cancel
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={() => {
+                if (invalidPublication && invalidReason.trim()) {
+                  markInvalidMutation.mutate({ id: invalidPublication.id, reason: invalidReason });
+                }
+              }}
+              disabled={!invalidReason.trim() || invalidReason.trim().length > 2000 || markInvalidMutation.isPending}
+              data-testid="button-confirm-mark-invalid"
+            >
+              {markInvalidMutation.isPending ? (
+                <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Marking invalid…</>
+              ) : (
+                "Mark Published - Invalid"
+              )}
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
     </div>

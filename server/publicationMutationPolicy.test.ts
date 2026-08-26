@@ -84,3 +84,39 @@ test("the regular status endpoint cannot set the protected IP approval field", (
     null
   );
 });
+
+test("invalid status and active reason require dedicated correction routes", () => {
+  assert.equal(
+    getGenericPublicationPatchWorkflowViolation({
+      invalidReason: "client supplied",
+    })?.statusCode,
+    403,
+  );
+  assert.equal(
+    getPublicationCreateWorkflowViolation({
+      status: "Concept",
+      invalidReason: "client supplied",
+    })?.statusCode,
+    403,
+  );
+  assert.equal(
+    getStatusTransitionWorkflowViolation(
+      "Published",
+      "Published - Invalid",
+    )?.statusCode,
+    403,
+  );
+  assert.equal(
+    getStatusTransitionWorkflowViolation(
+      "Published - Invalid",
+      "Published",
+    )?.statusCode,
+    403,
+  );
+  assert.equal(
+    getStatusUpdatedFieldsWorkflowViolation({
+      invalidReason: null,
+    })?.statusCode,
+    403,
+  );
+});

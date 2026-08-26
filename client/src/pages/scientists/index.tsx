@@ -199,6 +199,32 @@ function StaffImportExportButtons() {
           </DialogHeader>
 
           <div className="space-y-4">
+            <div className="rounded-md border bg-muted/40 p-3 text-sm space-y-2">
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <div className="font-medium">Start with the staff template</div>
+                  <div className="text-muted-foreground">
+                    It includes every supported field plus an Instructions sheet.
+                  </div>
+                </div>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => { window.location.href = "/api/scientists/import/template"; }}
+                  data-testid="button-download-staff-template"
+                >
+                  <Download className="h-4 w-4 mr-2" />
+                  Download template
+                </Button>
+              </div>
+              <ul className="list-disc pl-5 text-muted-foreground space-y-1">
+                <li>Required: Honorific Title, First Name, Last Name, and Email.</li>
+                <li>Staff Type must be scientific or administrative; Investigator must be Yes or No.</li>
+                <li>Department ID and Section ID come from Settings → Organization, and the section must belong to the department.</li>
+                <li>Line Manager Email must identify another row in the same file.</li>
+              </ul>
+            </div>
             <Input
               type="file"
               accept=".xlsx,.csv"

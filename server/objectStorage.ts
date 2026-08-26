@@ -76,6 +76,34 @@ export class ObjectStorageService {
     return dir;
   }
 
+  private archiveFile(objectId: string): File {
+    if (!/^[0-9a-f-]{36}$/i.test(objectId)) throw new ObjectNotFoundError();
+    const { bucketName, objectName } = parseObjectPath(
+      `${this.getPrivateObjectDir().replace(/\/$/, "")}/bulk-data-archives/${objectId}.zip`,
+    );
+    return objectStorageClient.bucket(bucketName).file(objectName);
+  }
+
+  async saveArchive(objectId: string, body: Buffer): Promise<void> {
+    await this.archiveFile(objectId).save(body, {
+      resumable: false,
+      contentType: "application/zip",
+      metadata: { cacheControl: "private, no-store" },
+    });
+  }
+
+  async getArchive(objectId: string): Promise<Buffer> {
+    const file = this.archiveFile(objectId);
+    const [exists] = await file.exists();
+    if (!exists) throw new ObjectNotFoundError();
+    const [body] = await file.download();
+    return body;
+  }
+
+  async deleteArchive(objectId: string): Promise<void> {
+    await this.archiveFile(objectId).delete({ ignoreNotFound: true });
+  }
+
   // Search for a public object from the search paths.
   async searchPublicObject(filePath: string): Promise<File | null> {
     for (const searchPath of this.getPublicObjectSearchPaths()) {
