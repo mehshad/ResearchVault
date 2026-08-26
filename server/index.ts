@@ -6,12 +6,14 @@ import {
   isSsoEnabled,
   getAuthMode,
   demoBannerMiddleware,
+  refreshSessionAuthorization,
 } from "./auth";
 import { serveStatic } from "./static";
 import { log, logError, logRequest } from "./logger";
 import session from "express-session";
 import connectPgSimple from "connect-pg-simple";
 import { createHash } from "crypto";
+import { restrictDefaultUserApiAccess } from "./restrictedUserPolicy";
 import { db } from "./db";
 import { sql } from "drizzle-orm";
 
@@ -130,6 +132,16 @@ app.use((req: Request, res: Response, next: NextFunction) => {
 
   registerAuthRoutes(app);
 
+  // Refresh real authenticated principals from users before every application
+  // API request so role changes take effect immediately and fail closed.
+  app.use("/api", refreshSessionAuthorization);
+
+  // Real accounts that still have the built-in "user" onboarding role are
+  // denied by default. Only profile, registration, and ordinary publication
+  // APIs are explicitly allowed. Demo mode is bypassed inside the middleware.
+  app.use("/api", restrictDefaultUserApiAccess);
+
+  // Register API routes
   // ── Health / availability endpoint ────────────────────────────────────────
   // Polled by ELK Heartbeat / uptime monitors.
   // Returns 200 when healthy, 503 when the DB is unreachable.

@@ -30,10 +30,9 @@ export default function Sidebar({ mobile = false, onClose, onCollapsedChange }: 
   const { themeName, currentLabels, isSectionVisible, isPageVisible } = useTheme();
   const { authConfig, logout, user: authUser } = useAuth();
   const { currentUser, setCurrentUser } = useCurrentUser();
-  // True for any mode with real authenticated users (ldap or oidc).
-  // ssoEnabled on authConfig only means "browser SSO redirect" (oidc only) and
-  // must not be used here — LDAP also has real session users.
-  const ssoEnabled = authConfig.mode === 'ldap' || authConfig.mode === 'oidc';
+  // Every mode except demo uses the role from the authenticated session.
+  const hasRealAuth = authConfig.mode !== 'demo';
+  const isRestrictedRealUser = hasRealAuth && authUser?.role === 'user';
   // Expose the Super Admin test identity in the role selector only in demo mode.
   const availableUsers = authConfig.mode === 'demo'
     ? [...DUMMY_USERS, SUPER_ADMIN_USER]
@@ -45,7 +44,7 @@ export default function Sidebar({ mobile = false, onClose, onCollapsedChange }: 
   // Resolve the current user to their own scientist record. Under SSO the
   // signed-in user's linked scientistId is authoritative; in open test/demo
   // mode there is no real link, so we always land on the demo scientist.
-  const resolvedScientistId = ssoEnabled ? authUser?.scientistId ?? null : DEMO_SCIENTIST_ID;
+  const resolvedScientistId = hasRealAuth ? authUser?.scientistId ?? null : DEMO_SCIENTIST_ID;
 
   // Navigate to the current user's scientist detail page. If no scientist can
   // be resolved (SSO user with no linked record), fall back to the list so the
@@ -362,7 +361,7 @@ export default function Sidebar({ mobile = false, onClose, onCollapsedChange }: 
                 <div className="font-medium text-card-foreground truncate">{currentUser.name}</div>
                 <div className="text-xs text-muted-foreground truncate">{currentUser.role}</div>
                 <div className="text-xs text-muted-foreground/70 truncate">
-                  {ssoEnabled
+                  {hasRealAuth
                     ? `Signed in${authConfig.providerName ? ' with ' + authConfig.providerName : ' via SSO'}`
                     : 'Role-based Testing'}
                 </div>
@@ -370,7 +369,7 @@ export default function Sidebar({ mobile = false, onClose, onCollapsedChange }: 
             </button>
 
             {/* Role Selector — test mode only (hidden under SSO/real auth) */}
-            {!ssoEnabled && (
+            {!hasRealAuth && (
               <Select value={currentUser.id.toString()} onValueChange={handleUserSwitch}>
                 <SelectTrigger className="w-full h-8 text-xs" data-testid="select-role">
                   <SelectValue placeholder="Switch role..." />
@@ -486,19 +485,21 @@ export default function Sidebar({ mobile = false, onClose, onCollapsedChange }: 
           {isCollapsed ? (
             // Icon-only column layout
             <div className="flex flex-col items-center space-y-2">
-              <Link href="/" title="Home">
-                <button className="p-2 rounded-lg text-muted-foreground hover:text-primary hover:bg-primary/10 transition-colors">
-                  <Home className="w-4 h-4" />
-                </button>
-              </Link>
-              <Link href="/feature-requests" title="Feature Request" onClick={() => { if (mobile && onClose) onClose(); }}>
+              {!isRestrictedRealUser && (
+                <Link href="/" title="Home">
+                  <button className="p-2 rounded-lg text-muted-foreground hover:text-primary hover:bg-primary/10 transition-colors">
+                    <Home className="w-4 h-4" />
+                  </button>
+                </Link>
+              )}
+              {!isRestrictedRealUser && <Link href="/feature-requests" title="Feature Request" onClick={() => { if (mobile && onClose) onClose(); }}>
                 <button
                   className="p-2 rounded-lg text-muted-foreground hover:text-primary hover:bg-primary/10 transition-colors"
                   data-testid="link-feature-requests"
                 >
                   <MessageSquarePlus className="w-4 h-4" />
                 </button>
-              </Link>
+              </Link>}
               {(currentUser.role === 'admin' || currentUser.role === 'superadmin' || currentUser.role === 'Management') && (
                 <>
                   <Link href="/settings/users" title="Manage Users" onClick={() => { if (mobile && onClose) onClose(); }}>
@@ -526,13 +527,15 @@ export default function Sidebar({ mobile = false, onClose, onCollapsedChange }: 
           ) : (
             // Expanded: icon row with labels
             <div className="flex items-center justify-around">
-              <Link href="/" title="Home">
-                <button className="flex flex-col items-center gap-0.5 text-muted-foreground hover:text-primary transition-colors p-1">
-                  <Home className="w-4 h-4" />
-                  <span className="text-[10px]">Home</span>
-                </button>
-              </Link>
-              <Link href="/feature-requests" title="Feature Request" onClick={() => { if (mobile && onClose) onClose(); }}>
+              {!isRestrictedRealUser && (
+                <Link href="/" title="Home">
+                  <button className="flex flex-col items-center gap-0.5 text-muted-foreground hover:text-primary transition-colors p-1">
+                    <Home className="w-4 h-4" />
+                    <span className="text-[10px]">Home</span>
+                  </button>
+                </Link>
+              )}
+              {!isRestrictedRealUser && <Link href="/feature-requests" title="Feature Request" onClick={() => { if (mobile && onClose) onClose(); }}>
                 <button
                   className="flex flex-col items-center gap-0.5 text-muted-foreground hover:text-primary transition-colors p-1"
                   data-testid="link-feature-requests"
@@ -540,7 +543,7 @@ export default function Sidebar({ mobile = false, onClose, onCollapsedChange }: 
                   <MessageSquarePlus className="w-4 h-4" />
                   <span className="text-[10px]">Request</span>
                 </button>
-              </Link>
+              </Link>}
               {(currentUser.role === 'admin' || currentUser.role === 'superadmin' || currentUser.role === 'Management') && (
                 <>
                   <Link href="/settings/users" onClick={() => { if (mobile && onClose) onClose(); }}>

@@ -240,7 +240,10 @@ async function refreshSessionUserFromDatabase(
       .from(users)
       .where(eq(users.id, sessionUser.id));
 
-    if (!currentUser) return sessionUser;
+    if (!currentUser) {
+      req.session.user = undefined;
+      return null;
+    }
 
     const refreshedUser = toSessionUser(currentUser);
     if (
@@ -257,12 +260,55 @@ async function refreshSessionUserFromDatabase(
 
     return refreshedUser;
   } catch (error) {
-    // A temporary database lookup failure should not sign out an otherwise
-    // valid session. Permission middleware still applies the existing role.
     authError(`failed to refresh session user id=${sessionUser.id}`, error);
-    return sessionUser;
+    throw error;
   }
 }
+
+type LoadUserById = (
+  id: number
+) => Promise<typeof users.$inferSelect | null | undefined>;
+
+async function loadUserById(id: number) {
+  const [user] = await db.select().from(users).where(eq(users.id, id));
+  return user;
+}
+
+/**
+ * Refresh the session principal from users before application API routes run.
+ * This makes role demotions and assignments authoritative immediately instead
+ * of allowing a stale serialized session to retain old permissions.
+ */
+export function createRefreshSessionAuthorizationMiddleware(
+  loadCurrentUser: LoadUserById = loadUserById,
+  shouldBypass: () => boolean = () => getAuthMode() === "demo"
+) {
+  return async (req: Request, res: Response, next: NextFunction) => {
+    const sessionUser = req.session?.user;
+    if (!sessionUser || sessionUser.id <= 0 || shouldBypass()) {
+      return next();
+    }
+
+    try {
+      const currentUser = await loadCurrentUser(sessionUser.id);
+      if (!currentUser) {
+        req.session.user = undefined;
+        return res.status(401).json({ message: "Your account is no longer available." });
+      }
+
+      req.session.user = toSessionUser(currentUser);
+      return next();
+    } catch (error) {
+      authError(`failed authorization refresh for user id=${sessionUser.id}`, error);
+      return res.status(503).json({
+        message: "Access could not be verified. Please try again.",
+      });
+    }
+  };
+}
+
+export const refreshSessionAuthorization =
+  createRefreshSessionAuthorizationMiddleware();
 
 // ── Route registration ─────────────────────────────────────────────────────────
 
@@ -282,9 +328,13 @@ export function registerAuthRoutes(app: any) {
 
   // Current user
   app.get("/api/auth/me", async (req: Request, res: Response) => {
-    const currentUser = await refreshSessionUserFromDatabase(req);
-    if (currentUser) return res.json({ user: currentUser });
-    res.status(401).json({ message: "Not authenticated" });
+    try {
+      const currentUser = await refreshSessionUserFromDatabase(req);
+      if (currentUser) return res.json({ user: currentUser });
+      res.status(401).json({ message: "Not authenticated" });
+    } catch {
+      res.status(503).json({ message: "Access could not be verified. Please try again." });
+    }
   });
 
   // ── Login (local + ldap share the same endpoint) ──

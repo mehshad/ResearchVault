@@ -1,12 +1,23 @@
 ---
 name: Unified multi-provider auth
-description: How the AUTH_MODE auth system is wired and why entra_oid is reused generically
+description: AUTH_MODE identity rules and the database-authoritative session policy
 ---
 
 # Unified auth (AUTH_MODE)
 
 One auth system selectable via `AUTH_MODE` env: `local` (default) | `demo` | `ldap` | `oidc`.
-SSO = ldap/oidc only; off by default so local/role-emulation behaves as before.
+Only `demo` uses client-side role emulation. Local, LDAP, and OIDC use the real
+authenticated session user.
+
+**Demo authorization has two identities by design:** the selected demo persona
+is held in the client current-user provider, while the server session remains
+the fixed `Management` demo user.
+**Why:** role switching is a preview feature and does not rewrite the server
+session. Strict inline `admin`/`superadmin` checks therefore reject a selected
+Super Admin persona.
+**How to apply:** client page guards use the effective current user; protected
+demo APIs use the shared demo-aware authorization middleware. Real auth modes
+still require the actual server role.
 
 **`/api/auth/config` shape is a superset on purpose:** `{ mode, ssoEnabled, provider, providerName }`.
 `ssoEnabled` (= mode is ldap||oidc) is kept so existing consumers — `App.tsx`,
@@ -17,8 +28,9 @@ are the new fields the login page uses.
 **Why:** avoids a schema rename/migration churn; the existing migration
 `migrations/20260525_add_entra_auth_columns.sql` already adds it (unique, nullable — Postgres
 unique allows multiple NULLs, so LDAP users with no subject id are fine).
-**How to apply:** external-user lookup order is subjectId → email → username; new users get
-`AUTH_DEFAULT_ROLE` (default `Investigator`).
+**How to apply:** external-user lookup order is subjectId → email → username;
+new users start in the restricted `user` role until an administrator assigns
+access.
 
 OIDC provider (`server/authProviders/oidc.ts`) uses openid-client v6 with PKCE **and** state+nonce,
 plus `buildEndSessionUrl` for provider logout. Callback URL is rebuilt from the configured

@@ -11,9 +11,9 @@ export function CurrentUserProvider({ children }: CurrentUserProviderProps) {
   const { authConfig, user: authUser } = useAuth();
   const [currentUser, setCurrentUser] = useState<DummyUser>(DUMMY_USERS[7]);
 
-  // LDAP and OIDC use the authenticated session identity. Demo/local modes
-  // retain the client-side role selector used for testing.
-  const hasRealAuth = authConfig.mode === "ldap" || authConfig.mode === "oidc";
+  // Every mode except demo uses the real authenticated session. Demo alone
+  // exposes the role-emulation selector.
+  const hasRealAuth = authConfig.mode !== "demo";
 
   const effectiveUser = useMemo<DummyUser>(() => {
     if (hasRealAuth) {

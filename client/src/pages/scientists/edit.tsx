@@ -40,6 +40,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import React, { useEffect, useState } from "react";
 import { useAuth } from "@/hooks/useAuth";
 import { useCurrentUser } from "@/hooks/useCurrentUser";
+import { sanitizeScientistUpdatePayload } from "@/lib/restrictedUserProfilePolicy";
 
 // Extend the insert schema with additional validations
 const editScientistSchema = insertScientistSchema.extend({
@@ -64,6 +65,7 @@ export default function EditScientist() {
   const targetId = parseInt(id || "0");
   const isOwner = (authConfig.mode === "demo" ? currentUser.id : user?.scientistId) === targetId;
   const effectiveRole = authConfig.mode === "demo" ? currentUser.role : (user?.role ?? "user");
+  const isRestrictedUser = authConfig.mode !== "demo" && effectiveRole === "user";
   const canManage = ["Management", "admin", "superadmin"].includes(effectiveRole);
   const canEdit = isOwner || canManage;
 
@@ -78,16 +80,19 @@ export default function EditScientist() {
   const { data: allScientists = [] } = useQuery<Scientist[]>({
     queryKey: ['/api/scientists'],
     queryFn: () => fetch('/api/scientists').then(res => res.json()),
+    enabled: !isRestrictedUser,
   });
 
   // Structured org data for Department + Section dropdowns
   const { data: departments = [] } = useQuery<Department[]>({
     queryKey: ['/api/departments'],
     queryFn: () => fetch('/api/departments').then(res => res.json()),
+    enabled: !isRestrictedUser,
   });
   const { data: sections = [] } = useQuery<Section[]>({
     queryKey: ['/api/sections'],
     queryFn: () => fetch('/api/sections').then(res => res.json()),
+    enabled: !isRestrictedUser,
   });
 
   const form = useForm<EditScientistFormValues>({
@@ -220,11 +225,10 @@ export default function EditScientist() {
       data.profileImageInitials = `${data.firstName[0]}${data.lastName[0]}`;
     }
     
-    const payload = normalizeOptionalScientistFields(data);
-    if (!canManage) {
-      delete payload.isInvestigator;
-      delete payload.jobTitle;
-    }
+    const payload = sanitizeScientistUpdatePayload(
+      normalizeOptionalScientistFields(data),
+      canManage
+    );
     updateScientistMutation.mutate(payload);
   };
 
@@ -430,16 +434,13 @@ export default function EditScientist() {
                             options={jobTitles.map((t) => ({ value: t, label: t }))}
                             value={field.value || ""}
                             onChange={field.onChange}
-                            disabled={!canManage}
                             placeholder="Select job title"
                             searchPlaceholder="Search job titles..."
                             data-testid="select-job-title"
                           />
                         </FormControl>
                         <FormDescription>
-                          {canManage
-                            ? "Select the job title for this staff member"
-                            : "Contact Management to change your job title"}
+                          Select the profile job title. Account access is assigned separately in User Management.
                         </FormDescription>
                         <FormMessage />
                       </FormItem>
@@ -500,7 +501,7 @@ export default function EditScientist() {
                   )}
                 />
                 
-                <FormField
+                {!isRestrictedUser && <FormField
                   control={form.control}
                   name="departmentId"
                   render={({ field }) => (
@@ -533,9 +534,9 @@ export default function EditScientist() {
                       <FormMessage />
                     </FormItem>
                   )}
-                />
+                />}
 
-                <FormField
+                {!isRestrictedUser && <FormField
                   control={form.control}
                   name="sectionId"
                   render={({ field }) => {
@@ -573,7 +574,7 @@ export default function EditScientist() {
                       </FormItem>
                     );
                   }}
-                />
+                />}
                 
                 <FormField
                   control={form.control}
@@ -592,7 +593,7 @@ export default function EditScientist() {
                   )}
                 />
                 
-                <FormField
+                {!isRestrictedUser && <FormField
                   control={form.control}
                   name="supervisorId"
                   render={({ field }) => (
@@ -625,7 +626,7 @@ export default function EditScientist() {
                       <FormMessage />
                     </FormItem>
                   )}
-                />
+                />}
                 
                 <FormField
                   control={form.control}

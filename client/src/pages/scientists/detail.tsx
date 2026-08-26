@@ -197,8 +197,11 @@ export default function ScientistDetail() {
   const ownerId = authConfig.mode === "demo" ? currentUser.id : user?.scientistId;
   const effectiveRole = authConfig.mode === "demo" ? currentUser.role : (user?.role ?? "user");
   const isOwner = ownerId === id;
+  const isRestrictedRealUser = authConfig.mode !== "demo" && effectiveRole === "user";
   const canManageProfile = ["Management", "admin", "superadmin"].includes(effectiveRole);
-  const canImport = isOwner || ["Outcome Officer", "Management", "admin", "superadmin"].includes(effectiveRole);
+  const canImport = !isRestrictedRealUser && (
+    isOwner || ["Outcome Officer", "Management", "admin", "superadmin"].includes(effectiveRole)
+  );
   const [scoreOpen, setScoreOpen] = useState(false);
   const [scoreResult, setScoreResult] = useState<SidraScoreResult | null>(null);
   const [missingForScore, setMissingForScore] = useState<any[]>([]);
@@ -581,6 +584,7 @@ export default function ScientistDetail() {
             canImport={canImport}
             demoViewerRole={authConfig.mode === "demo" ? currentUser.role : undefined}
             demoViewerScientistId={authConfig.mode === "demo" ? currentUser.id : undefined}
+            showAuthorFixes={!isRestrictedRealUser}
           />
         )}
         </div>
@@ -588,10 +592,12 @@ export default function ScientistDetail() {
         {/* Right Column - Org Chart, Research Activities and Publication Charts */}
         <div className="lg:col-span-1 space-y-6">
           {/* Organization Chart */}
-          <OrgChart 
-            scientistId={id} 
-            onNavigate={(scientistId) => navigate(`/scientists/${scientistId}`)}
-          />
+          {!isRestrictedRealUser && (
+            <OrgChart
+              scientistId={id}
+              onNavigate={(scientistId) => navigate(`/scientists/${scientistId}`)}
+            />
+          )}
           
           {/* Research Activities - Only show for scientific staff */}
           {isScientificStaff && (
@@ -628,7 +634,12 @@ export default function ScientistDetail() {
               demoViewerScientistId={authConfig.mode === "demo" ? currentUser.id : undefined}
             />
           )}
-          {isScientificStaff && <ScientistGrants scientistId={id} canExpand={isOwner} />}
+          {isScientificStaff && (
+            <ScientistGrants
+              scientistId={id}
+              canExpand={isOwner && !isRestrictedRealUser}
+            />
+          )}
         </div>
       </div>
       <Dialog open={scoreOpen} onOpenChange={setScoreOpen}>

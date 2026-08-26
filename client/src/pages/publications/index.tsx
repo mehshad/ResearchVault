@@ -177,6 +177,7 @@ export default function PublicationsList() {
   // Scientists list for author search suggestions
   const { data: scientists } = useQuery<any[]>({
     queryKey: ['/api/scientists'],
+    enabled: currentUser.role !== 'user',
   });
 
   const scientistNameSuggestions = (() => {
@@ -193,7 +194,7 @@ export default function PublicationsList() {
   // Get research activity details if we're filtering by one
   const { data: researchActivity } = useQuery({
     queryKey: ['/api/research-activities', filterResearchActivityId],
-    enabled: !!filterResearchActivityId,
+    enabled: currentUser.role !== 'user' && !!filterResearchActivityId,
   });
 
   const formatDate = (date: string | Date | null | undefined) => {

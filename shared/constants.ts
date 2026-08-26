@@ -26,6 +26,15 @@ export const JOB_TITLES = [
 
 export type JobTitle = typeof JOB_TITLES[number];
 
+/**
+ * Built-in access roles that exist outside the configurable role matrix.
+ * "user" is the restricted onboarding role. "admin" is the application
+ * administrator role. "superadmin" is intentionally not assignable.
+ */
+export const BUILT_IN_ASSIGNABLE_ROLES = ["user", "admin"] as const;
+
+export const RESTRICTED_USER_ROLE = "user";
+
 export const NAVIGATION_ITEMS = [
   { id: "dashboard", name: "Dashboard", description: "System overview and statistics" },
   { id: "scientists", name: "Scientists & Staff", description: "Research team management" },
