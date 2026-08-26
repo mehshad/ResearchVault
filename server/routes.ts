@@ -27,6 +27,7 @@ import { scientists, publicationAuthors, journals, journalImpactFactorMetrics, m
 import { eq, inArray, desc, sql } from "drizzle-orm";
 import {
   buildExportBuffer,
+  buildTemplateBuffer,
   parseUploadedFile,
   buildImportPreview,
   enrichDeletesWithReferences,
@@ -3059,13 +3060,30 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const format = (req.query.format === 'csv' ? 'csv' : 'xlsx') as 'csv' | 'xlsx';
       const allScientists = await storage.getScientists();
-      const { buffer, mime, filename } = await buildExportBuffer(allScientists, format);
+      const org = {
+        branches: await storage.getBranches(),
+        departments: await storage.getDepartments(),
+        sections: await storage.getSections(),
+      };
+      const { buffer, mime, filename } = await buildExportBuffer(allScientists, format, org);
       res.setHeader('Content-Type', mime);
       res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
       res.send(buffer);
     } catch (error) {
       console.error('Staff export failed:', error);
       res.status(500).json({ message: 'Failed to export staff' });
+    }
+  });
+
+  app.get('/api/scientists/import/template', requireAdmin, async (_req: Request, res: Response) => {
+    try {
+      const buffer = await buildTemplateBuffer();
+      res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+      res.setHeader('Content-Disposition', 'attachment; filename="staff-import-template.xlsx"');
+      res.send(buffer);
+    } catch (error) {
+      console.error('Staff import template failed:', error);
+      res.status(500).json({ message: 'Failed to build staff import template' });
     }
   });
 
@@ -3184,7 +3202,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).json({ message: `Could not parse file: ${e?.message || e}` });
       }
       const existing = await storage.getScientists();
-      const preview = buildImportPreview(fileRows, existing);
+      const org = { branches: await storage.getBranches(), departments: await storage.getDepartments(), sections: await storage.getSections() };
+      const preview = buildImportPreview(fileRows, existing, org);
       await enrichDeletesWithReferences(preview, db, existing);
       res.json(preview);
     } catch (error) {
@@ -3211,7 +3230,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       const existing = await storage.getScientists();
-      const preview = buildImportPreview(fileRows, existing);
+      const org = { branches: await storage.getBranches(), departments: await storage.getDepartments(), sections: await storage.getSections() };
+      const preview = buildImportPreview(fileRows, existing, org);
       await enrichDeletesWithReferences(preview, db, existing);
 
       if (preview.errors.length > 0) {

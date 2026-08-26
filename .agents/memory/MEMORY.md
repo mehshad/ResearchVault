@@ -22,3 +22,4 @@
 - [Unpublished publication visibility](unpublished-publication-visibility.md) — creator/author/direct-manager access is default; Outcome Office uses an explicit authorized view.
 - [Container migration registration](container-migration-registration.md) — every schema migration must also enter the explicit container startup sequence or fresh deployments silently lag.
 - [Protected GitHub workflows](protected-github-workflows.md) — never add, edit, delete, restore, or include changes under `.github/workflows/`; repository authorization forbids it.
+- [Staff import compatibility](staff-import-compatibility.md) — preserve omitted newer fields and legacy headers; resolve manager links against the file’s intended final identities.
