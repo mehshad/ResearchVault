@@ -78,6 +78,12 @@ export function grantStatusAllowsProgressTracking(
   return START_DATE_REQUIRED_STATUSES.has(status as GrantStatus);
 }
 
+export function canGrantSetSchedule(
+  grant: Pick<GrantLifecycleInput, "awarded" | "status">,
+): boolean {
+  return grant.awarded === true || grantStatusImpliesAward(grant.status);
+}
+
 export function canGrantLinkSdrs(
   grant: Pick<GrantLifecycleInput, "awarded">,
 ): boolean {

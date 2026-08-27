@@ -37,6 +37,7 @@ import {
   grantStatusAllowsProgressTracking,
   grantStatusImpliesAward,
   grantStatusRequiresStartDate,
+  canGrantSetSchedule,
 } from "@shared/grantLifecycle";
 
 type CreateGrantForm = InsertGrant;
@@ -522,7 +523,7 @@ export default function CreateGrant() {
                     )} />
                   </div>
 
-                  {grantStatusAllowsProgressTracking(currentStatus) && (
+                  {canGrantSetSchedule({ status: currentStatus, awarded }) && (
                     <div className="grid grid-cols-2 gap-4 mb-4">
                       <div>
                         <label className="text-sm font-medium text-gray-700 mb-2 block dark:text-gray-300">

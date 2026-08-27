@@ -473,57 +473,13 @@ export default function CreateResearchActivity() {
                         ))}
                       </div>
                       <FormDescription>
-                        Select all applicable funding sources
+                        Select the planned funding source(s). Actual grant links are managed from Grants.
                       </FormDescription>
                       <FormMessage />
                     </FormItem>
                   )}
                 />
 
-                {/* Grant Codes - Show input fields for selected budget sources */}
-                {(() => {
-                  const selectedBudgetSources = form.watch("budgetSource") || [];
-                  
-                  if (selectedBudgetSources.length === 0) {
-                    return null;
-                  }
-
-                  return (
-                    <FormField
-                      control={form.control}
-                      name="grantCodes"
-                      render={({ field }) => (
-                        <FormItem>
-                          <FormLabel>Grant Codes</FormLabel>
-                          <div className="space-y-3">
-                            {selectedBudgetSources.map((source, index) => (
-                              <div key={source} className="flex items-center space-x-3">
-                                <div className="w-24 text-sm font-medium text-gray-600 dark:text-gray-300">
-                                  {source}:
-                                </div>
-                                <Input
-                                  placeholder={`Enter ${source} grant code`}
-                                  value={(field.value || [])[index] || ""}
-                                  onChange={(e) => {
-                                    const newCodes = [...(field.value || [])];
-                                    newCodes[index] = e.target.value;
-                                    field.onChange(newCodes);
-                                  }}
-                                  className="flex-1"
-                                />
-                              </div>
-                            ))}
-                          </div>
-                          <FormDescription>
-                            Enter grant codes for each selected funding source
-                          </FormDescription>
-                          <FormMessage />
-                        </FormItem>
-                      )}
-                    />
-                  );
-                })()}
-                
                 <FormField
                   control={form.control}
                   name="objectives"

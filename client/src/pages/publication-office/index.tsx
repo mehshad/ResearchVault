@@ -26,8 +26,8 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Switch } from "@/components/ui/switch";
 import * as SliderPrimitive from "@radix-ui/react-slider";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
-import { Pencil, Save, X, Upload, Search, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, ChevronDown, ArrowUpDown, ArrowUp, ArrowDown, Star, Shield, FileText, BarChart3, Download, Calendar, User, Users, BookOpen, Award, TrendingUp, CopyCheck, AlertTriangle, UserX, Unlink, CheckCircle2, Sparkles, Loader2, Globe, Plus, XCircle } from "lucide-react";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { Pencil, Save, X, Upload, Search, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, ChevronDown, ArrowUpDown, ArrowUp, ArrowDown, Star, Shield, FileText, BarChart3, Download, Calendar, User, Users, BookOpen, Award, TrendingUp, CopyCheck, AlertTriangle, UserX, Unlink, CheckCircle2, Sparkles, Loader2, Globe, Plus, XCircle, RefreshCw, Info, ExternalLink } from "lucide-react";
 import { UploadingModal } from "@/components/ui/upload-modal";
 import { PublicationDuplicates } from "@/components/PublicationDuplicates";
 import { useToast } from "@/hooks/use-toast";
@@ -1322,6 +1322,39 @@ export default function PublicationOffice({ embeddedTab }: PublicationOfficeProp
     },
     onError: (error: Error) => {
       toast({ title: "Error", description: error.message, variant: "destructive" });
+    },
+  });
+
+  const [invalidPublication, setInvalidPublication] = useState<Publication | null>(null);
+  const [invalidReason, setInvalidReason] = useState("");
+  const markInvalidMutation = useMutation({
+    mutationFn: async ({ id, reason }: { id: number; reason: string }) => {
+      const response = await fetch(`/api/publications/${id}/mark-invalid`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ reason: reason.trim() }),
+      });
+      if (!response.ok) {
+        const body = await response.json().catch(() => null);
+        throw new Error(body?.message || "Failed to mark publication invalid");
+      }
+      return response.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/publications"] });
+      queryClient.invalidateQueries({
+        predicate: (query) => String(query.queryKey[0]).startsWith("/api/publications/invalid-issues"),
+      });
+      setInvalidPublication(null);
+      setInvalidReason("");
+      toast({
+        title: "Correction requested",
+        description: "The publication is now 7. Published - Invalid and its linked authors have been notified.",
+      });
+    },
+    onError: (error: Error) => {
+      toast({ title: "Could not request correction", description: error.message, variant: "destructive" });
     },
   });
 

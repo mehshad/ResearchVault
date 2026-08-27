@@ -4,8 +4,8 @@ import { useQuery } from "@tanstack/react-query";
 import { useLocation, useParams } from "wouter";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Project, Scientist, ResearchActivity, IrbApplication, IbcApplication, DataManagementPlan, Grant, Publication } from "@shared/schema";
-import { ArrowLeft, Calendar, FileText, Layers, Users, Building, Beaker, FileCheck, FileSpreadsheet, Edit, DollarSign } from "lucide-react";
+import { Project, Scientist, ResearchActivity, IrbApplication, IbcApplication, DataManagementPlan, Publication } from "@shared/schema";
+import { ArrowLeft, Calendar, FileText, Layers, Users, Building, Beaker, FileCheck, FileSpreadsheet, Edit } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Badge } from "@/components/ui/badge";
 import { format } from "date-fns";
@@ -65,19 +65,6 @@ export default function ResearchActivityDetail() {
       const response = await fetch(`/api/research-activities/${id}/members`);
       if (!response.ok) {
         throw new Error('Failed to fetch team members');
-      }
-      return response.json();
-    },
-    enabled: !!id,
-  });
-
-  // Fetch linked grants for this research activity
-  const { data: linkedGrants, isLoading: grantsLoading } = useQuery<Grant[]>({
-    queryKey: ['/api/research-activities', id, 'grants'],
-    queryFn: async () => {
-      const response = await fetch(`/api/research-activities/${id}/grants`);
-      if (!response.ok) {
-        throw new Error('Failed to fetch linked grants');
       }
       return response.json();
     },
@@ -359,25 +346,6 @@ export default function ResearchActivityDetail() {
                   </div>
                 )}
 
-                {activity.grantCodes && activity.grantCodes.length > 0 && (
-                  <div className="col-span-full">
-                    <h3 className="text-sm font-medium text-foreground">Grant Codes</h3>
-                    <div className="space-y-2 mt-1">
-                      {activity.budgetSource?.map((source, index) => {
-                        const grantCode = activity.grantCodes?.[index];
-                        if (!grantCode) return null;
-                        return (
-                          <div key={index} className="flex items-center space-x-2">
-                            <Badge variant="outline" className="text-xs bg-gray-50 dark:bg-gray-900">
-                              {source}
-                            </Badge>
-                            <span className="text-sm font-mono">{grantCode}</span>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  </div>
-                )}
               </div>
 
               {activity.description && (
@@ -520,56 +488,6 @@ export default function ResearchActivityDetail() {
                   </Button>
                 )}
                 
-                {/* Linked Grants Section */}
-                {grantsLoading ? (
-                  <div className="border border-gray-200 rounded-lg p-3 dark:border-gray-700">
-                    <div className="flex items-center gap-2 mb-2">
-                      <DollarSign className="h-4 w-4 text-blue-600 dark:text-blue-400" />
-                      <span className="font-medium text-sm">Linked Grants</span>
-                      <Skeleton className="h-4 w-8" />
-                    </div>
-                    <Skeleton className="h-8 w-full" />
-                  </div>
-                ) : linkedGrants && linkedGrants.length > 0 ? (
-                  <div className="border border-gray-200 rounded-lg p-3 space-y-2 dark:border-gray-700">
-                    <div className="flex items-center gap-2">
-                      <DollarSign className="h-4 w-4 text-blue-600 dark:text-blue-400" />
-                      <span className="font-medium text-sm">Linked Grants</span>
-                      <span className="text-xs text-gray-500 dark:text-gray-400">({linkedGrants.length})</span>
-                    </div>
-                    {linkedGrants.map((grant) => (
-                      <Button
-                        key={grant.id}
-                        variant="ghost"
-                        className="w-full justify-start p-2 h-auto text-left hover:bg-blue-50 dark:hover:bg-blue-950"
-                        onClick={() => navigate(`/grants/${grant.id}/edit`)}
-                      >
-                        <div className="flex flex-col items-start w-full">
-                          <div className="flex items-center justify-between w-full">
-                            <span className="font-medium text-sm text-blue-600 dark:text-blue-400">{grant.projectNumber}</span>
-                            <Badge variant="outline" className={`text-xs ${
-                              grant.status === 'active' ? 'bg-green-50 text-green-700 border-green-200' :
-                              grant.status === 'completed' ? 'bg-gray-50 text-gray-700 border-gray-200' :
-                              'bg-yellow-50 text-yellow-700 border-yellow-200'
-                            }`}>
-                              {grant.status}
-                            </Badge>
-                          </div>
-                          <span className="text-xs text-gray-600 truncate w-full dark:text-gray-300">{grant.title}</span>
-                          <div className="flex items-center gap-2 mt-1">
-                            <span className="text-xs text-gray-500 dark:text-gray-400">{grant.fundingAgency}</span>
-                            {grant.awardedAmount && (
-                              <span className="text-xs text-green-600 font-medium dark:text-green-400">
-                                ${parseFloat(grant.awardedAmount).toLocaleString()}
-                              </span>
-                            )}
-                          </div>
-                        </div>
-                      </Button>
-                    ))}
-                  </div>
-                ) : null}
-
                 {irbApplications && irbApplications.length > 0 && (
                   <div className="border border-gray-200 rounded-lg p-3 space-y-3 dark:border-gray-700">
                     <div className="flex items-center gap-2">

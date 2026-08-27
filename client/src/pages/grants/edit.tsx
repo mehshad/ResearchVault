@@ -3,7 +3,7 @@
 import { useState, useEffect } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useLocation, useRoute } from "wouter";
-import { ArrowLeft, DollarSign, Plus, FileText, Trash2, X } from "lucide-react";
+import { ArrowLeft, DollarSign, Plus, FileText, Trash2, X, AlertTriangle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -26,9 +26,32 @@ import {
   grantStatusAllowsProgressTracking,
   grantStatusImpliesAward,
   grantStatusRequiresStartDate,
+  canGrantSetSchedule,
   canGrantLinkSdrs,
 } from "@shared/grantLifecycle";
 import { GRANT_CURRENCY_VALUES } from "@shared/schema";
+import {
+  getGrantSdrCandidates,
+  isGrantSdrEligible,
+} from "@shared/grantSdrEligibility";
+import {
+  evaluateGrantIssues,
+  type GrantIssueCode,
+} from "@shared/grantIssues";
+
+const GRANT_ISSUE_TARGETS: Record<GrantIssueCode, string> = {
+  missing_project_number: "grant-field-project-number",
+  missing_title: "grant-field-title",
+  missing_lpi: "grant-field-lpi",
+  missing_funding_agency: "grant-field-funding-agency",
+  missing_requested_budget: "grant-field-requested-budget",
+  missing_awarded_budget: "grant-field-awarded-budget",
+  missing_currency: "grant-field-currency",
+  missing_awarded_year: "grant-field-awarded-year",
+  missing_start_date: "grant-field-start-date",
+  missing_end_date: "grant-field-end-date",
+  missing_sdr: "grant-field-sdrs",
+};
 
 export default function EditGrant() {
   const [, navigate] = useLocation();
@@ -492,6 +515,32 @@ export default function EditGrant() {
 
   // SDR section is visible when awarded is true (includes Active and Completed)
   const canLinkSdrs = canGrantLinkSdrs({ awarded: formData.awarded });
+  const selectedLpiId = formData.lpiId ? Number(formData.lpiId) : null;
+  const lpiResearchActivities = getGrantSdrCandidates(
+    researchActivities,
+    selectedLpiId,
+    linkedSdrs,
+  );
+  const currentIssues = evaluateGrantIssues({
+    ...grant,
+    ...formData,
+    lpiId: selectedLpiId,
+    awardedYear: formData.awardedYear ? Number(formData.awardedYear) : null,
+  }, linkedSdrs.length);
+  const currentIssueCodes = new Set(currentIssues.map((issue) => issue.code));
+  const issueFieldClass = (code: GrantIssueCode) =>
+    `scroll-mt-28 rounded-lg ${
+      currentIssueCodes.has(code)
+        ? "border border-amber-400 bg-amber-50/80 p-3 ring-2 ring-amber-300/60 dark:border-amber-700 dark:bg-amber-950/30 dark:ring-amber-800/60"
+        : ""
+    }`;
+  const navigateToIssue = (code: GrantIssueCode) => {
+    const target = document.getElementById(GRANT_ISSUE_TARGETS[code]);
+    target?.scrollIntoView({ behavior: "smooth", block: "center" });
+    window.setTimeout(() => {
+      target?.querySelector<HTMLElement>("input, button, [tabindex]")?.focus();
+    }, 350);
+  };
 
   return (
     <div className="container mx-auto p-6">
@@ -509,6 +558,36 @@ export default function EditGrant() {
       </div>
 
       <form onSubmit={handleSubmit} className="space-y-6">
+        {currentIssues.length > 0 && (
+          <Card className="border-amber-400 bg-amber-50/70 dark:border-amber-800 dark:bg-amber-950/25">
+            <CardHeader className="pb-3">
+              <CardTitle className="flex items-center gap-2 text-lg text-amber-950 dark:text-amber-100">
+                <AlertTriangle className="h-5 w-5 text-amber-600 dark:text-amber-400" />
+                {currentIssues.length} grant issue{currentIssues.length === 1 ? "" : "s"} to resolve
+              </CardTitle>
+              <p className="text-sm text-amber-800 dark:text-amber-200">
+                Select an issue to jump directly to the highlighted field.
+              </p>
+            </CardHeader>
+            <CardContent className="flex flex-wrap gap-2">
+              {currentIssues.map((issue) => (
+                <Button
+                  key={issue.code}
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => navigateToIssue(issue.code)}
+                  className="border-amber-400 bg-background text-amber-950 hover:bg-amber-100 dark:border-amber-700 dark:text-amber-100 dark:hover:bg-amber-950"
+                  title={issue.detail}
+                >
+                  <AlertTriangle className="mr-1.5 h-3.5 w-3.5" />
+                  {issue.label}
+                </Button>
+              ))}
+            </CardContent>
+          </Card>
+        )}
+
         {/* Basic Information - Overview */}
         <Card>
           <CardHeader>
@@ -517,7 +596,7 @@ export default function EditGrant() {
           <CardContent>
             {/* First Row: Project Number, Status, Grant Type, Funding Agency */}
             <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-              <div>
+              <div id="grant-field-project-number" className={issueFieldClass("missing_project_number")}>
                 <label className="text-sm font-medium text-gray-700 mb-2 block dark:text-gray-300">
                   Project Number
                 </label>
@@ -568,7 +647,7 @@ export default function EditGrant() {
                 </Select>
               </div>
 
-              <div>
+              <div id="grant-field-funding-agency" className={issueFieldClass("missing_funding_agency")}>
                 <label className="text-sm font-medium text-gray-700 mb-2 block dark:text-gray-300">
                   Funding Agency
                 </label>
@@ -596,7 +675,7 @@ export default function EditGrant() {
             </div>
 
             {/* Project Title - Full Width */}
-            <div className="mt-4">
+            <div id="grant-field-title" className={`mt-4 ${issueFieldClass("missing_title")}`}>
               <label className="text-sm font-medium text-gray-700 mb-2 block dark:text-gray-300">
                 Project Title
               </label>
@@ -610,7 +689,7 @@ export default function EditGrant() {
 
             {/* Third Row: Lead Investigator, Investigator Type, Running Time, Current Year */}
             <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mt-4">
-              <div>
+              <div id="grant-field-lpi" className={issueFieldClass("missing_lpi")}>
                 <label className="text-sm font-medium text-gray-700 mb-2 block dark:text-gray-300">
                   Lead Investigator
                 </label>
@@ -675,7 +754,7 @@ export default function EditGrant() {
 
             {/* Fourth Row: Awarded Amount, Start Date, End Date, Cycle */}
             <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mt-4">
-              <div>
+              <div id="grant-field-awarded-budget" className={issueFieldClass("missing_awarded_budget")}>
                 <label className="text-sm font-medium text-gray-700 mb-2 block dark:text-gray-300">
                   Awarded Amount
                 </label>
@@ -686,9 +765,12 @@ export default function EditGrant() {
                 />
               </div>
 
-              {grantStatusAllowsProgressTracking(formData.status) && (
+              {canGrantSetSchedule({
+                status: formData.status,
+                awarded: formData.awarded,
+              }) && (
                 <>
-                  <div>
+                  <div id="grant-field-start-date" className={issueFieldClass("missing_start_date")}>
                     <label className="text-sm font-medium text-gray-700 mb-2 block dark:text-gray-300">
                       Start Date {grantStatusRequiresStartDate(formData.status) && <span className="text-red-500">*</span>}
                     </label>
@@ -699,7 +781,7 @@ export default function EditGrant() {
                     />
                   </div>
 
-                  <div>
+                  <div id="grant-field-end-date" className={issueFieldClass("missing_end_date")}>
                     <label className="text-sm font-medium text-gray-700 mb-2 block dark:text-gray-300">
                       End Date
                     </label>
@@ -747,7 +829,7 @@ export default function EditGrant() {
           </CardHeader>
           <CardContent>
             <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-              <div>
+              <div id="grant-field-requested-budget" className={issueFieldClass("missing_requested_budget")}>
                 <label className="text-sm font-medium text-gray-700 mb-2 block dark:text-gray-300">
                   Requested Amount
                 </label>
@@ -770,7 +852,7 @@ export default function EditGrant() {
                 />
               </div>
 
-              <div>
+              <div id="grant-field-awarded-year" className={issueFieldClass("missing_awarded_year")}>
                 <label className="text-sm font-medium text-gray-700 mb-2 block dark:text-gray-300">
                   Awarded Year
                 </label>
@@ -781,13 +863,13 @@ export default function EditGrant() {
                   placeholder="2024"
                 />
               </div>
-              <div>
+              <div id="grant-field-currency" className={issueFieldClass("missing_currency")}>
                 <label className="text-sm font-medium text-gray-700 mb-2 block dark:text-gray-300">Currency</label>
                 <Select
-                  value={formData.currency || "QAR"}
+                  value={formData.currency || undefined}
                   onValueChange={(value) => setFormData({...formData, currency: value})}
                 >
-                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectTrigger><SelectValue placeholder="Select currency" /></SelectTrigger>
                   <SelectContent>
                     {GRANT_CURRENCY_VALUES.map((currency) => (
                       <SelectItem key={currency} value={currency}>{currency}</SelectItem>
@@ -826,30 +908,45 @@ export default function EditGrant() {
 
             {/* SDR Linking Section — visible whenever awarded = true (includes Active & Completed) */}
             {canLinkSdrs && (
-              <div className="mt-6 border-t pt-4">
+              <div
+                id="grant-field-sdrs"
+                className={`mt-6 border-t pt-4 ${issueFieldClass("missing_sdr")}`}
+              >
                 <h3 className="text-lg font-medium mb-4">Linked Research Activities (SDRs)</h3>
                 <div className="space-y-2 max-h-64 overflow-y-auto">
-                  {researchActivities.length > 0 ? (
-                    researchActivities.map((sdr: any) => {
+                  {lpiResearchActivities.length > 0 ? (
+                    lpiResearchActivities.map((sdr: any) => {
                       const isLinked = linkedSdrs.includes(sdr.id);
+                      const belongsToLpi = isGrantSdrEligible(
+                        selectedLpiId,
+                        sdr.budgetHolderId,
+                      );
                       return (
                         <div key={sdr.id} className="flex items-center space-x-3 p-2 border rounded-lg hover:bg-gray-50 dark:hover:bg-gray-900">
                           <input
                             type="checkbox"
                             checked={isLinked}
                             onChange={(e) => handleSdrToggle(sdr.id, e.target.checked)}
+                            disabled={!belongsToLpi && !isLinked}
                             className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded dark:text-blue-400 dark:border-gray-600"
                           />
                           <div className="flex-1">
                             <div className="font-medium text-sm">{sdr.sdrNumber}</div>
                             <div className="text-sm text-gray-500 truncate dark:text-gray-400">{sdr.title}</div>
                             <div className="text-xs text-gray-400 dark:text-gray-500">{sdr.status}</div>
+                            {!belongsToLpi && isLinked && (
+                              <div className="text-xs text-amber-600 dark:text-amber-400">
+                                Different PI — unlink this SDR before saving
+                              </div>
+                            )}
                           </div>
                         </div>
                       );
                     })
                   ) : (
-                    <p className="text-gray-500 text-sm dark:text-gray-400">No research activities available to link.</p>
+                    <p className="text-gray-500 text-sm dark:text-gray-400">
+                      No SDRs for this grant&apos;s Lead PI are available to link.
+                    </p>
                   )}
                 </div>
               </div>

@@ -25,8 +25,14 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Grant } from "@shared/schema";
-import { Plus, Search, MoreHorizontal, Download, Filter, DollarSign, Calendar, ArrowUpDown, Link as LinkIcon, Upload, FileSpreadsheet, Loader2 } from "lucide-react";
+import { Plus, Search, MoreHorizontal, Download, Filter, DollarSign, Calendar, ArrowUpDown, Link as LinkIcon, Upload, FileSpreadsheet, Loader2, AlertTriangle } from "lucide-react";
 import { GRANT_STATUS_OPTIONS } from "@shared/grantLifecycle";
+import {
+  GRANT_ISSUE_DEFINITIONS,
+  grantMatchesListFilters,
+  type GrantIssue,
+  type GrantIssueCode,
+} from "@shared/grantIssues";
 import {
   Dialog,
   DialogContent,
@@ -51,12 +57,14 @@ type EnhancedGrant = Grant & {
     honorificTitle: string;
   } | null;
   linkedSdrsCount?: number;
+  issues?: GrantIssue[];
 };
 
 export default function GrantsList() {
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState<string>("all");
   const [yearFilter, setYearFilter] = useState<string>("all");
+  const [issueFilter, setIssueFilter] = useState<"all" | "any" | GrantIssueCode>("all");
   const [sortField, setSortField] = useState<string>("createdAt");
   const [sortDirection, setSortDirection] = useState<string>("desc");
   const { toast } = useToast();
@@ -65,32 +73,6 @@ export default function GrantsList() {
 
   const { data: grants, isLoading } = useQuery<EnhancedGrant[]>({
     queryKey: ['/api/grants'],
-  });
-
-  // Fetch SDR counts for grants with awarded=true (includes Active and Completed)
-  const { data: grantSdrCounts = {} } = useQuery({
-    queryKey: ['/api/grants/sdr-counts'],
-    enabled: grants && grants.some(g => g.awarded === true),
-    queryFn: async () => {
-      const awardedGrants = grants?.filter(g => g.awarded === true) || [];
-      const counts: Record<number, number> = {};
-      
-      await Promise.all(
-        awardedGrants.map(async (grant) => {
-          try {
-            const response = await fetch(`/api/grants/${grant.id}/research-activities`);
-            if (response.ok) {
-              const sdrs = await response.json();
-              counts[grant.id] = sdrs.length;
-            }
-          } catch (error) {
-            console.error(`Failed to fetch SDRs for grant ${grant.id}:`, error);
-          }
-        })
-      );
-      
-      return counts;
-    }
   });
 
   const deleteGrantMutation = useMutation({
@@ -171,29 +153,12 @@ export default function GrantsList() {
   };
 
   const filteredAndSortedGrants = grants?.filter(grant => {
-    // Status filter
-    if (statusFilter !== "all" && grant.status !== statusFilter) {
-      return false;
-    }
-    
-    // Year filter (based on submitted year)
-    if (yearFilter !== "all" && grant.submittedYear?.toString() !== yearFilter) {
-      return false;
-    }
-    
-    // Search query filter
-    if (searchQuery) {
-      const query = searchQuery.toLowerCase();
-      return (
-        grant.title.toLowerCase().includes(query) ||
-        grant.projectNumber.toLowerCase().includes(query) ||
-        (grant.lpi && `${grant.lpi.firstName} ${grant.lpi.lastName}`.toLowerCase().includes(query)) ||
-        (grant.fundingAgency && grant.fundingAgency.toLowerCase().includes(query)) ||
-        (grant.description && grant.description.toLowerCase().includes(query))
-      );
-    }
-    
-    return true;
+    return grantMatchesListFilters(grant, {
+      searchQuery,
+      status: statusFilter,
+      year: yearFilter,
+      issue: issueFilter,
+    });
   })?.sort((a, b) => {
     let aValue: any = a[sortField as keyof Grant];
     let bValue: any = b[sortField as keyof Grant];
@@ -439,11 +404,29 @@ export default function GrantsList() {
                   ))}
                 </SelectContent>
               </Select>
+              <Select
+                value={issueFilter}
+                onValueChange={(value) => setIssueFilter(value as typeof issueFilter)}
+              >
+                <SelectTrigger className="w-52">
+                  <AlertTriangle className="mr-2 h-4 w-4 text-amber-600" />
+                  <SelectValue placeholder="Issues" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All records</SelectItem>
+                  <SelectItem value="any">Any issue</SelectItem>
+                  {GRANT_ISSUE_DEFINITIONS.map((issue) => (
+                    <SelectItem key={issue.code} value={issue.code}>
+                      {issue.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
           </div>
 
-          <div className="rounded-md border">
-            <Table>
+          <div className="overflow-x-auto rounded-md border">
+            <Table className="min-w-[1400px]">
               <TableHeader>
                 <TableRow>
                   <TableHead className="w-32">
@@ -451,6 +434,7 @@ export default function GrantsList() {
                       TYPE OF GRANT <ArrowUpDown className="ml-1 h-3 w-3" />
                     </Button>
                   </TableHead>
+                  <TableHead className="min-w-60">ISSUES</TableHead>
                   <TableHead className="w-48">
                     <Button variant="ghost" onClick={() => handleSort("investigatorName")} className="h-8 p-0 font-semibold">
                       LEAD PRINCIPAL INVESTIGATOR <ArrowUpDown className="ml-1 h-3 w-3" />
@@ -487,8 +471,8 @@ export default function GrantsList() {
               <TableBody>
                 {filteredAndSortedGrants?.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={8} className="text-center py-8 text-gray-500 dark:text-gray-400">
-                      {searchQuery || statusFilter !== "all" || yearFilter !== "all" 
+                    <TableCell colSpan={9} className="text-center py-8 text-gray-500 dark:text-gray-400">
+                      {searchQuery || statusFilter !== "all" || yearFilter !== "all" || issueFilter !== "all"
                         ? "No grants match your filters." 
                         : "No grants found. Create your first grant to get started."}
                     </TableCell>
@@ -504,6 +488,49 @@ export default function GrantsList() {
                         <Badge variant="outline" className="text-xs">
                           {getGrantType(grant)}
                         </Badge>
+                      </TableCell>
+                      <TableCell className="min-w-60">
+                        {(grant.issues?.length ?? 0) > 0 ? (
+                          <div className="flex max-w-60 flex-wrap gap-1.5" aria-label={`${grant.issues!.length} grant data issue${grant.issues!.length === 1 ? "" : "s"}`}>
+                            {grant.issues!.slice(0, 2).map((issue) => (
+                              <Link
+                                key={issue.code}
+                                href={`/grants/${grant.id}/edit`}
+                                onClick={(event) => event.stopPropagation()}
+                                className="rounded-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                                aria-label={`${issue.label}. ${issue.detail} Edit grant.`}
+                                title={`${issue.detail} Open this grant to correct it.`}
+                              >
+                                <Badge
+                                  variant="outline"
+                                  className="cursor-pointer border-amber-400 bg-amber-50 text-amber-900 hover:bg-amber-100 dark:border-amber-700 dark:bg-amber-950/40 dark:text-amber-200 dark:hover:bg-amber-950/70"
+                                >
+                                  <AlertTriangle className="mr-1 h-3 w-3" />
+                                  {issue.label}
+                                  <span className="sr-only">. {issue.detail} Edit grant.</span>
+                                </Badge>
+                              </Link>
+                            ))}
+                            {grant.issues!.length > 2 && (
+                              <Link
+                                href={`/grants/${grant.id}/edit`}
+                                onClick={(event) => event.stopPropagation()}
+                                className="rounded-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                                aria-label={`${grant.issues!.length - 2} more issues: ${grant.issues!.slice(2).map((issue) => `${issue.label}. ${issue.detail}`).join(" ")} Edit grant.`}
+                                title={grant.issues!.slice(2).map((issue) => `${issue.label}: ${issue.detail}`).join("\n")}
+                              >
+                                <Badge
+                                  variant="outline"
+                                  className="cursor-pointer border-amber-400 bg-amber-50 text-amber-900 hover:bg-amber-100 dark:border-amber-700 dark:bg-amber-950/40 dark:text-amber-200 dark:hover:bg-amber-950/70"
+                                >
+                                  +{grant.issues!.length - 2} more
+                                </Badge>
+                              </Link>
+                            )}
+                          </div>
+                        ) : (
+                          <span className="text-xs text-muted-foreground">No issues</span>
+                        )}
                       </TableCell>
                       <TableCell>
                         {grant.lpi ? (
@@ -533,10 +560,10 @@ export default function GrantsList() {
                       <TableCell className="text-right font-mono text-sm">
                         <div className="flex items-center justify-end gap-2">
                           {formatCurrency(grant.awardedAmount, grant.currency)}
-                          {grant.awarded === true && grantSdrCounts[grant.id] > 0 && (
-                            <div className="flex items-center gap-1" title={`${grantSdrCounts[grant.id]} linked SDR${grantSdrCounts[grant.id] > 1 ? 's' : ''}`}>
+                          {grant.awarded === true && (grant.linkedSdrsCount ?? 0) > 0 && (
+                            <div className="flex items-center gap-1" title={`${grant.linkedSdrsCount} linked SDR${grant.linkedSdrsCount! > 1 ? 's' : ''}`}>
                               <LinkIcon className="h-3 w-3 text-blue-600 dark:text-blue-400" />
-                              <span className="text-xs text-blue-600 dark:text-blue-400">{grantSdrCounts[grant.id]}</span>
+                              <span className="text-xs text-blue-600 dark:text-blue-400">{grant.linkedSdrsCount}</span>
                             </div>
                           )}
                         </div>
