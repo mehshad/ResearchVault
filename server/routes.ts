@@ -5395,15 +5395,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       // Status validation logic. Each entry lists every status reachable from
       // the key — forward transitions, revert paths (one hop back), and
-      // terminal exits (Rejected/Withdrawn). Keep in sync with the
+      // author-controlled withdrawal. Keep in sync with the
       // `getNextStatuses` map in client/src/pages/publications/detail.tsx.
       const validTransitions: Record<string, string[]> = {
         'Concept': ['Complete Draft', 'Withdrawn'],
-        'Complete Draft': ['Vetted for submission', 'Concept', 'Rejected', 'Withdrawn'],
-        'Vetted for submission': ['Submitted for review with pre-publication', 'Submitted for review without pre-publication', 'Complete Draft', 'Rejected', 'Withdrawn'],
-        'Submitted for review with pre-publication': ['Under review', 'Vetted for submission', 'Rejected', 'Withdrawn'],
-        'Submitted for review without pre-publication': ['Under review', 'Vetted for submission', 'Rejected', 'Withdrawn'],
-        'Under review': ['Accepted/In Press', 'Submitted for review with pre-publication', 'Submitted for review without pre-publication', 'Rejected', 'Withdrawn'],
+        'Complete Draft': ['Vetted for submission', 'Concept', 'Withdrawn'],
+        'Vetted for submission': ['Submitted for review with pre-publication', 'Submitted for review without pre-publication', 'Complete Draft', 'Withdrawn'],
+        'Submitted for review with pre-publication': ['Under review', 'Vetted for submission', 'Withdrawn'],
+        'Submitted for review without pre-publication': ['Under review', 'Vetted for submission', 'Withdrawn'],
+        'Under review': ['Accepted/In Press', 'Submitted for review with pre-publication', 'Submitted for review without pre-publication', 'Withdrawn'],
         'Accepted/In Press': ['Published', 'Under review', 'Withdrawn'],
         'Published': ['Accepted/In Press'],
         'Published - Invalid': [],

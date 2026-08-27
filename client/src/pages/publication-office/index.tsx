@@ -28,7 +28,7 @@ import { Switch } from "@/components/ui/switch";
 import * as SliderPrimitive from "@radix-ui/react-slider";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
-import { Pencil, Save, X, Upload, Search, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, ChevronDown, ArrowUpDown, ArrowUp, ArrowDown, Star, Shield, FileText, BarChart3, Download, Calendar, User, Users, BookOpen, Award, TrendingUp, CopyCheck, AlertTriangle, UserX, Unlink, CheckCircle2, Sparkles, Loader2, Globe, Plus, XCircle, RefreshCw, Info, ExternalLink } from "lucide-react";
+import { Pencil, Save, X, Upload, Search, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, ChevronDown, ArrowUpDown, ArrowUp, ArrowDown, Star, Shield, FileText, BarChart3, Download, Calendar, User, Users, BookOpen, Award, TrendingUp, CopyCheck, AlertTriangle, UserX, Unlink, CheckCircle2, Sparkles, Loader2, Globe, Plus, RefreshCw, Info, ExternalLink } from "lucide-react";
 import { UploadingModal } from "@/components/ui/upload-modal";
 import { PublicationDuplicates } from "@/components/PublicationDuplicates";
 import { useToast } from "@/hooks/use-toast";
@@ -1360,43 +1360,6 @@ export default function PublicationOffice({ embeddedTab }: PublicationOfficeProp
     },
   });
 
-  // Reject publication
-  const [rejectConfirmPub, setRejectConfirmPub] = useState<{ id: number; title: string } | null>(null);
-  const [rejectReason, setRejectReason] = useState("");
-  const rejectPublicationMutation = useMutation({
-    mutationFn: async ({ id, reason }: { id: number; reason: string }) => {
-      const response = await fetch(`/api/publications/${id}/status`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
-        body: JSON.stringify({ status: 'Rejected', changes: reason ? `Rejected by Outcome Office: ${reason}` : 'Rejected by Outcome Office' }),
-      });
-      if (!response.ok) {
-        const body = await response.json().catch(() => null);
-        throw new Error(body?.message || 'Failed to reject publication');
-      }
-      return response.json();
-    },
-    onSuccess: () => {
-      setRejectConfirmPub(null);
-      setRejectReason("");
-      queryClient.invalidateQueries({ queryKey: ['/api/publications'] });
-      toast({ title: "Publication rejected", description: "The publication has been marked as Rejected." });
-    },
-    onError: (error: Error) => {
-      toast({ title: "Error", description: error.message, variant: "destructive" });
-    },
-  });
-
-  // Statuses from which an Outcome Officer can reject
-  const REJECTABLE_STATUSES = new Set([
-    'Complete Draft',
-    'Vetted for submission',
-    'Submitted for review with pre-publication',
-    'Submitted for review without pre-publication',
-    'Under review',
-  ]);
-
   // Revert final approval (Export tab, rarely used)
   const [revertSearch, setRevertSearch] = useState("");
   const [revertConfirmId, setRevertConfirmId] = useState<number | null>(null);
@@ -1791,19 +1754,6 @@ export default function PublicationOffice({ embeddedTab }: PublicationOfficeProp
                                 >
                                   <AlertTriangle className="h-4 w-4 mr-1" />
                                   Mark as invalid
-                                </Button>
-                              )}
-                              {canMarkPublished && REJECTABLE_STATUSES.has(pub.status) && (
-                                <Button
-                                  size="sm"
-                                  variant="destructive"
-                                  onClick={() => setRejectConfirmPub({ id: pub.id, title: pub.title || `Publication #${pub.id}` })}
-                                  disabled={rejectPublicationMutation.isPending}
-                                  title="Reject this publication"
-                                  data-testid={`button-reject-${pub.id}`}
-                                >
-                                  <XCircle className="h-4 w-4 mr-1" />
-                                  Reject
                                 </Button>
                               )}
                             </div>
@@ -4228,43 +4178,6 @@ export default function PublicationOffice({ embeddedTab }: PublicationOfficeProp
         </DialogContent>
       </Dialog>
     </div>
-
-      {/* Reject publication confirmation dialog */}
-      <Dialog open={!!rejectConfirmPub} onOpenChange={(o) => { if (!o) { setRejectConfirmPub(null); setRejectReason(""); } }}>
-        <DialogContent className="max-w-md">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2 text-destructive">
-              <XCircle className="h-5 w-5" />
-              Reject Publication
-            </DialogTitle>
-            <DialogDescription>
-              You are about to reject <strong>{rejectConfirmPub?.title}</strong>. The publication will be moved to <em>Rejected</em> status and the research team will need to resubmit it for review.
-            </DialogDescription>
-          </DialogHeader>
-          <div className="space-y-3 py-2">
-            <Label htmlFor="reject-reason">Reason for rejection (optional)</Label>
-            <Input
-              id="reject-reason"
-              placeholder="e.g. Incomplete authorship, missing SDR link…"
-              value={rejectReason}
-              onChange={(e) => setRejectReason(e.target.value)}
-            />
-          </div>
-          <div className="flex justify-end gap-2 pt-2">
-            <Button variant="outline" onClick={() => { setRejectConfirmPub(null); setRejectReason(""); }}>
-              Cancel
-            </Button>
-            <Button
-              variant="destructive"
-              disabled={rejectPublicationMutation.isPending}
-              onClick={() => rejectConfirmPub && rejectPublicationMutation.mutate({ id: rejectConfirmPub.id, reason: rejectReason })}
-            >
-              {rejectPublicationMutation.isPending ? <Loader2 className="h-4 w-4 mr-1 animate-spin" /> : <XCircle className="h-4 w-4 mr-1" />}
-              Confirm Rejection
-            </Button>
-          </div>
-        </DialogContent>
-      </Dialog>
     </>
   );
 }

@@ -1289,16 +1289,16 @@ function StatusUpdateForm({
   const getNextStatuses = (status: string) => {
     // Keep in sync with validTransitions in server/routes.ts publication
     // status route. Includes forward transitions, one-hop revert paths, and
-    // terminal exits (Rejected/Withdrawn).
+    // author-controlled withdrawal.
     const transitions: Record<string, string[]> = {
       'Concept': ['Complete Draft', 'Withdrawn'],
       // Complete Draft → Vetted for submission is reserved for the
       // Outcome Office IP Vetting action.
-      'Complete Draft': ['Concept', 'Rejected', 'Withdrawn'],
-      'Vetted for submission': ['Submitted for review with pre-publication', 'Submitted for review without pre-publication', 'Complete Draft', 'Rejected', 'Withdrawn'],
-      'Submitted for review with pre-publication': ['Under review', 'Vetted for submission', 'Rejected', 'Withdrawn'],
-      'Submitted for review without pre-publication': ['Under review', 'Vetted for submission', 'Rejected', 'Withdrawn'],
-      'Under review': ['Accepted/In Press', 'Submitted for review with pre-publication', 'Submitted for review without pre-publication', 'Rejected', 'Withdrawn'],
+      'Complete Draft': ['Concept', 'Withdrawn'],
+      'Vetted for submission': ['Submitted for review with pre-publication', 'Submitted for review without pre-publication', 'Complete Draft', 'Withdrawn'],
+      'Submitted for review with pre-publication': ['Under review', 'Vetted for submission', 'Withdrawn'],
+      'Submitted for review without pre-publication': ['Under review', 'Vetted for submission', 'Withdrawn'],
+      'Under review': ['Accepted/In Press', 'Submitted for review with pre-publication', 'Submitted for review without pre-publication', 'Withdrawn'],
       'Accepted/In Press': ['Published', 'Under review', 'Withdrawn'],
       'Published': ['Accepted/In Press'],
       // Sealed — only the Outcome Office can revert the final approval.
