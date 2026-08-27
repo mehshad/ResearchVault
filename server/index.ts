@@ -14,9 +14,9 @@ import session from "express-session";
 import connectPgSimple from "connect-pg-simple";
 import { createHash } from "crypto";
 import { restrictDefaultUserApiAccess } from "./restrictedUserPolicy";
+import { startBulkDataArchiveScheduler } from "./bulkDataArchives";
 import { db } from "./db";
 import { sql } from "drizzle-orm";
-import { startBulkDataArchiveScheduler } from "./bulkDataArchives";
 
 const PgSession = connectPgSimple(session);
 const APP_START = Date.now();

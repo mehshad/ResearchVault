@@ -1741,21 +1741,6 @@ export default function PublicationOffice({ embeddedTab }: PublicationOfficeProp
                                   Mark as Published *
                                 </Button>
                               )}
-                              {canMarkPublished && pub.status === "Published" && (
-                                <Button
-                                  size="sm"
-                                  variant="destructive"
-                                  onClick={() => {
-                                    setInvalidPublication(pub);
-                                    setInvalidReason("");
-                                  }}
-                                  disabled={markInvalidMutation.isPending}
-                                  data-testid={`button-mark-invalid-${pub.id}`}
-                                >
-                                  <AlertTriangle className="h-4 w-4 mr-1" />
-                                  Mark as invalid
-                                </Button>
-                              )}
                             </div>
                           )}
                         </div>
