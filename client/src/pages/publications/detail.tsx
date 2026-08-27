@@ -301,6 +301,36 @@ export default function PublicationDetail() {
     publicationAuthors.some(author => author.scientistId === effectiveScientistId);
   const canEditPublication = canManageAllPublications || isLinkedResearcher;
 
+  const submitCorrectionMutation = useMutation({
+    mutationFn: async () => {
+      const response = await fetch(`/api/publications/${id}/submit-correction`, {
+        method: "POST",
+        credentials: "include",
+      });
+      if (!response.ok) {
+        const body = await response.json().catch(() => null);
+        throw new Error(body?.message || "Failed to submit the correction");
+      }
+      return response.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: [`/api/publications/${id}`] });
+      queryClient.invalidateQueries({ queryKey: ["/api/publications"] });
+      queryClient.invalidateQueries({ queryKey: [`/api/publications/${id}/history`] });
+      toast({
+        title: "Correction submitted",
+        description: "The manuscript has returned to 7. Published for Outcome Office review.",
+      });
+    },
+    onError: (error: Error) => {
+      toast({
+        title: "Could not submit correction",
+        description: error.message,
+        variant: "destructive",
+      });
+    },
+  });
+
   const availableScientists = scientists
     .filter(scientist => {
       if (
@@ -1118,6 +1148,32 @@ export default function PublicationDetail() {
                     </Button>
                   )}
                 </div>
+
+                {publication.status === 'Published - Invalid' && isLinkedResearcher && (
+                  <Alert className="border-red-300 bg-red-50/60 dark:border-red-800 dark:bg-red-950/20">
+                    <AlertTriangle className="h-4 w-4 text-red-700 dark:text-red-300" />
+                    <AlertDescription className="space-y-3">
+                      <div>
+                        <p className="font-medium text-red-900 dark:text-red-200">
+                          Outcome Office correction reason
+                        </p>
+                        <p className="mt-1 whitespace-pre-wrap text-foreground">
+                          {publication.invalidReason || "No correction reason was provided."}
+                        </p>
+                      </div>
+                      <Button
+                        size="sm"
+                        onClick={() => submitCorrectionMutation.mutate()}
+                        disabled={submitCorrectionMutation.isPending}
+                        data-testid={`button-submit-correction-${publication.id}`}
+                      >
+                        {submitCorrectionMutation.isPending
+                          ? "Submitting correction…"
+                          : "Return to 7. Published"}
+                      </Button>
+                    </AlertDescription>
+                  </Alert>
+                )}
                 
                 {/* Next Steps Information */}
                 <div className="text-sm text-gray-600 dark:text-gray-300">
