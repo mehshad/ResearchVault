@@ -246,6 +246,12 @@ export function classifyResolvedPublication(pub: DedupPublication): {
   publicationType: "Journal Article" | "Preprint";
   prepublicationUrl: string | null;
   prepublicationSite: string | null;
+  doi?: null;
+  pmid?: null;
+  journal?: null;
+  volume?: null;
+  issue?: null;
+  publicationDate?: null;
 } {
   const doi = normalizeDoi(pub.doi);
   if (!isPreprintRecord({ ...pub, doi })) {
@@ -261,6 +267,12 @@ export function classifyResolvedPublication(pub: DedupPublication): {
     publicationType: "Preprint",
     prepublicationUrl: doi ? `https://doi.org/${doi}` : null,
     prepublicationSite: preprintServerName({ ...pub, doi }) || "Other",
+    doi: null,
+    pmid: null,
+    journal: null,
+    volume: null,
+    issue: null,
+    publicationDate: null,
   };
 }
 
