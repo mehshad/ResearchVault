@@ -9,6 +9,16 @@ import { ResearchActivity, Publication, Patent, PublicationAuthor, Scientist, In
 import { ArrowLeft, Calendar, FileText, Book, Layers, ExternalLink, Award, Edit, Plus, Trash2, Users, Info, CheckCircle, Clock, AlertCircle, AlertTriangle } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Alert, AlertDescription } from "@/components/ui/alert";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Badge } from "@/components/ui/badge";
 import { format } from "date-fns";
 import { useState } from "react";
@@ -118,6 +128,7 @@ export default function PublicationDetail() {
   const [publicationDateStr, setPublicationDateStr] = useState('');
   const [doiValue, setDoiValue] = useState('');
   const [authorsValue, setAuthorsValue] = useState('');
+  const [isWithdrawInvalidOpen, setIsWithdrawInvalidOpen] = useState(false);
 
   const { data: publication, isLoading: publicationLoading } = useQuery<Publication>({
     queryKey: [`/api/publications/${id}`, currentUser.role, currentUser.id],
@@ -325,6 +336,37 @@ export default function PublicationDetail() {
     onError: (error: Error) => {
       toast({
         title: "Could not submit correction",
+        description: error.message,
+        variant: "destructive",
+      });
+    },
+  });
+
+  const withdrawInvalidMutation = useMutation({
+    mutationFn: async () => {
+      const response = await fetch(`/api/publications/${id}/withdraw-invalid`, {
+        method: "POST",
+        credentials: "include",
+      });
+      if (!response.ok) {
+        const body = await response.json().catch(() => null);
+        throw new Error(body?.message || "Failed to withdraw the manuscript");
+      }
+      return response.json();
+    },
+    onSuccess: () => {
+      setIsWithdrawInvalidOpen(false);
+      queryClient.invalidateQueries({ queryKey: [`/api/publications/${id}`] });
+      queryClient.invalidateQueries({ queryKey: ["/api/publications"] });
+      queryClient.invalidateQueries({ queryKey: [`/api/publications/${id}/history`] });
+      toast({
+        title: "Manuscript withdrawn",
+        description: "The manuscript and its audit history have been preserved.",
+      });
+    },
+    onError: (error: Error) => {
+      toast({
+        title: "Could not withdraw manuscript",
         description: error.message,
         variant: "destructive",
       });
@@ -1161,16 +1203,49 @@ export default function PublicationDetail() {
                           {publication.invalidReason || "No correction reason was provided."}
                         </p>
                       </div>
-                      <Button
-                        size="sm"
-                        onClick={() => submitCorrectionMutation.mutate()}
-                        disabled={submitCorrectionMutation.isPending}
-                        data-testid={`button-submit-correction-${publication.id}`}
-                      >
-                        {submitCorrectionMutation.isPending
-                          ? "Submitting correction…"
-                          : "Return to 7. Published"}
-                      </Button>
+                      <div className="flex flex-wrap gap-2">
+                        <Button
+                          size="sm"
+                          onClick={() => submitCorrectionMutation.mutate()}
+                          disabled={submitCorrectionMutation.isPending || withdrawInvalidMutation.isPending}
+                          data-testid={`button-submit-correction-${publication.id}`}
+                        >
+                          {submitCorrectionMutation.isPending
+                            ? "Submitting correction…"
+                            : "Return to 7. Published"}
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="destructive"
+                          onClick={() => setIsWithdrawInvalidOpen(true)}
+                          disabled={submitCorrectionMutation.isPending || withdrawInvalidMutation.isPending}
+                          data-testid={`button-withdraw-invalid-${publication.id}`}
+                        >
+                          Withdraw manuscript
+                        </Button>
+                      </div>
+                      <AlertDialog open={isWithdrawInvalidOpen} onOpenChange={setIsWithdrawInvalidOpen}>
+                        <AlertDialogContent>
+                          <AlertDialogHeader>
+                            <AlertDialogTitle>Withdraw this manuscript?</AlertDialogTitle>
+                            <AlertDialogDescription>
+                              Its status will change to Withdrawn. The manuscript and its audit history will be kept.
+                            </AlertDialogDescription>
+                          </AlertDialogHeader>
+                          <AlertDialogFooter>
+                            <AlertDialogCancel disabled={withdrawInvalidMutation.isPending}>
+                              Cancel
+                            </AlertDialogCancel>
+                            <AlertDialogAction
+                              onClick={() => withdrawInvalidMutation.mutate()}
+                              disabled={withdrawInvalidMutation.isPending}
+                              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                            >
+                              {withdrawInvalidMutation.isPending ? "Withdrawing…" : "Withdraw manuscript"}
+                            </AlertDialogAction>
+                          </AlertDialogFooter>
+                        </AlertDialogContent>
+                      </AlertDialog>
                     </AlertDescription>
                   </Alert>
                 )}
