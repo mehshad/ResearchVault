@@ -1,6 +1,6 @@
-import { users } from "@shared/schema";
+import { roleGroups, rolePermissions, users } from "@shared/schema";
 import { db } from "./db";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { createHash } from "crypto";
 import { type Request, type Response, type NextFunction } from "express";
 import session from "express-session";
@@ -151,19 +151,53 @@ export function requirePmoOfficer(req: Request, res: Response, next: NextFunctio
   res.status(403).json({ message: "Forbidden. PMO access required." });
 }
 
-export function requirePublicationOfficer(req: Request, res: Response, next: NextFunction) {
-  const role = req.session?.user?.role;
-  if (
-    role === "Outcome Officer" ||
-    role === "admin" ||
-    role === "superadmin" ||
-    role === "Management"
-  ) {
-    return next();
-  }
-  authLog(`403 publication officer required: ${req.method} ${req.path} user=${req.session?.user?.username ?? "anonymous"} role=${role ?? "none"}`);
-  res.status(403).json({ message: "Forbidden. Publication office access required." });
+export type NavigationAccessLoader = (
+  role: string,
+  navigationItem: string,
+) => Promise<string | null>;
+
+async function loadNavigationAccess(role: string, navigationItem: string): Promise<string | null> {
+  const [permission] = await db
+    .select({ accessLevel: rolePermissions.accessLevel })
+    .from(rolePermissions)
+    .innerJoin(roleGroups, eq(rolePermissions.roleGroupId, roleGroups.id))
+    .where(and(
+      eq(roleGroups.name, role),
+      eq(rolePermissions.navigationItem, navigationItem),
+    ))
+    .limit(1);
+  return permission?.accessLevel ?? null;
 }
+
+export function createRequirePublicationOfficer(
+  loadAccess: NavigationAccessLoader = loadNavigationAccess,
+) {
+  return async function requirePublicationOfficer(req: Request, res: Response, next: NextFunction) {
+    const role = req.session?.user?.role;
+    if (!role) {
+      authLog(`403 publication office required: ${req.method} ${req.path} user=anonymous role=none`);
+      return res.status(403).json({ message: "Forbidden. Publication office access required." });
+    }
+
+    if (role === "admin" || role === "superadmin") return next();
+
+    try {
+      const accessLevel = await loadAccess(role, "outcome-office");
+      const requiredLevel = req.method === "GET" || req.method === "HEAD" ? "view" : "edit";
+      const allowed = requiredLevel === "view"
+        ? accessLevel === "view" || accessLevel === "edit"
+        : accessLevel === "edit";
+      if (allowed) return next();
+    } catch (error) {
+      authError(`publication office matrix lookup failed for role=${role}`, error);
+    }
+
+    authLog(`403 publication office required: ${req.method} ${req.path} user=${req.session?.user?.username ?? "anonymous"} role=${role}`);
+    return res.status(403).json({ message: "Forbidden. Publication office access required." });
+  };
+}
+
+export const requirePublicationOfficer = createRequirePublicationOfficer();
 
 /** Restricts Management Hub/report endpoints to the management tier. */
 export function requireManagement(req: Request, res: Response, next: NextFunction) {

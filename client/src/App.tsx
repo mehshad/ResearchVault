@@ -11,6 +11,7 @@ import { AuthProvider } from "@/hooks/useAuth";
 import { ThemeProvider } from "@/contexts/ThemeContext";
 import GlobalColorModeInit from "@/components/GlobalColorModeInit";
 import { RestrictedUserGate } from "@/components/RestrictedUserGate";
+import { PermissionWrapper } from "@/components/PermissionWrapper";
 
 // Dashboard
 import Dashboard from "@/pages/dashboard";
@@ -177,6 +178,18 @@ function AuthGate({ children }: { children: React.ReactNode }) {
 }
 
 function AppRouter() {
+  const { user } = useAuth();
+  const outcomeOfficeFallback = (
+    <div className="p-6">
+      <div className="rounded-lg border border-destructive/30 bg-destructive/5 p-6">
+        <h1 className="text-lg font-semibold">Outcome Office access required</h1>
+        <p className="mt-1 text-sm text-muted-foreground">
+          Your role does not currently have access to Outcome Office in the access matrix.
+        </p>
+      </div>
+    </div>
+  );
+
   return (
     <Layout>
       <Switch>
@@ -261,9 +274,23 @@ function AppRouter() {
         <Route path="/publications/:id" component={PublicationDetail} />
         
         {/* Outcome Office */}
-        <Route path="/outcome-office/overview" component={OutcomeOfficeDashboard} />
+        <Route path="/outcome-office/overview">
+          <PermissionWrapper
+            currentUserRole={user?.role}
+            navigationItem="outcome-office"
+            fallback={outcomeOfficeFallback}
+          >
+            <OutcomeOfficeDashboard />
+          </PermissionWrapper>
+        </Route>
         <Route path="/outcome-office">
-          <PublicationOffice />
+          <PermissionWrapper
+            currentUserRole={user?.role}
+            navigationItem="outcome-office"
+            fallback={outcomeOfficeFallback}
+          >
+            <PublicationOffice />
+          </PermissionWrapper>
         </Route>
         
         {/* Patents */}
