@@ -2129,7 +2129,10 @@ export class DatabaseStorage implements IStorage {
     return { ...updatedPermission, jobTitle };
   }
 
-  async updateRolePermissionsBulk(permissions: Array<{jobTitle: string, navigationItem: string, accessLevel: string}>): Promise<(RolePermission & { jobTitle: string })[]> {
+  async updateRolePermissionsBulk(
+    permissions: Array<{jobTitle: string, navigationItem: string, accessLevel: string}>,
+    updatedBy?: number,
+  ): Promise<(RolePermission & { jobTitle: string })[]> {
     if (permissions.length === 0) return [];
 
     // The access matrix may contain roles or cells that predate the current
@@ -2153,6 +2156,7 @@ export class DatabaseStorage implements IStorage {
       roleGroupId: number;
       navigationItem: string;
       accessLevel: string;
+      updatedBy: number | null;
     }>();
     for (const permission of permissions) {
       const jobTitle = permission.jobTitle.trim();
@@ -2162,6 +2166,7 @@ export class DatabaseStorage implements IStorage {
         roleGroupId,
         navigationItem: permission.navigationItem,
         accessLevel: permission.accessLevel,
+        updatedBy: updatedBy ?? null,
       });
     }
 
@@ -2175,6 +2180,8 @@ export class DatabaseStorage implements IStorage {
         target: [rolePermissions.roleGroupId, rolePermissions.navigationItem],
         set: {
           accessLevel: sql`excluded.access_level`,
+          // Who changed the cell, so a matrix change is attributable in an audit.
+          updatedBy: sql`excluded.updated_by`,
           updatedAt: sql`now()`,
         },
       })

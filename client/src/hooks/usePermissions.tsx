@@ -176,7 +176,7 @@ interface PermissionsProviderProps {
 export function PermissionsProvider({ children }: PermissionsProviderProps) {
   const [permissions, setPermissions] = useState<NavigationPermission[]>([]);
   const [isLoaded, setIsLoaded] = useState(false);
-  const { authConfig } = useAuth();
+  const { authConfig, isAdmin } = useAuth();
 
   // Load permissions from database on mount
   useEffect(() => {
@@ -188,10 +188,15 @@ export function PermissionsProvider({ children }: PermissionsProviderProps) {
           if (dbPermissions.length > 0) {
             setPermissions(mergeWithDefaultPermissions(dbPermissions));
           } else {
-            // No permissions in database, seed with defaults
+            // No permissions stored yet. Use the defaults locally so the
+            // interface still renders, but only an administrator may write them
+            // back — seeding is a change to the access matrix, and any browser
+            // being able to make it was the hole this guard closes.
             const defaults = createDefaultPermissions();
             setPermissions(defaults);
-            await seedDefaultPermissions(defaults);
+            if (isAdmin) {
+              await seedDefaultPermissions(defaults);
+            }
           }
         } else {
           // API failed, use defaults  
@@ -206,7 +211,9 @@ export function PermissionsProvider({ children }: PermissionsProviderProps) {
     };
 
     loadPermissions();
-  }, []);
+    // isAdmin arrives after the auth config resolves; re-run so a first-time
+    // seed is still performed for an administrator.
+  }, [isAdmin]);
 
   // Seed default permissions to database
   const seedDefaultPermissions = async (defaultPermissions: NavigationPermission[]) => {

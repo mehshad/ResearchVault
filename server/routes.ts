@@ -8829,7 +8829,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Role Permissions Routes
-  app.get('/api/role-permissions', async (req: Request, res: Response) => {
+  // Readable by any signed-in user: every client loads the matrix on mount to
+  // decide what to render for its own role. Writing it is a different matter —
+  // see the administrator guards on the mutating routes below.
+  app.get('/api/role-permissions', requireAuth, async (req: Request, res: Response) => {
     try {
       const permissions = await storage.getRolePermissions();
       res.json(permissions);
@@ -8839,7 +8842,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post('/api/role-permissions', async (req: Request, res: Response) => {
+  // The access matrix decides what every role may reach, so changing it is an
+  // administrator action. Without this guard any signed-in account could grant
+  // itself edit on any area, including the one the server enforces.
+  app.post('/api/role-permissions', requireAuth, requireAdmin, async (req: Request, res: Response) => {
     try {
       const validateData = insertRolePermissionSchema.parse(req.body);
       const permission = await storage.createRolePermission(validateData);
@@ -8854,7 +8860,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.patch('/api/role-permissions/:jobTitle/:navigationItem', async (req: Request, res: Response) => {
+  app.patch('/api/role-permissions/:jobTitle/:navigationItem', requireAuth, requireAdmin, async (req: Request, res: Response) => {
     try {
       const { jobTitle, navigationItem } = req.params;
       const { accessLevel } = req.body;
@@ -8875,14 +8881,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post('/api/role-permissions/bulk', async (req: Request, res: Response) => {
+  app.post('/api/role-permissions/bulk', requireAuth, requireAdmin, async (req: Request, res: Response) => {
     try {
       const { permissions } = req.body;
       if (!Array.isArray(permissions)) {
         return res.status(400).json({ message: "Permissions must be an array" });
       }
 
-      const results = await storage.updateRolePermissionsBulk(permissions);
+      const results = await storage.updateRolePermissionsBulk(
+        permissions,
+        req.session?.user?.id ?? undefined,
+      );
       res.json(results);
     } catch (error) {
       console.error('Error bulk updating role permissions:', error);
