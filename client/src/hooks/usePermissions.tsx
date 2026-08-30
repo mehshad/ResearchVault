@@ -1,5 +1,12 @@
 import { createContext, useContext, useState, ReactNode, useEffect } from "react";
 import { RESTRICTED_USER_ROLE, RESEARCH_OFFICER_ROLE } from "@shared/constants";
+import {
+  allRolesOf,
+  isAdministrator,
+  isRestrictedOnly,
+  maxAccessLevel,
+  type RoleBearer,
+} from "@shared/effectiveRoles";
 import { useAuth } from "@/hooks/useAuth";
 import {
   getOfficeDashboardDefaultAccess,
@@ -19,7 +26,12 @@ export interface NavigationPermission {
 interface PermissionsContextType {
   permissions: NavigationPermission[];
   setPermissions: (permissions: NavigationPermission[]) => void;
+  /** Access for one role — what the matrix editor asks. */
   getAccessLevel: (jobTitle: string, navigationItem: string) => AccessLevel;
+  /** Access for a person, taking the union of every role they hold. */
+  getEffectiveAccessLevel: (user: RoleBearer | null | undefined, navigationItem: string) => AccessLevel;
+  canViewAs: (user: RoleBearer | null | undefined, navigationItem: string) => boolean;
+  canEditAs: (user: RoleBearer | null | undefined, navigationItem: string) => boolean;
   canView: (jobTitle: string, navigationItem: string) => boolean;
   canEdit: (jobTitle: string, navigationItem: string) => boolean;
   canCreate: (jobTitle: string, navigationItem: string) => boolean;
@@ -249,6 +261,33 @@ export function PermissionsProvider({ children }: PermissionsProviderProps) {
     return permission?.accessLevel || "hide";
   };
 
+  /**
+   * Access for a person rather than for a single role. Someone may hold a
+   * primary role plus secondaries — a Physician who is also an Investigator,
+   * or anyone carrying admin as a secondary — and their access is the union.
+   * Use this wherever the *current user* is being checked; getAccessLevel
+   * stays the per-role answer the matrix editor needs.
+   */
+  const getEffectiveAccessLevel = (user: RoleBearer | null | undefined, navigationItem: string): AccessLevel => {
+    if (isAdministrator(user)) return "edit";
+    if (authConfig.mode !== "demo" && isRestrictedOnly(user)) {
+      return navigationItem === "publications" ? "view" : "hide";
+    }
+    let best: AccessLevel | null = null;
+    for (const role of allRolesOf(user)) {
+      best = maxAccessLevel(best, getAccessLevel(role, navigationItem)) as AccessLevel | null;
+    }
+    return best ?? "hide";
+  };
+
+  const canViewAs = (user: RoleBearer | null | undefined, navigationItem: string): boolean => {
+    const level = getEffectiveAccessLevel(user, navigationItem);
+    return level === "view" || level === "edit";
+  };
+
+  const canEditAs = (user: RoleBearer | null | undefined, navigationItem: string): boolean =>
+    getEffectiveAccessLevel(user, navigationItem) === "edit";
+
   const canView = (jobTitle: string, navigationItem: string): boolean => {
     const accessLevel = getAccessLevel(jobTitle, navigationItem);
     return accessLevel === "view" || accessLevel === "edit";
@@ -279,6 +318,9 @@ export function PermissionsProvider({ children }: PermissionsProviderProps) {
       permissions,
       setPermissions: setPermissionsWithPersistence,
       getAccessLevel,
+      getEffectiveAccessLevel,
+      canViewAs,
+      canEditAs,
       canView,
       canEdit,
       canCreate,

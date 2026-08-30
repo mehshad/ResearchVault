@@ -123,8 +123,9 @@ export default function PublicationOffice({ embeddedTab }: PublicationOfficeProp
   const isEmbedded = embeddedTab !== undefined;
   const { toast } = useToast();
   const { user } = useAuth();
-  const { canEdit } = usePermissions();
-  const canMarkPublished = canEdit(user?.role ?? "", "outcome-office");
+  const { canEditAs } = usePermissions();
+  // Uses every role the person holds, not just the primary one.
+  const canMarkPublished = canEditAs(user, "outcome-office");
   const queryClient = useQueryClient();
   
   // Tab state

@@ -23,7 +23,7 @@ import {
 } from "./objectStorage";
 import { LocalObjectStorageService } from "./localObjectStorage";
 import { db } from "./db";
-import { scientists, publicationAuthors, journals, journalImpactFactorMetrics, manuscriptHistory, users, branches, departments, sections, roleGroups } from "@shared/schema";
+import { scientists, publicationAuthors, journals, journalImpactFactorMetrics, manuscriptHistory, users, branches, departments, sections, roleGroups, userRoleAssignments } from "@shared/schema";
 import { and, eq, inArray, isNull, desc, sql } from "drizzle-orm";
 import {
   buildExportBuffer,
@@ -10879,8 +10879,20 @@ export async function registerRoutes(app: Express): Promise<Server> {
         .from(users)
         .leftJoin(scientists, eq(users.scientistId, scientists.id))
         .orderBy(users.name);
+      // One query for every assignment, then grouped in memory — a per-user
+      // lookup here would be one query per row.
+      const assignments = await db
+        .select({ userId: userRoleAssignments.userId, name: roleGroups.name })
+        .from(userRoleAssignments)
+        .innerJoin(roleGroups, eq(userRoleAssignments.roleGroupId, roleGroups.id));
+      const secondaryByUser = new Map<number, string[]>();
+      for (const assignment of assignments) {
+        const list = secondaryByUser.get(assignment.userId) ?? [];
+        list.push(assignment.name);
+        secondaryByUser.set(assignment.userId, list);
+      }
       res.json(rows.map(({ user, profileJobTitle }) =>
-        toAdminUserResponse(user, profileJobTitle)
+        toAdminUserResponse(user, profileJobTitle, (secondaryByUser.get(user.id) ?? []).sort())
       ));
     } catch (err) {
       console.error('Error fetching users:', err);
@@ -10916,6 +10928,81 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.status(500).json({ message: 'Failed to fetch assignable roles' });
     }
   });
+  // PUT /api/admin/users/:id/secondary-roles — replace a user's secondary roles
+  //
+  // Secondary roles are additive: access is the union of the primary and these.
+  // Administrator rights are normally granted this way, so this endpoint can
+  // escalate privilege and is administrator-only, like the primary-role route.
+  app.put('/api/admin/users/:id/secondary-roles', requireAuth, requireAdmin, async (req: Request, res: Response) => {
+    const id = parseInt(req.params.id);
+    if (isNaN(id)) return res.status(400).json({ message: 'Invalid user id' });
+
+    const { roles } = req.body as { roles?: unknown };
+    if (!Array.isArray(roles) || roles.some((role) => typeof role !== 'string')) {
+      return res.status(400).json({ message: 'roles must be an array of role names' });
+    }
+    const requested = [...new Set((roles as string[]).map((role) => role.trim()).filter(Boolean))];
+
+    // superadmin is granted by SUPER_ADMIN_EMAIL alone, never through the API.
+    if (requested.includes('superadmin')) {
+      return res.status(400).json({ message: 'superadmin cannot be assigned' });
+    }
+    // "user" is the absence of a role, so it is meaningless as a secondary.
+    if (requested.includes('user')) {
+      return res.status(400).json({ message: '"user" is the default role and cannot be a secondary role' });
+    }
+
+    try {
+      const [target] = await db.select({ id: users.id, role: users.role }).from(users).where(eq(users.id, id)).limit(1);
+      if (!target) return res.status(404).json({ message: 'User not found' });
+
+      await ensureDefaultRoleGroups();
+      const groups = requested.length
+        ? await db.select({ id: roleGroups.id, name: roleGroups.name })
+            .from(roleGroups)
+            .where(inArray(roleGroups.name, requested))
+        : [];
+
+      // "admin" is a legitimate secondary but is not a matrix role, so it has
+      // no role_groups row until one is created for it.
+      const known = new Set(groups.map((group) => group.name));
+      const missing = requested.filter((role) => !known.has(role));
+      if (missing.length) {
+        const [created] = await db
+          .insert(roleGroups)
+          .values(missing.map((name) => ({ name, description: 'Assignable access role' })))
+          .onConflictDoNothing({ target: roleGroups.name })
+          .returning();
+        void created;
+        const refreshed = await db.select({ id: roleGroups.id, name: roleGroups.name })
+          .from(roleGroups)
+          .where(inArray(roleGroups.name, requested));
+        groups.splice(0, groups.length, ...refreshed);
+      }
+
+      // A role held as primary would be redundant as a secondary.
+      const keep = groups.filter((group) => group.name !== target.role);
+
+      await db.transaction(async (tx: any) => {
+        await tx.delete(userRoleAssignments).where(eq(userRoleAssignments.userId, id));
+        if (keep.length) {
+          await tx.insert(userRoleAssignments).values(
+            keep.map((group) => ({
+              userId: id,
+              roleGroupId: group.id,
+              assignedBy: req.session?.user?.id ?? null,
+            })),
+          );
+        }
+      });
+
+      res.json({ id, secondaryRoles: keep.map((group) => group.name).sort() });
+    } catch (err) {
+      console.error('Error updating secondary roles:', err);
+      res.status(500).json({ message: 'Failed to update secondary roles' });
+    }
+  });
+
   // PATCH /api/admin/users/:id/role — change a user's role
   app.patch('/api/admin/users/:id/role', requireAuth, requireAdmin, async (req: Request, res: Response) => {
     const id = parseInt(req.params.id);

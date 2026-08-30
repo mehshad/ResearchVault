@@ -1,5 +1,14 @@
 import { roleGroups, rolePermissions, users } from "@shared/schema";
 import { RESEARCH_OFFICER_ROLE } from "@shared/constants";
+import {
+  allRolesOf,
+  hasAnyRole,
+  isAdministrator,
+  effectiveAccessLevel,
+  type AccessLevel,
+} from "@shared/effectiveRoles";
+import { userRoleAssignments } from "@shared/schema";
+import { inArray } from "drizzle-orm";
 import { db } from "./db";
 import { and, eq } from "drizzle-orm";
 import { createHash } from "crypto";
@@ -23,7 +32,13 @@ export interface SessionUser {
   username: string;
   name: string;
   email: string;
+  /** Primary access role. */
   role: string;
+  /**
+   * Additional roles held alongside the primary one. Access is the union of
+   * all of them — see @shared/effectiveRoles.
+   */
+  secondaryRoles: string[];
   scientistId: number | null;
   needsRegistration: boolean; // true if user has no linked scientist profile yet
 }
@@ -94,6 +109,7 @@ export function demoBannerMiddleware(req: Request, _res: Response, next: NextFun
       name: process.env.DEMO_NAME || "Demo User",
       email: process.env.DEMO_EMAIL || "demo@researchvault.local",
       role: process.env.DEMO_ROLE || "Management",
+      secondaryRoles: [],
       scientistId: null,
       needsRegistration: false,
     };
@@ -109,14 +125,15 @@ export function requireAuth(req: Request, res: Response, next: NextFunction) {
 }
 
 export function requireAdmin(req: Request, res: Response, next: NextFunction) {
-  const role = req.session?.user?.role;
+  const user = req.session?.user;
+  const role = user?.role;
+  // Administrator rights are normally held as a secondary role, so this checks
+  // every slot rather than the primary alone.
   // Demo role switching is intentionally client-side. The demo server session
   // remains Management even when a tester selects the Super Admin persona, so
   // treat that fixed demo session as the administrator for protected previews.
-  // Real local/LDAP/OIDC sessions still require admin or superadmin exactly.
   if (
-    role === "admin" ||
-    role === "superadmin" ||
+    isAdministrator(user) ||
     (getAuthMode() === "demo" && role === "Management")
   ) {
     return next();
@@ -132,20 +149,17 @@ export function requireAdmin(req: Request, res: Response, next: NextFunction) {
  * endpoint, so nothing was enforcing the separation.
  */
 export function requireResearchOfficer(req: Request, res: Response, next: NextFunction) {
-  const role = req.session?.user?.role;
-  if (
-    role === RESEARCH_OFFICER_ROLE ||
-    role === "admin" ||
-    role === "superadmin" ||
-    role === "Management"
-  ) return next();
+  const user = req.session?.user;
+  const role = user?.role;
+  if (hasAnyRole(user, [RESEARCH_OFFICER_ROLE, "admin", "superadmin", "Management"])) return next();
   authLog(`403 research officer required: ${req.method} ${req.path} user=${req.session?.user?.username ?? "anonymous"} role=${role ?? "none"}`);
   res.status(403).json({ message: "Forbidden. Research office access required." });
 }
 
 export function requirePmoOfficer(req: Request, res: Response, next: NextFunction) {
-  const role = req.session?.user?.role;
-  if (role === "PMO Officer" || role === "admin" || role === "superadmin" || role === "Management") return next();
+  const user = req.session?.user;
+  const role = user?.role;
+  if (hasAnyRole(user, ["PMO Officer", "admin", "superadmin", "Management"])) return next();
   authLog(`403 PMO officer required: ${req.method} ${req.path} user=${req.session?.user?.username ?? "anonymous"} role=${role ?? "none"}`);
   res.status(403).json({ message: "Forbidden. PMO access required." });
 }
@@ -172,20 +186,31 @@ export function createRequirePublicationOfficer(
   loadAccess: NavigationAccessLoader = loadNavigationAccess,
 ) {
   return async function requirePublicationOfficer(req: Request, res: Response, next: NextFunction) {
-    const role = req.session?.user?.role;
+    const user = req.session?.user;
+    const role = user?.role;
     if (!role) {
       authLog(`403 publication office required: ${req.method} ${req.path} user=anonymous role=none`);
       return res.status(403).json({ message: "Forbidden. Publication office access required." });
     }
 
-    if (role === "admin" || role === "superadmin") return next();
+    if (isAdministrator(user)) return next();
 
     try {
-      const accessLevel = await loadAccess(role, "outcome-office");
+      // Someone holding several roles gets the most permissive of them, which
+      // is how /api/access-check has always resolved multi-role access.
+      const roles = allRolesOf(user);
+      const levels = await Promise.all(
+        roles.map((held) => loadAccess(held, "outcome-office")),
+      );
+      const levelByRole = new Map(roles.map((held, index) => [held, levels[index]]));
+      const best = effectiveAccessLevel(
+        user,
+        (held) => (levelByRole.get(held) as AccessLevel | null) ?? null,
+      );
       const requiredLevel = req.method === "GET" || req.method === "HEAD" ? "view" : "edit";
       const allowed = requiredLevel === "view"
-        ? accessLevel === "view" || accessLevel === "edit"
-        : accessLevel === "edit";
+        ? best === "view" || best === "edit"
+        : best === "edit";
       if (allowed) return next();
     } catch (error) {
       authError(`publication office matrix lookup failed for role=${role}`, error);
@@ -200,8 +225,9 @@ export const requirePublicationOfficer = createRequirePublicationOfficer();
 
 /** Restricts Management Hub/report endpoints to the management tier. */
 export function requireManagement(req: Request, res: Response, next: NextFunction) {
-  const role = req.session?.user?.role;
-  if (role === "Management" || role === "admin" || role === "superadmin") return next();
+  const user = req.session?.user;
+  const role = user?.role;
+  if (hasAnyRole(user, ["Management", "admin", "superadmin"])) return next();
   authLog(`403 management required: ${req.method} ${req.path} user=${req.session?.user?.username ?? "anonymous"} role=${role ?? "none"}`);
   res.status(403).json({ message: "Forbidden. Management access required." });
 }
@@ -262,19 +288,44 @@ async function findOrCreateExternalUser(
   }
 
   if (!user) return null;
-  return toSessionUser(user);
+  return toSessionUser(user, await loadSecondaryRoles(user.id));
 }
 
-function toSessionUser(user: typeof users.$inferSelect): SessionUser {
+function toSessionUser(
+  user: typeof users.$inferSelect,
+  secondaryRoles: string[] = [],
+): SessionUser {
   return {
     id: user.id,
     username: user.username,
     name: user.name,
     email: user.email,
     role: user.role,
+    secondaryRoles,
     scientistId: (user as any).scientistId ?? null,
     needsRegistration: !(user as any).scientistId,
   };
+}
+
+/**
+ * Secondary roles held by a user, resolved to role-group names. Loaded on login
+ * and on every session refresh so a change takes effect on the next request
+ * rather than at next sign-in.
+ */
+export async function loadSecondaryRoles(userId: number): Promise<string[]> {
+  if (!userId || userId <= 0) return [];
+  try {
+    const rows = await db
+      .select({ name: roleGroups.name })
+      .from(userRoleAssignments)
+      .innerJoin(roleGroups, eq(userRoleAssignments.roleGroupId, roleGroups.id))
+      .where(eq(userRoleAssignments.userId, userId));
+    return rows.map((row: { name: string }) => row.name).filter(Boolean);
+  } catch (error) {
+    // A failure here must not silently widen access, so treat it as none.
+    authError(`failed to load secondary roles for user id=${userId}`, error);
+    return [];
+  }
 }
 
 async function recordSuccessfulLogin(userId: number): Promise<void> {
@@ -306,7 +357,7 @@ async function refreshSessionUserFromDatabase(
       return null;
     }
 
-    const refreshedUser = toSessionUser(currentUser);
+    const refreshedUser = toSessionUser(currentUser, await loadSecondaryRoles(currentUser.id));
     if (
       refreshedUser.role !== sessionUser.role ||
       refreshedUser.scientistId !== sessionUser.scientistId ||
@@ -357,7 +408,9 @@ export function createRefreshSessionAuthorizationMiddleware(
         return res.status(401).json({ message: "Your account is no longer available." });
       }
 
-      req.session.user = toSessionUser(currentUser);
+      // Reload secondaries too, so revoking one takes effect on the next
+      // request rather than at next sign-in.
+      req.session.user = toSessionUser(currentUser, await loadSecondaryRoles(currentUser.id));
       return next();
     } catch (error) {
       authError(`failed authorization refresh for user id=${sessionUser.id}`, error);
@@ -430,9 +483,9 @@ export function registerAuthRoutes(app: any) {
         if (resolvedRole !== user.role) {
           authLog(`escalating role for user id=${user.id} username=${username}: ${user.role} -> ${resolvedRole}`);
           const [updated] = await db.update(users).set({ role: resolvedRole, updatedAt: new Date() }).where(eq(users.id, user.id)).returning();
-          sessionUser = toSessionUser(updated);
+          sessionUser = toSessionUser(updated, await loadSecondaryRoles(updated.id));
         } else {
-          sessionUser = toSessionUser(user);
+          sessionUser = toSessionUser(user, await loadSecondaryRoles(user.id));
         }
 
       } else {

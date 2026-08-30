@@ -12,6 +12,7 @@ import { Badge } from "@/components/ui/badge";
 import { format } from "date-fns";
 import { usePublicationCount } from "@/hooks/use-publication-count";
 import { useCurrentUser } from "@/hooks/useCurrentUser";
+import { isAdministrator, hasAnyRole } from "@shared/effectiveRoles";
 
 export default function ResearchContractDetail() {
   const params = useParams<{ id: string }>();
@@ -90,7 +91,7 @@ export default function ResearchContractDetail() {
   // Check if current user can edit this contract
   const canEditContract = contract && (
     currentUser.role === 'Research Officer' || 
-    currentUser.role === 'admin' || 
+    isAdministrator(currentUser) || 
     currentUser.role === 'Management' ||
     contract.requestedByUserId === currentUser.id
   );
