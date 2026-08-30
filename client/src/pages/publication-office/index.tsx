@@ -614,16 +614,21 @@ export default function PublicationOffice({ embeddedTab }: PublicationOfficeProp
     onError: () => toast({ description: "Failed to update field", variant: "destructive" }),
   });
 
-  // Publication queries for the first two tabs
-  const { data: ipVettingSourcePublications = [], isLoading: ipPublicationsLoading } = useQuery<Publication[]>({
-    queryKey: ['/api/publications', 'ip-vetting'],
+  // One source for both office tabs. Deliberately not gated on the active tab:
+  // the tab labels show live counts, and gating meant a count was only correct
+  // after its tab had been opened. Sharing one query key also stops the same
+  // endpoint being fetched once per tab.
+  const { data: officePublications = [], isLoading: officePublicationsLoading } = useQuery<Publication[]>({
+    queryKey: ['/api/publications', 'office'],
     queryFn: async () => {
       const response = await fetch('/api/publications?officeAccess=true');
       if (!response.ok) throw new Error('Failed to fetch publications');
       return response.json();
     },
-    enabled: activeTab === "ip-vetting"
   });
+
+  const ipVettingSourcePublications = officePublications;
+  const ipPublicationsLoading = officePublicationsLoading;
 
   const unvettedPublicationsForIp = useMemo(
     () =>
@@ -672,25 +677,20 @@ export default function PublicationOffice({ embeddedTab }: PublicationOfficeProp
     staleTime: 0,
   });
 
-  const { data: newPublications = [], isLoading: newPublicationsLoading } = useQuery<Publication[]>({
-    queryKey: ['/api/publications', 'new-publications'],
-    queryFn: async () => {
-      const response = await fetch('/api/publications?officeAccess=true');
-      if (!response.ok) throw new Error('Failed to fetch publications');
-      const publications = await response.json();
-      // Surface publications that are NOT yet finalized/vetted by the office so
-      // staff can see records still needing attention (data-quality fixes,
-      // author links, SDR links) before they are marked Published *.
-      // A record is finalized when EITHER the vetted flag is set OR its status
-      // already carries the "*" (Published *) final marker — some records have
-      // the final status without the flag, and those must not reappear here.
-      return publications.filter((pub: Publication) =>
-        pub.vettedForSubmissionByIpOffice !== true &&
-        !pub.status?.includes('*')
-      );
-    },
-    enabled: activeTab === "new-publications"
-  });
+  // Surface publications that are NOT yet finalized/vetted by the office so
+  // staff can see records still needing attention (data-quality fixes, author
+  // links, SDR links) before they are marked Published *.
+  // A record is finalized when EITHER the vetted flag is set OR its status
+  // already carries the "*" (Published *) final marker — some records have the
+  // final status without the flag, and those must not reappear here.
+  const newPublications = useMemo(
+    () => officePublications.filter((pub: Publication) =>
+      pub.vettedForSubmissionByIpOffice !== true &&
+      !pub.status?.includes('*')
+    ),
+    [officePublications],
+  );
+  const newPublicationsLoading = officePublicationsLoading;
 
   // Per-publication internal author counts, used to flag publications with no
   // linked internal scientist/author records on the New Publications tab.
@@ -752,7 +752,7 @@ export default function PublicationOffice({ embeddedTab }: PublicationOfficeProp
         description: `Linked ${data.createdCount} internal author${data.createdCount === 1 ? '' : 's'}.`,
       });
       setAutoConnectPub(null);
-      queryClient.invalidateQueries({ queryKey: ['/api/publications', 'new-publications'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/publications', 'office'] });
       queryClient.invalidateQueries({ queryKey: ['/api/publications/author-counts'] });
       queryClient.invalidateQueries({ queryKey: ['/api/publications/author-map'] });
     },
@@ -823,7 +823,7 @@ export default function PublicationOffice({ embeddedTab }: PublicationOfficeProp
       const importedDois = new Set((data.created || []).map((c: any) => c.doi));
       setFpResults((prev) => prev.map((r) => (importedDois.has(r.doi) ? { ...r, alreadyExists: true } : r)));
       setFpSelectedDois(new Set());
-      queryClient.invalidateQueries({ queryKey: ['/api/publications', 'new-publications'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/publications', 'office'] });
       queryClient.invalidateQueries({ queryKey: ['/api/publications/author-counts'] });
       queryClient.invalidateQueries({ queryKey: ['/api/publications/author-map'] });
     },
@@ -890,18 +890,12 @@ export default function PublicationOffice({ embeddedTab }: PublicationOfficeProp
     return counts;
   }, [newPublications]);
 
-  // Sealed records are excluded from this list by design, so their count is
-  // fetched separately purely to show the terminal stage honestly.
-  const { data: sealedCountData } = useQuery<{ count: number }>({
-    queryKey: ['/api/publications', 'sealed-count'],
-    queryFn: async () => {
-      const response = await fetch('/api/publications?officeAccess=true');
-      if (!response.ok) throw new Error('Failed to fetch publications');
-      const all: Publication[] = await response.json();
-      return { count: all.filter((pub) => pub.status?.includes('*')).length };
-    },
-    enabled: activeTab === "new-publications",
-  });
+  // Sealed records are excluded from the list by design, so the terminal stage
+  // count is derived from the same office set rather than fetched again.
+  const sealedCount = useMemo(
+    () => officePublications.filter((pub: Publication) => pub.status?.includes('*')).length,
+    [officePublications],
+  );
 
   // Apply the New Publications filters (workflow state, issue/tag, scientist, dates).
   const filteredNewPublications = useMemo(() => {
@@ -1635,7 +1629,7 @@ export default function PublicationOffice({ embeddedTab }: PublicationOfficeProp
                 <div className="mb-5 rounded-lg border bg-muted/30 p-3">
                   <PublicationWorkflowFilter
                     countsByStatus={npCountsByStatus}
-                    sealedCount={sealedCountData?.count}
+                    sealedCount={sealedCount}
                     selected={npStatusFilter}
                     onSelect={setNpStatusFilter}
                     total={newPublications.length}
