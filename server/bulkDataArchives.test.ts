@@ -4,7 +4,7 @@ import JSZip from "jszip";
 
 process.env.DATABASE_URL ||= "postgres://unused:unused@127.0.0.1:1/unused";
 
-test("all-sections archive contains five canonical workbooks and manifest", async () => {
+test("all-sections archive contains one workbook per section, plus a manifest", async () => {
   const { buildBulkDataArchive } = await import("./bulkDataArchives");
   const { SECTION_META } = await import("./bulkDataHub");
   const now = new Date("2026-08-26T12:34:56.000Z");
@@ -18,7 +18,13 @@ test("all-sections archive contains five canonical workbooks and manifest", asyn
     ...SECTION_META.map((section) => `${section.id}.xlsx`),
     "manifest.json",
   ]);
-  assert.equal(manifest.sections.length, 5);
+  // Derived from SECTION_META rather than hard-coded: adding a section must
+  // extend the archive, and this test should notice if it silently does not.
+  assert.equal(manifest.sections.length, SECTION_META.length);
+  assert.ok(
+    manifest.sections.some((section) => section.id === "access-control"),
+    "access configuration is its own restorable workbook in the archive",
+  );
   assert.equal(manifest.generatedAt, now.toISOString());
   const storedManifest = JSON.parse(await zip.file("manifest.json")!.async("string"));
   assert.deepEqual(storedManifest, manifest);

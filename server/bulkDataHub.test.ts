@@ -47,7 +47,49 @@ test("SECTION_META covers all structured bulk-data sections", () => {
     "research-compliance",
     "research-services",
     "research-output",
+    "access-control",
   ]);
+});
+
+test("the access-control section carries roles, the matrix and accounts", () => {
+  const meta = getSectionMeta("access-control");
+  assert.equal(meta.label, "Access Control");
+  assert.deepEqual(meta.sheets.map((s) => s.name), [
+    "Access Roles",
+    "Role Permissions",
+    "User Accounts",
+    "User Roles",
+  ]);
+  // Roles must precede the matrix that references them and the accounts that
+  // hold them; accounts must precede the secondary-role links that point at
+  // them. The sheet order is the apply order.
+  assert.deepEqual(
+    meta.sheets.map((s) => s.businessKey),
+    ["role name", "role name + navigation item", "username", "username + role name"],
+  );
+});
+
+test("no access-control sheet carries a credential column", async () => {
+  // The archive is a restore and review artefact. A password hash in it would
+  // travel wherever the backup travels.
+  const buffer = await buildTemplateWorkbook("access-control");
+  const workbook = new ExcelJS.Workbook();
+  await workbook.xlsx.load(buffer as unknown as ArrayBuffer);
+  const forbidden = ["password", "secret", "hash", "token", "credential"];
+  for (const sheet of workbook.worksheets) {
+    if (sheet.name === "Instructions") continue;
+    const headers = (sheet.getRow(1).values as unknown[])
+      .slice(1)
+      .map((h) => String(h ?? "").toLowerCase());
+    for (const header of headers) {
+      for (const word of forbidden) {
+        assert.ok(
+          !header.includes(word),
+          `sheet "${sheet.name}" exposes a credential-like column "${header}"`,
+        );
+      }
+    }
+  }
 });
 
 test("getSectionMeta returns correct meta for research-management", () => {
@@ -338,6 +380,10 @@ test("all sheet column headers are non-empty strings", () => {
     "Rooms",
     "Certification Modules",
     "Certifications",
+    "Access Roles",
+    "Role Permissions",
+    "User Accounts",
+    "User Roles",
   ]);
 
   for (const section of SECTION_META) {

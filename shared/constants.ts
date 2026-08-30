@@ -139,5 +139,11 @@ export type NavigationItemId = typeof NAVIGATION_ITEMS[number]["id"];
  * - "view": Read-only access.
  * - "create": Can add new records but cannot edit existing ones.
  * - "edit": Full access (create + edit + delete).
+ *
+ * Exported as a runtime list, not only a type, so validation reads the same
+ * source the application does. A hand-copied list in a validator drifts from
+ * the real set and silently rejects valid data.
  */
-export type AccessLevel = "hide" | "view" | "create" | "edit";
+export const ACCESS_LEVELS = ["hide", "view", "create", "edit"] as const;
+
+export type AccessLevel = typeof ACCESS_LEVELS[number];

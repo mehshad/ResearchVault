@@ -34,6 +34,14 @@ export type ContractType = typeof CONTRACT_TYPES[number];
 export type ContractStatus = typeof CONTRACT_STATUS_VALUES[number];
 
 // User schema (for authentication)
+/**
+ * How an account authenticates. Exported as a runtime list so validators read
+ * the same source the column comment describes rather than a copy of it.
+ */
+export const USER_AUTH_PROVIDERS = ["local", "demo", "ldap", "oidc"] as const;
+
+export type UserAuthProvider = typeof USER_AUTH_PROVIDERS[number];
+
 export const users = pgTable("users", {
   id: serial("id").primaryKey(),
   username: text("username").notNull().unique(),
