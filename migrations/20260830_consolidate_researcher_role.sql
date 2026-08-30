@@ -1,6 +1,6 @@
 -- Consolidate the bench and support research access roles into one "Researcher"
--- role: Staff Scientist, Postdoctoral Researcher, Research Specialist,
--- Research Associate and Research Assistant.
+-- role: Staff Scientist, Postdoctoral Researcher, PhD Student, Research
+-- Specialist, Research Associate and Research Assistant.
 --
 -- Investigator is deliberately NOT folded in — it carries responsibilities the
 -- others do not.
@@ -34,7 +34,7 @@ WITH ranked AS (
   FROM role_permissions rp
   JOIN role_groups rg ON rg.id = rp.role_group_id
   WHERE rg.name IN (
-    'Staff Scientist', 'Postdoctoral Researcher',
+    'Staff Scientist', 'Postdoctoral Researcher', 'PhD Student',
     'Research Specialist', 'Research Associate', 'Research Assistant'
   )
 ),
@@ -63,7 +63,7 @@ ON CONFLICT (role_group_id, navigation_item) DO UPDATE
 UPDATE users
 SET role = 'user', updated_at = now()
 WHERE role IN (
-  'Staff Scientist', 'Postdoctoral Researcher',
+  'Staff Scientist', 'Postdoctoral Researcher', 'PhD Student',
   'Research Specialist', 'Research Associate', 'Research Assistant'
 );
 
@@ -71,7 +71,7 @@ WHERE role IN (
 DELETE FROM user_role_assignments
 WHERE role_group_id IN (
   SELECT id FROM role_groups WHERE name IN (
-    'Staff Scientist', 'Postdoctoral Researcher',
+    'Staff Scientist', 'Postdoctoral Researcher', 'PhD Student',
     'Research Specialist', 'Research Associate', 'Research Assistant'
   )
 );
@@ -81,14 +81,14 @@ WHERE role_group_id IN (
 DELETE FROM role_permissions
 WHERE role_group_id IN (
   SELECT id FROM role_groups WHERE name IN (
-    'Staff Scientist', 'Postdoctoral Researcher',
+    'Staff Scientist', 'Postdoctoral Researcher', 'PhD Student',
     'Research Specialist', 'Research Associate', 'Research Assistant'
   )
 );
 
 DELETE FROM role_groups
 WHERE name IN (
-  'Staff Scientist', 'Postdoctoral Researcher',
+  'Staff Scientist', 'Postdoctoral Researcher', 'PhD Student',
   'Research Specialist', 'Research Associate', 'Research Assistant'
 );
 

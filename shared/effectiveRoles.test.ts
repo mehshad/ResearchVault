@@ -112,7 +112,7 @@ test("several job titles resolve to the one Researcher access role", async () =>
     await import("./constants.js");
 
   for (const title of [
-    "Staff Scientist", "Postdoctoral Researcher",
+    "Staff Scientist", "Postdoctoral Researcher", "PhD Student",
     "Research Specialist", "Research Associate", "Research Assistant",
   ]) {
     assert.equal(accessRoleForJobTitle(title), RESEARCHER_ROLE, `${title} maps to Researcher`);
@@ -129,7 +129,7 @@ test("several job titles resolve to the one Researcher access role", async () =>
 
   // The retired roles are gone from the assignable set; Researcher is in it.
   for (const retired of [
-    "Staff Scientist", "Postdoctoral Researcher",
+    "Staff Scientist", "Postdoctoral Researcher", "PhD Student",
     "Research Specialist", "Research Associate", "Research Assistant",
   ]) {
     assert.equal(ACCESS_ROLES.includes(retired), false, `${retired} is no longer an access role`);

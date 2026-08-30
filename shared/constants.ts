@@ -52,6 +52,7 @@ export const RESEARCHER_ROLE = "Researcher";
 export const RESEARCHER_JOB_TITLES = [
   "Staff Scientist",
   "Postdoctoral Researcher",
+  "PhD Student",
   "Research Specialist",
   "Research Associate",
   "Research Assistant",
