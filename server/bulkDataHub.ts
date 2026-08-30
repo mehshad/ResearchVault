@@ -194,7 +194,7 @@ export const SECTION_META: SectionMeta[] = [
     description: "Patents, Publications, and Journal Impact Factors",
     sheets: [
       { name: "Patents", description: "Patent records", businessKey: "patentNumber" },
-      { name: "Publications", description: "Publication records", businessKey: "Publication ID, DOI, PMID, or title + publication date + journal" },
+      { name: "Publications", description: "Publication records", businessKey: "Publication ID, DOI, PMID, title + publication date + journal, or title + SDR number" },
       { name: "Journal Impact Factors", description: "Journal metadata and annual impact metrics", businessKey: "journal name + year" },
       { name: "Publication Authors", description: "Internal authorship links between publications and staff", businessKey: "publication (DOI or PMID) + scientist email" },
     ],
@@ -727,7 +727,8 @@ function addInstructionsSheet(wb: ExcelJS.Workbook, sectionId: SectionId): void 
     "• IBC Applications: IBC Number",
     "• Research Contracts: Contract Number",
     "• Patents: Patent Number",
-    "• Publications: Publication ID (updates), then DOI, PMID, or Title + Publication Date + Journal",
+    "• Publications: Publication ID (updates), then DOI, PMID, Title + Publication Date + Journal,",
+    "  or Title + SDR Number for records not yet published",
     "• Journal Impact Factors: Journal Name + Year",
     "• Publication Authors: Publication DOI or PMID + Scientist Email",
     "• Research Activity Members: SDR Number + Scientist Email",
@@ -1221,6 +1222,7 @@ interface DbContext {
   publicationByDoi?: Map<string, Publication[]>;
   publicationByPmid?: Map<string, Publication[]>;
   publicationByComposite?: Map<string, Publication[]>;
+  publicationBySdrTitle?: Map<string, Publication[]>;
   manuscriptHistoryRows?: Array<{ id: number }>;
   journals?: Journal[];
   journalByName?: Map<string, Journal>;
@@ -1379,6 +1381,7 @@ async function loadDbContext(sectionId: SectionId, executor: any = db): Promise<
     const publicationByDoi = new Map<string, Publication[]>();
     const publicationByPmid = new Map<string, Publication[]>();
     const publicationByComposite = new Map<string, Publication[]>();
+    const publicationBySdrTitle = new Map<string, Publication[]>();
     const add = (map: Map<string, Publication[]>, key: string, publication: Publication) =>
       map.set(key, [...(map.get(key) ?? []), publication]);
     for (const publication of publicationList) {
@@ -1390,9 +1393,16 @@ async function loadDbContext(sectionId: SectionId, executor: any = db): Promise<
         publication.publicationDate,
         publication.journal,
       );
+      const sdrComposite = publicationSdrKey(
+        publication.title,
+        publication.researchActivityId
+          ? ctx.sdrByDbId?.get(publication.researchActivityId)?.sdrNumber
+          : undefined,
+      );
       if (doi) add(publicationByDoi, doi, publication);
       if (pmid) add(publicationByPmid, pmid, publication);
       if (composite) add(publicationByComposite, composite, publication);
+      if (sdrComposite) add(publicationBySdrTitle, sdrComposite, publication);
     }
     const journalList: Journal[] = await executor.select().from(journals);
     const journalByName = new Map(journalList.map((journal) => [
@@ -1407,7 +1417,7 @@ async function loadDbContext(sectionId: SectionId, executor: any = db): Promise<
     ]));
     Object.assign(ctx, {
       publicationList, publicationById, publicationByDoi, publicationByPmid,
-      publicationByComposite, journals: journalList, journalByName,
+      publicationByComposite, publicationBySdrTitle, journals: journalList, journalByName,
       journalMetrics, journalMetricByKey, manuscriptHistoryRows,
     });
   }
@@ -2917,6 +2927,21 @@ function publicationCompositeKey(
     : "";
 }
 
+/**
+ * Identity for a publication that is not published yet. A record at, say,
+ * "Submitted for review with pre-publication" legitimately has no DOI, no PMID
+ * and no publication date, so the title+date+journal composite can never form.
+ * Title within a research activity is the stable identity such a record does
+ * have, and it is what staff use to refer to it.
+ */
+function publicationSdrKey(title: unknown, sdrNumber: unknown): string {
+  const normalizedTitle = normalizeScalarKey(title);
+  const normalizedSdr = normalizeScalarKey(sdrNumber);
+  return normalizedTitle && normalizedSdr
+    ? `${normalizedTitle}\u0000${normalizedSdr}`
+    : "";
+}
+
 function previewPublicationRows(
   rows: Record<string, string>[],
   ctx: DbContext,
@@ -2925,6 +2950,7 @@ function previewPublicationRows(
   const seenDois = new Set<string>();
   const seenPmids = new Set<string>();
   const seenComposites = new Set<string>();
+  const seenSdrTitles = new Set<string>();
   return rows.map((row, index) => {
     const rowNumber = index + 1;
     const errors: string[] = [];
@@ -2959,10 +2985,14 @@ function previewPublicationRows(
       publicationDate = parseDateTimestamp(row.publicationDate, "Publication Date", errors);
     }
     const composite = publicationCompositeKey(row.title, publicationDate, row.journal);
+    // Fallback identity for records that have not been published yet and so
+    // cannot have a DOI, PMID or publication date.
+    const sdrComposite = publicationSdrKey(row.title, row.sdrNumber);
     for (const [key, seen, label] of [
       [doi, seenDois, "DOI"],
       [pmid, seenPmids, "PMID"],
       [composite, seenComposites, "Title + Publication Date + Journal"],
+      [sdrComposite, seenSdrTitles, "Title + SDR Number"],
     ] as const) {
       if (!key) continue;
       if (seen.has(key)) errors.push(`Duplicate normalized ${label} key in this file`);
@@ -2974,6 +3004,7 @@ function previewPublicationRows(
       ["DOI", doi, doi ? ctx.publicationByDoi!.get(doi) : undefined],
       ["PMID", pmid, pmid ? ctx.publicationByPmid!.get(pmid) : undefined],
       ["Title + Publication Date + Journal", composite, composite ? ctx.publicationByComposite!.get(composite) : undefined],
+      ["Title + SDR Number", sdrComposite, sdrComposite ? ctx.publicationBySdrTitle?.get(sdrComposite) : undefined],
     ] as const) {
       if (!key) continue;
       if ((candidates?.length ?? 0) > 1) {
@@ -2995,8 +3026,10 @@ function previewPublicationRows(
     const isNew = !existing && !idResolved;
     const title = (row.title ?? "").trim();
     if (isNew && !title) errors.push("Title is required");
-    if (isNew && !doi && !pmid && !composite) {
-      errors.push("New publications require DOI, PMID, or Publication Date plus Journal");
+    if (isNew && !doi && !pmid && !composite && !sdrComposite) {
+      errors.push(
+        "New publications require DOI, PMID, Publication Date plus Journal, or Title plus SDR Number",
+      );
     }
 
     const data: Record<string, unknown> = {};
