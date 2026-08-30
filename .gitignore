@@ -16,3 +16,6 @@ QBridge_UserFlow_Diagram.png
 QBridge_UserFlow_Diagram.svg
 ~$chitectIQ_On_Prem_QBRIDGE.docx
 tests/performance/k6/results/
+dev.sh
+.npmrc
+dev-server.log
