@@ -14,7 +14,7 @@
  * Every authorisation decision goes through this module so the rules cannot
  * drift apart between guards, the permission matrix and the client.
  */
-import { RESTRICTED_USER_ROLE } from "./constants";
+import { ACCESS_LEVELS, RESTRICTED_USER_ROLE, type AccessLevel } from "./constants";
 
 export interface RoleBearer {
   role?: string | null;
@@ -22,10 +22,28 @@ export interface RoleBearer {
   secondaryRoles?: string[] | null;
 }
 
-export type AccessLevel = "hide" | "view" | "edit";
+export type { AccessLevel };
 
-/** Rank used whenever two access levels have to be reconciled. */
-const ACCESS_RANK: Record<string, number> = { hide: 1, view: 2, edit: 3 };
+/**
+ * Rank used whenever two access levels have to be reconciled.
+ *
+ * All four levels are ranked. "create" was previously absent from this map, so
+ * a role holding it ranked below "hide" and could be silently dropped when
+ * access was reconciled across several roles.
+ */
+const ACCESS_RANK: Record<string, number> = { hide: 1, view: 2, create: 3, edit: 4 };
+
+/** Every level, weakest first. */
+export const ACCESS_LEVELS_BY_RANK: readonly AccessLevel[] = [...ACCESS_LEVELS]
+  .sort((a, b) => (ACCESS_RANK[a] ?? 0) - (ACCESS_RANK[b] ?? 0));
+
+/** True when `held` is at least as permissive as `required`. */
+export function satisfiesAccessLevel(
+  held: AccessLevel | null | undefined,
+  required: AccessLevel,
+): boolean {
+  return (ACCESS_RANK[held ?? "hide"] ?? 0) >= (ACCESS_RANK[required] ?? 0);
+}
 
 /**
  * Every role the person holds, primary first, de-duplicated and free of blanks.

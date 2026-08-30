@@ -989,7 +989,11 @@ export type InsertUserRoleAssignment = z.infer<typeof insertUserRoleAssignmentSc
 // Role permissions schema - stores access level for each role/navigation item combination
 export const rolePermissions = pgTable("role_permissions", {
   id: serial("id").primaryKey(),
-  roleGroupId: integer("role_group_id").notNull(), // FK to role_groups (replaces job_title)
+  // A declared foreign key, not a documented one. Before it was declared,
+  // deleting a role left its permission rows behind, invisible to every read.
+  roleGroupId: integer("role_group_id")
+    .notNull()
+    .references(() => roleGroups.id, { onDelete: "cascade" }),
   navigationItem: text("navigation_item").notNull(), // e.g., "facilities", "programs", etc.
   accessLevel: text("access_level").notNull(), // "hide", "view", "edit", or "create"
   updatedBy: integer("updated_by"),

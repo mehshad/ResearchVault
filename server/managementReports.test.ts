@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { managementReportConfigSchema } from "../shared/managementReports.js";
-import { requireManagement } from "./auth.js";
+import { createRequireManagement } from "./auth.js";
 import {
   assembleManagementReport,
   buildManagementReportPdf,
@@ -28,16 +28,33 @@ const config = managementReportConfigSchema.parse({
   patentStatuses: [],
 });
 
-test("management authorization allows only management tier roles", () => {
-  for (const role of ["Management", "admin", "superadmin"]) {
+test("management authorization resolves the matrix, not a list of role names", async () => {
+  // The guard used to admit the literal strings "Management", "admin" and
+  // "superadmin". It now reads the "management" area, so granting that area to
+  // any role admits it and revoking it shuts the role out -- which is what
+  // making the matrix configurable was supposed to mean.
+  const guard = createRequireManagement(async (role) =>
+    role === "Management" ? "edit" : null);
+
+  for (const user of [
+    { username: "m", role: "Management" },
+    { username: "a", role: "admin" },
+    { username: "s", role: "superadmin" },
+    { username: "x", role: "Investigator", secondaryRoles: ["Management"] },
+  ]) {
     let next = false;
-    requireManagement({ method: "GET", path: "/", session: { user: { role } } } as any, {} as any, () => { next = true; });
-    assert.equal(next, true);
+    await guard(
+      { method: "GET", path: "/", session: { user } } as any,
+      {} as any,
+      () => { next = true; },
+    );
+    assert.equal(next, true, `${user.username} should reach the management hub`);
   }
+
   let status = 0;
   let body: unknown;
-  requireManagement(
-    { method: "GET", path: "/", session: { user: { username: "scientist", role: "Scientist" } } } as any,
+  await guard(
+    { method: "GET", path: "/", session: { user: { username: "scientist", role: "Researcher" } } } as any,
     { status(code: number) { status = code; return this; }, json(value: unknown) { body = value; } } as any,
     () => assert.fail("must reject"),
   );

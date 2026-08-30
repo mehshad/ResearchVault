@@ -4,7 +4,9 @@ import {
   allRolesOf,
   hasAnyRole,
   isAdministrator,
+  isRestrictedOnly,
   effectiveAccessLevel,
+  satisfiesAccessLevel,
   type AccessLevel,
 } from "@shared/effectiveRoles";
 import { userRoleAssignments } from "@shared/schema";
@@ -142,28 +144,6 @@ export function requireAdmin(req: Request, res: Response, next: NextFunction) {
   res.status(403).json({ message: "Forbidden. Admin access required." });
 }
 
-/**
- * The Research Office covers grants and contracts under a single role. The
- * former Grant Officer and Contracts Officer are folded into it: they differed
- * in only two matrix cells, and the contracts guard was never applied to any
- * endpoint, so nothing was enforcing the separation.
- */
-export function requireResearchOfficer(req: Request, res: Response, next: NextFunction) {
-  const user = req.session?.user;
-  const role = user?.role;
-  if (hasAnyRole(user, [RESEARCH_OFFICER_ROLE, "admin", "superadmin", "Management"])) return next();
-  authLog(`403 research officer required: ${req.method} ${req.path} user=${req.session?.user?.username ?? "anonymous"} role=${role ?? "none"}`);
-  res.status(403).json({ message: "Forbidden. Research office access required." });
-}
-
-export function requirePmoOfficer(req: Request, res: Response, next: NextFunction) {
-  const user = req.session?.user;
-  const role = user?.role;
-  if (hasAnyRole(user, ["PMO Officer", "admin", "superadmin", "Management"])) return next();
-  authLog(`403 PMO officer required: ${req.method} ${req.path} user=${req.session?.user?.username ?? "anonymous"} role=${role ?? "none"}`);
-  res.status(403).json({ message: "Forbidden. PMO access required." });
-}
-
 export type NavigationAccessLoader = (
   role: string,
   navigationItem: string,
@@ -182,63 +162,146 @@ async function loadNavigationAccess(role: string, navigationItem: string): Promi
   return permission?.accessLevel ?? null;
 }
 
-export function createRequirePublicationOfficer(
-  loadAccess: NavigationAccessLoader = loadNavigationAccess,
-) {
-  return async function requirePublicationOfficer(req: Request, res: Response, next: NextFunction) {
-    const user = req.session?.user;
-    const role = user?.role;
-    if (!role) {
-      authLog(`403 publication office required: ${req.method} ${req.path} user=anonymous role=none`);
-      return res.status(403).json({ message: "Forbidden. Publication office access required." });
-    }
+/**
+ * The access level a request needs, from its method.
+ *
+ * The matrix has four levels and "create" means exactly what it says: may add
+ * new records but not change existing ones. Mapping POST to "create" rather
+ * than "edit" is what makes that level mean anything on the server.
+ */
+export function requiredLevelForMethod(method: string): AccessLevel {
+  switch (method.toUpperCase()) {
+    case "GET":
+    case "HEAD":
+    case "OPTIONS":
+      return "view";
+    case "POST":
+      return "create";
+    default:
+      return "edit";
+  }
+}
 
+/**
+ * Enforces the permission matrix for one navigation area.
+ *
+ * Until this existed the matrix was enforced in the browser for every area but
+ * one: the server consulted it only for "outcome-office", so 22 of the 23
+ * configured columns were advisory. Hiding a menu item does not stop anyone
+ * calling the endpoint behind it.
+ *
+ * Three cases short-circuit before the matrix is read:
+ *
+ *  - Anonymous requests are refused. There is no role to resolve.
+ *  - Administrators pass. `admin` in any slot, or `superadmin`, is full access
+ *    by definition, so no matrix cell can lock an administrator out.
+ *  - A restricted "user" account holds no matrix role, so the matrix would
+ *    refuse it everywhere. That would revoke the narrow allowlist
+ *    restrictDefaultUserApiAccess grants it -- its own profile, ordinary
+ *    publication reads -- both of which sit under mapped prefixes. The caller
+ *    supplies `allowRestricted` so that one policy stays the single owner of
+ *    what a restricted account may reach. Left unset, restricted accounts are
+ *    refused, so the guard is safe on a route mounted without that middleware.
+ */
+export function createRequireNavigationAccess(
+  navigationItem: string,
+  options: {
+    label?: string;
+    loadAccess?: NavigationAccessLoader;
+    /** Whether a restricted "user" account may make this request. */
+    allowRestricted?: (req: Request) => boolean;
+  } = {},
+) {
+  const loadAccess = options.loadAccess ?? loadNavigationAccess;
+  const label = options.label ?? navigationItem;
+  const allowRestricted = options.allowRestricted ?? (() => false);
+  const deny = (req: Request, res: Response, reason: string) => {
+    const user = req.session?.user;
+    // originalUrl, not path: these guards are mounted on a prefix, and express
+    // strips the mount point from req.path, so req.path would log "/" for every
+    // denial. The whole point of this line is to say which endpoint was refused.
+    const where = (req.originalUrl ?? req.path ?? "").split("?")[0] || req.path;
+    authLog(
+      `403 ${navigationItem} access required: ${req.method} ${where} ` +
+      `user=${user?.username ?? "anonymous"} roles=${allRolesOf(user).join("|") || "none"} ` +
+      `needed=${requiredLevelForMethod(req.method)} (${reason})`,
+    );
+    return res.status(403).json({ message: `Forbidden. ${label} access required.` });
+  };
+
+  return async function requireNavigationAccess(req: Request, res: Response, next: NextFunction) {
+    const user = req.session?.user;
+    if (!user?.role) return deny(req, res, "not signed in");
     if (isAdministrator(user)) return next();
+    if (isRestrictedOnly(user)) {
+      return allowRestricted(req) ? next() : deny(req, res, "restricted account");
+    }
 
     try {
       // Someone holding several roles gets the most permissive of them, which
       // is how /api/access-check has always resolved multi-role access.
       const roles = allRolesOf(user);
       const levels = await Promise.all(
-        roles.map((held) => loadAccess(held, "outcome-office")),
+        roles.map((held) => loadAccess(held, navigationItem)),
       );
       const levelByRole = new Map(roles.map((held, index) => [held, levels[index]]));
       const best = effectiveAccessLevel(
         user,
         (held) => (levelByRole.get(held) as AccessLevel | null) ?? null,
       );
-      const requiredLevel = req.method === "GET" || req.method === "HEAD" ? "view" : "edit";
-      const allowed = requiredLevel === "view"
-        ? best === "view" || best === "edit"
-        : best === "edit";
-      if (allowed) return next();
+      if (satisfiesAccessLevel(best, requiredLevelForMethod(req.method))) return next();
+      return deny(req, res, `holds ${best}`);
     } catch (error) {
-      authError(`publication office matrix lookup failed for role=${role}`, error);
+      // A lookup that failed is not permission granted.
+      authError(`${navigationItem} matrix lookup failed for user=${user.username}`, error);
+      return deny(req, res, "matrix lookup failed");
     }
-
-    authLog(`403 publication office required: ${req.method} ${req.path} user=${req.session?.user?.username ?? "anonymous"} role=${role}`);
-    return res.status(403).json({ message: "Forbidden. Publication office access required." });
   };
+}
+
+export function createRequirePublicationOfficer(
+  loadAccess: NavigationAccessLoader = loadNavigationAccess,
+) {
+  return createRequireNavigationAccess("outcome-office", {
+    label: "Publication office",
+    loadAccess,
+  });
 }
 
 export const requirePublicationOfficer = createRequirePublicationOfficer();
 
-/** Restricts Management Hub/report endpoints to the management tier. */
-export function requireManagement(req: Request, res: Response, next: NextFunction) {
-  const user = req.session?.user;
-  const role = user?.role;
-  if (hasAnyRole(user, ["Management", "admin", "superadmin"])) return next();
-  authLog(`403 management required: ${req.method} ${req.path} user=${req.session?.user?.username ?? "anonymous"} role=${role ?? "none"}`);
-  res.status(403).json({ message: "Forbidden. Management access required." });
+/**
+ * The office guards resolve the matrix instead of naming roles.
+ *
+ * They used to admit a hard-coded list -- "Research Officer", "PMO Officer",
+ * "Management", plus administrators. That made the code a second authority on
+ * access, competing with the matrix an administrator actually configures, and
+ * the code always won: granting an area in the matrix admitted nobody the
+ * guard had not been written to expect, and revoking it shut nobody out. The
+ * matrix is now the only authority, with administrators short-circuiting as
+ * they do everywhere else.
+ *
+ * "research-office" and "pmo-office" are real configured areas. They are
+ * absent from NAVIGATION_ITEMS only because that list describes what appears
+ * in the menu, not what is configurable.
+ */
+export function createRequireResearchOfficer(loadAccess?: NavigationAccessLoader) {
+  return createRequireNavigationAccess("research-office", { label: "Research office", loadAccess });
 }
 
-export function requireContractsRead(req: Request, res: Response, next: NextFunction) {
-  if (req.session?.user) {
-    (req as any).currentUser = req.session.user;
-    return next();
-  }
-  res.status(401).json({ message: "Unauthorized. Please log in." });
+export function createRequirePmoOfficer(loadAccess?: NavigationAccessLoader) {
+  return createRequireNavigationAccess("pmo-office", { label: "PMO office", loadAccess });
 }
+
+export function createRequireManagement(loadAccess?: NavigationAccessLoader) {
+  return createRequireNavigationAccess("management", { label: "Management", loadAccess });
+}
+
+export const requireResearchOfficer = createRequireResearchOfficer();
+export const requirePmoOfficer = createRequirePmoOfficer();
+
+/** Management Hub and reporting, resolved against the "management" area. */
+export const requireManagement = createRequireManagement();
 
 // ── Local auth helpers ─────────────────────────────────────────────────────────
 
