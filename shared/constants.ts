@@ -34,6 +34,69 @@ export type JobTitle = typeof JOB_TITLES[number];
  */
 export const RESEARCH_OFFICER_ROLE = "Research Officer";
 
+/**
+ * The single access role covering bench and support research staff.
+ *
+ * Job titles and access roles are separate things: someone stays a
+ * "Postdoctoral Researcher" on their profile while holding the "Researcher"
+ * access role. Investigator is deliberately *not* folded in — it carries
+ * responsibilities the others do not.
+ */
+export const RESEARCHER_ROLE = "Researcher";
+
+/**
+ * Job titles that resolve to the consolidated Researcher access role. Used by
+ * the role/title comparison so holding "Researcher" while titled "Staff
+ * Scientist" is understood rather than flagged as a mismatch.
+ */
+export const RESEARCHER_JOB_TITLES = [
+  "Staff Scientist",
+  "Postdoctoral Researcher",
+  "Research Specialist",
+  "Research Associate",
+  "Research Assistant",
+] as const;
+
+/**
+ * Assignable access roles. This is deliberately *not* JOB_TITLES: several job
+ * titles share one access role, and the two lists drift apart as roles are
+ * consolidated.
+ */
+export const ACCESS_ROLES = [
+  ...JOB_TITLES.filter(
+    (title) => !(RESEARCHER_JOB_TITLES as readonly string[]).includes(title),
+  ),
+  RESEARCHER_ROLE,
+].sort() as string[];
+
+/**
+ * The access role a job title corresponds to, when one exists. Returns the
+ * title itself where the two still share a name.
+ */
+export function accessRoleForJobTitle(jobTitle: string | null | undefined): string | null {
+  if (!jobTitle) return null;
+  const trimmed = jobTitle.trim();
+  if (!trimmed) return null;
+  if ((RESEARCHER_JOB_TITLES as readonly string[]).includes(trimmed)) return RESEARCHER_ROLE;
+  return trimmed;
+}
+
+/**
+ * True when an access role is inconsistent with the profile job title. A person
+ * titled "Staff Scientist" holding "Researcher" is consistent; holding
+ * "IRB Officer" is not. Built-in roles are never a mismatch — they are granted
+ * deliberately and say nothing about the person's job.
+ */
+export function isRoleTitleMismatch(
+  role: string | null | undefined,
+  jobTitle: string | null | undefined,
+): boolean {
+  if (!role || !jobTitle) return false;
+  if (role === "admin" || role === "superadmin" || role === RESTRICTED_USER_ROLE) return false;
+  const expected = accessRoleForJobTitle(jobTitle);
+  return expected !== null && expected !== role.trim();
+}
+
 
 /**
  * Built-in access roles that exist outside the configurable role matrix.

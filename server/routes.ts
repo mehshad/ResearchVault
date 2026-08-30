@@ -75,7 +75,7 @@ import {
 } from "@shared/schema";
 import { requireAuth, requireAdmin, requirePublicationOfficer, getAuthMode } from "./auth";
 import { buildAssignableRoles } from "./assignableRoles";
-import { JOB_TITLES } from "@shared/constants";
+import { ACCESS_ROLES } from "@shared/constants";
 import { resolveOwnershipAccess, maxAccess, type AccessLevel as OwnershipAccessLevel } from "./ownershipResolver";
 import { matchesAuthorName, isLinkedAuthorInAuthorsText, isUnambiguousAuthorMatch, suggestInternalAuthors } from "@shared/authorMatching";
 import { detectDuplicateGroups, pickDefaultSurvivorId, normalizeDoi as canonicalDoi, isPreprintRecord, classifyResolvedPublication, preprintRepairEvidence } from "@shared/publicationDeduplication";
@@ -10907,7 +10907,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     await db
       .insert(roleGroups)
       .values(
-        JOB_TITLES.map((name) => ({
+        ACCESS_ROLES.map((name) => ({
           name,
           description: 'Default access-matrix role',
         }))

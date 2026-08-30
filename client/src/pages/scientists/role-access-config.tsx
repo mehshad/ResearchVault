@@ -22,7 +22,7 @@ import {
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { usePermissions, type AccessLevel, type NavigationPermission } from "@/hooks/usePermissions";
-import { RESEARCH_OFFICER_ROLE, JOB_TITLES, NAVIGATION_ITEMS } from "@shared/constants";
+import { RESEARCH_OFFICER_ROLE, RESEARCHER_ROLE, ACCESS_ROLES, NAVIGATION_ITEMS } from "@shared/constants";
 
 const KNOWN_RELATIONSHIPS = [
   "is_author",
@@ -204,7 +204,7 @@ export default function RoleAccessConfig({ embedded = false }: { embedded?: bool
 
   const resetToDefaults = () => {
     const defaultPermissions: NavigationPermission[] = [];
-    JOB_TITLES.forEach((jobTitle) => {
+    ACCESS_ROLES.forEach((jobTitle) => {
       NAVIGATION_ITEMS.forEach((navItem) => {
         // Set some realistic defaults for different roles
         let defaultAccess: AccessLevel = "edit";
@@ -403,7 +403,7 @@ export default function RoleAccessConfig({ embedded = false }: { embedded?: bool
                   </div>
 
                   {/* Permission rows */}
-                  {JOB_TITLES.map((jobTitle) => {
+                  {ACCESS_ROLES.map((jobTitle) => {
                     const permission = getPermissionForRole(jobTitle, navItem.id);
                     if (!permission) return null;
 

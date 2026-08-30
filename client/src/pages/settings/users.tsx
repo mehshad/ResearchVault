@@ -9,6 +9,7 @@ import { apiRequest } from "@/lib/queryClient";
 import { useCurrentUser } from "@/hooks/useCurrentUser";
 import { AlertTriangle, Shield, User } from "lucide-react";
 import { isAdministrator, hasAnyRole } from "@shared/effectiveRoles";
+import { isRoleTitleMismatch, accessRoleForJobTitle } from "@shared/constants";
 
 interface AppUser {
   id: number;
@@ -53,8 +54,10 @@ export default function AdminUsersPage() {
       return res.json();
     },
   });
+  // Several job titles share one access role — a "Postdoctoral Researcher" holds
+  // "Researcher" — so a plain string comparison would flag every one of them.
   const mismatchCount = users.filter(
-    (user) => user.profileJobTitle && user.role !== user.profileJobTitle
+    (user) => isRoleTitleMismatch(user.role, user.profileJobTitle)
   ).length;
 
   // Secondary roles are additive — a person's access is the union of their
@@ -135,8 +138,10 @@ export default function AdminUsersPage() {
                 <div className="mb-4 flex items-start gap-2 rounded-md border border-amber-500/40 bg-amber-500/10 p-3 text-sm">
                   <AlertTriangle className="mt-0.5 h-4 w-4 flex-shrink-0 text-amber-600 dark:text-amber-400" />
                   <p>
-                    Highlighted users have an access role that differs from their profile job title.
-                    This may be intentional; permissions always follow the access role.
+                    Highlighted users hold an access role that does not correspond to their profile
+                    job title. Several titles share one role — a Postdoctoral Researcher holds
+                    Researcher — and those are not flagged. This may still be intentional;
+                    permissions always follow the access role.
                   </p>
                 </div>
               )}
@@ -165,8 +170,7 @@ export default function AdminUsersPage() {
                     role !== "superadmin" &&
                     !currentSecondary.includes(role),
                 );
-                const hasRoleTitleMismatch =
-                  Boolean(u.profileJobTitle) && u.role !== u.profileJobTitle;
+                const hasRoleTitleMismatch = isRoleTitleMismatch(u.role, u.profileJobTitle);
                 return (
                   <div
                     key={u.id}

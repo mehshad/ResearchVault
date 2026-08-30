@@ -104,3 +104,49 @@ test("a secondary role can only widen access, never narrow it", () => {
     "adding a more restricted role must not take access away",
   );
 });
+
+// ── Job titles vs access roles ──────────────────────────────────────────────
+
+test("several job titles resolve to the one Researcher access role", async () => {
+  const { accessRoleForJobTitle, isRoleTitleMismatch, RESEARCHER_ROLE, ACCESS_ROLES } =
+    await import("./constants.js");
+
+  for (const title of [
+    "Staff Scientist", "Postdoctoral Researcher",
+    "Research Specialist", "Research Associate", "Research Assistant",
+  ]) {
+    assert.equal(accessRoleForJobTitle(title), RESEARCHER_ROLE, `${title} maps to Researcher`);
+    assert.equal(
+      isRoleTitleMismatch(RESEARCHER_ROLE, title),
+      false,
+      `holding Researcher while titled ${title} is consistent, not a mismatch`,
+    );
+  }
+
+  // Investigator is deliberately not folded in.
+  assert.equal(accessRoleForJobTitle("Investigator"), "Investigator");
+  assert.equal(isRoleTitleMismatch(RESEARCHER_ROLE, "Investigator"), true);
+
+  // The retired roles are gone from the assignable set; Researcher is in it.
+  for (const retired of [
+    "Staff Scientist", "Postdoctoral Researcher",
+    "Research Specialist", "Research Associate", "Research Assistant",
+  ]) {
+    assert.equal(ACCESS_ROLES.includes(retired), false, `${retired} is no longer an access role`);
+  }
+  assert.ok(ACCESS_ROLES.includes(RESEARCHER_ROLE));
+  assert.ok(ACCESS_ROLES.includes("Investigator"));
+});
+
+test("built-in roles are never reported as a title mismatch", async () => {
+  const { isRoleTitleMismatch } = await import("./constants.js");
+  // These are granted deliberately and say nothing about the person's job, so
+  // flagging them would make the warning meaningless.
+  for (const role of ["admin", "superadmin", "user"]) {
+    assert.equal(isRoleTitleMismatch(role, "Staff Scientist"), false, `${role} must not be flagged`);
+  }
+  assert.equal(isRoleTitleMismatch(null, "Staff Scientist"), false);
+  assert.equal(isRoleTitleMismatch("Researcher", null), false);
+  // A genuine mismatch is still reported.
+  assert.equal(isRoleTitleMismatch("IRB Officer", "Staff Scientist"), true);
+});

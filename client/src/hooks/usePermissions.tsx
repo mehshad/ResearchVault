@@ -1,5 +1,5 @@
 import { createContext, useContext, useState, ReactNode, useEffect } from "react";
-import { RESTRICTED_USER_ROLE, RESEARCH_OFFICER_ROLE } from "@shared/constants";
+import { RESTRICTED_USER_ROLE, RESEARCH_OFFICER_ROLE, RESEARCHER_ROLE, ACCESS_ROLES } from "@shared/constants";
 import {
   allRolesOf,
   isAdministrator,
@@ -41,30 +41,13 @@ interface PermissionsContextType {
 
 const PermissionsContext = createContext<PermissionsContextType | undefined>(undefined);
 
-const JOB_TITLES = [
-  "Investigator",
-  "Staff Scientist", 
-  "Physician",
-  "Research Specialist",
-  "Research Associate",
-  "Research Assistant",
-  "Lab Manager",
-  "Postdoctoral Researcher",
-  "PhD Student",
-  "Management",
-  "IRB Board Member",
-  "IBC Board Member", 
-  "PMO Officer",
-  "IRB Officer",
-  "IBC Officer",
-  "Outcome Officer",
-  RESEARCH_OFFICER_ROLE,
-  "IT Officer"
-];
+// The matrix is keyed by access role, not job title: several job titles share
+// one access role, so the two lists are no longer the same set.
+const MATRIX_ROLES = ACCESS_ROLES;
 
 const createDefaultPermissions = (): NavigationPermission[] => {
   const defaultPermissions: NavigationPermission[] = [];
-  JOB_TITLES.forEach((jobTitle) => {
+  MATRIX_ROLES.forEach((jobTitle) => {
     NAVIGATION_ITEMS.forEach((navItem) => {
       // Set some realistic defaults for different roles
       let defaultAccess: AccessLevel = "edit";
