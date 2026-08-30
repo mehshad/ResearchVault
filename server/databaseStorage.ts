@@ -1,6 +1,7 @@
 // @ts-nocheck — Pre-existing TypeScript errors in this file are suppressed so `npx tsc --noEmit` runs clean and new code in other files gets reliable type-checking feedback.
 // Most errors here stem from untyped `useQuery` results (data inferred as `unknown`), drifted shared/schema field renames, and form values typed as `unknown`. They are not known runtime bugs but should be fixed file-by-file as each is next touched: remove this directive, run `npx tsc --noEmit`, and resolve what surfaces.
 import { eq, and, desc, asc, or, sql, inArray, notInArray, gte, ilike } from "drizzle-orm";
+import { ACCESS_ROLES, BUILT_IN_ASSIGNABLE_ROLES } from "@shared/constants";
 import { db } from "./db";
 import { IStorage } from "./storage";
 import { isGrantSdrEligible } from "@shared/grantSdrEligibility";
@@ -2135,10 +2136,27 @@ export class DatabaseStorage implements IStorage {
   ): Promise<(RolePermission & { jobTitle: string })[]> {
     if (permissions.length === 0) return [];
 
-    // The access matrix may contain roles or cells that predate the current
-    // database seed. Ensure every submitted role exists, then upsert each
-    // role/navigation pair so newly restored matrix cells persist.
-    const roleNames = [...new Set(permissions.map((permission) => permission.jobTitle.trim()).filter(Boolean))];
+    // Only roles that are actually assignable may be created here.
+    //
+    // This used to create a role group for whatever name the client submitted,
+    // which meant saving the matrix from a browser holding a stale grid
+    // resurrected roles a consolidation had just retired -- silently undoing
+    // the migration, with no indication anything had happened. A submitted
+    // role that is not assignable is dropped rather than rejected, so one
+    // stale cell cannot fail the whole save.
+    const assignable = new Set<string>([
+      ...ACCESS_ROLES,
+      ...BUILT_IN_ASSIGNABLE_ROLES,
+    ]);
+    const roleNames = [...new Set(
+      permissions
+        .map((permission) => permission.jobTitle.trim())
+        .filter((name) => name && assignable.has(name)),
+    )];
+    if (roleNames.length === 0) return [];
+    permissions = permissions.filter((permission) =>
+      roleNames.includes(permission.jobTitle.trim()));
+
     await db
       .insert(roleGroups)
       .values(roleNames.map((name) => ({ name })))

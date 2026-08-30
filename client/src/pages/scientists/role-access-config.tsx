@@ -21,7 +21,12 @@ import {
   LockKeyhole,
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
-import { usePermissions, type AccessLevel, type NavigationPermission } from "@/hooks/usePermissions";
+import {
+  usePermissions,
+  createDefaultPermissions,
+  type AccessLevel,
+  type NavigationPermission,
+} from "@/hooks/usePermissions";
 import { RESEARCH_OFFICER_ROLE, RESEARCHER_ROLE, ACCESS_ROLES, NAVIGATION_ITEMS } from "@shared/constants";
 
 const KNOWN_RELATIONSHIPS = [
@@ -44,9 +49,14 @@ const KNOWN_RELATIONSHIPS = [
  * empty array and the notice disappears on its own.
  */
 const UNLISTED_ENFORCED_AREAS: ReadonlyArray<{ id: string; label: string }> = [
-  { id: "pmo-office", label: "PMO Office" },
-  { id: "research-office", label: "Research Office" },
-  { id: "certifications", label: "Certifications" },
+  // Empty, and the notice below disappears with it. PMO Office, Research
+  // Office and Certifications used to sit here: stored in the matrix and
+  // enforced on every request, but absent from the grid because the matrix was
+  // seeded from one list of areas and the grid rendered from another. Both now
+  // come from NAVIGATION_ITEMS, so everything enforced is reviewable here.
+  //
+  // Kept as a constant rather than deleted: if an area is ever enforced without
+  // being listed again, naming it here restores the warning.
 ];
 
 const SERVER_ENFORCED_RULES = [
@@ -240,57 +250,9 @@ export default function RoleAccessConfig({ embedded = false }: { embedded?: bool
   };
 
   const resetToDefaults = () => {
-    const defaultPermissions: NavigationPermission[] = [];
-    ACCESS_ROLES.forEach((jobTitle) => {
-      NAVIGATION_ITEMS.forEach((navItem) => {
-        // Set some realistic defaults for different roles
-        let defaultAccess: AccessLevel = "edit";
-        
-        // Investigators have limited access to office/reviewer functions
-        if (jobTitle === "Investigator") {
-          if (navItem.id.includes("-office") || navItem.id.includes("-reviewer")) {
-            defaultAccess = "hide";
-          } else if (navItem.id === "reports") {
-            defaultAccess = "view";
-          }
-        }
-        
-        // PhD Students have more restrictions
-        if (jobTitle === "PhD Student") {
-          if (navItem.id.includes("-office") || navItem.id.includes("-reviewer") || 
-              navItem.id === "contracts" || navItem.id === "patents") {
-            defaultAccess = "hide";
-          } else if (navItem.id === "reports" || navItem.id === "programs") {
-            defaultAccess = "view";
-          }
-        }
-        
-        // The Research Office owns grants and contracts together. Kept in step
-        // with the same defaults in usePermissions.
-        if (jobTitle === RESEARCH_OFFICER_ROLE) {
-          if (navItem.id.includes("-office") || navItem.id.includes("-reviewer")) {
-            // Other departments' offices and reviewer screens stay hidden.
-            defaultAccess = "hide";
-          } else if (
-            navItem.id === "grants" || navItem.id === "contracts" ||
-            navItem.id === "programs" || navItem.id === "projects" ||
-            navItem.id === "research-activities" || navItem.id === "scientists"
-          ) {
-            defaultAccess = "edit";
-          } else if (navItem.id === "reports" || navItem.id === "publications" || navItem.id === "patents") {
-            defaultAccess = "view";
-          }
-        }
-        
-        defaultPermissions.push({
-          id: `${jobTitle}-${navItem.id}`,
-          jobTitle,
-          navigationItem: navItem.id,
-          accessLevel: defaultAccess
-        });
-      });
-    });
-    setPermissions(defaultPermissions);
+    // The same defaults the application starts from, rather than a second copy
+    // of the rules that has to be kept in step by hand.
+    setPermissions(createDefaultPermissions());
     toast({
       title: "Reset Complete",
       description: "All navigation permissions have been reset to defaults with role-appropriate access levels."

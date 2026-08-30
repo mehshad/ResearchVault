@@ -112,9 +112,7 @@ export const NAVIGATION_ITEMS = [
   { id: "dashboard", name: "Dashboard", description: "System overview and statistics" },
   { id: "scientists", name: "Scientists & Staff", description: "Research team management" },
   { id: "facilities", name: "Facilities", description: "Buildings and rooms management" },
-  { id: "programs", name: "Programs (PRM)", description: "Research programs" },
-  { id: "projects", name: "Projects (PRJ)", description: "Research projects" },
-  { id: "research-activities", name: "Research Activities (SDR)", description: "Scientific data records" },
+  { id: "pmo-office", name: "PMO Office", description: "Programs, projects and research activities" },
   { id: "irb-applications", name: "IRB Applications", description: "Ethics review applications" },
   { id: "irb-office", name: "IRB Office", description: "IRB administration" },
   { id: "irb-reviewer", name: "IRB Reviewer", description: "IRB review interface" },
@@ -122,16 +120,42 @@ export const NAVIGATION_ITEMS = [
   { id: "ibc-office", name: "IBC Office", description: "IBC administration" },
   { id: "ibc-reviewer", name: "IBC Reviewer", description: "IBC review interface" },
   { id: "data-management", name: "Data Management Plans", description: "Research data governance" },
-  { id: "contracts", name: "Research Contracts", description: "Collaboration agreements" },
+  { id: "research-office", name: "Research Office", description: "Grants and research contracts" },
   { id: "publications", name: "Publications", description: "Academic publications" },
   { id: "outcome-office", name: "Outcome Office", description: "Research outcomes and impact tracking" },
   { id: "patents", name: "Patents", description: "Intellectual property" },
   { id: "reports", name: "Reports", description: "System reports and analytics" },
-  { id: "grants", name: "Grants", description: "Research grants and funding" },
+  { id: "certifications", name: "Certifications", description: "Staff certification records and modules" },
   { id: "management", name: "Management Hub", description: "Cross-office oversight and management reporting" },
 ] as const;
 
 export type NavigationItemId = typeof NAVIGATION_ITEMS[number]["id"];
+
+/**
+ * Areas that were folded into another, mapped to the area that absorbed them.
+ *
+ * Programs, projects and research activities are one office's work and were
+ * never configured apart; the same is true of grants and contracts. Keeping
+ * them as separate matrix columns meant five sets of cells to hold in step
+ * that always said the same thing.
+ *
+ * The old ids remain in use across the interface -- a page still asks about
+ * "programs" -- so rather than rewriting every call site and risking a missed
+ * one silently resolving to hide, every lookup goes through
+ * resolveNavigationArea() and lands on the surviving area.
+ */
+export const NAVIGATION_AREA_ALIASES: Record<string, NavigationItemId> = {
+  programs: "pmo-office",
+  projects: "pmo-office",
+  "research-activities": "pmo-office",
+  grants: "research-office",
+  contracts: "research-office",
+};
+
+/** The area a navigation id resolves to, following any consolidation. */
+export function resolveNavigationArea(navigationItem: string): string {
+  return NAVIGATION_AREA_ALIASES[navigationItem] ?? navigationItem;
+}
 
 /**
  * Access levels for role permissions.

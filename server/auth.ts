@@ -3,6 +3,7 @@ import {
   ACCESS_ROLES,
   BUILT_IN_ASSIGNABLE_ROLES,
   RESEARCH_OFFICER_ROLE,
+  resolveNavigationArea,
 } from "@shared/constants";
 import {
   allRolesOf,
@@ -153,7 +154,11 @@ export type NavigationAccessLoader = (
   navigationItem: string,
 ) => Promise<string | null>;
 
-async function loadNavigationAccess(role: string, navigationItem: string): Promise<string | null> {
+async function loadNavigationAccess(role: string, rawNavigationItem: string): Promise<string | null> {
+  // Resolve any area that was folded into another, so a guard naming a retired
+  // id still finds the surviving row rather than nothing -- and nothing means
+  // hide.
+  const navigationItem = resolveNavigationArea(rawNavigationItem);
   const [permission] = await db
     .select({ accessLevel: rolePermissions.accessLevel })
     .from(rolePermissions)

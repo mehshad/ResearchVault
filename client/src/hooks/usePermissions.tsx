@@ -1,5 +1,11 @@
 import { createContext, useContext, useState, ReactNode, useEffect } from "react";
-import { RESTRICTED_USER_ROLE, RESEARCH_OFFICER_ROLE, RESEARCHER_ROLE, ACCESS_ROLES } from "@shared/constants";
+import {
+  RESTRICTED_USER_ROLE,
+  RESEARCH_OFFICER_ROLE,
+  RESEARCHER_ROLE,
+  ACCESS_ROLES,
+  resolveNavigationArea,
+} from "@shared/constants";
 import {
   allRolesOf,
   isAdministrator,
@@ -50,7 +56,13 @@ const PermissionsContext = createContext<PermissionsContextType | undefined>(und
 // one access role, so the two lists are no longer the same set.
 const MATRIX_ROLES = ACCESS_ROLES;
 
-const createDefaultPermissions = (): NavigationPermission[] => {
+/**
+ * The starting matrix, used when nothing is configured and by the reset button
+ * in settings. Exported so there is one definition of what "default" means --
+ * the settings page kept its own copy, annotated as needing to be "kept in step
+ * with the same defaults in usePermissions", and it had already fallen behind.
+ */
+export const createDefaultPermissions = (): NavigationPermission[] => {
   const defaultPermissions: NavigationPermission[] = [];
   MATRIX_ROLES.forEach((jobTitle) => {
     NAVIGATION_ITEMS.forEach((navItem) => {
@@ -66,28 +78,26 @@ const createDefaultPermissions = (): NavigationPermission[] => {
         }
       }
       
-      // PhD Students have more restrictions
-      if (jobTitle === "PhD Student") {
-        if (navItem.includes("-office") || navItem.includes("-reviewer") || 
-            navItem === "contracts" || navItem === "patents") {
+      // Bench and support staff read the wider picture rather than change it.
+      // This branch used to key on "PhD Student", a role retired into
+      // Researcher, so it had quietly stopped matching anything.
+      if (jobTitle === RESEARCHER_ROLE) {
+        if (navItem.includes("-office") || navItem.includes("-reviewer") || navItem === "patents") {
           defaultAccess = "hide";
-        } else if (navItem === "reports" || navItem === "programs") {
+        } else if (navItem === "reports") {
           defaultAccess = "view";
         }
       }
-      
-      // The Research Office owns grants and contracts together. This merges the
-      // former Grant Officer and Contracts Officer defaults, taking the more
-      // permissive of the two wherever they differed (grants and scientists).
+
+      // The Research Office owns grants and contracts together, which are now
+      // the single "research-office" area granted by
+      // getOfficeDashboardDefaultAccess below. What remains here is the
+      // surrounding context that office needs.
       if (jobTitle === RESEARCH_OFFICER_ROLE) {
         if (navItem.includes("-office") || navItem.includes("-reviewer")) {
           // Other departments' offices and reviewer screens stay hidden.
           defaultAccess = "hide";
-        } else if (
-          navItem === "grants" || navItem === "contracts" ||
-          navItem === "programs" || navItem === "projects" ||
-          navItem === "research-activities" || navItem === "scientists"
-        ) {
+        } else if (navItem === "scientists") {
           defaultAccess = "edit";
         } else if (navItem === "reports" || navItem === "publications" || navItem === "patents") {
           defaultAccess = "view";
@@ -232,7 +242,12 @@ export function PermissionsProvider({ children }: PermissionsProviderProps) {
     }
   };
 
-  const getAccessLevel = (jobTitle: string, navigationItem: string): AccessLevel => {
+  const getAccessLevel = (jobTitle: string, rawNavigationItem: string): AccessLevel => {
+    // Pages still ask about the areas that were folded away -- "programs",
+    // "grants" -- so resolve to the area that absorbed them rather than
+    // rewriting every call site and risking a missed one falling through to
+    // hide.
+    const navigationItem = resolveNavigationArea(rawNavigationItem);
     // Administrators always have full access — they are not in the configurable
     // permissions matrix, so we must short-circuit before the DB lookup.
     if (jobTitle === "superadmin" || jobTitle === "admin") {

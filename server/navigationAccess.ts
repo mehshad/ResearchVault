@@ -32,10 +32,14 @@ export interface NavigationRouteRule {
 }
 
 /**
- * Areas the matrix configures that NAVIGATION_ITEMS does not list:
- * "certifications", "pmo-office" and "research-office". They are not stray
- * rows -- they are what the office guards below resolve against, and they are
- * configurable in exactly the same way as the twenty listed areas.
+ * Every area here is one NAVIGATION_ITEMS lists, so everything enforced is also
+ * reviewable in the settings grid.
+ *
+ * "pmo-office" and "research-office" absorbed the areas that used to sit under
+ * them -- programs, projects and research activities; grants and contracts --
+ * which were five sets of cells to keep in step that always said the same
+ * thing. "certifications" was already configured and enforced but missing from
+ * the menu, so an administrator could not see it at all.
  */
 export const NAVIGATION_ROUTE_RULES: NavigationRouteRule[] = [
   // ── People and organisation ──────────────────────────────────────────────
@@ -52,10 +56,10 @@ export const NAVIGATION_ROUTE_RULES: NavigationRouteRule[] = [
   { prefix: "/api/rooms", navigationItem: "facilities", label: "Facilities" },
 
   // ── PMO ──────────────────────────────────────────────────────────────────
-  { prefix: "/api/programs", navigationItem: "programs", label: "Programs" },
-  { prefix: "/api/projects", navigationItem: "projects", label: "Projects" },
-  { prefix: "/api/research-activities", navigationItem: "research-activities", label: "Research activities" },
-  { prefix: "/api/project-members", navigationItem: "research-activities", label: "Research activities" },
+  { prefix: "/api/programs", navigationItem: "pmo-office", label: "PMO office" },
+  { prefix: "/api/projects", navigationItem: "pmo-office", label: "PMO office" },
+  { prefix: "/api/research-activities", navigationItem: "pmo-office", label: "PMO office" },
+  { prefix: "/api/project-members", navigationItem: "pmo-office", label: "PMO office" },
   { prefix: "/api/pmo-applications", navigationItem: "pmo-office", label: "PMO office" },
 
   // ── Compliance ───────────────────────────────────────────────────────────
@@ -68,9 +72,9 @@ export const NAVIGATION_ROUTE_RULES: NavigationRouteRule[] = [
   { prefix: "/api/data-management-plans", navigationItem: "data-management", label: "Data management" },
 
   // ── Research Office ──────────────────────────────────────────────────────
-  { prefix: "/api/research-contracts", navigationItem: "contracts", label: "Research contracts" },
-  { prefix: "/api/grants", navigationItem: "grants", label: "Grants" },
-  { prefix: "/api/grant-progress-reports", navigationItem: "grants", label: "Grants" },
+  { prefix: "/api/research-contracts", navigationItem: "research-office", label: "Research office" },
+  { prefix: "/api/grants", navigationItem: "research-office", label: "Research office" },
+  { prefix: "/api/grant-progress-reports", navigationItem: "research-office", label: "Research office" },
 
   // ── Research output ──────────────────────────────────────────────────────
   { prefix: "/api/publications", navigationItem: "publications", label: "Publications" },
