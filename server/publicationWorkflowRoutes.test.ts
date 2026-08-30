@@ -3,7 +3,12 @@ import type { AddressInfo } from "node:net";
 import test from "node:test";
 import express from "express";
 
-import { requireAuth, requirePublicationOfficer } from "./auth";
+import { requireAuth, createRequirePublicationOfficer } from "./auth";
+
+// Stub that grants "edit" to Outcome Officer without a real DB connection.
+const requirePublicationOfficer = createRequirePublicationOfficer(
+  async (role) => (role === "Outcome Officer" ? "edit" : null),
+);
 import {
   rejectGenericPublicationWorkflowMutation,
   rejectPublicationCreateWorkflowMutation,
