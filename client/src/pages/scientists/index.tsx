@@ -453,7 +453,7 @@ export default function StaffList() {
     if (activeTab === "post-doc") return matchesSearch && person.jobTitle === "Post-doctoral Fellow";
     if (activeTab === "lab-manager") return matchesSearch && person.jobTitle === "Lab Manager";
     if (activeTab === "research-associate") return matchesSearch && person.jobTitle === "Research Associate";
-    if (activeTab === "officers") return matchesSearch && (person.jobTitle === "IRB Officer" || person.jobTitle === "IBC Officer" || person.jobTitle === "PMO Officer" || person.jobTitle === "Outcome Officer" || person.jobTitle === "Grant Officer");
+    if (activeTab === "officers") return matchesSearch && (person.jobTitle === "IRB Officer" || person.jobTitle === "IBC Officer" || person.jobTitle === "PMO Officer" || person.jobTitle === "Outcome Officer" || person.jobTitle === "Research Officer");
     
     return matchesSearch;
   });

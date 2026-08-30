@@ -73,7 +73,7 @@ import {
   insertDepartmentSchema,
   insertSectionSchema
 } from "@shared/schema";
-import { requireAuth, requireAdmin, requireContractsOfficer, requireContractsRead, requirePublicationOfficer, getAuthMode } from "./auth";
+import { requireAuth, requireAdmin, requirePublicationOfficer, getAuthMode } from "./auth";
 import { buildAssignableRoles } from "./assignableRoles";
 import { JOB_TITLES } from "@shared/constants";
 import { resolveOwnershipAccess, maxAccess, type AccessLevel as OwnershipAccessLevel } from "./ownershipResolver";

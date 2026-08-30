@@ -22,7 +22,7 @@ import {
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { usePermissions, type AccessLevel, type NavigationPermission } from "@/hooks/usePermissions";
-import { JOB_TITLES, NAVIGATION_ITEMS } from "@shared/constants";
+import { RESEARCH_OFFICER_ROLE, JOB_TITLES, NAVIGATION_ITEMS } from "@shared/constants";
 
 const KNOWN_RELATIONSHIPS = [
   "is_author",
@@ -228,16 +228,19 @@ export default function RoleAccessConfig({ embedded = false }: { embedded?: bool
           }
         }
         
-        // Grant Officer has specialized access
-        if (jobTitle === "Grant Officer") {
+        // The Research Office owns grants and contracts together. Kept in step
+        // with the same defaults in usePermissions.
+        if (jobTitle === RESEARCH_OFFICER_ROLE) {
           if (navItem.id.includes("-office") || navItem.id.includes("-reviewer")) {
-            // Hide other department offices/reviewer functions
+            // Other departments' offices and reviewer screens stay hidden.
             defaultAccess = "hide";
-          } else if (navItem.id === "grants" || navItem.id === "contracts" || navItem.id === "programs" || navItem.id === "projects") {
-            // Full access to grants and related areas
+          } else if (
+            navItem.id === "grants" || navItem.id === "contracts" ||
+            navItem.id === "programs" || navItem.id === "projects" ||
+            navItem.id === "research-activities" || navItem.id === "scientists"
+          ) {
             defaultAccess = "edit";
           } else if (navItem.id === "reports" || navItem.id === "publications" || navItem.id === "patents") {
-            // View access to reports and research outputs
             defaultAccess = "view";
           }
         }

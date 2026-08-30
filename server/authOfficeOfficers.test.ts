@@ -42,7 +42,7 @@ test("PMO officer middleware allows its office and elevated roles", () => {
 });
 
 test("PMO officer middleware rejects unrelated and anonymous users", () => {
-  for (const role of ["Scientist", "Grant Officer", undefined]) {
+  for (const role of ["Scientist", "Research Officer", undefined]) {
     const result = runMiddleware(requirePmoOfficer, role);
     assert.equal(result.nextCalled, false, `${role ?? "anonymous"} should be rejected`);
     assert.equal(result.statusCode, 403);
@@ -51,10 +51,20 @@ test("PMO officer middleware rejects unrelated and anonymous users", () => {
 });
 
 test("research officer middleware allows research-office and elevated roles", () => {
-  for (const role of ["Grant Officer", "Contracts Officer", "admin", "superadmin", "Management"]) {
+  for (const role of ["Research Officer", "admin", "superadmin", "Management"]) {
     const result = runMiddleware(requireResearchOfficer, role);
     assert.equal(result.nextCalled, true, `${role} should be allowed`);
     assert.equal(result.statusCode, 200);
+  }
+});
+
+test("the retired grant and contracts roles no longer open the research office", () => {
+  // Grants and contracts were consolidated into one Research Officer role. A
+  // stale role string left on an account must not still admit its holder.
+  for (const role of ["Grant Officer", "Contracts Officer"]) {
+    const result = runMiddleware(requireResearchOfficer, role);
+    assert.equal(result.nextCalled, false, `${role} must no longer be admitted`);
+    assert.equal(result.statusCode, 403);
   }
 });
 

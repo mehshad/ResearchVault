@@ -1,5 +1,5 @@
 import { createContext, useContext, useState, ReactNode, useEffect } from "react";
-import { RESTRICTED_USER_ROLE } from "@shared/constants";
+import { RESTRICTED_USER_ROLE, RESEARCH_OFFICER_ROLE } from "@shared/constants";
 import { useAuth } from "@/hooks/useAuth";
 import {
   getOfficeDashboardDefaultAccess,
@@ -46,8 +46,7 @@ const JOB_TITLES = [
   "IRB Officer",
   "IBC Officer",
   "Outcome Officer",
-  "Grant Officer",
-  "Contracts Officer",
+  RESEARCH_OFFICER_ROLE,
   "IT Officer"
 ];
 
@@ -77,32 +76,20 @@ const createDefaultPermissions = (): NavigationPermission[] => {
         }
       }
       
-      // Grant Officer has specialized access
-      if (jobTitle === "Grant Officer") {
+      // The Research Office owns grants and contracts together. This merges the
+      // former Grant Officer and Contracts Officer defaults, taking the more
+      // permissive of the two wherever they differed (grants and scientists).
+      if (jobTitle === RESEARCH_OFFICER_ROLE) {
         if (navItem.includes("-office") || navItem.includes("-reviewer")) {
-          // Hide other department offices/reviewer functions
-          if (navItem !== "grants") {
-            defaultAccess = "hide";
-          }
-        } else if (navItem === "grants" || navItem === "contracts" || navItem === "programs" || navItem === "projects") {
-          // Full access to grants and related areas
+          // Other departments' offices and reviewer screens stay hidden.
+          defaultAccess = "hide";
+        } else if (
+          navItem === "grants" || navItem === "contracts" ||
+          navItem === "programs" || navItem === "projects" ||
+          navItem === "research-activities" || navItem === "scientists"
+        ) {
           defaultAccess = "edit";
         } else if (navItem === "reports" || navItem === "publications" || navItem === "patents") {
-          // View access to reports and research outputs
-          defaultAccess = "view";
-        }
-      }
-      
-      // Contracts Officer has specialized access
-      if (jobTitle === "Contracts Officer") {
-        if (navItem.includes("-office") || navItem.includes("-reviewer")) {
-          // Hide other department offices/reviewer functions
-          defaultAccess = "hide";
-        } else if (navItem === "contracts" || navItem === "programs" || navItem === "projects" || navItem === "research-activities") {
-          // Full access to contracts and related areas
-          defaultAccess = "edit";
-        } else if (navItem === "reports" || navItem === "publications" || navItem === "patents" || navItem === "grants" || navItem === "scientists") {
-          // View access to reports and research outputs
           defaultAccess = "view";
         }
       }

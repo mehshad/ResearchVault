@@ -19,12 +19,21 @@ export const JOB_TITLES = [
   "IRB Officer",
   "IBC Officer",
   "Outcome Officer",
-  "Grant Officer",
-  "Contracts Officer",
+  // One Research Office role covering grants and contracts. There is no
+  // separate Contracts Officer: the two roles differed in only two cells and
+  // the contracts guard was never applied to an endpoint.
+  "Research Officer",
   "IT Officer",
 ] as const;
 
 export type JobTitle = typeof JOB_TITLES[number];
+
+/**
+ * The single Research Office role, covering grants and contracts. Named here so
+ * the string is not repeated across guards, seed data and client role lists.
+ */
+export const RESEARCH_OFFICER_ROLE = "Research Officer";
+
 
 /**
  * Built-in access roles that exist outside the configurable role matrix.

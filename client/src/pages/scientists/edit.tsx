@@ -424,7 +424,7 @@ export default function EditScientist() {
                       'Management', 'Investigator', 'Physician', 'Staff Scientist',
                       'Research Specialist', 'Research Associate', 'Research Assistant',
                       'PhD Student', 'Post-doctoral Fellow', 'Lab Manager',
-                      'PMO Officer', 'IRB Officer', 'IBC Officer', 'Outcome Officer', 'Grant Officer', 'IT Officer',
+                      'PMO Officer', 'IRB Officer', 'IBC Officer', 'Outcome Officer', 'Research Officer', 'IT Officer',
                     ];
                     return (
                       <FormItem>

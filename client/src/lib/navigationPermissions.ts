@@ -1,3 +1,5 @@
+import { RESEARCH_OFFICER_ROLE } from "@shared/constants";
+
 export const NAVIGATION_ITEMS = [
   "dashboard",
   "scientists",
@@ -32,8 +34,7 @@ export function getOfficeDashboardDefaultAccess(
     return role === "PMO Officer" || role === "Management" ? "edit" : "hide";
   }
   if (navigationItem === "research-office") {
-    return role === "Grant Officer" ||
-      role === "Contracts Officer" ||
+    return role === RESEARCH_OFFICER_ROLE ||
       role === "Management"
       ? "edit"
       : "hide";

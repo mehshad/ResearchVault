@@ -1,4 +1,5 @@
 import { roleGroups, rolePermissions, users } from "@shared/schema";
+import { RESEARCH_OFFICER_ROLE } from "@shared/constants";
 import { db } from "./db";
 import { and, eq } from "drizzle-orm";
 import { createHash } from "crypto";
@@ -124,18 +125,16 @@ export function requireAdmin(req: Request, res: Response, next: NextFunction) {
   res.status(403).json({ message: "Forbidden. Admin access required." });
 }
 
-export function requireContractsOfficer(req: Request, res: Response, next: NextFunction) {
-  const role = req.session?.user?.role;
-  if (role === "Contracts Officer" || role === "admin" || role === "superadmin" || role === "Management") return next();
-  authLog(`403 contracts officer required: ${req.method} ${req.path} user=${req.session?.user?.username ?? "anonymous"} role=${role ?? "none"}`);
-  res.status(403).json({ message: "Forbidden. Contracts officer access required." });
-}
-
+/**
+ * The Research Office covers grants and contracts under a single role. The
+ * former Grant Officer and Contracts Officer are folded into it: they differed
+ * in only two matrix cells, and the contracts guard was never applied to any
+ * endpoint, so nothing was enforcing the separation.
+ */
 export function requireResearchOfficer(req: Request, res: Response, next: NextFunction) {
   const role = req.session?.user?.role;
   if (
-    role === "Grant Officer" ||
-    role === "Contracts Officer" ||
+    role === RESEARCH_OFFICER_ROLE ||
     role === "admin" ||
     role === "superadmin" ||
     role === "Management"
