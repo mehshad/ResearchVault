@@ -3,7 +3,7 @@
 import { useState, useEffect, useRef, useLayoutEffect, useMemo } from "react";
 import { useAuth } from "@/hooks/useAuth";
 import { usePermissions } from "@/hooks/usePermissions";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useQuery, useMutation, useQueryClient, keepPreviousData } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -467,7 +467,12 @@ export default function PublicationOffice({ embeddedTab }: PublicationOfficeProp
       const response = await fetch(`/api/journal-impact-factors?${params}`);
       if (!response.ok) throw new Error('Failed to fetch impact factors');
       return response.json();
-    }
+    },
+    // Every keystroke produces a new query key. Without this the query goes
+    // pending, the page unmounts, and the search box loses focus after one
+    // character. Holding the previous page keeps the table and the input alive
+    // while the next result loads.
+    placeholderData: keepPreviousData,
   });
 
   const impactFactors = impactFactorsResult?.data || [];
@@ -1432,7 +1437,9 @@ export default function PublicationOffice({ embeddedTab }: PublicationOfficeProp
     },
   });
 
-  if (isLoading && activeTab === "impact-factors") {
+  // Only the very first load may replace the page. A refetch triggered by
+  // typing, sorting or paging must leave the controls mounted.
+  if (isLoading && !impactFactorsResult && activeTab === "impact-factors") {
     return (
       <div className="space-y-6">
         <div className="text-center">Loading impact factors...</div>
@@ -3145,14 +3152,17 @@ export default function PublicationOffice({ embeddedTab }: PublicationOfficeProp
           >
             <div style={{ width: tableScrollWidth, height: 1 }} />
           </div>
+          {/* Bound the body height and scroll inside it, so the column headers
+              stay put while working down a long page of journals. Horizontal
+              scrolling is preserved for the wide metric columns. */}
           <div
             ref={tableScrollRef}
             onScroll={handleTableScroll}
-            className="overflow-x-auto"
+            className="overflow-x-auto overflow-y-auto max-h-[70vh] relative"
           >
             <Table>
-              <TableHeader>
-                <TableRow>
+              <TableHeader className="sticky top-0 z-20 bg-background shadow-[inset_0_-1px_0_hsl(var(--border))]">
+                <TableRow className="hover:bg-transparent">
                   <TableHead className="min-w-[200px]"><SortableHeader field="journalName" label="Journal Name" /></TableHead>
                   <TableHead className="w-[90px]"><span className="text-xs font-medium">Pubs</span></TableHead>
                   <TableHead className="min-w-[150px]"><PlainHeader field="abbreviatedJournal" label="Abbreviated" /></TableHead>
@@ -3176,11 +3186,18 @@ export default function PublicationOffice({ embeddedTab }: PublicationOfficeProp
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {impactFactors.map((factor: JournalImpactFactor) => (
+                {impactFactors.map((factor: JournalImpactFactor) => {
+                  // While a row is being edited the row-level click must not
+                  // fire: clicking a field (an empty one especially) would
+                  // otherwise bubble up and open the record. Guarding the row
+                  // once is safer than adding stopPropagation to every input,
+                  // which is easy to miss when a column is added.
+                  const isEditingRow = editingId === factor.journalId;
+                  return (
                   <TableRow 
                     key={factor.journalId} 
-                    className="cursor-pointer hover:bg-muted/50"
-                    onClick={() => {
+                    className={isEditingRow ? undefined : "cursor-pointer hover:bg-muted/50"}
+                    onClick={isEditingRow ? undefined : () => {
                       setSelectedJournal(factor);
                       setIsJournalModalOpen(true);
                     }}
@@ -3383,7 +3400,8 @@ export default function PublicationOffice({ embeddedTab }: PublicationOfficeProp
                       )}
                     </TableCell>
                   </TableRow>
-                ))}
+                  );
+                })}
               </TableBody>
             </Table>
           </div>
