@@ -33,7 +33,44 @@ const KNOWN_RELATIONSHIPS = [
   "is_requester",
 ] as const;
 
+/**
+ * Areas the permission matrix stores and the server enforces, but which the
+ * navigation menu does not list — so the grid below, built from
+ * NAVIGATION_ITEMS, cannot show them.
+ *
+ * Listed here rather than left silent: an administrator reading this screen
+ * would otherwise reasonably conclude it shows everything that governs access.
+ * Once these areas are folded into the ones the menu does list, this becomes an
+ * empty array and the notice disappears on its own.
+ */
+const UNLISTED_ENFORCED_AREAS: ReadonlyArray<{ id: string; label: string }> = [
+  { id: "pmo-office", label: "PMO Office" },
+  { id: "research-office", label: "Research Office" },
+  { id: "certifications", label: "Certifications" },
+];
+
 const SERVER_ENFORCED_RULES = [
+  {
+    category: "Permission matrix",
+    title: "The matrix below is enforced on every API request",
+    appliesTo: "All navigation areas, on the server as well as in this interface",
+    enforcement:
+      "Each area is resolved against the roles a person holds before their request reaches the data. GET needs View, POST needs Add, and edit or delete needs Edit. Someone holding several roles gets the most permissive of them. Hiding an area no longer only hides the menu item — the endpoints behind it refuse the request.",
+  },
+  {
+    category: "Permission matrix",
+    title: "Administrators are not subject to the matrix",
+    appliesTo: "Anyone holding admin in any role slot, and superadmin",
+    enforcement:
+      "Administrators are admitted before the matrix is consulted, so no cell can lock out the people who would have to correct it. A matrix lookup that fails is treated as a refusal, never as permission.",
+  },
+  {
+    category: "Account onboarding",
+    title: "A new account can reach almost nothing until a role is assigned",
+    appliesTo: "Accounts still holding only the default user role",
+    enforcement:
+      "Every API call is refused except a short allowlist: their own profile, ordinary publication and impact-factor reads, certification modules, and registration. Granting any role — primary or secondary — lifts the restriction.",
+  },
   {
     category: "Investigator eligibility",
     title: "Only approved staff can be Principal Investigators",
@@ -365,6 +402,21 @@ export default function RoleAccessConfig({ embedded = false }: { embedded?: bool
             existing records), or Edit (full access). Every level is enforced by
             the server on each request, not only by what the menu shows.
           </p>
+          {UNLISTED_ENFORCED_AREAS.length > 0 && (
+            <div className="mt-3 rounded-md border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-200">
+              <p className="font-medium">Not everything enforced appears below</p>
+              <p className="mt-1">
+                {UNLISTED_ENFORCED_AREAS.map((area) => area.label).join(", ")}
+                {UNLISTED_ENFORCED_AREAS.length === 1 ? " is" : " are"} stored in the
+                permission matrix and enforced on every request, but{" "}
+                {UNLISTED_ENFORCED_AREAS.length === 1 ? "does" : "do"} not appear
+                here — this grid is built from the navigation menu, and{" "}
+                {UNLISTED_ENFORCED_AREAS.length === 1 ? "it is" : "they are"} not on
+                it. Their access cannot currently be reviewed or changed from this
+                screen.
+              </p>
+            </div>
+          )}
         </CardHeader>
         
         {/* Quick Navigation */}
