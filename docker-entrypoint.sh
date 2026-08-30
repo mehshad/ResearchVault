@@ -58,7 +58,8 @@ for migration in \
     "migrations/20260827_add_publication_invalid_reason.sql" \
     "migrations/20260830_consolidate_research_officer.sql" \
     "migrations/20260830_consolidate_researcher_role.sql" \
-    "migrations/20260830_role_permissions_foreign_key.sql"; do
+    "migrations/20260830_role_permissions_foreign_key.sql" \
+    "migrations/20260831_add_sdr_exemption.sql"; do
   if [ -f "/app/$migration" ]; then
     echo "  Applying $migration..."
     if [ "$migration" = "migrations/20260820_grant_lifecycle_consistency.sql" ] || \

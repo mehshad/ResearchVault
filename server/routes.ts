@@ -110,6 +110,8 @@ import {
   PUBLISHED_INVALID_STATUS,
   PUBLISHED_STATUS,
   WITHDRAWN_STATUS,
+  hasSdrOrExemption,
+  validateSdrExemptionReason,
 } from "@shared/publicationWorkflow";
 import {
   isInvestigatorEligible,
@@ -5009,6 +5011,75 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  /**
+   * Resolves the SDR-exemption fields for a create or update.
+   *
+   * The reason is the scientist's own claim, so who made it and when are
+   * stamped from the session rather than taken from the request body -- a
+   * client must not be able to attribute an exception to someone else.
+   *
+   * Linking an SDR clears the exemption. The two are mutually exclusive: a
+   * publication that names its research activity is not also claiming there
+   * is none.
+   */
+  const resolveSdrExemption = (
+    req: Request,
+    incoming: Record<string, unknown>,
+    existing?: { researchActivityId?: number | null; sdrExemptionReason?: string | null },
+  ): { ok: true; fields: Record<string, unknown> } | { ok: false; message: string } => {
+    const linkedSdr = incoming.researchActivityId !== undefined
+      ? incoming.researchActivityId
+      : existing?.researchActivityId ?? null;
+
+    if (linkedSdr != null) {
+      return {
+        ok: true,
+        fields: {
+          sdrExemptionReason: null,
+          sdrExemptionRequestedBy: null,
+          sdrExemptionRequestedAt: null,
+        },
+      };
+    }
+
+    // Absent from the payload on an update: leave whatever is already stored.
+    if (incoming.sdrExemptionReason === undefined) {
+      return { ok: true, fields: {} };
+    }
+
+    const raw = incoming.sdrExemptionReason;
+    if (raw === null || (typeof raw === "string" && raw.trim() === "")) {
+      return {
+        ok: true,
+        fields: {
+          sdrExemptionReason: null,
+          sdrExemptionRequestedBy: null,
+          sdrExemptionRequestedAt: null,
+        },
+      };
+    }
+
+    const result = validateSdrExemptionReason(raw);
+    if (!result.ok) return { ok: false, message: result.message };
+
+    // Re-saving the same reason must not restamp it as a fresh request.
+    if (existing?.sdrExemptionReason?.trim() === result.reason) {
+      return { ok: true, fields: {} };
+    }
+
+    return {
+      ok: true,
+      fields: {
+        sdrExemptionReason: result.reason,
+        // The demo session uses id 0, which is not a real user row. `|| null`
+        // rather than `?? null` so it records nobody instead of failing the
+        // foreign key.
+        sdrExemptionRequestedBy: req.session?.user?.id || null,
+        sdrExemptionRequestedAt: new Date(),
+      },
+    };
+  };
+
   app.post('/api/publications', requireAuth, rejectPublicationCreateWorkflowMutation, async (req: Request, res: Response) => {
     try {
       // Create a validation schema that makes authors optional for concept status
@@ -5034,31 +5105,48 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }
       }
 
+      const exemption = resolveSdrExemption(req, publicationData as Record<string, unknown>);
+      if (!exemption.ok) {
+        return res.status(400).json({ message: exemption.message });
+      }
+      const claimsExemption = typeof exemption.fields.sdrExemptionReason === "string";
+
       if (!hasPublicationOfficerRole(req)) {
-        if (!researchActivity) {
+        // A publication with no SDR is normally a researcher recording work
+        // outside any research activity, which this ownership rule exists to
+        // prevent. The exception is a collaborator's paper: there is no SDR
+        // here to be a member of, so the explanation stands in for the check
+        // and the Outcome Office reads it before the record is finalised.
+        if (!researchActivity && !claimsExemption) {
           return res.status(403).json({
             message:
-              "Researchers must choose an SDR where they are the budget holder or a project member.",
+              "Researchers must choose an SDR where they are the budget holder or a project member, or explain why no SDR applies.",
           });
         }
-        const projectMembers = await storage.getProjectMembers(researchActivity.id);
-        if (
-          !canCreatePublicationForResearchActivity(
-            req,
-            researchActivity.budgetHolderId,
-            projectMembers.map((member) => member.scientistId)
-          )
-        ) {
-          return res.status(403).json({
-            message:
-              "You may only create publications for an SDR where you are the budget holder or a project member.",
-          });
+        if (researchActivity) {
+          const projectMembers = await storage.getProjectMembers(researchActivity.id);
+          if (
+            !canCreatePublicationForResearchActivity(
+              req,
+              researchActivity.budgetHolderId,
+              projectMembers.map((member) => member.scientistId)
+            )
+          ) {
+            return res.status(403).json({
+              message:
+                "You may only create publications for an SDR where you are the budget holder or a project member.",
+            });
+          }
         }
       }
-      
-      const creatorUserId = req.session?.user?.id ?? null;
+
+      // The demo session uses id 0, which is not a real user row, so `??` here
+      // wrote 0 and the users foreign key rejected the insert -- creating a
+      // publication in demo mode failed outright. `||` records nobody instead.
+      const creatorUserId = req.session?.user?.id || null;
       const publication = await storage.createPublication({
         ...publicationData,
+        ...exemption.fields,
         createdByUserId: creatorUserId,
       } as any);
 
@@ -5072,7 +5160,22 @@ export async function registerRoutes(app: Express): Promise<Server> {
         changedBy: creatorUserId ?? 1,
         changeReason: 'Publication created',
       });
-      
+
+      // The exception is a claim someone made. Record it in the timeline so it
+      // survives a later correction and can be traced to whoever made it.
+      if (typeof exemption.fields.sdrExemptionReason === 'string') {
+        await storage.createManuscriptHistoryEntry({
+          publicationId: publication.id,
+          fromStatus: publication.status || 'Concept',
+          toStatus: publication.status || 'Concept',
+          changedField: 'sdrExemption',
+          oldValue: null,
+          newValue: exemption.fields.sdrExemptionReason as string,
+          changedBy: creatorUserId ?? 1,
+          changeReason: `No SDR: ${exemption.fields.sdrExemptionReason}`,
+        });
+      }
+
       res.status(201).json(publication);
     } catch (error) {
       console.error("Publication creation error:", error);
@@ -5126,13 +5229,38 @@ export async function registerRoutes(app: Express): Promise<Server> {
           return res.status(404).json({ message: "Research activity not found" });
         }
       }
-      
-      const publication = await storage.updatePublication(id, validateData);
-      
+
+      const exemption = resolveSdrExemption(
+        req,
+        validateData as Record<string, unknown>,
+        existing,
+      );
+      if (!exemption.ok) {
+        return res.status(400).json({ message: exemption.message });
+      }
+
+      const publication = await storage.updatePublication(id, {
+        ...validateData,
+        ...exemption.fields,
+      });
+
       if (!publication) {
         return res.status(404).json({ message: "Publication not found" });
       }
-      
+
+      if (typeof exemption.fields.sdrExemptionReason === 'string') {
+        await storage.createManuscriptHistoryEntry({
+          publicationId: id,
+          fromStatus: existing.status || '',
+          toStatus: publication.status || '',
+          changedField: 'sdrExemption',
+          oldValue: existing.sdrExemptionReason ?? null,
+          newValue: exemption.fields.sdrExemptionReason as string,
+          changedBy: req.session?.user?.id ?? 1,
+          changeReason: `No SDR: ${exemption.fields.sdrExemptionReason}`,
+        });
+      }
+
       res.json(publication);
     } catch (error) {
       if (error instanceof ZodError) {
@@ -5323,7 +5451,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
       if (!publication.authors?.trim()) issues.push("missing authors");
       if (!publication.abstract?.trim()) issues.push("missing abstract");
-      if (!publication.researchActivityId) issues.push("no linked SDR");
+      // An accepted explanation stands in for the link. The office reads the
+      // reason on the card before finalising, which is the vetting step.
+      if (!hasSdrOrExemption(publication)) issues.push("no linked SDR or exception");
       const internalAuthors = await storage.getPublicationAuthors(id);
       if (internalAuthors.length === 0) issues.push("no linked internal authors");
       if (issues.length > 0) {

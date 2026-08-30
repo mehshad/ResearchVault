@@ -864,10 +864,18 @@ export default function PublicationOffice({ embeddedTab }: PublicationOfficeProp
     if (!pub.authors?.trim()) missingFields.push('authors');
     if (!pub.abstract?.trim()) missingFields.push('abstract');
     const hasInternalAuthors = (authorCounts[pub.id] || 0) > 0;
-    const hasSdr = !!pub.researchActivityId;
+    // An explanation of why no SDR applies satisfies the requirement in place
+    // of a link, so the record is not a data-quality defect. It still has to be
+    // read: the card renders the reason, and the filter can single these out.
+    const sdrExemptionReason = pub.sdrExemptionReason?.trim() || '';
+    const hasSdrExemption = sdrExemptionReason.length > 0;
+    const hasSdr = !!pub.researchActivityId || hasSdrExemption;
     const isVetted = !!pub.status?.includes('*');
     const hasIssues = missingFields.length > 0 || !hasInternalAuthors || !hasSdr;
-    return { missingFields, hasInternalAuthors, hasSdr, isVetted, hasIssues };
+    return {
+      missingFields, hasInternalAuthors, hasSdr, hasSdrExemption,
+      sdrExemptionReason, isVetted, hasIssues,
+    };
   };
 
   // Scientist options (only those actually linked to current new publications).
@@ -904,7 +912,7 @@ export default function PublicationOffice({ embeddedTab }: PublicationOfficeProp
   // Apply the New Publications filters (workflow state, issue/tag, scientist, dates).
   const filteredNewPublications = useMemo(() => {
     return newPublications.filter((pub) => {
-      const { missingFields, hasInternalAuthors, hasSdr, isVetted, hasIssues } = getPubIssues(pub);
+      const { missingFields, hasInternalAuthors, hasSdr, hasSdrExemption, isVetted, hasIssues } = getPubIssues(pub);
 
       if (npStatusFilter !== ALL_STATES && (pub.status ?? "") !== npStatusFilter) return false;
 
@@ -912,6 +920,7 @@ export default function PublicationOffice({ embeddedTab }: PublicationOfficeProp
         if (npTagFilter === "missing-data" && missingFields.length === 0) return false;
         if (npTagFilter === "no-internal-authors" && hasInternalAuthors) return false;
         if (npTagFilter === "no-sdr" && hasSdr) return false;
+        if (npTagFilter === "sdr-exception" && !hasSdrExemption) return false;
         if (npTagFilter === "not-vetted" && isVetted) return false;
         if (npTagFilter === "no-issues" && hasIssues) return false;
       }
@@ -1666,6 +1675,7 @@ export default function PublicationOffice({ embeddedTab }: PublicationOfficeProp
                           <SelectItem value="missing-data">Missing data</SelectItem>
                           <SelectItem value="no-internal-authors">No internal users linked</SelectItem>
                           <SelectItem value="no-sdr">Not linked to an SDR</SelectItem>
+                          <SelectItem value="sdr-exception">SDR exception claimed</SelectItem>
                           <SelectItem value="no-issues">No issues</SelectItem>
                         </SelectContent>
                       </Select>
@@ -1735,7 +1745,7 @@ export default function PublicationOffice({ embeddedTab }: PublicationOfficeProp
                   {filteredNewPublications.map((pub: Publication) => {
                     // Compute data-quality issues so staff can see what each
                     // record is missing before it gets vetted/finalized.
-                    const { missingFields, hasInternalAuthors, hasSdr, hasIssues } = getPubIssues(pub);
+                    const { missingFields, hasInternalAuthors, hasSdr, hasSdrExemption, sdrExemptionReason, hasIssues } = getPubIssues(pub);
                     return (
                     <div
                       key={pub.id}
@@ -1833,7 +1843,32 @@ export default function PublicationOffice({ embeddedTab }: PublicationOfficeProp
                           <span className="whitespace-pre-wrap">{pub.invalidReason}</span>
                         </div>
                       )}
+                      {/* An exception counts as no issue, so without this the
+                          record would sit in the default list looking as though
+                          it had an SDR. The office has to read the reason to
+                          vet it, so it is on the card rather than behind a
+                          click. */}
+                      {hasSdrExemption && (
+                        <div className="rounded-md border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-200"
+                             data-testid={`sdr-exemption-${pub.id}`}>
+                          <span className="font-medium">No SDR — exception claimed: </span>
+                          <span className="whitespace-pre-wrap">{sdrExemptionReason}</span>
+                        </div>
+                      )}
                       <div className="flex flex-wrap items-center gap-2" data-testid={`flags-publication-${pub.id}`}>
+                        {/* Sits outside the issues branch: an exception is not
+                            an issue, but it must still be visible beside a
+                            green "No issues" badge. */}
+                        {hasSdrExemption && (
+                          <Badge
+                            variant="secondary"
+                            className="bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300"
+                            data-testid={`flag-sdr-exemption-${pub.id}`}
+                          >
+                            <Unlink className="h-3 w-3 mr-1" />
+                            No SDR — exception claimed
+                          </Badge>
+                        )}
                         {!hasIssues ? (
                           <Badge
                             variant="secondary"

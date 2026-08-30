@@ -95,6 +95,7 @@ import type {
   RoleGroup,
   UserRoleAssignment,
 } from "@shared/schema";
+import { validateSdrExemptionReason } from "@shared/publicationWorkflow";
 import {
   reconcileGrantLifecycle,
   GrantLifecycleError,
@@ -467,6 +468,10 @@ const PUBLICATION_COLS: ColDef[] = [
   // excluded the entire corpus from SIDRA scoring.
   { header: "Status", key: "status", description: `One of: ${PUBLICATION_STATUS_VALUES.join(", ")}` },
   { header: "Vetted By IP Office", key: "vettedForSubmissionByIpOffice", description: "Yes or No" },
+  // Without this a restore drops every exception and the whole corpus
+  // re-flags as missing an SDR. Who claimed it and when are audit stamps and
+  // stay out of the workbook, as elsewhere.
+  { header: "SDR Exemption Reason", key: "sdrExemptionReason", description: "Why no SDR applies; leave blank when an SDR is linked" },
 ];
 
 const PUBLICATION_AUTHOR_COLS: ColDef[] = [
@@ -1175,6 +1180,7 @@ function publicationsToRows(
     prepublicationSite: p.prepublicationSite ?? "",
     status: p.status ?? "Concept",
     vettedForSubmissionByIpOffice: p.vettedForSubmissionByIpOffice ? "Yes" : "No",
+    sdrExemptionReason: p.sdrExemptionReason ?? "",
   }));
 }
 
@@ -3282,6 +3288,21 @@ function previewPublicationRows(
     if (vettedRaw && !isClear(vettedRaw)) {
       const vetted = parseBool(vettedRaw, "Vetted By IP Office", errors);
       if (vetted !== null) data.vettedForSubmissionByIpOffice = vetted;
+    }
+    // An SDR and an exemption are mutually exclusive; a row claiming both is a
+    // contradiction rather than a preference to resolve silently.
+    const exemptionRaw = (row.sdrExemptionReason ?? "").trim();
+    const sdrCell = (row.sdrNumber ?? "").trim();
+    if (exemptionRaw) {
+      if (isClear(exemptionRaw)) {
+        data.sdrExemptionReason = null;
+      } else if (sdrCell && !isClear(sdrCell)) {
+        errors.push("A row cannot carry both an SDR Number and an SDR Exemption Reason");
+      } else {
+        const exemption = validateSdrExemptionReason(exemptionRaw);
+        if (!exemption.ok) errors.push(`SDR Exemption Reason: ${exemption.message}`);
+        else data.sdrExemptionReason = exemption.reason;
+      }
     }
     const sdrRaw = (row.sdrNumber ?? "").trim();
     if (sdrRaw) {

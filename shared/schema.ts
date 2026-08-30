@@ -303,6 +303,14 @@ export const publications = pgTable("publications", {
   publicationType: text("publication_type"), // Journal Article, Conference Paper, Book, etc.
   status: text("status").default("Concept"), // Workflow status
   invalidReason: text("invalid_reason"),
+  // An SDR is normally required. The exception is a publication that came from
+  // helping a collaborator at another institution -- there is no research
+  // activity here to link, and forcing one would put a fictional record in the
+  // system. The scientist gives a reason instead; it is mutually exclusive with
+  // researchActivityId, and the Outcome Office reads it before finalising.
+  sdrExemptionReason: text("sdr_exemption_reason"),
+  sdrExemptionRequestedBy: integer("sdr_exemption_requested_by").references(() => users.id),
+  sdrExemptionRequestedAt: timestamp("sdr_exemption_requested_at"),
   vettedForSubmissionByIpOffice: boolean("vetted_for_submission_by_ip_office").default(false),
   prepublicationUrl: text("prepublication_url"), // URL/DOI for prepublication
   prepublicationSite: text("prepublication_site"), // bioRxiv, arXiv, etc.

@@ -426,7 +426,7 @@ test("research output templates expose safe publication and journal metric colum
     "Publication ID", "Title", "SDR Number", "Abstract", "Authors", "Journal",
     "Volume", "Issue", "Pages", "DOI", "PMID", "Publication Date",
     "Publication Type", "Prepublication URL", "Prepublication Site",
-    "Status", "Vetted By IP Office",
+    "Status", "Vetted By IP Office", "SDR Exemption Reason",
   ]);
   // Workflow state is carried deliberately so an archive can be restored
   // faithfully; without it every restored publication collapsed to Concept and
