@@ -1458,9 +1458,9 @@ export default function PublicationOffice({ embeddedTab }: PublicationOfficeProp
               </Badge>
             )}
           </TabsTrigger>
-          <TabsTrigger value="export" className="flex items-center gap-2">
+          <TabsTrigger value="export" className="flex items-center gap-2" data-testid="tab-publication-tools">
             <Download className="h-4 w-4" />
-            Export
+            Publication Tools
           </TabsTrigger>
           <TabsTrigger value="sidra-score" className="flex items-center gap-2">
             <Award className="h-4 w-4" />
@@ -1739,6 +1739,21 @@ export default function PublicationOffice({ embeddedTab }: PublicationOfficeProp
                                 >
                                   <Star className="h-4 w-4 mr-1" />
                                   Mark as Published *
+                                </Button>
+                              )}
+                              {canMarkPublished && pub.status === "Published" && (
+                                <Button
+                                  size="sm"
+                                  variant="destructive"
+                                  onClick={() => {
+                                    setInvalidPublication(pub);
+                                    setInvalidReason("");
+                                  }}
+                                  disabled={markInvalidMutation.isPending}
+                                  data-testid={`button-mark-invalid-${pub.id}`}
+                                >
+                                  <AlertTriangle className="h-4 w-4 mr-1" />
+                                  Mark as invalid
                                 </Button>
                               )}
                             </div>
@@ -2108,8 +2123,27 @@ export default function PublicationOffice({ embeddedTab }: PublicationOfficeProp
               </CardContent>
             </Card>
           )}
-        {/* Preprint repair is intentionally adjacent to discovery: it turns
-            evidence from external indexes into a controlled office action. */}
+        </TabsContent>
+
+        {/* Duplicates Tab */}
+        <TabsContent value="duplicates" className="space-y-6">
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <CopyCheck className="h-5 w-5" />
+                Duplicate Publications
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <PublicationDuplicates />
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        {/* Publication Tools Tab: bulk export plus office-wide corrections */}
+        <TabsContent value="export" className="space-y-6">
+        {/* Grouped with the export tools: both are office-wide corrective
+            actions over the whole corpus rather than per-record workflow. */}
           <Card className="border-amber-200 shadow-sm dark:border-amber-900/60">
             <CardHeader className="border-b border-amber-100 bg-amber-50/60 dark:border-amber-900/50 dark:bg-amber-950/20">
               <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
@@ -2291,25 +2325,7 @@ export default function PublicationOffice({ embeddedTab }: PublicationOfficeProp
               </Dialog>
             </CardContent>
           </Card>
-        </TabsContent>
 
-        {/* Duplicates Tab */}
-        <TabsContent value="duplicates" className="space-y-6">
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <CopyCheck className="h-5 w-5" />
-                Duplicate Publications
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              <PublicationDuplicates />
-            </CardContent>
-          </Card>
-        </TabsContent>
-
-        {/* Export Tab */}
-        <TabsContent value="export" className="space-y-6">
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
             {/* Filters Panel */}
             <div className="lg:col-span-1">
