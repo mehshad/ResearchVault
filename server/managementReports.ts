@@ -8,6 +8,7 @@ import {
   type TableColumn,
   type Bar,
   fit,
+  wrap,
   tableHeight,
   drawPageFrame,
   drawSectionHeading,
@@ -883,14 +884,45 @@ export async function buildManagementReportPdf(data: ManagementReportData): Prom
     });
 
     if (index === 0) {
-      page.drawText(subtitle, {
-        x: PAGE.margin, y: y - 22, size: 24, font: fonts.bold, color: PALETTE.ink,
+      // A section target arrives as a path ("Research / Translational Medicine
+      // / Tumor Biology"). Lead with the section itself and demote its parents
+      // to a breadcrumb underneath, so the subject reads immediately and a deep
+      // hierarchy cannot push the heading off the page.
+      const parts = subtitle.split("/").map((part) => part.trim()).filter(Boolean);
+      const leaf = parts.length ? parts[parts.length - 1] : subtitle;
+      const parentPath = parts.length > 1 ? parts.slice(0, -1).join(" / ") : "";
+
+      let titleSize = 24;
+      let titleLines = [leaf];
+      for (const candidate of [24, 21, 18, 16]) {
+        titleSize = candidate;
+        titleLines = wrap(leaf, fonts.bold, candidate, CONTENT_WIDTH, 2);
+        const longest = Math.max(...titleLines.map((line) => fonts.bold.widthOfTextAtSize(line, candidate)));
+        if (titleLines.length === 1 && longest <= CONTENT_WIDTH) break;
+        if (candidate === 16) break;
+      }
+      const lineHeight = titleSize + 4;
+      titleLines.forEach((line, lineIndex) => {
+        page.drawText(line, {
+          x: PAGE.margin, y: y - 22 - lineIndex * lineHeight,
+          size: titleSize, font: fonts.bold, color: PALETTE.ink,
+        });
       });
+      let cursor = y - 22 - (titleLines.length - 1) * lineHeight;
+
+      if (parentPath) {
+        cursor -= 15;
+        page.drawText(fit(parentPath, fonts.regular, 10.5, CONTENT_WIDTH), {
+          x: PAGE.margin, y: cursor, size: 10.5, font: fonts.regular, color: PALETTE.body,
+        });
+      }
+
+      cursor -= 16;
       const meta = `Rolling lookback ${data.config.lookbackYears ?? "-"} year(s)  |  Generated ${generated}  |  ${data.total} records in scope`;
       page.drawText(fit(safePdfText(meta), fonts.regular, 9, CONTENT_WIDTH), {
-        x: PAGE.margin, y: y - 38, size: 9, font: fonts.regular, color: PALETTE.muted,
+        x: PAGE.margin, y: cursor, size: 9, font: fonts.regular, color: PALETTE.muted,
       });
-      y -= 58;
+      y = cursor - 22;
     }
 
     for (const block of layoutPage.blocks ?? []) {
