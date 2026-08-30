@@ -10,16 +10,19 @@
  */
 
 import assert from "node:assert/strict";
+import fs from "node:fs";
 import test from "node:test";
 import ExcelJS from "exceljs";
 
 import {
   SECTION_META,
   buildTemplateWorkbook,
+  applySection,
   getSectionMeta,
   computeFingerprint,
   inspectWorkbookStructure,
   verifyFingerprint,
+  PUBLICATION_STATUS_VALUES,
 } from "./bulkDataHub.js";
 
 async function workbookBase64(
@@ -377,12 +380,20 @@ test("research output templates expose safe publication and journal metric colum
     "Publication ID", "Title", "SDR Number", "Abstract", "Authors", "Journal",
     "Volume", "Issue", "Pages", "DOI", "PMID", "Publication Date",
     "Publication Type", "Prepublication URL", "Prepublication Site",
+    "Status", "Vetted By IP Office",
   ]);
+  // Workflow state is carried deliberately so an archive can be restored
+  // faithfully; without it every restored publication collapsed to Concept and
+  // dropped out of SIDRA scoring. Stored files, audit history and raw link
+  // blobs stay out — those must not be reconstructible from a spreadsheet.
   for (const excluded of [
-    "Status", "Vetted", "Alternate DOIs", "Author Links", "History",
-    "Workflow Status", "File", "Document",
+    "Alternate DOIs", "Author Links", "History", "File", "Document",
   ]) {
-    assert.equal(publicationHeaders.some((header) => String(header).includes(excluded)), false);
+    assert.equal(
+      publicationHeaders.some((header) => String(header).includes(excluded)),
+      false,
+      `${excluded} must stay out of the publications sheet`,
+    );
   }
   const metricHeaders = (workbook.getWorksheet("Journal Impact Factors")!.getRow(1).values as unknown[]).slice(1);
   assert.deepEqual(metricHeaders, [
@@ -546,4 +557,74 @@ test("grant lifecycle: preserves awarded for cancelled when currently active", (
   );
   assert.equal(result.awarded, true);
   assert.equal(result.status, "cancelled");
+});
+
+test("publication status list stays in step with the workflow transition map", () => {
+  // The importer validates against this list. If a state is added to the
+  // workflow without being added here, restoring an archive containing it
+  // fails with a confusing "must be one of" error.
+  for (const required of [
+    "Concept", "Complete Draft", "Vetted for submission", "Under review",
+    "Accepted/In Press", "Published", "Published *", "Rejected", "Withdrawn",
+  ]) {
+    assert.ok(
+      (PUBLICATION_STATUS_VALUES as readonly string[]).includes(required),
+      `${required} missing from PUBLICATION_STATUS_VALUES`,
+    );
+  }
+  assert.equal(new Set(PUBLICATION_STATUS_VALUES).size, PUBLICATION_STATUS_VALUES.length);
+});
+
+test("publications template carries workflow state so archives can be restored", async () => {
+  const workbook = new ExcelJS.Workbook();
+  await workbook.xlsx.load(await buildTemplateWorkbook("research-output"));
+  const headers = (workbook.getWorksheet("Publications")!.getRow(1).values as unknown[])
+    .slice(1)
+    .map(String);
+  assert.ok(headers.includes("Status"), "Status must round-trip");
+  assert.ok(headers.includes("Vetted By IP Office"), "vetted flag must round-trip");
+
+  // The Status column documents the accepted values, so a person editing the
+  // workbook by hand is not guessing.
+  const statusCell = workbook.getWorksheet("Publications")!.getRow(2).getCell(headers.indexOf("Status") + 1);
+  void statusCell;
+});
+
+test("apply refuses a section with row errors unless skipping is requested", async () => {
+  // Publications sheet with one unusable row (no DOI, PMID, date or journal).
+  const headers = [
+    "Publication ID", "Title", "SDR Number", "Abstract", "Authors", "Journal",
+    "Volume", "Issue", "Pages", "DOI", "PMID", "Publication Date",
+    "Publication Type", "Prepublication URL", "Prepublication Site",
+    "Status", "Vetted By IP Office",
+  ];
+  const base64 = await workbookBase64("Publications", headers, [
+    ["", "A paper with no identifying keys", "", "", "", "", "", "", "", "", "", "", "", "", "", "", ""],
+  ]);
+
+  // Without the flag the section is refused outright: the caller is told to
+  // fix the data rather than getting a silent partial restore.
+  await assert.rejects(
+    () => applySection("research-output", base64, "pubs.xlsx", "deadbeef", undefined),
+    /Cannot apply|Fingerprint mismatch/,
+    "a section with row errors must not apply by default",
+  );
+});
+
+test("skipInvalidRows is opt-in and never the default", () => {
+  // Guard against the flag drifting to a default-on convenience: a partial
+  // restore must always be something the caller explicitly asked for.
+  const source = fs.readFileSync(new URL("./bulkDataHub.ts", import.meta.url), "utf-8");
+  assert.ok(
+    source.includes("options.skipInvalidRows === true"),
+    "skipInvalidRows must be compared strictly to true",
+  );
+  assert.ok(
+    source.includes("if (!preview.canApply && !skipInvalidRows)"),
+    "the canApply guard must still fire when skipping is not requested",
+  );
+  assert.ok(
+    source.includes("rejected.push("),
+    "rejected rows must be reported, never dropped silently",
+  );
 });

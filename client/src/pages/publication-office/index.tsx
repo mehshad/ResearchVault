@@ -3,7 +3,7 @@
 import { useState, useEffect, useRef, useLayoutEffect, useMemo } from "react";
 import { useAuth } from "@/hooks/useAuth";
 import { usePermissions } from "@/hooks/usePermissions";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useQuery, useMutation, useQueryClient, keepPreviousData } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -39,8 +39,12 @@ import type { JournalImpactFactor, InsertJournalImpactFactor, Publication } from
 import type { SidraScoreResult, SidraScoreSettings } from "@shared/sidraScore";
 import {
   IP_VETTING_READY_STATUS,
+  PUBLISHED_STATUS,
+  PUBLICATION_WORKFLOW_STAGES,
+  PUBLICATION_OFF_FLOW_STATES,
   isReadyForIpVetting,
 } from "@shared/publicationWorkflow";
+import { PublicationWorkflowFilter, ALL_STATES } from "@/components/PublicationWorkflowFilter";
 import { SidraScoreDetails } from "@/components/SidraScoreDetails";
 
 interface SavedSearch {
@@ -133,6 +137,9 @@ export default function PublicationOffice({ embeddedTab }: PublicationOfficeProp
 
   // New Publications tab filters (issue/tag, scientist, publication date range)
   const [npTagFilter, setNpTagFilter] = useState<string>("all");
+  // Workflow-state filter. Defaults to Published: those are the records awaiting
+  // an office decision (seal, or send back for correction).
+  const [npStatusFilter, setNpStatusFilter] = useState<string>(PUBLISHED_STATUS);
   const [npScientistId, setNpScientistId] = useState<string>("all");
   const [npDateFrom, setNpDateFrom] = useState<string>("");
   const [npDateTo, setNpDateTo] = useState<string>("");
@@ -460,7 +467,12 @@ export default function PublicationOffice({ embeddedTab }: PublicationOfficeProp
       const response = await fetch(`/api/journal-impact-factors?${params}`);
       if (!response.ok) throw new Error('Failed to fetch impact factors');
       return response.json();
-    }
+    },
+    // Every keystroke produces a new query key. Without this the query goes
+    // pending, the page unmounts, and the search box loses focus after one
+    // character. Holding the previous page keeps the table and the input alive
+    // while the next result loads.
+    placeholderData: keepPreviousData,
   });
 
   const impactFactors = impactFactorsResult?.data || [];
@@ -602,16 +614,21 @@ export default function PublicationOffice({ embeddedTab }: PublicationOfficeProp
     onError: () => toast({ description: "Failed to update field", variant: "destructive" }),
   });
 
-  // Publication queries for the first two tabs
-  const { data: ipVettingSourcePublications = [], isLoading: ipPublicationsLoading } = useQuery<Publication[]>({
-    queryKey: ['/api/publications', 'ip-vetting'],
+  // One source for both office tabs. Deliberately not gated on the active tab:
+  // the tab labels show live counts, and gating meant a count was only correct
+  // after its tab had been opened. Sharing one query key also stops the same
+  // endpoint being fetched once per tab.
+  const { data: officePublications = [], isLoading: officePublicationsLoading } = useQuery<Publication[]>({
+    queryKey: ['/api/publications', 'office'],
     queryFn: async () => {
       const response = await fetch('/api/publications?officeAccess=true');
       if (!response.ok) throw new Error('Failed to fetch publications');
       return response.json();
     },
-    enabled: activeTab === "ip-vetting"
   });
+
+  const ipVettingSourcePublications = officePublications;
+  const ipPublicationsLoading = officePublicationsLoading;
 
   const unvettedPublicationsForIp = useMemo(
     () =>
@@ -660,25 +677,20 @@ export default function PublicationOffice({ embeddedTab }: PublicationOfficeProp
     staleTime: 0,
   });
 
-  const { data: newPublications = [], isLoading: newPublicationsLoading } = useQuery<Publication[]>({
-    queryKey: ['/api/publications', 'new-publications'],
-    queryFn: async () => {
-      const response = await fetch('/api/publications?officeAccess=true');
-      if (!response.ok) throw new Error('Failed to fetch publications');
-      const publications = await response.json();
-      // Surface publications that are NOT yet finalized/vetted by the office so
-      // staff can see records still needing attention (data-quality fixes,
-      // author links, SDR links) before they are marked Published *.
-      // A record is finalized when EITHER the vetted flag is set OR its status
-      // already carries the "*" (Published *) final marker — some records have
-      // the final status without the flag, and those must not reappear here.
-      return publications.filter((pub: Publication) =>
-        pub.vettedForSubmissionByIpOffice !== true &&
-        !pub.status?.includes('*')
-      );
-    },
-    enabled: activeTab === "new-publications"
-  });
+  // Surface publications that are NOT yet finalized/vetted by the office so
+  // staff can see records still needing attention (data-quality fixes, author
+  // links, SDR links) before they are marked Published *.
+  // A record is finalized when EITHER the vetted flag is set OR its status
+  // already carries the "*" (Published *) final marker — some records have the
+  // final status without the flag, and those must not reappear here.
+  const newPublications = useMemo(
+    () => officePublications.filter((pub: Publication) =>
+      pub.vettedForSubmissionByIpOffice !== true &&
+      !pub.status?.includes('*')
+    ),
+    [officePublications],
+  );
+  const newPublicationsLoading = officePublicationsLoading;
 
   // Per-publication internal author counts, used to flag publications with no
   // linked internal scientist/author records on the New Publications tab.
@@ -740,7 +752,7 @@ export default function PublicationOffice({ embeddedTab }: PublicationOfficeProp
         description: `Linked ${data.createdCount} internal author${data.createdCount === 1 ? '' : 's'}.`,
       });
       setAutoConnectPub(null);
-      queryClient.invalidateQueries({ queryKey: ['/api/publications', 'new-publications'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/publications', 'office'] });
       queryClient.invalidateQueries({ queryKey: ['/api/publications/author-counts'] });
       queryClient.invalidateQueries({ queryKey: ['/api/publications/author-map'] });
     },
@@ -811,7 +823,7 @@ export default function PublicationOffice({ embeddedTab }: PublicationOfficeProp
       const importedDois = new Set((data.created || []).map((c: any) => c.doi));
       setFpResults((prev) => prev.map((r) => (importedDois.has(r.doi) ? { ...r, alreadyExists: true } : r)));
       setFpSelectedDois(new Set());
-      queryClient.invalidateQueries({ queryKey: ['/api/publications', 'new-publications'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/publications', 'office'] });
       queryClient.invalidateQueries({ queryKey: ['/api/publications/author-counts'] });
       queryClient.invalidateQueries({ queryKey: ['/api/publications/author-map'] });
     },
@@ -867,10 +879,30 @@ export default function PublicationOffice({ embeddedTab }: PublicationOfficeProp
       .sort((a, b) => a.label.localeCompare(b.label));
   }, [newPublications, authorMap]);
 
-  // Apply the New Publications filters (issue/tag, scientist, date range).
+  // Counts per stored status across everything the office can act on, so the
+  // workflow strip reflects this list rather than a separate query.
+  const npCountsByStatus = useMemo(() => {
+    const counts: Record<string, number> = {};
+    for (const pub of newPublications) {
+      const status = pub.status ?? "";
+      if (status) counts[status] = (counts[status] ?? 0) + 1;
+    }
+    return counts;
+  }, [newPublications]);
+
+  // Sealed records are excluded from the list by design, so the terminal stage
+  // count is derived from the same office set rather than fetched again.
+  const sealedCount = useMemo(
+    () => officePublications.filter((pub: Publication) => pub.status?.includes('*')).length,
+    [officePublications],
+  );
+
+  // Apply the New Publications filters (workflow state, issue/tag, scientist, dates).
   const filteredNewPublications = useMemo(() => {
     return newPublications.filter((pub) => {
       const { missingFields, hasInternalAuthors, hasSdr, isVetted, hasIssues } = getPubIssues(pub);
+
+      if (npStatusFilter !== ALL_STATES && (pub.status ?? "") !== npStatusFilter) return false;
 
       if (npTagFilter !== "all") {
         if (npTagFilter === "missing-data" && missingFields.length === 0) return false;
@@ -899,7 +931,7 @@ export default function PublicationOffice({ embeddedTab }: PublicationOfficeProp
       return true;
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [newPublications, authorCounts, authorMap, npTagFilter, npScientistId, npDateFrom, npDateTo]);
+  }, [newPublications, authorCounts, authorMap, npStatusFilter, npTagFilter, npScientistId, npDateFrom, npDateTo]);
 
   // Export functionality
   const searchExportMutation = useMutation({
@@ -1399,7 +1431,9 @@ export default function PublicationOffice({ embeddedTab }: PublicationOfficeProp
     },
   });
 
-  if (isLoading && activeTab === "impact-factors") {
+  // Only the very first load may replace the page. A refetch triggered by
+  // typing, sorting or paging must leave the controls mounted.
+  if (isLoading && !impactFactorsResult && activeTab === "impact-factors") {
     return (
       <div className="space-y-6">
         <div className="text-center">Loading impact factors...</div>
@@ -1443,7 +1477,10 @@ export default function PublicationOffice({ embeddedTab }: PublicationOfficeProp
           </TabsTrigger>
           <TabsTrigger value="new-publications" className="flex items-center gap-2">
             <FileText className="h-4 w-4" />
-            New Publications ({newPublications.length})
+            {/* Counts what the list actually shows. The list opens filtered to a
+                workflow state, so counting the unfiltered set here would make the
+                tab and the list disagree the moment the tab is opened. */}
+            New Publications ({filteredNewPublications.length})
           </TabsTrigger>
           <TabsTrigger value="find-papers" className="flex items-center gap-2" data-testid="tab-find-papers">
             <Globe className="h-4 w-4" />
@@ -1458,9 +1495,9 @@ export default function PublicationOffice({ embeddedTab }: PublicationOfficeProp
               </Badge>
             )}
           </TabsTrigger>
-          <TabsTrigger value="export" className="flex items-center gap-2">
+          <TabsTrigger value="export" className="flex items-center gap-2" data-testid="tab-publication-tools">
             <Download className="h-4 w-4" />
-            Export
+            Publication Tools
           </TabsTrigger>
           <TabsTrigger value="sidra-score" className="flex items-center gap-2">
             <Award className="h-4 w-4" />
@@ -1591,6 +1628,17 @@ export default function PublicationOffice({ embeddedTab }: PublicationOfficeProp
               </div>
             </CardHeader>
             <CardContent>
+              {!newPublicationsLoading && newPublications.length > 0 && (
+                <div className="mb-5 rounded-lg border bg-muted/30 p-3">
+                  <PublicationWorkflowFilter
+                    countsByStatus={npCountsByStatus}
+                    sealedCount={sealedCount}
+                    selected={npStatusFilter}
+                    onSelect={setNpStatusFilter}
+                    total={newPublications.length}
+                  />
+                </div>
+              )}
               {newPublicationsLoading ? (
                 <div className="text-center py-8">Loading publications...</div>
               ) : newPublications.length === 0 ? (
@@ -1650,7 +1698,8 @@ export default function PublicationOffice({ embeddedTab }: PublicationOfficeProp
                         data-testid="input-np-date-to"
                       />
                     </div>
-                    {(npTagFilter !== "all" || npScientistId !== "all" || npDateFrom || npDateTo) && (
+                    {(npTagFilter !== "all" || npScientistId !== "all" || npDateFrom || npDateTo
+                      || npStatusFilter !== PUBLISHED_STATUS) && (
                       <Button
                         variant="ghost"
                         size="sm"
@@ -1659,6 +1708,9 @@ export default function PublicationOffice({ embeddedTab }: PublicationOfficeProp
                           setNpScientistId("all");
                           setNpDateFrom("");
                           setNpDateTo("");
+                          // Back to the office default rather than "all": Published
+                          // is the state awaiting a decision.
+                          setNpStatusFilter(PUBLISHED_STATUS);
                         }}
                         data-testid="button-np-clear-filters"
                       >
@@ -1727,7 +1779,10 @@ export default function PublicationOffice({ embeddedTab }: PublicationOfficeProp
                                   Auto-connect authors
                                 </Button>
                               )}
-                              {canMarkPublished && (
+                              {/* Mirrors the server precondition: finalize accepts only a
+                                  current Published record, so offering the action anywhere
+                                  else just produces a 400. */}
+                              {canMarkPublished && pub.status === PUBLISHED_STATUS && (
                                 <Button
                                   size="sm"
                                   onClick={() => markAsPublishedMutation.mutate(pub.id)}
@@ -1739,6 +1794,21 @@ export default function PublicationOffice({ embeddedTab }: PublicationOfficeProp
                                 >
                                   <Star className="h-4 w-4 mr-1" />
                                   Mark as Published *
+                                </Button>
+                              )}
+                              {canMarkPublished && pub.status === PUBLISHED_STATUS && (
+                                <Button
+                                  size="sm"
+                                  variant="destructive"
+                                  onClick={() => {
+                                    setInvalidPublication(pub);
+                                    setInvalidReason("");
+                                  }}
+                                  disabled={markInvalidMutation.isPending}
+                                  data-testid={`button-mark-invalid-${pub.id}`}
+                                >
+                                  <AlertTriangle className="h-4 w-4 mr-1" />
+                                  Mark as invalid
                                 </Button>
                               )}
                             </div>
@@ -2108,8 +2178,27 @@ export default function PublicationOffice({ embeddedTab }: PublicationOfficeProp
               </CardContent>
             </Card>
           )}
-        {/* Preprint repair is intentionally adjacent to discovery: it turns
-            evidence from external indexes into a controlled office action. */}
+        </TabsContent>
+
+        {/* Duplicates Tab */}
+        <TabsContent value="duplicates" className="space-y-6">
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <CopyCheck className="h-5 w-5" />
+                Duplicate Publications
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <PublicationDuplicates />
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        {/* Publication Tools Tab: bulk export plus office-wide corrections */}
+        <TabsContent value="export" className="space-y-6">
+        {/* Grouped with the export tools: both are office-wide corrective
+            actions over the whole corpus rather than per-record workflow. */}
           <Card className="border-amber-200 shadow-sm dark:border-amber-900/60">
             <CardHeader className="border-b border-amber-100 bg-amber-50/60 dark:border-amber-900/50 dark:bg-amber-950/20">
               <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
@@ -2291,25 +2380,7 @@ export default function PublicationOffice({ embeddedTab }: PublicationOfficeProp
               </Dialog>
             </CardContent>
           </Card>
-        </TabsContent>
 
-        {/* Duplicates Tab */}
-        <TabsContent value="duplicates" className="space-y-6">
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <CopyCheck className="h-5 w-5" />
-                Duplicate Publications
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              <PublicationDuplicates />
-            </CardContent>
-          </Card>
-        </TabsContent>
-
-        {/* Export Tab */}
-        <TabsContent value="export" className="space-y-6">
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
             {/* Filters Panel */}
             <div className="lg:col-span-1">
@@ -3078,14 +3149,17 @@ export default function PublicationOffice({ embeddedTab }: PublicationOfficeProp
           >
             <div style={{ width: tableScrollWidth, height: 1 }} />
           </div>
+          {/* Bound the body height and scroll inside it, so the column headers
+              stay put while working down a long page of journals. Horizontal
+              scrolling is preserved for the wide metric columns. */}
           <div
             ref={tableScrollRef}
             onScroll={handleTableScroll}
-            className="overflow-x-auto"
+            className="overflow-x-auto overflow-y-auto max-h-[70vh] relative"
           >
             <Table>
-              <TableHeader>
-                <TableRow>
+              <TableHeader className="sticky top-0 z-20 bg-background shadow-[inset_0_-1px_0_hsl(var(--border))]">
+                <TableRow className="hover:bg-transparent">
                   <TableHead className="min-w-[200px]"><SortableHeader field="journalName" label="Journal Name" /></TableHead>
                   <TableHead className="w-[90px]"><span className="text-xs font-medium">Pubs</span></TableHead>
                   <TableHead className="min-w-[150px]"><PlainHeader field="abbreviatedJournal" label="Abbreviated" /></TableHead>
@@ -3109,11 +3183,18 @@ export default function PublicationOffice({ embeddedTab }: PublicationOfficeProp
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {impactFactors.map((factor: JournalImpactFactor) => (
+                {impactFactors.map((factor: JournalImpactFactor) => {
+                  // While a row is being edited the row-level click must not
+                  // fire: clicking a field (an empty one especially) would
+                  // otherwise bubble up and open the record. Guarding the row
+                  // once is safer than adding stopPropagation to every input,
+                  // which is easy to miss when a column is added.
+                  const isEditingRow = editingId === factor.journalId;
+                  return (
                   <TableRow 
                     key={factor.journalId} 
-                    className="cursor-pointer hover:bg-muted/50"
-                    onClick={() => {
+                    className={isEditingRow ? undefined : "cursor-pointer hover:bg-muted/50"}
+                    onClick={isEditingRow ? undefined : () => {
                       setSelectedJournal(factor);
                       setIsJournalModalOpen(true);
                     }}
@@ -3316,7 +3397,8 @@ export default function PublicationOffice({ embeddedTab }: PublicationOfficeProp
                       )}
                     </TableCell>
                   </TableRow>
-                ))}
+                  );
+                })}
               </TableBody>
             </Table>
           </div>

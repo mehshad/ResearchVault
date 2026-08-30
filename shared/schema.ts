@@ -132,7 +132,7 @@ export const sections = pgTable("sections", {
   id: serial("id").primaryKey(),
   departmentId: integer("department_id").notNull(), // references departments.id
   name: text("name").notNull(),
-  type: text("type").notNull(), // Laboratory | Office | Core
+  type: text("type").notNull(), // one of SECTION_TYPES
   description: text("description"),
   headId: integer("head_id"), // references scientists.id (optional)
   createdAt: timestamp("created_at").defaultNow(),

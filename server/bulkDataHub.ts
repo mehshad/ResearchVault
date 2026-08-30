@@ -57,6 +57,7 @@ import {
   certifications,
   publicationAuthors,
   projectMembers,
+  SECTION_TYPES,
   GRANT_CURRENCY_VALUES,
 } from "@shared/schema";
 import type {
@@ -193,7 +194,7 @@ export const SECTION_META: SectionMeta[] = [
     description: "Patents, Publications, and Journal Impact Factors",
     sheets: [
       { name: "Patents", description: "Patent records", businessKey: "patentNumber" },
-      { name: "Publications", description: "Publication records", businessKey: "Publication ID, DOI, PMID, or title + publication date + journal" },
+      { name: "Publications", description: "Publication records", businessKey: "Publication ID, DOI, PMID, title + publication date + journal, or title + SDR number" },
       { name: "Journal Impact Factors", description: "Journal metadata and annual impact metrics", businessKey: "journal name + year" },
       { name: "Publication Authors", description: "Internal authorship links between publications and staff", businessKey: "publication (DOI or PMID) + scientist email" },
     ],
@@ -236,7 +237,7 @@ const DEPARTMENT_COLS: ColDef[] = [
 const SECTION_COLS: ColDef[] = [
   { header: "Section Name", key: "name", required: true },
   { header: "Department Name", key: "departmentName", required: true, description: "Must match a row in Departments" },
-  { header: "Type", key: "type", required: true, description: "Laboratory, Office, or Core" },
+  { header: "Type", key: "type", required: true, description: SECTION_TYPES.join(", ") },
   { header: "Description", key: "description" },
   { header: "Head Email", key: "headEmail", description: "Scientist email of the section head (optional)" },
 ];
@@ -396,6 +397,26 @@ const PATENT_COLS: ColDef[] = [
   { header: "Description", key: "description" },
 ];
 
+/**
+ * Workflow states a publication may hold. Kept in step with the transition map
+ * in routes.ts; the import validates against this list so a restore cannot
+ * invent a state the workflow does not recognise.
+ */
+export const PUBLICATION_STATUS_VALUES = [
+  "Concept",
+  "Complete Draft",
+  "Vetted for submission",
+  "Submitted for review with pre-publication",
+  "Submitted for review without pre-publication",
+  "Under review",
+  "Accepted/In Press",
+  "Published",
+  "Published *",
+  "Published - Invalid",
+  "Rejected",
+  "Withdrawn",
+] as const;
+
 const PUBLICATION_COLS: ColDef[] = [
   { header: "Publication ID", key: "publicationId", description: "Existing database ID; ignored when it does not exist (falls back to DOI/PMID/title keys)" },
   { header: "Title", key: "title", required: true },
@@ -412,6 +433,11 @@ const PUBLICATION_COLS: ColDef[] = [
   { header: "Publication Type", key: "publicationType" },
   { header: "Prepublication URL", key: "prepublicationUrl" },
   { header: "Prepublication Site", key: "prepublicationSite" },
+  // Workflow state is carried so an archive can actually be restored. Without
+  // it every restored publication collapsed to Concept, which silently
+  // excluded the entire corpus from SIDRA scoring.
+  { header: "Status", key: "status", description: `One of: ${PUBLICATION_STATUS_VALUES.join(", ")}` },
+  { header: "Vetted By IP Office", key: "vettedForSubmissionByIpOffice", description: "Yes or No" },
 ];
 
 const PUBLICATION_AUTHOR_COLS: ColDef[] = [
@@ -701,7 +727,8 @@ function addInstructionsSheet(wb: ExcelJS.Workbook, sectionId: SectionId): void 
     "• IBC Applications: IBC Number",
     "• Research Contracts: Contract Number",
     "• Patents: Patent Number",
-    "• Publications: Publication ID (updates), then DOI, PMID, or Title + Publication Date + Journal",
+    "• Publications: Publication ID (updates), then DOI, PMID, Title + Publication Date + Journal,",
+    "  or Title + SDR Number for records not yet published",
     "• Journal Impact Factors: Journal Name + Year",
     "• Publication Authors: Publication DOI or PMID + Scientist Email",
     "• Research Activity Members: SDR Number + Scientist Email",
@@ -1066,6 +1093,8 @@ function publicationsToRows(
     publicationType: p.publicationType ?? "",
     prepublicationUrl: p.prepublicationUrl ?? "",
     prepublicationSite: p.prepublicationSite ?? "",
+    status: p.status ?? "Concept",
+    vettedForSubmissionByIpOffice: p.vettedForSubmissionByIpOffice ? "Yes" : "No",
   }));
 }
 
@@ -1193,6 +1222,7 @@ interface DbContext {
   publicationByDoi?: Map<string, Publication[]>;
   publicationByPmid?: Map<string, Publication[]>;
   publicationByComposite?: Map<string, Publication[]>;
+  publicationBySdrTitle?: Map<string, Publication[]>;
   manuscriptHistoryRows?: Array<{ id: number }>;
   journals?: Journal[];
   journalByName?: Map<string, Journal>;
@@ -1351,6 +1381,7 @@ async function loadDbContext(sectionId: SectionId, executor: any = db): Promise<
     const publicationByDoi = new Map<string, Publication[]>();
     const publicationByPmid = new Map<string, Publication[]>();
     const publicationByComposite = new Map<string, Publication[]>();
+    const publicationBySdrTitle = new Map<string, Publication[]>();
     const add = (map: Map<string, Publication[]>, key: string, publication: Publication) =>
       map.set(key, [...(map.get(key) ?? []), publication]);
     for (const publication of publicationList) {
@@ -1362,9 +1393,16 @@ async function loadDbContext(sectionId: SectionId, executor: any = db): Promise<
         publication.publicationDate,
         publication.journal,
       );
+      const sdrComposite = publicationSdrKey(
+        publication.title,
+        publication.researchActivityId
+          ? ctx.sdrByDbId?.get(publication.researchActivityId)?.sdrNumber
+          : undefined,
+      );
       if (doi) add(publicationByDoi, doi, publication);
       if (pmid) add(publicationByPmid, pmid, publication);
       if (composite) add(publicationByComposite, composite, publication);
+      if (sdrComposite) add(publicationBySdrTitle, sdrComposite, publication);
     }
     const journalList: Journal[] = await executor.select().from(journals);
     const journalByName = new Map(journalList.map((journal) => [
@@ -1379,7 +1417,7 @@ async function loadDbContext(sectionId: SectionId, executor: any = db): Promise<
     ]));
     Object.assign(ctx, {
       publicationList, publicationById, publicationByDoi, publicationByPmid,
-      publicationByComposite, journals: journalList, journalByName,
+      publicationByComposite, publicationBySdrTitle, journals: journalList, journalByName,
       journalMetrics, journalMetricByKey, manuscriptHistoryRows,
     });
   }
@@ -1578,6 +1616,27 @@ export interface ApplyCounts {
 export interface ApplyResult {
   sectionId: SectionId;
   counts: Record<string, ApplyCounts>;
+  /**
+   * Rows deliberately left out when applying with skipInvalidRows. Always
+   * reported so a partial restore is never silently partial.
+   */
+  rejected?: RejectedRow[];
+}
+
+export interface RejectedRow {
+  sheetName: string;
+  rowNumber: number;
+  key: string;
+  reason: string;
+}
+
+export interface ApplySectionOptions {
+  /**
+   * Apply the valid rows and report the rest instead of refusing the whole
+   * section. A restore of real data almost always contains a few unusable
+   * rows; without this one bad row blocks every good one.
+   */
+  skipInvalidRows?: boolean;
 }
 
 export interface BulkApplyActor {
@@ -2868,6 +2927,21 @@ function publicationCompositeKey(
     : "";
 }
 
+/**
+ * Identity for a publication that is not published yet. A record at, say,
+ * "Submitted for review with pre-publication" legitimately has no DOI, no PMID
+ * and no publication date, so the title+date+journal composite can never form.
+ * Title within a research activity is the stable identity such a record does
+ * have, and it is what staff use to refer to it.
+ */
+function publicationSdrKey(title: unknown, sdrNumber: unknown): string {
+  const normalizedTitle = normalizeScalarKey(title);
+  const normalizedSdr = normalizeScalarKey(sdrNumber);
+  return normalizedTitle && normalizedSdr
+    ? `${normalizedTitle}\u0000${normalizedSdr}`
+    : "";
+}
+
 function previewPublicationRows(
   rows: Record<string, string>[],
   ctx: DbContext,
@@ -2876,6 +2950,7 @@ function previewPublicationRows(
   const seenDois = new Set<string>();
   const seenPmids = new Set<string>();
   const seenComposites = new Set<string>();
+  const seenSdrTitles = new Set<string>();
   return rows.map((row, index) => {
     const rowNumber = index + 1;
     const errors: string[] = [];
@@ -2910,10 +2985,14 @@ function previewPublicationRows(
       publicationDate = parseDateTimestamp(row.publicationDate, "Publication Date", errors);
     }
     const composite = publicationCompositeKey(row.title, publicationDate, row.journal);
+    // Fallback identity for records that have not been published yet and so
+    // cannot have a DOI, PMID or publication date.
+    const sdrComposite = publicationSdrKey(row.title, row.sdrNumber);
     for (const [key, seen, label] of [
       [doi, seenDois, "DOI"],
       [pmid, seenPmids, "PMID"],
       [composite, seenComposites, "Title + Publication Date + Journal"],
+      [sdrComposite, seenSdrTitles, "Title + SDR Number"],
     ] as const) {
       if (!key) continue;
       if (seen.has(key)) errors.push(`Duplicate normalized ${label} key in this file`);
@@ -2925,6 +3004,7 @@ function previewPublicationRows(
       ["DOI", doi, doi ? ctx.publicationByDoi!.get(doi) : undefined],
       ["PMID", pmid, pmid ? ctx.publicationByPmid!.get(pmid) : undefined],
       ["Title + Publication Date + Journal", composite, composite ? ctx.publicationByComposite!.get(composite) : undefined],
+      ["Title + SDR Number", sdrComposite, sdrComposite ? ctx.publicationBySdrTitle?.get(sdrComposite) : undefined],
     ] as const) {
       if (!key) continue;
       if ((candidates?.length ?? 0) > 1) {
@@ -2946,8 +3026,10 @@ function previewPublicationRows(
     const isNew = !existing && !idResolved;
     const title = (row.title ?? "").trim();
     if (isNew && !title) errors.push("Title is required");
-    if (isNew && !doi && !pmid && !composite) {
-      errors.push("New publications require DOI, PMID, or Publication Date plus Journal");
+    if (isNew && !doi && !pmid && !composite && !sdrComposite) {
+      errors.push(
+        "New publications require DOI, PMID, Publication Date plus Journal, or Title plus SDR Number",
+      );
     }
 
     const data: Record<string, unknown> = {};
@@ -2963,6 +3045,25 @@ function previewPublicationRows(
     }
     if (doiRaw) data.doi = isClear(doiRaw) ? null : doi;
     if ((row.publicationDate ?? "") !== "") data.publicationDate = publicationDate ?? null;
+
+    // Workflow state. Validated against the canonical list so a restore cannot
+    // introduce a status the transition map does not know about.
+    const statusRaw = (row.status ?? "").trim();
+    if (statusRaw && !isClear(statusRaw)) {
+      const matched = PUBLICATION_STATUS_VALUES.find(
+        (value) => value.toLowerCase() === statusRaw.toLowerCase(),
+      );
+      if (!matched) {
+        errors.push(`Status: must be one of ${PUBLICATION_STATUS_VALUES.join(", ")} (got "${statusRaw}")`);
+      } else {
+        data.status = matched;
+      }
+    }
+    const vettedRaw = (row.vettedForSubmissionByIpOffice ?? "").trim();
+    if (vettedRaw && !isClear(vettedRaw)) {
+      const vetted = parseBool(vettedRaw, "Vetted By IP Office", errors);
+      if (vetted !== null) data.vettedForSubmissionByIpOffice = vetted;
+    }
     const sdrRaw = (row.sdrNumber ?? "").trim();
     if (sdrRaw) {
       if (isClear(sdrRaw)) data.researchActivityId = null;
@@ -3286,7 +3387,9 @@ function previewDepartmentRows(
   });
 }
 
-const SECTION_TYPE_VALUES = ["Laboratory", "Office", "Core"];
+// Sourced from the shared schema rather than restated here: the constant is
+// authoritative and gains new values (Clinic) that a local copy would miss.
+const SECTION_TYPE_VALUES: readonly string[] = SECTION_TYPES;
 
 function previewSectionRows(
   rows: Record<string, string>[],
@@ -3319,7 +3422,7 @@ function previewSectionRows(
     const type = (row.type ?? "").trim();
     if (!type || isClear(type)) errors.push("Type is required");
     else if (!SECTION_TYPE_VALUES.some((t) => t.toLowerCase() === type.toLowerCase())) {
-      errors.push(`Type: must be Laboratory, Office, or Core (got "${type}")`);
+      errors.push(`Type: must be one of ${SECTION_TYPE_VALUES.join(", ")} (got "${type}")`);
     }
     const existing = ctx.sectionByKey!.get(key);
     const data: Record<string, unknown> = { name };
@@ -3791,7 +3894,10 @@ export async function applySection(
   fileName: string,
   fingerprint: string,
   actor?: BulkApplyActor,
+  options: ApplySectionOptions = {},
 ): Promise<ApplyResult> {
+  const skipInvalidRows = options.skipInvalidRows === true;
+  const rejected: RejectedRow[] = [];
   const parsedSheets = await parseSectionWorkbook(sectionId, fileBase64, fileName);
   const counts = await db.transaction(async (tx: any) => {
     // Hold all tables read by this section so the confirmed plan cannot change
@@ -3805,9 +3911,19 @@ export async function applySection(
     if (preview.fingerprint !== fingerprint) {
       throw new Error("Fingerprint mismatch: the data may have changed since preview. Please re-preview and try again.");
     }
-    if (!preview.canApply) {
+    if (!preview.canApply && !skipInvalidRows) {
       const errCount = preview.rows.filter((r) => r.action === "error").length;
       throw new Error(`Cannot apply: ${errCount} row error(s) must be resolved first.`);
+    }
+    if (skipInvalidRows) {
+      for (const row of preview.rows.filter((r) => r.action === "error")) {
+        rejected.push({
+          sheetName: row.sheetName,
+          rowNumber: row.rowNumber,
+          key: row.key,
+          reason: row.reason ?? "Row failed validation",
+        });
+      }
     }
 
     let applyingScientistId: number | undefined;
@@ -3872,9 +3988,19 @@ export async function applySection(
       // Count skips
       sheetCounts.skipped = preview.rows.filter((r) => r.sheetName === sheetName && r.action === "skip").length;
 
+      // Rows that actually reached the database. Second-pass work (supervisor
+      // links, organisation placement) must only run for these; a rejected row
+      // has no row to attach to.
+      const appliedEntries: RowEntry[] = [];
+
       for (const entry of sheetRows) {
         const rowData = resolveDeferred(entry.data ?? {}, newProgramByKey, newProjectByKey, newSdrByKey);
 
+        // The row body is a closure over `tx` so it can be run either directly
+        // or inside a savepoint. A valid row may still fail at write time when
+        // it references a row that was rejected — with skipInvalidRows that
+        // must drop the single row, not unwind the whole restore.
+        const applyOne = async (tx: TxDb) => {
         if (sheetName === "Scientists") {
           await applyScientistRow(tx, entry, rowData);
           if (entry.action === "create") sheetCounts.created++;
@@ -3983,12 +4109,49 @@ export async function applySection(
           if (entry.action === "create") sheetCounts.created++;
           else sheetCounts.updated++;
         }
+        };
+
+        if (!skipInvalidRows) {
+          await applyOne(tx);
+          appliedEntries.push(entry);
+        } else {
+          try {
+            // Savepoint: a failure here rolls back only this row.
+            await tx.transaction(async (savepoint: TxDb) => { await applyOne(savepoint); });
+            appliedEntries.push(entry);
+          } catch (error) {
+            sheetCounts.skipped++;
+            rejected.push({
+              sheetName,
+              rowNumber: entry.rowNumber,
+              key: entry.key,
+              reason: error instanceof Error ? error.message : "Row could not be applied",
+            });
+          }
+        }
       }
 
       if (sheetName === "Scientists") {
-        for (const entry of sheetRows) {
-          await applyScientistSupervisor(tx, entry, entry.data ?? {});
-          await applyScientistOrgPlacement(tx, entry, entry.data ?? {}, newDepartmentByKey, newSectionByKey);
+        for (const entry of appliedEntries) {
+          if (!skipInvalidRows) {
+            await applyScientistSupervisor(tx, entry, entry.data ?? {});
+            await applyScientistOrgPlacement(tx, entry, entry.data ?? {}, newDepartmentByKey, newSectionByKey);
+            continue;
+          }
+          try {
+            await tx.transaction(async (savepoint: TxDb) => {
+              await applyScientistSupervisor(savepoint, entry, entry.data ?? {});
+              await applyScientistOrgPlacement(savepoint, entry, entry.data ?? {}, newDepartmentByKey, newSectionByKey);
+            });
+          } catch (error) {
+            // The scientist exists; only the link could not be resolved.
+            rejected.push({
+              sheetName,
+              rowNumber: entry.rowNumber,
+              key: entry.key,
+              reason: `Record imported, but linking failed: ${error instanceof Error ? error.message : "unknown error"}`,
+            });
+          }
         }
       }
 
@@ -4000,7 +4163,7 @@ export async function applySection(
     return transactionCounts;
   });
 
-  return { sectionId, counts };
+  return rejected.length ? { sectionId, counts, rejected } : { sectionId, counts };
 }
 
 function getSectionSheetOrder(sectionId: SectionId): string[] {
@@ -4342,20 +4505,29 @@ async function applyPublicationRow(
     if (!applyingUserId) {
       throw new Error("Publication create is missing an auditable applying user account");
     }
+    // Honour the workflow state carried by the archive. Forcing every restored
+    // record to Concept meant a backup could not be restored faithfully: the
+    // whole corpus fell out of SIDRA scoring, which gates on the vetted state.
+    const restoredStatus = String(payload.status ?? "Concept");
+    const restoredVetted = payload.vettedForSubmissionByIpOffice === true;
     const [created] = await tx.insert(publications).values({
       ...payload,
       title: String(payload.title ?? ""),
-      status: "Concept",
-      vettedForSubmissionByIpOffice: false,
+      status: restoredStatus,
+      vettedForSubmissionByIpOffice: restoredVetted,
       createdByUserId: applyingUserId,
     }).returning({ id: publications.id });
     requireUpdatedRow(created, "Publication", entry.key);
     await tx.insert(manuscriptHistory).values({
       publicationId: created.id,
       fromStatus: "",
-      toStatus: "Concept",
+      toStatus: restoredStatus,
       changedBy: applyingUserId,
-      changeReason: "Publication created",
+      // Record how the row arrived, so a restored state is never mistaken for
+      // one that walked the workflow.
+      changeReason: restoredStatus === "Concept"
+        ? "Publication created"
+        : `Publication restored from bulk import at status "${restoredStatus}"`,
     });
     return { applied: true, id: created.id };
   }

@@ -11273,10 +11273,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post('/api/bulk-data/:sectionId/apply', requireAdmin, async (req: Request, res: Response) => {
     try {
       const sectionId = resolveBulkDataSection(req.params.sectionId);
-      const { fileBase64, fileName, fingerprint } = req.body as {
+      const { fileBase64, fileName, fingerprint, skipInvalidRows } = req.body as {
         fileBase64?: string;
         fileName?: string;
         fingerprint?: string;
+        skipInvalidRows?: boolean;
       };
       if (!fileBase64 || !fileName || !fingerprint) {
         return res.status(400).json({ message: 'fileBase64, fileName, and fingerprint are required' });
@@ -11292,6 +11293,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
           scientistId: sessionUser?.scientistId,
           email: sessionUser?.email,
         },
+        // Opt-in only: a caller must ask for a partial restore explicitly.
+        { skipInvalidRows: skipInvalidRows === true },
       );
       res.json(result);
     } catch (error) {
