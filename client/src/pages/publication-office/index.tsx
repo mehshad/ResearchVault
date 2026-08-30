@@ -1477,7 +1477,10 @@ export default function PublicationOffice({ embeddedTab }: PublicationOfficeProp
           </TabsTrigger>
           <TabsTrigger value="new-publications" className="flex items-center gap-2">
             <FileText className="h-4 w-4" />
-            New Publications ({newPublications.length})
+            {/* Counts what the list actually shows. The list opens filtered to a
+                workflow state, so counting the unfiltered set here would make the
+                tab and the list disagree the moment the tab is opened. */}
+            New Publications ({filteredNewPublications.length})
           </TabsTrigger>
           <TabsTrigger value="find-papers" className="flex items-center gap-2" data-testid="tab-find-papers">
             <Globe className="h-4 w-4" />
