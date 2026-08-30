@@ -361,8 +361,9 @@ export default function RoleAccessConfig({ embedded = false }: { embedded?: bool
           <CardTitle>Navigation Permission Matrix</CardTitle>
           <p className="text-sm text-muted-foreground">
             Configure navigation visibility and screen-level access for each job role:
-            Hide (not visible), View Only (read-only), or Full Access (can edit).
-            Server-enforced rules above still apply to every request.
+            Hide (not visible), View (read-only), Add (may create but not change
+            existing records), or Edit (full access). Every level is enforced by
+            the server on each request, not only by what the menu shows.
           </p>
         </CardHeader>
         
@@ -423,6 +424,13 @@ export default function RoleAccessConfig({ embedded = false }: { embedded?: bool
                               View Only
                             </Badge>
                           );
+                        case "create":
+                          return (
+                            <Badge variant="secondary" className="bg-amber-100 text-amber-800 flex items-center gap-1 dark:bg-amber-950 dark:text-amber-300">
+                              <Plus className="h-3 w-3" />
+                              Add Only
+                            </Badge>
+                          );
                         case "edit":
                           return (
                             <Badge variant="default" className="bg-green-100 text-green-800 flex items-center gap-1 dark:bg-green-950 dark:text-green-300">
@@ -455,6 +463,13 @@ export default function RoleAccessConfig({ embedded = false }: { embedded?: bool
                               <Label htmlFor={`${permission.id}-view`} className="flex items-center gap-1 text-xs cursor-pointer">
                                 <Eye className="h-3 w-3" />
                                 View
+                              </Label>
+                            </div>
+                            <div className="flex items-center space-x-1">
+                              <RadioGroupItem value="create" id={`${permission.id}-create`} />
+                              <Label htmlFor={`${permission.id}-create`} className="flex items-center gap-1 text-xs cursor-pointer">
+                                <Plus className="h-3 w-3" />
+                                Add
                               </Label>
                             </div>
                             <div className="flex items-center space-x-1">

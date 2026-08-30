@@ -13,8 +13,13 @@ import {
   isAdministratorRole,
   NAVIGATION_ITEMS,
 } from "@/lib/navigationPermissions";
+import type { AccessLevel } from "@shared/constants";
 
-export type AccessLevel = "hide" | "view" | "edit";
+// Re-exported from the shared constant so the interface offers exactly the
+// levels the matrix stores and the server enforces. It used to declare three
+// of the four, which left "create" unselectable and, worse, unrenderable: a
+// cell holding it showed no badge at all.
+export type { AccessLevel };
 
 export interface NavigationPermission {
   id: string;
