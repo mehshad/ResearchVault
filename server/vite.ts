@@ -47,6 +47,17 @@ export async function setupVite(app: Express, server: Server) {
         `src="/src/main.tsx"`,
         `src="/src/main.tsx?v=${nanoid()}"`,
       );
+      // Inject the same runtime globals that serveStatic() provides in
+      // production. Without this the client falls back to its hard-coded
+      // demo port (8080) during development, so the Demo link points at an
+      // instance that does not exist on a single-instance dev machine.
+      const demoPort = process.env.DEMO_PORT || "8080";
+      const basePath = process.env.APP_BASE_PATH || "";
+      const baseTag = basePath ? `<base href="${basePath}/">` : "";
+      template = template.replace(
+        "<head>",
+        `<head>${baseTag}<script>window.__DEMO_PORT__="${demoPort}";window.__APP_BASE_PATH__="${basePath}";</script>`,
+      );
       const page = await vite.transformIndexHtml(url, template);
       res.status(200).set({ "Content-Type": "text/html" }).end(page);
     } catch (e) {

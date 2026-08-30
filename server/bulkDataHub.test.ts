@@ -53,6 +53,9 @@ test("getSectionMeta returns correct meta for research-management", () => {
   assert.equal(meta.label, "Research Management");
   assert.equal(meta.description, "Scientists, Facilities, and Certifications");
   assert.deepEqual(meta.sheets.map((s) => s.name), [
+    "Branches",
+    "Departments",
+    "Sections",
     "Scientists",
     "Buildings",
     "Rooms",
@@ -63,7 +66,7 @@ test("getSectionMeta returns correct meta for research-management", () => {
 
 test("getSectionMeta returns correct meta for pmo-office", () => {
   const meta = getSectionMeta("pmo-office");
-  assert.equal(meta.sheets.length, 3);
+  assert.equal(meta.sheets.length, 4);
   const names = meta.sheets.map((s) => s.name);
   assert.ok(names.includes("Programs"));
   assert.ok(names.includes("Projects"));
@@ -92,6 +95,7 @@ test("getSectionMeta returns correct meta for research-output", () => {
     "Patents",
     "Publications",
     "Journal Impact Factors",
+    "Publication Authors",
   ]);
 });
 
@@ -312,6 +316,9 @@ test("all sheet column headers are non-empty strings", () => {
   // to the known canonical set
   const KNOWN_SHEETS = new Set([
     "Scientists",
+    "Branches",
+    "Departments",
+    "Sections",
     "Grants",
     "Programs",
     "Projects",
@@ -322,6 +329,8 @@ test("all sheet column headers are non-empty strings", () => {
     "Patents",
     "Publications",
     "Journal Impact Factors",
+    "Publication Authors",
+    "Research Activity Members",
     "Buildings",
     "Rooms",
     "Certification Modules",
@@ -342,7 +351,7 @@ test("new templates expose structured fields and exclude workflow and file data"
   const management = new ExcelJS.Workbook();
   await management.xlsx.load(await buildTemplateWorkbook("research-management"));
   assert.deepEqual(management.worksheets.slice(1).map((sheet) => sheet.name), [
-    "Scientists", "Buildings", "Rooms", "Certification Modules", "Certifications",
+    "Branches", "Departments", "Sections", "Scientists", "Buildings", "Rooms", "Certification Modules", "Certifications",
   ]);
   const roomHeaders = management.getWorksheet("Rooms")!.getRow(1).values as unknown[];
   assert.equal(roomHeaders.includes("IBC Application"), false);
@@ -361,7 +370,7 @@ test("research output templates expose safe publication and journal metric colum
   const workbook = new ExcelJS.Workbook();
   await workbook.xlsx.load(await buildTemplateWorkbook("research-output"));
   assert.deepEqual(workbook.worksheets.slice(1).map((sheet) => sheet.name), [
-    "Patents", "Publications", "Journal Impact Factors",
+    "Patents", "Publications", "Journal Impact Factors", "Publication Authors",
   ]);
   const publicationHeaders = (workbook.getWorksheet("Publications")!.getRow(1).values as unknown[]).slice(1);
   assert.deepEqual(publicationHeaders, [

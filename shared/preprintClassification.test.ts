@@ -16,6 +16,12 @@ test("resolved preprint classification derives DOI link and allowed server name"
     publicationType: "Preprint",
     prepublicationUrl: "https://doi.org/10.48550/arxiv.2401.12345",
     prepublicationSite: "arXiv",
+    doi: null,
+    pmid: null,
+    journal: null,
+    volume: null,
+    issue: null,
+    publicationDate: null,
   });
 });
 

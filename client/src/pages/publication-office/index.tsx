@@ -2,6 +2,7 @@
 // Most errors here stem from untyped `useQuery` results (data inferred as `unknown`), drifted shared/schema field renames, and form values typed as `unknown`. They are not known runtime bugs but should be fixed file-by-file as each is next touched: remove this directive, run `npx tsc --noEmit`, and resolve what surfaces.
 import { useState, useEffect, useRef, useLayoutEffect, useMemo } from "react";
 import { useAuth } from "@/hooks/useAuth";
+import { usePermissions } from "@/hooks/usePermissions";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -118,7 +119,8 @@ export default function PublicationOffice({ embeddedTab }: PublicationOfficeProp
   const isEmbedded = embeddedTab !== undefined;
   const { toast } = useToast();
   const { user } = useAuth();
-  const canMarkPublished = ["Outcome Officer", "Management", "admin", "superadmin"].includes(user?.role ?? "");
+  const { canEdit } = usePermissions();
+  const canMarkPublished = canEdit(user?.role ?? "", "outcome-office");
   const queryClient = useQueryClient();
   
   // Tab state

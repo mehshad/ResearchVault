@@ -6,6 +6,7 @@ import {
   assembleManagementReport,
   buildManagementReportPdf,
   buildManagementReportPdfLayout,
+  buildPeerComparison,
   ManagementReportTargetNotFoundError,
   ManagementReportTooLargeError,
 } from "./managementReports.js";
@@ -282,7 +283,7 @@ test("overview has a real scoped cross-domain model and status counts", async ()
   );
 });
 
-test("multipage PDF layout has page-referenced contents, wrapped rows, repeated headers, and X/Y footers", async () => {
+test("multipage PDF layout paginates tables, repeats section headings, and numbers pages", async () => {
   const longTitle = "A deliberately long publication title ".repeat(8);
   const manyRows = Array.from({ length: 110 }, (_, id) => ({
     id,
@@ -308,22 +309,100 @@ test("multipage PDF layout has page-referenced contents, wrapped rows, repeated 
     total: manyRows.length,
   };
   const layout = buildManagementReportPdfLayout(report);
-  assert.ok(layout.pages.length > 3);
-  const publicationEntry = layout.contents.find((entry) => entry.title.startsWith("PUBLICATIONS"));
-  assert.equal(publicationEntry?.page, 2);
-  assert.ok(layout.pages[0].lines.some((line) =>
-    line.text.includes(`PUBLICATIONS (${manyRows.length})`) && line.text.endsWith(" 2"),
-  ));
-  for (const page of layout.pages.filter((page) => page.section.startsWith("PUBLICATIONS"))) {
-    assert.equal(page.lines[0].text, `PUBLICATIONS (${manyRows.length})`);
-    assert.equal(page.lines[1].text, "Reference | Title | Status | Date");
+
+  // 110 rows must flow across pages rather than being dropped or forced onto one.
+  assert.ok(layout.pages.length > 2, "long tables should span multiple pages");
+  const publicationEntry = layout.contents.find((entry) => entry.title.startsWith("Publications"));
+  assert.ok(publicationEntry, "section must appear in the contents list");
+
+  // Every page carries a heading, and continuations are marked as such.
+  for (const page of layout.pages) {
+    const heading = page.blocks?.find((block) => block.kind === "heading");
+    assert.ok(heading, "each page starts with a section heading");
   }
-  assert.ok(layout.pages.some((page) => page.lines.some((line) =>
-    line.text.includes("publication title") && !line.text.startsWith("DOI-"),
-  )), "long titles should wrap onto continuation lines");
+  const continued = layout.pages.filter((page) =>
+    page.blocks?.some((block) => block.kind === "heading" && block.title.endsWith("(continued)")),
+  );
+  assert.ok(continued.length >= 1, "spilled tables repeat the heading as a continuation");
+
+  // Every data row survives pagination exactly once.
+  const renderedRows = layout.pages.flatMap((page) =>
+    (page.blocks ?? []).filter((block) => block.kind === "table").flatMap((block: any) => block.rows),
+  );
+  assert.equal(renderedRows.length, manyRows.length, "no rows lost or duplicated across pages");
+
   assert.equal(layout.pages.at(-1)?.footer, `Page ${layout.pages.length} of ${layout.pages.length}`);
 
   const bytes = await buildManagementReportPdf(report);
   const document = await PDFDocument.load(bytes);
   assert.equal(document.getPageCount(), layout.pages.length);
+});
+
+function scoreStub(id: number, score: number, pubs: number, department: string | null = "Lab A") {
+  return {
+    id, honorificTitle: null, firstName: `S${id}`, lastName: "X",
+    jobTitle: null, department,
+    publicationsCount: pubs,
+    sidraScore: score,
+    missingImpactFactorPublications: [],
+    publicationIssues: [],
+    excludedPublications: [],
+    calculationDetails: Array.from({ length: pubs }, (_, i) => ({
+      publicationId: id * 100 + i,
+      title: `Pub ${id}-${i}`,
+      journal: "J",
+      publicationDate: "2024-05-01",
+      impactFactor: 10,
+      targetYear: 2024,
+      actualYear: 2024,
+      usedFallback: false,
+      authorshipTypes: i === 0 ? ["First Author"] : ["Contributing Author"],
+      appliedMultipliers: [],
+      multiplier: 1,
+      publicationScore: score / Math.max(1, pubs),
+    })),
+    settings: {} as any,
+  } as any;
+}
+
+test("peer comparison ranks the subject and anonymises the cohort", () => {
+  const cohort = [
+    scoreStub(1, 100, 4),
+    scoreStub(2, 300, 6),
+    scoreStub(3, 200, 5),
+    scoreStub(4, 50, 2),
+    scoreStub(5, 400, 8, "Lab B"),
+  ];
+  const result = buildPeerComparison(3, "Subject Name", cohort)!;
+
+  assert.ok(result, "comparison is produced for a member of the cohort");
+  assert.equal(result.rank, 3, "200 is the third highest of five");
+  assert.equal(result.cohort.size, 5);
+  assert.equal(result.cohort.median, 200);
+  assert.equal(result.cohort.max, 400);
+  // Two of four peers score below the subject.
+  assert.equal(Math.round(result.percentile), 50);
+
+  // The subject is named; every peer is not.
+  const named = result.ladder.filter((entry) => entry.label === "Subject Name");
+  assert.equal(named.length, 1, "subject appears exactly once, by name");
+  assert.ok(
+    result.ladder.filter((e) => !e.isSubject).every((e) => e.label.startsWith("Peer (rank ")),
+    "peers must never be identifiable in an individual evaluation report",
+  );
+
+  // Exactly one distribution bin contains the subject.
+  assert.equal(result.distribution.filter((bin) => bin.containsSubject).length, 1);
+  assert.equal(
+    result.distribution.reduce((sum, bin) => sum + bin.count, 0),
+    cohort.length,
+    "every cohort member falls in exactly one bin",
+  );
+
+  // Department cohort excludes the member in a different department.
+  assert.equal(result.departmentCohort?.size, 4);
+});
+
+test("peer comparison returns nothing when the subject is outside the cohort", () => {
+  assert.equal(buildPeerComparison(99, "Ghost", [scoreStub(1, 10, 1)]), undefined);
 });

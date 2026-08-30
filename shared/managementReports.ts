@@ -92,4 +92,45 @@ export interface ManagementReportData {
     publicationsCount: number;
     sidraScore: number;
   }>;
+  /**
+   * Benchmarking of a single subject against their peer cohort. Only produced
+   * for single-staff reports. Peers are deliberately anonymised: an individual
+   * evaluation report should show where someone stands without distributing
+   * named performance data about colleagues.
+   */
+  peerComparison?: ManagementReportPeerComparison;
+}
+
+export interface ManagementReportPeerComparison {
+  subject: { scientistId: number; name: string; sidraScore: number; publicationsCount: number };
+  cohort: {
+    label: string;
+    size: number;
+    scored: number;
+    mean: number;
+    median: number;
+    p25: number;
+    p75: number;
+    max: number;
+  };
+  rank: number;
+  percentile: number;
+  /** Score distribution across the cohort, subject's bin flagged. */
+  distribution: Array<{ label: string; count: number; containsSubject: boolean }>;
+  /** Anonymised ladder around the subject's position. */
+  ladder: Array<{ label: string; score: number; publications: number; isSubject: boolean }>;
+  /** Subject output per calendar year, with the cohort median for context. */
+  yearly: Array<{ year: number; publications: number; score: number; cohortMedianPublications: number }>;
+  /** Authorship role mix across the subject's counted publications. */
+  authorship: Array<{ role: string; count: number }>;
+  /** Highest-scoring publications for the subject. */
+  topPublications: Array<{
+    title: string;
+    journal: string | null;
+    year: number;
+    impactFactor: number;
+    roles: string[];
+    score: number;
+  }>;
+  departmentCohort?: { label: string; size: number; median: number; rank: number };
 }

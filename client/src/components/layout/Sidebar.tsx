@@ -289,7 +289,7 @@ export default function Sidebar({ mobile = false, onClose, onCollapsedChange }: 
         },
         {
           href: "/outcome-office",
-          label: "Outcome Workflows",
+          label: "Outcome Office",
           icon: Building
         },
         {

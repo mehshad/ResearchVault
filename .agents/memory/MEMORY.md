@@ -26,3 +26,5 @@
 - [Staff import compatibility](staff-import-compatibility.md) — preserve omitted newer fields and legacy headers; resolve manager links against the file’s intended final identities.
 - [PostgreSQL compatibility floor](postgres-compatibility-floor.md) — avoid newer validation helpers in runtime SQL; supported deployments include PostgreSQL 14.
 - [Publication Office runtime checks](publication-office-runtime-checks.md) — its TypeScript suppression can hide unbound JSX names; smoke-test affected tabs even when check and build pass.
+- [Outcome Office matrix access](outcome-office-matrix-access.md) — dashboard and workflows intentionally share one matrix cell; matrix levels govern both UI and server access.
+- [Publication withdrawal policy](publication-withdrawal-policy.md) — publications are never rejected; linked authors withdraw their own manuscripts instead.

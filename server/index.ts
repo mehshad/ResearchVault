@@ -201,10 +201,14 @@ app.use((req: Request, res: Response, next: NextFunction) => {
   }
 
   const port = 5000;
+  // SO_REUSEPORT is not supported on Windows; Node throws ENOTSUP when the
+  // option is set there. Keep it enabled on Linux (Docker/production) so
+  // multiple workers can share the port.
+  const reusePort = process.platform !== "win32";
   server.listen({
     port,
     host: "0.0.0.0",
-    reusePort: true,
+    reusePort,
   }, () => {
     log(`serving on port ${port}`, "express", { authMode: getAuthMode(), port });
   });

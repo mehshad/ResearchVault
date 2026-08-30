@@ -35,6 +35,9 @@ import { eq, inArray, sql } from "drizzle-orm";
 import { db } from "./db.js";
 import {
   scientists,
+  branches,
+  departments,
+  sections,
   grants,
   programs,
   projects,
@@ -52,10 +55,15 @@ import {
   rooms,
   certificationModules,
   certifications,
+  publicationAuthors,
+  projectMembers,
   GRANT_CURRENCY_VALUES,
 } from "@shared/schema";
 import type {
   Scientist,
+  Branch,
+  Department,
+  Section,
   Grant,
   Program,
   Project,
@@ -71,6 +79,8 @@ import type {
   Publication,
   Journal,
   JournalImpactFactorMetric,
+  PublicationAuthor,
+  ProjectMember,
 } from "@shared/schema";
 import {
   reconcileGrantLifecycle,
@@ -88,8 +98,15 @@ import {
 // ---------------------------------------------------------------------------
 
 const MAX_WORKBOOK_BYTES = 20 * 1024 * 1024; // 20 MB base64 cap
-const MAX_TOTAL_ROWS = 10_000;
-const MAX_ROWS_PER_SHEET = 5_000;
+// These ceilings must stay above anything this application's own export can
+// produce, otherwise the Bulk Data Hub emits archives it then refuses to read
+// back — which is what happened with reference data: a routine export carried
+// 10,758 Journal Impact Factor rows against a 5,000-row sheet cap, so no
+// backup containing a full JCR set could be restored. Reference tables grow
+// with each yearly release, so the headroom is deliberate.
+// Override per-deployment if a larger corpus is expected.
+const MAX_TOTAL_ROWS = Number(process.env.BULK_IMPORT_MAX_TOTAL_ROWS ?? 120_000);
+const MAX_ROWS_PER_SHEET = Number(process.env.BULK_IMPORT_MAX_ROWS_PER_SHEET ?? 50_000);
 function getHmacSecret(): string {
   const secret = process.env.SESSION_SECRET;
   if (secret) return secret;
@@ -131,6 +148,9 @@ export const SECTION_META: SectionMeta[] = [
     label: "Research Management",
     description: "Scientists, Facilities, and Certifications",
     sheets: [
+      { name: "Branches", description: "Top level of the organisation hierarchy", businessKey: "branch name" },
+      { name: "Departments", description: "Departments within a branch", businessKey: "branch name + department name" },
+      { name: "Sections", description: "Sections within a department", businessKey: "department name + section name" },
       { name: "Scientists", description: "Staff/scientist records", businessKey: "staffId or email" },
       { name: "Buildings", description: "Facility buildings", businessKey: "building name" },
       { name: "Rooms", description: "Rooms within buildings", businessKey: "building name + room number" },
@@ -146,6 +166,7 @@ export const SECTION_META: SectionMeta[] = [
       { name: "Programs", description: "Research programs", businessKey: "programId" },
       { name: "Projects", description: "Research projects", businessKey: "projectId" },
       { name: "Research Activities", description: "SDR records", businessKey: "sdrNumber" },
+      { name: "Research Activity Members", description: "SDR team membership", businessKey: "SDR number + scientist email" },
     ],
   },
   {
@@ -174,6 +195,7 @@ export const SECTION_META: SectionMeta[] = [
       { name: "Patents", description: "Patent records", businessKey: "patentNumber" },
       { name: "Publications", description: "Publication records", businessKey: "Publication ID, DOI, PMID, or title + publication date + journal" },
       { name: "Journal Impact Factors", description: "Journal metadata and annual impact metrics", businessKey: "journal name + year" },
+      { name: "Publication Authors", description: "Internal authorship links between publications and staff", businessKey: "publication (DOI or PMID) + scientist email" },
     ],
   },
 ];
@@ -188,7 +210,36 @@ export function getSectionMeta(sectionId: SectionId): SectionMeta {
 // Column definitions per sheet
 // ---------------------------------------------------------------------------
 
-type ColDef = { header: string; key: string; required?: boolean; description?: string };
+type ColDef = {
+  header: string;
+  key: string;
+  required?: boolean;
+  description?: string;
+  // Declares the cell as a calendar date. Only these columns get Excel
+  // serial-number conversion; every other numeric cell is read verbatim.
+  type?: "date";
+};
+
+const BRANCH_COLS: ColDef[] = [
+  { header: "Branch Name", key: "name", required: true },
+  { header: "Description", key: "description" },
+  { header: "Head Email", key: "headEmail", description: "Scientist email of the branch head (optional)" },
+];
+
+const DEPARTMENT_COLS: ColDef[] = [
+  { header: "Department Name", key: "name", required: true },
+  { header: "Branch Name", key: "branchName", required: true, description: "Must match a row in Branches" },
+  { header: "Description", key: "description" },
+  { header: "Head Email", key: "headEmail", description: "Scientist email of the department head (optional)" },
+];
+
+const SECTION_COLS: ColDef[] = [
+  { header: "Section Name", key: "name", required: true },
+  { header: "Department Name", key: "departmentName", required: true, description: "Must match a row in Departments" },
+  { header: "Type", key: "type", required: true, description: "Laboratory, Office, or Core" },
+  { header: "Description", key: "description" },
+  { header: "Head Email", key: "headEmail", description: "Scientist email of the section head (optional)" },
+];
 
 const SCIENTIST_COLS: ColDef[] = [
   { header: "Staff ID", key: "staffId", description: "5-digit badge ID (optional, used as primary key if present)" },
@@ -198,7 +249,9 @@ const SCIENTIST_COLS: ColDef[] = [
   { header: "Last Name", key: "lastName", required: true },
   { header: "Job Title", key: "jobTitle" },
   { header: "Staff Type", key: "staffType", description: "scientific or administrative" },
-  { header: "Department", key: "department" },
+  { header: "Department", key: "department", description: "Legacy free-text department (display only)" },
+  { header: "Org Department", key: "orgDepartment", description: "Structured department name; must match a row in Departments" },
+  { header: "Org Section", key: "orgSection", description: "Structured section name within Org Department; must match a row in Sections" },
   { header: "ORCID ID", key: "orcidId" },
   { header: "LinkedIn URL", key: "linkedInUrl" },
   { header: "Google Scholar URL", key: "googleScholarUrl" },
@@ -232,8 +285,8 @@ const GRANT_COLS: ColDef[] = [
   { header: "Contribution Type", key: "contributionType", description: "In-kind, in-cash, or mixed" },
   { header: "Contribution Details", key: "contributionDetails" },
   { header: "Currency", key: "currency", description: "QAR, USD, EUR, etc." },
-  { header: "Start Date", key: "startDate", description: "YYYY-MM-DD" },
-  { header: "End Date", key: "endDate", description: "YYYY-MM-DD" },
+  { header: "Start Date", key: "startDate", type: "date", description: "YYYY-MM-DD" },
+  { header: "End Date", key: "endDate", type: "date", description: "YYYY-MM-DD" },
   { header: "Reporting Interval (Months)", key: "reportingIntervalMonths" },
   { header: "Collaborators", key: "collaborators", description: "Semicolon-separated" },
   { header: "Description", key: "description" },
@@ -264,8 +317,8 @@ const SDR_COLS: ColDef[] = [
   { header: "Short Title", key: "shortTitle" },
   { header: "Description", key: "description" },
   { header: "Status", key: "status", description: "planning, active, completed, on_hold" },
-  { header: "Start Date", key: "startDate", description: "YYYY-MM-DD" },
-  { header: "End Date", key: "endDate", description: "YYYY-MM-DD" },
+  { header: "Start Date", key: "startDate", type: "date", description: "YYYY-MM-DD" },
+  { header: "End Date", key: "endDate", type: "date", description: "YYYY-MM-DD" },
   { header: "Budget Holder Email", key: "budgetHolderEmail", description: "Budget holder / PI email" },
   { header: "Additional Notification Email", key: "additionalNotificationEmail" },
   { header: "Sidra Branch", key: "sidraBranch", description: "Research, Clinical, External" },
@@ -284,9 +337,9 @@ const IRB_COLS: ColDef[] = [
   { header: "Protocol Type", key: "protocolType", description: "Exempt, Expedited, Full Board, etc." },
   { header: "Is Interventional", key: "isInterventional", description: "Yes/No" },
   { header: "Status", key: "status", required: true },
-  { header: "Submission Date", key: "submissionDate", description: "YYYY-MM-DD" },
-  { header: "Initial Approval Date", key: "initialApprovalDate", description: "YYYY-MM-DD" },
-  { header: "Expiration Date", key: "expirationDate", description: "YYYY-MM-DD" },
+  { header: "Submission Date", key: "submissionDate", type: "date", description: "YYYY-MM-DD" },
+  { header: "Initial Approval Date", key: "initialApprovalDate", type: "date", description: "YYYY-MM-DD" },
+  { header: "Expiration Date", key: "expirationDate", type: "date", description: "YYYY-MM-DD" },
   { header: "SDR Number", key: "sdrNumber", description: "Linked SDR (must exist)" },
   { header: "Risk Level", key: "riskLevel", description: "minimal, greater_than_minimal, high" },
   { header: "Funding Source", key: "fundingSource" },
@@ -303,9 +356,9 @@ const IBC_COLS: ColDef[] = [
   { header: "Risk Group Classification", key: "riskGroupClassification" },
   { header: "Status", key: "status", required: true },
   { header: "Risk Level", key: "riskLevel", required: true, description: "low, moderate, high" },
-  { header: "Submission Date", key: "submissionDate", description: "YYYY-MM-DD" },
-  { header: "Approval Date", key: "approvalDate", description: "YYYY-MM-DD" },
-  { header: "Expiration Date", key: "expirationDate", description: "YYYY-MM-DD" },
+  { header: "Submission Date", key: "submissionDate", type: "date", description: "YYYY-MM-DD" },
+  { header: "Approval Date", key: "approvalDate", type: "date", description: "YYYY-MM-DD" },
+  { header: "Expiration Date", key: "expirationDate", type: "date", description: "YYYY-MM-DD" },
   { header: "Description", key: "description" },
   { header: "Protocol Summary", key: "protocolSummary" },
 ];
@@ -317,8 +370,8 @@ const CONTRACT_COLS: ColDef[] = [
   { header: "Lead PI Email", key: "leadPiEmail", description: "Lead PI email" },
   { header: "Contract Type", key: "contractType" },
   { header: "Status", key: "status" },
-  { header: "Start Date", key: "startDate", description: "YYYY-MM-DD" },
-  { header: "End Date", key: "endDate", description: "YYYY-MM-DD" },
+  { header: "Start Date", key: "startDate", type: "date", description: "YYYY-MM-DD" },
+  { header: "End Date", key: "endDate", type: "date", description: "YYYY-MM-DD" },
   { header: "IRB Protocol", key: "irbProtocol" },
   { header: "IBC Protocol", key: "ibcProtocol" },
   { header: "QNRF Number", key: "qnrfNumber" },
@@ -337,14 +390,14 @@ const PATENT_COLS: ColDef[] = [
   { header: "Title", key: "title", required: true },
   { header: "Inventors", key: "inventors", required: true },
   { header: "Status", key: "status", required: true },
-  { header: "Filing Date", key: "filingDate", description: "YYYY-MM-DD" },
-  { header: "Grant Date", key: "grantDate", description: "YYYY-MM-DD" },
+  { header: "Filing Date", key: "filingDate", type: "date", description: "YYYY-MM-DD" },
+  { header: "Grant Date", key: "grantDate", type: "date", description: "YYYY-MM-DD" },
   { header: "SDR Number", key: "sdrNumber", description: "Linked research activity SDR" },
   { header: "Description", key: "description" },
 ];
 
 const PUBLICATION_COLS: ColDef[] = [
-  { header: "Publication ID", key: "publicationId", description: "Existing database ID; updates only" },
+  { header: "Publication ID", key: "publicationId", description: "Existing database ID; ignored when it does not exist (falls back to DOI/PMID/title keys)" },
   { header: "Title", key: "title", required: true },
   { header: "SDR Number", key: "sdrNumber", description: "Existing linked research activity SDR" },
   { header: "Abstract", key: "abstract" },
@@ -355,10 +408,25 @@ const PUBLICATION_COLS: ColDef[] = [
   { header: "Pages", key: "pages" },
   { header: "DOI", key: "doi" },
   { header: "PMID", key: "pmid" },
-  { header: "Publication Date", key: "publicationDate", description: "YYYY-MM-DD" },
+  { header: "Publication Date", key: "publicationDate", type: "date", description: "YYYY-MM-DD" },
   { header: "Publication Type", key: "publicationType" },
   { header: "Prepublication URL", key: "prepublicationUrl" },
   { header: "Prepublication Site", key: "prepublicationSite" },
+];
+
+const PUBLICATION_AUTHOR_COLS: ColDef[] = [
+  { header: "Publication DOI", key: "publicationDoi", description: "Identifies the publication; DOI or PMID is required" },
+  { header: "Publication PMID", key: "publicationPmid", description: "Used when the DOI is absent" },
+  { header: "Scientist Email", key: "scientistEmail", required: true, description: "Internal author being credited" },
+  { header: "Authorship Type", key: "authorshipType", required: true, description: "First Author, Last Author, Corresponding Author, etc." },
+  { header: "Author Position", key: "authorPosition", description: "Position in the author list (1, 2, 3...)" },
+  { header: "Link Method", key: "linkMethod", description: "manual or automatic (defaults to manual)" },
+];
+
+const SDR_MEMBER_COLS: ColDef[] = [
+  { header: "SDR Number", key: "sdrNumber", required: true, description: "Research activity the team member belongs to" },
+  { header: "Scientist Email", key: "scientistEmail", required: true },
+  { header: "Role", key: "role", description: "PI, Co-PI, Researcher, Lab Technician, etc." },
 ];
 
 const JOURNAL_IMPACT_FACTOR_COLS: ColDef[] = [
@@ -422,8 +490,8 @@ const CERTIFICATION_MODULE_COLS: ColDef[] = [
 const CERTIFICATION_COLS: ColDef[] = [
   { header: "Scientist Email", key: "scientistEmail", required: true },
   { header: "Module Name", key: "moduleName", required: true },
-  { header: "Start Date", key: "startDate", required: true, description: "YYYY-MM-DD" },
-  { header: "End Date", key: "endDate", required: true, description: "YYYY-MM-DD" },
+  { header: "Start Date", key: "startDate", required: true, type: "date", description: "YYYY-MM-DD" },
+  { header: "End Date", key: "endDate", required: true, type: "date", description: "YYYY-MM-DD" },
   { header: "Notes", key: "notes" },
 ];
 
@@ -439,6 +507,11 @@ const SHEET_COLS: Record<string, ColDef[]> = {
   "Patents": PATENT_COLS,
   "Publications": PUBLICATION_COLS,
   "Journal Impact Factors": JOURNAL_IMPACT_FACTOR_COLS,
+  "Publication Authors": PUBLICATION_AUTHOR_COLS,
+  "Research Activity Members": SDR_MEMBER_COLS,
+  "Branches": BRANCH_COLS,
+  "Departments": DEPARTMENT_COLS,
+  "Sections": SECTION_COLS,
   "Buildings": BUILDING_COLS,
   "Rooms": ROOM_COLS,
   "Certification Modules": CERTIFICATION_MODULE_COLS,
@@ -452,12 +525,15 @@ const ALL_SHEET_NAMES = new Set(Object.keys(SHEET_COLS));
 // Utility helpers
 // ---------------------------------------------------------------------------
 
-function cellString(v: unknown): string {
+function cellString(v: unknown, colType?: ColDef["type"]): string {
   if (v == null || v === "") return "";
   if (v instanceof Date) return v.toISOString().slice(0, 10);
   if (typeof v === "number") {
-    // Excel serial date detection: typical range 25569 (1970-01-01) to 60000 (~2064)
-    if (Number.isInteger(v) && v > 25000 && v < 80000) {
+    // Only columns declared as dates get Excel serial-number conversion.
+    // Applying it by value range corrupted ordinary numbers that happen to
+    // fall in the serial range — e.g. a journal with 34,623 total cites, or
+    // a grant awarded 50,000 — silently became dates.
+    if (colType === "date" && Number.isInteger(v) && v > 25000 && v < 80000) {
       // Convert Excel serial date to YYYY-MM-DD
       const d = new Date(Math.round((v - 25569) * 86400 * 1000));
       if (!isNaN(d.getTime())) return d.toISOString().slice(0, 10);
@@ -627,6 +703,11 @@ function addInstructionsSheet(wb: ExcelJS.Workbook, sectionId: SectionId): void 
     "• Patents: Patent Number",
     "• Publications: Publication ID (updates), then DOI, PMID, or Title + Publication Date + Journal",
     "• Journal Impact Factors: Journal Name + Year",
+    "• Publication Authors: Publication DOI or PMID + Scientist Email",
+    "• Research Activity Members: SDR Number + Scientist Email",
+    "• Branches: Branch Name",
+    "• Departments: Branch Name + Department Name",
+    "• Sections: Department Name + Section Name",
     "• Buildings: Building Name",
     "• Rooms: Building Name + Room Number",
     "• Certification Modules: Module Name",
@@ -678,8 +759,87 @@ function addDataSheet(wb: ExcelJS.Workbook, name: string, cols: ColDef[], rows: 
 // Data → row converters (for export)
 // ---------------------------------------------------------------------------
 
+function publicationAuthorsToRows(
+  links: PublicationAuthor[],
+  publicationById: Map<number, Publication>,
+  scientistById: Map<number, Scientist>,
+): Record<string, unknown>[] {
+  return links.flatMap((link) => {
+    const publication = publicationById.get(link.publicationId);
+    const scientist = scientistById.get(link.scientistId);
+    // A link whose publication or scientist is gone cannot be expressed with
+    // business keys, so it is omitted rather than exported unresolvable.
+    if (!publication || !scientist) return [];
+    return [{
+      publicationDoi: publication.doi ?? "",
+      publicationPmid: publication.pmid ?? "",
+      scientistEmail: scientist.email,
+      authorshipType: link.authorshipType,
+      authorPosition: link.authorPosition ?? "",
+      linkMethod: link.linkMethod,
+    }];
+  });
+}
+
+function projectMembersToRows(
+  members: ProjectMember[],
+  sdrByDbId: Map<number, ResearchActivity>,
+  scientistById: Map<number, Scientist>,
+): Record<string, unknown>[] {
+  return members.flatMap((member) => {
+    const sdr = sdrByDbId.get(member.researchActivityId);
+    const scientist = scientistById.get(member.scientistId);
+    if (!sdr || !scientist) return [];
+    return [{
+      sdrNumber: sdr.sdrNumber,
+      scientistEmail: scientist.email,
+      role: member.role ?? "",
+    }];
+  });
+}
+
+function branchesToRows(
+  branchList: Branch[],
+  scientistById: Map<number, Scientist>,
+): Record<string, unknown>[] {
+  return branchList.map((b) => ({
+    name: b.name,
+    description: b.description ?? "",
+    headEmail: b.headId ? (scientistById.get(b.headId)?.email ?? "") : "",
+  }));
+}
+
+function departmentsToRows(
+  departmentList: Department[],
+  branchById: Map<number, Branch>,
+  scientistById: Map<number, Scientist>,
+): Record<string, unknown>[] {
+  return departmentList.map((d) => ({
+    name: d.name,
+    branchName: branchById.get(d.branchId)?.name ?? "",
+    description: d.description ?? "",
+    headEmail: d.headId ? (scientistById.get(d.headId)?.email ?? "") : "",
+  }));
+}
+
+function sectionsToRows(
+  sectionList: Section[],
+  departmentById: Map<number, Department>,
+  scientistById: Map<number, Scientist>,
+): Record<string, unknown>[] {
+  return sectionList.map((sec) => ({
+    name: sec.name,
+    departmentName: departmentById.get(sec.departmentId)?.name ?? "",
+    type: sec.type,
+    description: sec.description ?? "",
+    headEmail: sec.headId ? (scientistById.get(sec.headId)?.email ?? "") : "",
+  }));
+}
+
 function scientistsToRows(
   allScientists: Scientist[],
+  departmentById?: Map<number, Department>,
+  sectionById?: Map<number, Section>,
 ): Record<string, unknown>[] {
   const idToEmail = new Map<number, string>();
   allScientists.forEach((s) => idToEmail.set(s.id, s.email));
@@ -692,6 +852,8 @@ function scientistsToRows(
     jobTitle: s.jobTitle ?? "",
     staffType: s.staffType,
     department: s.department ?? "",
+    orgDepartment: s.departmentId ? (departmentById?.get(s.departmentId)?.name ?? "") : "",
+    orgSection: s.sectionId ? (sectionById?.get(s.sectionId)?.name ?? "") : "",
     orcidId: s.orcidId ?? "",
     linkedInUrl: s.linkedInUrl ?? "",
     googleScholarUrl: s.googleScholarUrl ?? "",
@@ -1036,6 +1198,22 @@ interface DbContext {
   journalByName?: Map<string, Journal>;
   journalMetrics?: JournalImpactFactorMetric[];
   journalMetricByKey?: Map<string, JournalImpactFactorMetric>;
+  publicationAuthorList?: PublicationAuthor[];
+  publicationAuthorByKey?: Map<string, PublicationAuthor>;   // publicationId + NUL + scientistId
+  projectMemberList?: ProjectMember[];
+  projectMemberByKey?: Map<string, ProjectMember>;           // researchActivityId + NUL + scientistId
+  branchList?: Branch[];
+  branchByName?: Map<string, Branch>;
+  branchById?: Map<number, Branch>;
+  ambiguousBranchNames?: Set<string>;
+  departmentList?: Department[];
+  departmentByName?: Map<string, Department>;
+  departmentById?: Map<number, Department>;
+  ambiguousDepartmentNames?: Set<string>;
+  sectionList?: Section[];
+  sectionByKey?: Map<string, Section>;   // key: department name + NUL + section name
+  sectionById?: Map<number, Section>;
+  ambiguousSectionKeys?: Set<string>;
   buildings?: Building[];
   buildingByName?: Map<string, Building>;
   buildingById?: Map<number, Building>;
@@ -1136,7 +1314,27 @@ async function loadDbContext(sectionId: SectionId, executor: any = db): Promise<
     ctx.contractByContractNumber = contractByContractNumber;
   }
 
+  if (sectionId === "pmo-office") {
+    const projectMemberList: ProjectMember[] = await executor.select().from(projectMembers);
+    const projectMemberByKey = new Map<string, ProjectMember>();
+    for (const member of projectMemberList) {
+      projectMemberByKey.set(`${member.researchActivityId}\u0000${member.scientistId}`, member);
+    }
+    ctx.projectMemberList = projectMemberList;
+    ctx.projectMemberByKey = projectMemberByKey;
+  }
+
   if (sectionId === "research-output") {
+    // Internal authorship links, keyed by publication + scientist so a restore
+    // can match them without relying on either side's database id.
+    const publicationAuthorList: PublicationAuthor[] = await executor.select().from(publicationAuthors);
+    const publicationAuthorByKey = new Map<string, PublicationAuthor>();
+    for (const link of publicationAuthorList) {
+      publicationAuthorByKey.set(`${link.publicationId}\u0000${link.scientistId}`, link);
+    }
+    ctx.publicationAuthorList = publicationAuthorList;
+    ctx.publicationAuthorByKey = publicationAuthorByKey;
+
     const patentList = await executor.select().from(patents);
     const patentByPatentNumber = new Map<string, Patent>();
     for (const p of patentList) {
@@ -1187,6 +1385,46 @@ async function loadDbContext(sectionId: SectionId, executor: any = db): Promise<
   }
 
   if (sectionId === "research-management") {
+    // Organisation hierarchy: Branch -> Department -> Section. Loaded before
+    // scientists so staff can be attached to a structured placement.
+    const branchList: Branch[] = await executor.select().from(branches);
+    const branchByName = new Map<string, Branch>();
+    const branchById = new Map<number, Branch>();
+    const ambiguousBranchNames = new Set<string>();
+    for (const branch of branchList) {
+      const key = normalizeScalarKey(branch.name);
+      if (branchByName.has(key)) ambiguousBranchNames.add(key);
+      else branchByName.set(key, branch);
+      branchById.set(branch.id, branch);
+    }
+    const departmentList: Department[] = await executor.select().from(departments);
+    const departmentByName = new Map<string, Department>();
+    const departmentById = new Map<number, Department>();
+    const ambiguousDepartmentNames = new Set<string>();
+    for (const department of departmentList) {
+      const key = normalizeScalarKey(department.name);
+      if (departmentByName.has(key)) ambiguousDepartmentNames.add(key);
+      else departmentByName.set(key, department);
+      departmentById.set(department.id, department);
+    }
+    const sectionList: Section[] = await executor.select().from(sections);
+    const sectionByKey = new Map<string, Section>();
+    const sectionById = new Map<number, Section>();
+    const ambiguousSectionKeys = new Set<string>();
+    for (const section of sectionList) {
+      const department = departmentById.get(section.departmentId);
+      sectionById.set(section.id, section);
+      if (!department) continue;
+      const key = `${normalizeScalarKey(department.name)}\u0000${normalizeScalarKey(section.name)}`;
+      if (sectionByKey.has(key)) ambiguousSectionKeys.add(key);
+      else sectionByKey.set(key, section);
+    }
+    Object.assign(ctx, {
+      branchList, branchByName, branchById, ambiguousBranchNames,
+      departmentList, departmentByName, departmentById, ambiguousDepartmentNames,
+      sectionList, sectionByKey, sectionById, ambiguousSectionKeys,
+    });
+
     const buildingList: Building[] = await executor.select().from(buildings);
     const buildingByName = new Map<string, Building>();
     const buildingById = new Map<number, Building>();
@@ -1252,7 +1490,10 @@ export async function buildExportWorkbook(sectionId: SectionId): Promise<Buffer>
   addInstructionsSheet(wb, sectionId);
 
   if (sectionId === "research-management") {
-    addDataSheet(wb, "Scientists", SCIENTIST_COLS, scientistsToRows(ctx.scientists));
+    addDataSheet(wb, "Branches", BRANCH_COLS, branchesToRows(ctx.branchList!, ctx.scientistById));
+    addDataSheet(wb, "Departments", DEPARTMENT_COLS, departmentsToRows(ctx.departmentList!, ctx.branchById!, ctx.scientistById));
+    addDataSheet(wb, "Sections", SECTION_COLS, sectionsToRows(ctx.sectionList!, ctx.departmentById!, ctx.scientistById));
+    addDataSheet(wb, "Scientists", SCIENTIST_COLS, scientistsToRows(ctx.scientists, ctx.departmentById, ctx.sectionById));
     addDataSheet(wb, "Buildings", BUILDING_COLS, buildingsToRows(ctx.buildings!));
     addDataSheet(wb, "Rooms", ROOM_COLS, roomsToRows(ctx.rooms!, ctx.buildingById!, ctx.scientistById));
     addDataSheet(wb, "Certification Modules", CERTIFICATION_MODULE_COLS, certificationModulesToRows(ctx.certificationModules!));
@@ -1261,6 +1502,7 @@ export async function buildExportWorkbook(sectionId: SectionId): Promise<Buffer>
     addDataSheet(wb, "Programs", PROGRAM_COLS, programsToRows(ctx.programs!, ctx.scientistById));
     addDataSheet(wb, "Projects", PROJECT_COLS, projectsToRows(ctx.projects!, ctx.programByDbId!, ctx.scientistById));
     addDataSheet(wb, "Research Activities", SDR_COLS, sdrsToRows(ctx.sdrs!, ctx.projectByDbId!, ctx.scientistById));
+    addDataSheet(wb, "Research Activity Members", SDR_MEMBER_COLS, projectMembersToRows(ctx.projectMemberList!, ctx.sdrByDbId!, ctx.scientistById));
   } else if (sectionId === "research-compliance") {
     addDataSheet(wb, "IRB Applications", IRB_COLS, irbToRows(ctx.irbs!, ctx.sdrByDbId!, ctx.scientistById));
     addDataSheet(wb, "IBC Applications", IBC_COLS, ibcToRows(ctx.ibcs!, ctx.scientistById));
@@ -1271,6 +1513,7 @@ export async function buildExportWorkbook(sectionId: SectionId): Promise<Buffer>
     addDataSheet(wb, "Patents", PATENT_COLS, patentsToRows(ctx.patentList!, ctx.sdrByDbId!));
     addDataSheet(wb, "Publications", PUBLICATION_COLS, publicationsToRows(ctx.publicationList!, ctx.sdrByDbId!));
     addDataSheet(wb, "Journal Impact Factors", JOURNAL_IMPACT_FACTOR_COLS, journalImpactFactorsToRows(ctx.journals!, ctx.journalMetrics!));
+    addDataSheet(wb, "Publication Authors", PUBLICATION_AUTHOR_COLS, publicationAuthorsToRows(ctx.publicationAuthorList!, ctx.publicationById!, ctx.scientistById));
   }
 
   const buf = await wb.xlsx.writeBuffer();
@@ -1398,6 +1641,10 @@ async function parseWorkbookBase64(fileBase64: string, fileName: string): Promis
 
     const headerMap = makeHeaderMap(cols);
     const validKeys = new Set(Object.values(headerMap));
+    // Column key → declared type, so cell parsing knows whether a number is
+    // a calendar date or just a number.
+    const keyTypes: Record<string, ColDef["type"]> = {};
+    for (const c of cols) keyTypes[c.key] = c.type;
 
     const headers: string[] = [];
     const rows: Record<string, string>[] = [];
@@ -1419,7 +1666,7 @@ async function parseWorkbookBase64(fileBase64: string, fileName: string): Promis
         row.eachCell({ includeEmpty: true }, (cell, colIdx) => {
           const header = headers[colIdx] ?? "";
           const key = headerMap[header.toLowerCase().trim()];
-          if (key) rowObj[key] = cellString(cell.value);
+          if (key) rowObj[key] = cellString(cell.value, keyTypes[key]);
         });
         // Only include rows with at least one non-empty cell
         if (Object.values(rowObj).some((v) => v !== "")) {
@@ -1484,6 +1731,8 @@ function previewScientistRows(
   ctx: DbContext,
   inFileByEmail: Map<string, number>, // email → row index (for within-file dup detection)
   inFileByStaffId: Map<string, number>,
+  inFileDepartmentNames: Set<string> = new Set(),
+  inFileSectionKeys: Set<string> = new Set(),
 ): RowEntry[] {
   const entries: RowEntry[] = [];
   const seenEmails = new Set<string>();
@@ -1548,6 +1797,25 @@ function previewScientistRows(
       }
     }
 
+    // Validate structured organisation placement (Branch -> Department -> Section)
+    const orgDepartment = (row.orgDepartment ?? "").trim();
+    const orgSection = (row.orgSection ?? "").trim();
+    const orgDeptKey = normalizeScalarKey(orgDepartment);
+    if (orgDepartment && !isClear(orgDepartment)
+      && !ctx.departmentByName?.has(orgDeptKey) && !inFileDepartmentNames.has(orgDeptKey)) {
+      errors.push(`Org Department "${orgDepartment}" was not found`);
+    }
+    if (orgSection && !isClear(orgSection)) {
+      if (!orgDepartment || isClear(orgDepartment)) {
+        errors.push("Org Section requires Org Department");
+      } else {
+        const sectionKey = `${orgDeptKey}\u0000${normalizeScalarKey(orgSection)}`;
+        if (!ctx.sectionByKey?.has(sectionKey) && !inFileSectionKeys.has(sectionKey)) {
+          errors.push(`Org Section "${orgSection}" was not found in department "${orgDepartment}"`);
+        }
+      }
+    }
+
     if (errors.length > 0) {
       entries.push({ sheetName: "Scientists", rowNumber, action: "error", key: email, reason: errors.join("; ") });
       return;
@@ -1576,6 +1844,10 @@ function previewScientistRows(
     if (supervisorEmail) {
       data.supervisorEmail = isClear(supervisorEmail) ? null : supervisorEmail;
     }
+    // Resolved to ids in a second pass, once departments and sections created by
+    // this same workbook exist.
+    if (orgDepartment) data.orgDepartmentName = isClear(orgDepartment) ? null : orgDeptKey;
+    if (orgSection) data.orgSectionName = isClear(orgSection) ? null : normalizeScalarKey(orgSection);
 
     if (isNew) {
       entries.push({ sheetName: "Scientists", rowNumber, action: "create", key: email, data });
@@ -1584,9 +1856,28 @@ function previewScientistRows(
       const changes: string[] = [];
       for (const k of Object.keys(data)) {
         if (k === "email" || k === "supervisorEmail") continue;
+        if (k === "orgDepartmentName" || k === "orgSectionName") continue;
         const cur = (existing as Record<string, unknown>)[k];
         const nv = data[k];
         if (nv !== undefined && String(cur ?? "") !== String(nv ?? "")) changes.push(k);
+      }
+      // Compare organisation placement by NAME, not by resolved id. When the
+      // hierarchy is being restored by this same workbook the department does
+      // not exist in the database yet, so both ids read as null and a real
+      // change would look like "no change" — leaving staff detached.
+      if (orgDepartment) {
+        const currentDeptName = existing.departmentId
+          ? normalizeScalarKey(ctx.departmentById?.get(existing.departmentId)?.name ?? "")
+          : "";
+        const wantedDeptName = isClear(orgDepartment) ? "" : orgDeptKey;
+        if (wantedDeptName !== currentDeptName) changes.push("departmentId");
+      }
+      if (orgSection) {
+        const currentSectionName = existing.sectionId
+          ? normalizeScalarKey(ctx.sectionById?.get(existing.sectionId)?.name ?? "")
+          : "";
+        const wantedSectionName = isClear(orgSection) ? "" : normalizeScalarKey(orgSection);
+        if (wantedSectionName !== currentSectionName) changes.push("sectionId");
       }
       // Check supervisor change
       if (supervisorEmail) {
@@ -2592,6 +2883,12 @@ function previewPublicationRows(
     const idRaw = (row.publicationId ?? "").trim();
     let suppliedId: number | undefined;
     let existing: Publication | undefined;
+    // An exported workbook carries the source database's primary keys. When it
+    // is restored into a different (or empty) database those ids do not exist,
+    // so a missing id is not an error — fall back to the documented business
+    // keys (DOI, PMID, Title + Publication Date + Journal) exactly as if no id
+    // had been supplied.
+    let suppliedIdMissing = false;
     if (idRaw) {
       suppliedId = parseStrictInteger(idRaw, "Publication ID", errors) ?? undefined;
       if (suppliedId != null && suppliedId <= 0) errors.push("Publication ID must be a positive integer");
@@ -2599,9 +2896,11 @@ function previewPublicationRows(
         if (seenIds.has(suppliedId)) errors.push(`Duplicate Publication ID "${suppliedId}" in this file`);
         seenIds.add(suppliedId);
         existing = ctx.publicationById!.get(suppliedId);
-        if (!existing) errors.push(`Publication ID "${suppliedId}" was not found`);
+        if (!existing) suppliedIdMissing = true;
       }
     }
+    // Treat a stale id as absent for all downstream key resolution.
+    const idResolved = idRaw !== "" && !suppliedIdMissing;
 
     const doiRaw = (row.doi ?? "").trim();
     const doi = doiRaw && !isClear(doiRaw) ? normalizeDoi(doiRaw) : "";
@@ -2636,15 +2935,15 @@ function previewPublicationRows(
     if (candidateById.size > 1) {
       errors.push("Supplied publication keys resolve to different existing publications");
     }
-    if (idRaw && existing) {
+    if (idResolved && existing) {
       const conflictingIds = [...candidateById.keys()].filter((candidateId) => candidateId !== existing!.id);
       if (conflictingIds.length) {
         errors.push(`Supplied publication keys conflict with Publication ID "${existing.id}"`);
       }
-    } else if (!idRaw && candidateById.size === 1) {
+    } else if (!idResolved && candidateById.size === 1) {
       existing = candidateById.values().next().value;
     }
-    const isNew = !existing && !idRaw;
+    const isNew = !existing && !idResolved;
     const title = (row.title ?? "").trim();
     if (isNew && !title) errors.push("Title is required");
     if (isNew && !doi && !pmid && !composite) {
@@ -2775,6 +3074,263 @@ function finishStructuredEntry(
   return changes.length
     ? { sheetName, rowNumber, action: "update", key, changes, data }
     : { sheetName, rowNumber, action: "skip", key, reason: "No changes" };
+}
+
+function resolveHeadEmail(
+  raw: string,
+  label: string,
+  ctx: DbContext,
+  inFileScientistEmails: Set<string>,
+  errors: string[],
+  data: Record<string, unknown>,
+  existing: unknown,
+): void {
+  const value = (raw ?? "").trim();
+  if (value === "" && existing) return;              // absent on update: leave untouched
+  if (value === "" || isClear(value)) { data.headId = null; return; }
+  const email = value.toLowerCase();
+  const scientist = ctx.scientistByEmail.get(email);
+  if (scientist) { data.headId = scientist.id; return; }
+  if (inFileScientistEmails.has(email)) { data.headId = undefined; data._headEmail = email; return; }
+  errors.push(`${label}: scientist "${value}" was not found`);
+}
+
+function previewPublicationAuthorRows(
+  rows: Record<string, string>[],
+  ctx: DbContext,
+  inFilePublicationDois: Set<string>,
+  inFilePublicationPmids: Set<string>,
+  inFileScientistEmails: Set<string>,
+): RowEntry[] {
+  const seen = new Set<string>();
+  return rows.map((row, index) => {
+    const rowNumber = index + 1;
+    const errors: string[] = [];
+    rejectRequiredClear(row, PUBLICATION_AUTHOR_COLS, errors);
+
+    const doi = normalizeDoi(row.publicationDoi ?? "");
+    const pmid = normalizeScalarKey(row.publicationPmid ?? "");
+    const email = (row.scientistEmail ?? "").trim().toLowerCase();
+    const label = `${doi || pmid || `row ${rowNumber}`} + ${email || "?"}`;
+
+    if (!doi && !pmid) errors.push("Publication DOI or Publication PMID is required");
+    if (!email) errors.push("Scientist Email is required");
+
+    // Resolve the publication by its business keys, allowing one created by
+    // this same workbook.
+    let publication: Publication | undefined;
+    const byDoi = doi ? ctx.publicationByDoi?.get(doi) : undefined;
+    const byPmid = pmid ? ctx.publicationByPmid?.get(pmid) : undefined;
+    if ((byDoi?.length ?? 0) > 1 || (byPmid?.length ?? 0) > 1) {
+      errors.push("Publication key matches multiple publications");
+    }
+    publication = byDoi?.[0] ?? byPmid?.[0];
+    const publicationInFile = (doi && inFilePublicationDois.has(doi)) || (pmid && inFilePublicationPmids.has(pmid));
+    if (!publication && !publicationInFile && (doi || pmid)) {
+      errors.push(`Publication "${doi || pmid}" was not found`);
+    }
+
+    const scientist = email ? ctx.scientistByEmail.get(email) : undefined;
+    if (email && !scientist && !inFileScientistEmails.has(email)) {
+      errors.push(`Scientist "${email}" was not found`);
+    }
+
+    const authorshipType = (row.authorshipType ?? "").trim();
+    if (!authorshipType || isClear(authorshipType)) errors.push("Authorship Type is required");
+
+    let authorPosition: number | null = null;
+    if ((row.authorPosition ?? "") !== "") {
+      authorPosition = parseStrictInteger(row.authorPosition, "Author Position", errors) ?? null;
+      if (authorPosition != null && authorPosition < 1) errors.push("Author Position must be 1 or greater");
+    }
+
+    const linkMethodRaw = (row.linkMethod ?? "").trim().toLowerCase();
+    if (linkMethodRaw && !["manual", "automatic"].includes(linkMethodRaw)) {
+      errors.push(`Link Method: must be manual or automatic (got "${row.linkMethod}")`);
+    }
+
+    const dedupeKey = `${doi || pmid}\u0000${email}`;
+    if (dedupeKey.trim() && seen.has(dedupeKey)) errors.push("Duplicate publication + scientist link in workbook");
+    seen.add(dedupeKey);
+
+    const data: Record<string, unknown> = {
+      authorshipType,
+      authorPosition,
+      linkMethod: linkMethodRaw || "manual",
+    };
+    if (publication) data.publicationId = publication.id;
+    else { data._publicationDoi = doi; data._publicationPmid = pmid; }
+    if (scientist) data.scientistId = scientist.id;
+    else data._scientistEmail = email;
+
+    const existing = publication && scientist
+      ? ctx.publicationAuthorByKey?.get(`${publication.id}\u0000${scientist.id}`)
+      : undefined;
+    return finishStructuredEntry(
+      "Publication Authors", rowNumber, label,
+      existing as unknown as Record<string, unknown>, data, errors,
+      new Set(["publicationId", "scientistId"]),
+    );
+  });
+}
+
+function previewSdrMemberRows(
+  rows: Record<string, string>[],
+  ctx: DbContext,
+  inFileSdrNumbers: Set<string>,
+  inFileScientistEmails: Set<string>,
+): RowEntry[] {
+  const seen = new Set<string>();
+  return rows.map((row, index) => {
+    const rowNumber = index + 1;
+    const errors: string[] = [];
+    rejectRequiredClear(row, SDR_MEMBER_COLS, errors);
+
+    const sdrNumber = (row.sdrNumber ?? "").trim();
+    const sdrKey = sdrNumber.toLowerCase();
+    const email = (row.scientistEmail ?? "").trim().toLowerCase();
+    const label = `${sdrNumber || `row ${rowNumber}`} + ${email || "?"}`;
+
+    if (!sdrNumber || isClear(sdrNumber)) errors.push("SDR Number is required");
+    if (!email) errors.push("Scientist Email is required");
+
+    const sdr = sdrKey ? ctx.sdrBySdrNumber?.get(sdrKey) : undefined;
+    if (sdrNumber && !sdr && !inFileSdrNumbers.has(sdrKey)) {
+      errors.push(`Research activity "${sdrNumber}" was not found`);
+    }
+    const scientist = email ? ctx.scientistByEmail.get(email) : undefined;
+    if (email && !scientist && !inFileScientistEmails.has(email)) {
+      errors.push(`Scientist "${email}" was not found`);
+    }
+
+    const dedupeKey = `${sdrKey}\u0000${email}`;
+    if (sdrKey && email && seen.has(dedupeKey)) errors.push("Duplicate SDR + scientist membership in workbook");
+    seen.add(dedupeKey);
+
+    const data: Record<string, unknown> = {};
+    const role = maybeText(row.role ?? "", true);
+    if (role !== undefined) data.role = role;
+    if (sdr) data.researchActivityId = sdr.id;
+    else data._sdrNumber = sdrKey;
+    if (scientist) data.scientistId = scientist.id;
+    else data._scientistEmail = email;
+
+    const existing = sdr && scientist
+      ? ctx.projectMemberByKey?.get(`${sdr.id}\u0000${scientist.id}`)
+      : undefined;
+    return finishStructuredEntry(
+      "Research Activity Members", rowNumber, label,
+      existing as unknown as Record<string, unknown>, data, errors,
+      new Set(["researchActivityId", "scientistId"]),
+    );
+  });
+}
+
+function previewBranchRows(
+  rows: Record<string, string>[],
+  ctx: DbContext,
+  inFileScientistEmails: Set<string>,
+): RowEntry[] {
+  const counts = new Map<string, number>();
+  rows.forEach((r) => { const k = normalizeScalarKey(r.name); if (k) counts.set(k, (counts.get(k) ?? 0) + 1); });
+  return rows.map((row, index) => {
+    const rowNumber = index + 1;
+    const name = (row.name ?? "").trim();
+    const key = normalizeScalarKey(name);
+    const errors: string[] = [];
+    rejectRequiredClear(row, BRANCH_COLS, errors);
+    if (!name || isClear(name)) errors.push("Branch Name is required");
+    if ((counts.get(key) ?? 0) > 1) errors.push("Duplicate branch name in workbook");
+    if (ctx.ambiguousBranchNames!.has(key)) errors.push("Branch name is ambiguous in the database");
+    const existing = ctx.branchByName!.get(key);
+    const data: Record<string, unknown> = { name };
+    const description = maybeText(row.description ?? "", !!existing);
+    if (description !== undefined) data.description = description;
+    resolveHeadEmail(row.headEmail ?? "", "Head Email", ctx, inFileScientistEmails, errors, data, existing);
+    return finishStructuredEntry("Branches", rowNumber, name, existing as unknown as Record<string, unknown>, data, errors, new Set(["name"]));
+  });
+}
+
+function previewDepartmentRows(
+  rows: Record<string, string>[],
+  ctx: DbContext,
+  inFileBranchNames: Set<string>,
+  inFileScientistEmails: Set<string>,
+): RowEntry[] {
+  const counts = new Map<string, number>();
+  rows.forEach((r) => { const k = normalizeScalarKey(r.name); if (k) counts.set(k, (counts.get(k) ?? 0) + 1); });
+  return rows.map((row, index) => {
+    const rowNumber = index + 1;
+    const name = (row.name ?? "").trim();
+    const key = normalizeScalarKey(name);
+    const branchName = (row.branchName ?? "").trim();
+    const branchKey = normalizeScalarKey(branchName);
+    const errors: string[] = [];
+    rejectRequiredClear(row, DEPARTMENT_COLS, errors);
+    if (!name || isClear(name)) errors.push("Department Name is required");
+    if (!branchName || isClear(branchName)) errors.push("Branch Name is required");
+    if ((counts.get(key) ?? 0) > 1) errors.push("Duplicate department name in workbook");
+    if (ctx.ambiguousDepartmentNames!.has(key)) errors.push("Department name is ambiguous in the database");
+    const branch = ctx.branchByName!.get(branchKey);
+    if (branchName && !branch && !inFileBranchNames.has(branchKey)) {
+      errors.push(`Branch "${branchName}" was not found`);
+    }
+    const existing = ctx.departmentByName!.get(key);
+    const data: Record<string, unknown> = { name };
+    if (branch) data.branchId = branch.id;
+    else data._branchName = branchKey;              // resolved from this file during apply
+    const description = maybeText(row.description ?? "", !!existing);
+    if (description !== undefined) data.description = description;
+    resolveHeadEmail(row.headEmail ?? "", "Head Email", ctx, inFileScientistEmails, errors, data, existing);
+    return finishStructuredEntry("Departments", rowNumber, name, existing as unknown as Record<string, unknown>, data, errors, new Set(["name"]));
+  });
+}
+
+const SECTION_TYPE_VALUES = ["Laboratory", "Office", "Core"];
+
+function previewSectionRows(
+  rows: Record<string, string>[],
+  ctx: DbContext,
+  inFileDepartmentNames: Set<string>,
+  inFileScientistEmails: Set<string>,
+): RowEntry[] {
+  const counts = new Map<string, number>();
+  rows.forEach((r) => {
+    const k = `${normalizeScalarKey(r.departmentName)}\u0000${normalizeScalarKey(r.name)}`;
+    if (normalizeScalarKey(r.name)) counts.set(k, (counts.get(k) ?? 0) + 1);
+  });
+  return rows.map((row, index) => {
+    const rowNumber = index + 1;
+    const name = (row.name ?? "").trim();
+    const departmentName = (row.departmentName ?? "").trim();
+    const deptKey = normalizeScalarKey(departmentName);
+    const key = `${deptKey}\u0000${normalizeScalarKey(name)}`;
+    const label = departmentName ? `${departmentName} / ${name}` : name;
+    const errors: string[] = [];
+    rejectRequiredClear(row, SECTION_COLS, errors);
+    if (!name || isClear(name)) errors.push("Section Name is required");
+    if (!departmentName || isClear(departmentName)) errors.push("Department Name is required");
+    if ((counts.get(key) ?? 0) > 1) errors.push("Duplicate department + section name in workbook");
+    if (ctx.ambiguousSectionKeys!.has(key)) errors.push("Section is ambiguous in the database");
+    const department = ctx.departmentByName!.get(deptKey);
+    if (departmentName && !department && !inFileDepartmentNames.has(deptKey)) {
+      errors.push(`Department "${departmentName}" was not found`);
+    }
+    const type = (row.type ?? "").trim();
+    if (!type || isClear(type)) errors.push("Type is required");
+    else if (!SECTION_TYPE_VALUES.some((t) => t.toLowerCase() === type.toLowerCase())) {
+      errors.push(`Type: must be Laboratory, Office, or Core (got "${type}")`);
+    }
+    const existing = ctx.sectionByKey!.get(key);
+    const data: Record<string, unknown> = { name };
+    if (type) data.type = SECTION_TYPE_VALUES.find((t) => t.toLowerCase() === type.toLowerCase()) ?? type;
+    if (department) data.departmentId = department.id;
+    else data._departmentName = deptKey;
+    const description = maybeText(row.description ?? "", !!existing);
+    if (description !== undefined) data.description = description;
+    resolveHeadEmail(row.headEmail ?? "", "Head Email", ctx, inFileScientistEmails, errors, data, existing);
+    return finishStructuredEntry("Sections", rowNumber, label, existing as unknown as Record<string, unknown>, data, errors, new Set(["name"]));
+  });
 }
 
 function previewBuildingRows(rows: Record<string, string>[], ctx: DbContext): RowEntry[] {
@@ -2987,6 +3543,12 @@ function buildPreviewResult(
   const inFileSdrNumbers = new Set<string>();
   const inFileBuildingCounts = new Map<string, number>();
   const inFileModuleCounts = new Map<string, number>();
+  const inFilePublicationDois = new Set<string>();
+  const inFilePublicationPmids = new Set<string>();
+  const inFileBranchNames = new Set<string>();
+  const inFileDepartmentNames = new Set<string>();
+  const inFileSectionKeys = new Set<string>();
+  const inFileScientistEmails = new Set<string>();
 
   for (const s of sheets) {
     if (s.name === "Programs") s.rows.forEach((r) => { if (r.programId) inFileProgramIds.add(r.programId.toLowerCase()); });
@@ -2998,6 +3560,17 @@ function buildPreviewResult(
     if (s.name === "Certification Modules") s.rows.forEach((r) => {
       if (r.name) inFileModuleCounts.set(r.name.toLowerCase(), (inFileModuleCounts.get(r.name.toLowerCase()) ?? 0) + 1);
     });
+    if (s.name === "Publications") s.rows.forEach((r) => {
+      const d = normalizeDoi(r.doi ?? ""); if (d) inFilePublicationDois.add(d);
+      const pm = normalizeScalarKey(r.pmid ?? ""); if (pm) inFilePublicationPmids.add(pm);
+    });
+    if (s.name === "Branches") s.rows.forEach((r) => { const k = normalizeScalarKey(r.name); if (k) inFileBranchNames.add(k); });
+    if (s.name === "Departments") s.rows.forEach((r) => { const k = normalizeScalarKey(r.name); if (k) inFileDepartmentNames.add(k); });
+    if (s.name === "Sections") s.rows.forEach((r) => {
+      const n = normalizeScalarKey(r.name);
+      if (n) inFileSectionKeys.add(`${normalizeScalarKey(r.departmentName)}\u0000${n}`);
+    });
+    if (s.name === "Scientists") s.rows.forEach((r) => { const e = (r.email ?? "").trim().toLowerCase(); if (e) inFileScientistEmails.add(e); });
   }
 
   // Build within-file email and staffId maps for Scientists
@@ -3012,7 +3585,7 @@ function buildPreviewResult(
   }
 
   const scientistEntries = sciSheet
-    ? previewScientistRows(sciSheet.rows, ctx, inFileByEmail, inFileByStaffId)
+    ? previewScientistRows(sciSheet.rows, ctx, inFileByEmail, inFileByStaffId, inFileDepartmentNames, inFileSectionKeys)
     : [];
   const effectiveScientistByEmail = new Map<string, Record<string, unknown>>(
     [...ctx.scientistByEmail.entries()].map(([email, scientist]) => [
@@ -3073,6 +3646,21 @@ function buildPreviewResult(
         break;
       case "Journal Impact Factors":
         sheetEntries = previewJournalImpactFactorRows(sheet.rows, ctx);
+        break;
+      case "Publication Authors":
+        sheetEntries = previewPublicationAuthorRows(sheet.rows, ctx, inFilePublicationDois, inFilePublicationPmids, inFileScientistEmails);
+        break;
+      case "Research Activity Members":
+        sheetEntries = previewSdrMemberRows(sheet.rows, ctx, inFileSdrNumbers, inFileScientistEmails);
+        break;
+      case "Branches":
+        sheetEntries = previewBranchRows(sheet.rows, ctx, inFileScientistEmails);
+        break;
+      case "Departments":
+        sheetEntries = previewDepartmentRows(sheet.rows, ctx, inFileBranchNames, inFileScientistEmails);
+        break;
+      case "Sections":
+        sheetEntries = previewSectionRows(sheet.rows, ctx, inFileDepartmentNames, inFileScientistEmails);
         break;
       case "Buildings":
         sheetEntries = previewBuildingRows(sheet.rows, ctx);
@@ -3153,12 +3741,15 @@ async function lockBulkDataSection(tx: any, sectionId: SectionId): Promise<void>
   const tablesBySection: Record<SectionId, string[]> = {
     "research-management": [
       "scientists",
+      "branches",
+      "departments",
+      "sections",
       "buildings",
       "rooms",
       "certification_modules",
       "certifications",
     ],
-    "pmo-office": ["scientists", "programs", "projects", "research_activities"],
+    "pmo-office": ["scientists", "programs", "projects", "research_activities", "project_members"],
     "research-compliance": [
       "scientists",
       "programs",
@@ -3186,6 +3777,7 @@ async function lockBulkDataSection(tx: any, sectionId: SectionId): Promise<void>
       "manuscript_history",
       "journals",
       "journal_impact_factor_metrics",
+      "publication_authors",
     ],
   };
   await tx.execute(
@@ -3263,8 +3855,12 @@ export async function applySection(
     const newProgramByKey = new Map<string, number>(); // programId key → db id
     const newProjectByKey = new Map<string, number>(); // projectId key → db id
     const newSdrByKey = new Map<string, number>(); // sdrNumber key → db id
+    const newPublicationByKey = new Map<string, number>(); // DOI or PMID → db id
     const newBuildingByKey = new Map<string, number>();
     const newModuleByKey = new Map<string, number>();
+    const newBranchByKey = new Map<string, number>();
+    const newDepartmentByKey = new Map<string, number>();
+    const newSectionByKey = new Map<string, number>();
 
     const sectionSheetOrder: string[] = getSectionSheetOrder(sectionId);
 
@@ -3319,18 +3915,53 @@ export async function applySection(
           if (entry.action === "create") sheetCounts.created++;
           else sheetCounts.updated++;
         } else if (sheetName === "Publications") {
-          const applied = await applyPublicationRow(
+          const result = await applyPublicationRow(
             tx,
             entry,
             rowData,
             applyingScientistId,
             applyingUserId,
           );
-          if (!applied) sheetCounts.skipped++;
+          if (result.id != null) {
+            // Record both business keys so author links in this same workbook
+            // can resolve a publication that did not exist a moment ago.
+            const doi = normalizeDoi(String(rowData.doi ?? ""));
+            const pmid = normalizeScalarKey(String(rowData.pmid ?? ""));
+            if (doi) newPublicationByKey.set(doi, result.id);
+            if (pmid) newPublicationByKey.set(pmid, result.id);
+          }
+          if (!result.applied) sheetCounts.skipped++;
           else if (entry.action === "create") sheetCounts.created++;
           else sheetCounts.updated++;
         } else if (sheetName === "Journal Impact Factors") {
           await applyJournalImpactFactorRow(tx, entry, rowData);
+          if (entry.action === "create") sheetCounts.created++;
+          else sheetCounts.updated++;
+        } else if (sheetName === "Publication Authors") {
+          await applyPublicationAuthorRow(tx, entry, rowData, newPublicationByKey);
+          if (entry.action === "create") sheetCounts.created++;
+          else sheetCounts.updated++;
+        } else if (sheetName === "Research Activity Members") {
+          await applySdrMemberRow(tx, entry, rowData, newSdrByKey);
+          if (entry.action === "create") sheetCounts.created++;
+          else sheetCounts.updated++;
+        } else if (sheetName === "Branches") {
+          const newId = await applyBranchRow(tx, entry, rowData);
+          if (newId) newBranchByKey.set(normalizeScalarKey(entry.key), newId);
+          if (entry.action === "create") sheetCounts.created++;
+          else sheetCounts.updated++;
+        } else if (sheetName === "Departments") {
+          const newId = await applyDepartmentRow(tx, entry, rowData, newBranchByKey);
+          if (newId) newDepartmentByKey.set(normalizeScalarKey(entry.key), newId);
+          if (entry.action === "create") sheetCounts.created++;
+          else sheetCounts.updated++;
+        } else if (sheetName === "Sections") {
+          const newId = await applySectionRow(tx, entry, rowData, newDepartmentByKey);
+          if (newId) {
+            const deptKey = normalizeScalarKey(String(rowData._departmentName ?? ""));
+            const nameKey = normalizeScalarKey(String(rowData.name ?? ""));
+            newSectionByKey.set(`${deptKey}\u0000${nameKey}`, newId);
+          }
           if (entry.action === "create") sheetCounts.created++;
           else sheetCounts.updated++;
         } else if (sheetName === "Buildings") {
@@ -3357,6 +3988,7 @@ export async function applySection(
       if (sheetName === "Scientists") {
         for (const entry of sheetRows) {
           await applyScientistSupervisor(tx, entry, entry.data ?? {});
+          await applyScientistOrgPlacement(tx, entry, entry.data ?? {}, newDepartmentByKey, newSectionByKey);
         }
       }
 
@@ -3373,11 +4005,11 @@ export async function applySection(
 
 function getSectionSheetOrder(sectionId: SectionId): string[] {
   switch (sectionId) {
-    case "research-management": return ["Scientists", "Buildings", "Rooms", "Certification Modules", "Certifications"];
-    case "pmo-office": return ["Programs", "Projects", "Research Activities"];
+    case "research-management": return ["Branches", "Departments", "Sections", "Scientists", "Buildings", "Rooms", "Certification Modules", "Certifications"];
+    case "pmo-office": return ["Programs", "Projects", "Research Activities", "Research Activity Members"];
     case "research-compliance": return ["IRB Applications", "IBC Applications"];
     case "research-services": return ["Research Contracts", "Grants"];
-    case "research-output": return ["Patents", "Publications", "Journal Impact Factors"];
+    case "research-output": return ["Patents", "Publications", "Journal Impact Factors", "Publication Authors"];
   }
 }
 
@@ -3432,6 +4064,9 @@ async function applyScientistRow(tx: TxDb, entry: RowEntry, data: Record<string,
   const payload = { ...data };
   const email = payload.email as string;
   delete payload.supervisorEmail;
+  // Placement is applied in applyScientistOrgPlacement, after the hierarchy exists.
+  delete payload.orgDepartmentName;
+  delete payload.orgSectionName;
 
   if (entry.action === "create") {
     if (!payload.honorificTitle) payload.honorificTitle = "Dr";
@@ -3698,7 +4333,7 @@ async function applyPublicationRow(
   data: Record<string, unknown>,
   applyingScientistId?: number,
   applyingUserId?: number,
-): Promise<boolean> {
+): Promise<{ applied: boolean; id: number | null }> {
   const { id, ...payload } = data;
   if (entry.action === "create") {
     if (!applyingScientistId) {
@@ -3722,7 +4357,7 @@ async function applyPublicationRow(
       changedBy: applyingUserId,
       changeReason: "Publication created",
     });
-    return true;
+    return { applied: true, id: created.id };
   }
   const publicationId = Number(id);
   const [current] = await tx
@@ -3732,14 +4367,14 @@ async function applyPublicationRow(
   requireUpdatedRow(current, "Publication", publicationId);
   // Defensive final-state check in the same transaction. A sealed row is
   // intentionally skipped rather than aborting unrelated valid rows.
-  if (current.status === "Published *") return false;
+  if (current.status === "Published *") return { applied: false, id: publicationId };
   const [updated] = await tx
     .update(publications)
     .set({ ...payload, updatedAt: new Date() })
     .where(eq(publications.id, publicationId))
     .returning({ id: publications.id });
   requireUpdatedRow(updated, "Publication", publicationId);
-  return true;
+  return { applied: true, id: updated.id };
 }
 
 async function applyJournalImpactFactorRow(
@@ -3790,6 +4425,272 @@ async function applyJournalImpactFactorRow(
       .where(sql`${journalImpactFactorMetrics.journalId} = ${journalId} and ${journalImpactFactorMetrics.year} = ${metricYear}`)
       .returning({ id: journalImpactFactorMetrics.id });
     requireUpdatedRow(updated, "Journal impact factor", entry.key);
+  }
+}
+
+async function resolveDeferredHead(
+  tx: TxDb,
+  data: Record<string, unknown>,
+): Promise<Record<string, unknown>> {
+  const { _headEmail, ...payload } = data;
+  if (_headEmail) {
+    const [row] = await tx
+      .select({ id: scientists.id })
+      .from(scientists)
+      .where(sql`lower(${scientists.email}) = ${String(_headEmail).toLowerCase()}`);
+    payload.headId = row?.id ?? null;
+  }
+  return payload;
+}
+
+async function resolveLinkEndpoints(
+  tx: TxDb,
+  data: Record<string, unknown>,
+  entryKey: string,
+  newPublicationByKey?: Map<string, number>,
+  newSdrByKey?: Map<string, number>,
+): Promise<Record<string, unknown>> {
+  const {
+    _publicationDoi, _publicationPmid, _scientistEmail, _sdrNumber, ...payload
+  } = data;
+
+  if (_scientistEmail) {
+    const [row] = await tx
+      .select({ id: scientists.id })
+      .from(scientists)
+      .where(sql`lower(${scientists.email}) = ${String(_scientistEmail).toLowerCase()}`);
+    if (!row) throw new Error(`Scientist "${String(_scientistEmail)}" was not found while linking "${entryKey}"`);
+    payload.scientistId = row.id;
+  }
+
+  if (_publicationDoi || _publicationPmid) {
+    const doi = String(_publicationDoi ?? "");
+    const pmid = String(_publicationPmid ?? "");
+    let publicationId = (doi && newPublicationByKey?.get(doi)) || (pmid && newPublicationByKey?.get(pmid)) || undefined;
+    if (!publicationId && doi) {
+      const [row] = await tx.select({ id: publications.id }).from(publications).where(sql`lower(${publications.doi}) = ${doi}`);
+      publicationId = row?.id;
+    }
+    if (!publicationId && pmid) {
+      const [row] = await tx.select({ id: publications.id }).from(publications).where(sql`lower(${publications.pmid}) = ${pmid}`);
+      publicationId = row?.id;
+    }
+    if (!publicationId) throw new Error(`Publication "${doi || pmid}" was not found while linking "${entryKey}"`);
+    payload.publicationId = publicationId;
+  }
+
+  if (_sdrNumber) {
+    const key = String(_sdrNumber).toLowerCase();
+    let sdrId = newSdrByKey?.get(key);
+    if (!sdrId) {
+      const [row] = await tx
+        .select({ id: researchActivities.id })
+        .from(researchActivities)
+        .where(caseInsensitiveKey(researchActivities.sdrNumber, key));
+      sdrId = row?.id;
+    }
+    if (!sdrId) throw new Error(`Research activity "${String(_sdrNumber)}" was not found while linking "${entryKey}"`);
+    payload.researchActivityId = sdrId;
+  }
+
+  return payload;
+}
+
+async function applyPublicationAuthorRow(
+  tx: TxDb,
+  entry: RowEntry,
+  data: Record<string, unknown>,
+  newPublicationByKey: Map<string, number>,
+): Promise<void> {
+  const payload = await resolveLinkEndpoints(tx, data, entry.key, newPublicationByKey);
+  const publicationId = Number(payload.publicationId);
+  const scientistId = Number(payload.scientistId);
+  if (entry.action === "create") {
+    // The unique index on (publication, scientist) makes this idempotent, so a
+    // re-run of the same archive updates the link rather than failing.
+    await tx
+      .insert(publicationAuthors)
+      .values({
+        publicationId,
+        scientistId,
+        authorshipType: String(payload.authorshipType ?? "Contributing Author"),
+        authorPosition: payload.authorPosition as number | null,
+        linkMethod: String(payload.linkMethod ?? "manual"),
+      })
+      .onConflictDoUpdate({
+        target: [publicationAuthors.publicationId, publicationAuthors.scientistId],
+        set: {
+          authorshipType: String(payload.authorshipType ?? "Contributing Author"),
+          authorPosition: payload.authorPosition as number | null,
+          linkMethod: String(payload.linkMethod ?? "manual"),
+        },
+      });
+    return;
+  }
+  const { publicationId: _p, scientistId: _s, ...updates } = payload;
+  await tx
+    .update(publicationAuthors)
+    .set(updates)
+    .where(sql`${publicationAuthors.publicationId} = ${publicationId} AND ${publicationAuthors.scientistId} = ${scientistId}`);
+}
+
+async function applySdrMemberRow(
+  tx: TxDb,
+  entry: RowEntry,
+  data: Record<string, unknown>,
+  newSdrByKey: Map<string, number>,
+): Promise<void> {
+  const payload = await resolveLinkEndpoints(tx, data, entry.key, undefined, newSdrByKey);
+  const researchActivityId = Number(payload.researchActivityId);
+  const scientistId = Number(payload.scientistId);
+  if (entry.action === "create") {
+    await tx
+      .insert(projectMembers)
+      .values({
+        researchActivityId,
+        scientistId,
+        role: (payload.role as string | null) ?? null,
+      })
+      .onConflictDoUpdate({
+        target: [projectMembers.researchActivityId, projectMembers.scientistId],
+        set: { role: (payload.role as string | null) ?? null },
+      });
+    return;
+  }
+  const { researchActivityId: _r, scientistId: _s, ...updates } = payload;
+  await tx
+    .update(projectMembers)
+    .set(updates)
+    .where(sql`${projectMembers.researchActivityId} = ${researchActivityId} AND ${projectMembers.scientistId} = ${scientistId}`);
+}
+
+async function applyBranchRow(tx: TxDb, entry: RowEntry, data: Record<string, unknown>): Promise<number | null> {
+  const payload = await resolveDeferredHead(tx, data);
+  const { name, ...rest } = payload;
+  if (entry.action === "create") {
+    const [row] = await tx.insert(branches).values({ name: String(name), ...rest }).returning({ id: branches.id });
+    return row?.id ?? null;
+  }
+  const [row] = await tx
+    .update(branches)
+    .set(rest)
+    .where(caseInsensitiveKey(branches.name, name))
+    .returning({ id: branches.id });
+  requireUpdatedRow(row, "Branch", name);
+  return row.id;
+}
+
+async function applyDepartmentRow(
+  tx: TxDb,
+  entry: RowEntry,
+  data: Record<string, unknown>,
+  newBranchByKey: Map<string, number>,
+): Promise<number | null> {
+  const resolved = await resolveDeferredHead(tx, data);
+  const { _branchName, name, ...rest } = resolved;
+  if (_branchName) {
+    const branchId = newBranchByKey.get(String(_branchName));
+    if (!branchId) throw new Error(`Branch "${String(_branchName)}" was not found while applying department "${entry.key}"`);
+    rest.branchId = branchId;
+  }
+  if (entry.action === "create") {
+    const [row] = await tx
+      .insert(departments)
+      .values({ name: String(name), branchId: Number(rest.branchId), ...rest })
+      .returning({ id: departments.id });
+    return row?.id ?? null;
+  }
+  const [row] = await tx
+    .update(departments)
+    .set(rest)
+    .where(caseInsensitiveKey(departments.name, name))
+    .returning({ id: departments.id });
+  requireUpdatedRow(row, "Department", name);
+  return row.id;
+}
+
+async function applySectionRow(
+  tx: TxDb,
+  entry: RowEntry,
+  data: Record<string, unknown>,
+  newDepartmentByKey: Map<string, number>,
+): Promise<number | null> {
+  const resolved = await resolveDeferredHead(tx, data);
+  const { _departmentName, name, ...rest } = resolved;
+  if (_departmentName) {
+    const departmentId = newDepartmentByKey.get(String(_departmentName));
+    if (!departmentId) throw new Error(`Department "${String(_departmentName)}" was not found while applying section "${entry.key}"`);
+    rest.departmentId = departmentId;
+  }
+  if (entry.action === "create") {
+    const [row] = await tx
+      .insert(sections)
+      .values({ name: String(name), departmentId: Number(rest.departmentId), type: String(rest.type ?? "Laboratory"), ...rest })
+      .returning({ id: sections.id });
+    return row?.id ?? null;
+  }
+  // Section names are unique only within a department, so both must match.
+  const departmentId = Number(rest.departmentId ?? 0);
+  const [row] = await tx
+    .update(sections)
+    .set(rest)
+    .where(sql`lower(${sections.name}) = ${String(name).toLowerCase()} AND ${sections.departmentId} = ${departmentId}`)
+    .returning({ id: sections.id });
+  requireUpdatedRow(row, "Section", name);
+  return row.id;
+}
+
+// Second pass: attach staff to the organisation hierarchy once branches,
+// departments and sections from this workbook have been created.
+async function applyScientistOrgPlacement(
+  tx: TxDb,
+  entry: RowEntry,
+  data: Record<string, unknown>,
+  newDepartmentByKey: Map<string, number>,
+  newSectionByKey: Map<string, number>,
+): Promise<void> {
+  const hasDept = Object.prototype.hasOwnProperty.call(data, "orgDepartmentName");
+  const hasSection = Object.prototype.hasOwnProperty.call(data, "orgSectionName");
+  if (!hasDept && !hasSection) return;
+
+  const email = String(data.email ?? entry.key).toLowerCase();
+  const [scientist] = await tx
+    .select({ id: scientists.id })
+    .from(scientists)
+    .where(sql`lower(${scientists.email}) = ${email}`);
+  if (!scientist) return;
+
+  const update: Record<string, unknown> = {};
+  let departmentId: number | null = null;
+  if (hasDept) {
+    const key = data.orgDepartmentName as string | null;
+    if (key == null) update.departmentId = null;
+    else {
+      const [dept] = await tx
+        .select({ id: departments.id })
+        .from(departments)
+        .where(sql`lower(${departments.name}) = ${key}`);
+      departmentId = dept?.id ?? newDepartmentByKey.get(key) ?? null;
+      if (!departmentId) throw new Error(`Org Department "${key}" was not found while placing "${entry.key}"`);
+      update.departmentId = departmentId;
+    }
+  }
+  if (hasSection) {
+    const key = data.orgSectionName as string | null;
+    if (key == null) update.sectionId = null;
+    else {
+      const deptKey = data.orgDepartmentName as string | undefined;
+      const [sec] = await tx
+        .select({ id: sections.id })
+        .from(sections)
+        .where(sql`lower(${sections.name}) = ${key}${departmentId ? sql` AND ${sections.departmentId} = ${departmentId}` : sql``}`);
+      const sectionId = sec?.id ?? newSectionByKey.get(`${deptKey ?? ""}${String.fromCharCode(0)}${key}`) ?? null;
+      if (!sectionId) throw new Error(`Org Section "${key}" was not found while placing "${entry.key}"`);
+      update.sectionId = sectionId;
+    }
+  }
+  if (Object.keys(update).length) {
+    await tx.update(scientists).set(update).where(sql`${scientists.id} = ${scientist.id}`);
   }
 }
 
