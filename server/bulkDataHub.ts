@@ -441,8 +441,13 @@ const PUBLICATION_COLS: ColDef[] = [
 ];
 
 const PUBLICATION_AUTHOR_COLS: ColDef[] = [
-  { header: "Publication DOI", key: "publicationDoi", description: "Identifies the publication; DOI or PMID is required" },
+  { header: "Publication DOI", key: "publicationDoi", description: "Identifies the publication" },
   { header: "Publication PMID", key: "publicationPmid", description: "Used when the DOI is absent" },
+  // A publication that is not published yet has no DOI or PMID, so its authors
+  // could not be expressed at all. These mirror the fallback the Publications
+  // sheet accepts, keeping the two sheets able to describe the same records.
+  { header: "Publication Title", key: "publicationTitle", description: "Used with SDR Number when there is no DOI or PMID" },
+  { header: "Publication SDR Number", key: "publicationSdrNumber", description: "Used with Publication Title" },
   { header: "Scientist Email", key: "scientistEmail", required: true, description: "Internal author being credited" },
   { header: "Authorship Type", key: "authorshipType", required: true, description: "First Author, Last Author, Corresponding Author, etc." },
   { header: "Author Position", key: "authorPosition", description: "Position in the author list (1, 2, 3...)" },
@@ -790,6 +795,7 @@ function publicationAuthorsToRows(
   links: PublicationAuthor[],
   publicationById: Map<number, Publication>,
   scientistById: Map<number, Scientist>,
+  sdrByDbId?: Map<number, ResearchActivity>,
 ): Record<string, unknown>[] {
   return links.flatMap((link) => {
     const publication = publicationById.get(link.publicationId);
@@ -800,6 +806,10 @@ function publicationAuthorsToRows(
     return [{
       publicationDoi: publication.doi ?? "",
       publicationPmid: publication.pmid ?? "",
+      publicationTitle: publication.title ?? "",
+      publicationSdrNumber: publication.researchActivityId
+        ? (sdrByDbId?.get(publication.researchActivityId)?.sdrNumber ?? "")
+        : "",
       scientistEmail: scientist.email,
       authorshipType: link.authorshipType,
       authorPosition: link.authorPosition ?? "",
@@ -1551,7 +1561,7 @@ export async function buildExportWorkbook(sectionId: SectionId): Promise<Buffer>
     addDataSheet(wb, "Patents", PATENT_COLS, patentsToRows(ctx.patentList!, ctx.sdrByDbId!));
     addDataSheet(wb, "Publications", PUBLICATION_COLS, publicationsToRows(ctx.publicationList!, ctx.sdrByDbId!));
     addDataSheet(wb, "Journal Impact Factors", JOURNAL_IMPACT_FACTOR_COLS, journalImpactFactorsToRows(ctx.journals!, ctx.journalMetrics!));
-    addDataSheet(wb, "Publication Authors", PUBLICATION_AUTHOR_COLS, publicationAuthorsToRows(ctx.publicationAuthorList!, ctx.publicationById!, ctx.scientistById));
+    addDataSheet(wb, "Publication Authors", PUBLICATION_AUTHOR_COLS, publicationAuthorsToRows(ctx.publicationAuthorList!, ctx.publicationById!, ctx.scientistById, ctx.sdrByDbId));
   }
 
   const buf = await wb.xlsx.writeBuffer();
@@ -3035,6 +3045,9 @@ function previewPublicationRows(
     const data: Record<string, unknown> = {};
     if (existing) data.id = existing.id;
     if (title) data.title = title;
+    // Carried through to apply so a newly created publication can be indexed by
+    // the same key its author rows use. Stripped before the row is written.
+    if (sdrComposite) data._sdrTitleKey = sdrComposite;
     const textFields = [
       "abstract", "authors", "journal", "volume", "issue", "pages", "pmid",
       "publicationType", "prepublicationUrl", "prepublicationSite",
@@ -3201,6 +3214,7 @@ function previewPublicationAuthorRows(
   ctx: DbContext,
   inFilePublicationDois: Set<string>,
   inFilePublicationPmids: Set<string>,
+  inFilePublicationSdrTitles: Set<string>,
   inFileScientistEmails: Set<string>,
 ): RowEntry[] {
   const seen = new Set<string>();
@@ -3211,10 +3225,16 @@ function previewPublicationAuthorRows(
 
     const doi = normalizeDoi(row.publicationDoi ?? "");
     const pmid = normalizeScalarKey(row.publicationPmid ?? "");
+    // Fallback identity for a publication that has no DOI or PMID because it is
+    // not published yet.
+    const sdrTitleKey = publicationSdrKey(row.publicationTitle, row.publicationSdrNumber);
     const email = (row.scientistEmail ?? "").trim().toLowerCase();
-    const label = `${doi || pmid || `row ${rowNumber}`} + ${email || "?"}`;
+    const shownKey = doi || pmid || (row.publicationTitle ?? "").trim() || `row ${rowNumber}`;
+    const label = `${shownKey} + ${email || "?"}`;
 
-    if (!doi && !pmid) errors.push("Publication DOI or Publication PMID is required");
+    if (!doi && !pmid && !sdrTitleKey) {
+      errors.push("Publication DOI, PMID, or Title plus SDR Number is required");
+    }
     if (!email) errors.push("Scientist Email is required");
 
     // Resolve the publication by its business keys, allowing one created by
@@ -3222,13 +3242,17 @@ function previewPublicationAuthorRows(
     let publication: Publication | undefined;
     const byDoi = doi ? ctx.publicationByDoi?.get(doi) : undefined;
     const byPmid = pmid ? ctx.publicationByPmid?.get(pmid) : undefined;
-    if ((byDoi?.length ?? 0) > 1 || (byPmid?.length ?? 0) > 1) {
+    const bySdrTitle = sdrTitleKey ? ctx.publicationBySdrTitle?.get(sdrTitleKey) : undefined;
+    if ((byDoi?.length ?? 0) > 1 || (byPmid?.length ?? 0) > 1 || (bySdrTitle?.length ?? 0) > 1) {
       errors.push("Publication key matches multiple publications");
     }
-    publication = byDoi?.[0] ?? byPmid?.[0];
-    const publicationInFile = (doi && inFilePublicationDois.has(doi)) || (pmid && inFilePublicationPmids.has(pmid));
-    if (!publication && !publicationInFile && (doi || pmid)) {
-      errors.push(`Publication "${doi || pmid}" was not found`);
+    publication = byDoi?.[0] ?? byPmid?.[0] ?? bySdrTitle?.[0];
+    const publicationInFile =
+      (doi && inFilePublicationDois.has(doi)) ||
+      (pmid && inFilePublicationPmids.has(pmid)) ||
+      (sdrTitleKey && inFilePublicationSdrTitles.has(sdrTitleKey));
+    if (!publication && !publicationInFile && (doi || pmid || sdrTitleKey)) {
+      errors.push(`Publication "${shownKey}" was not found`);
     }
 
     const scientist = email ? ctx.scientistByEmail.get(email) : undefined;
@@ -3250,7 +3274,7 @@ function previewPublicationAuthorRows(
       errors.push(`Link Method: must be manual or automatic (got "${row.linkMethod}")`);
     }
 
-    const dedupeKey = `${doi || pmid}\u0000${email}`;
+    const dedupeKey = `${doi || pmid || sdrTitleKey}\u0000${email}`;
     if (dedupeKey.trim() && seen.has(dedupeKey)) errors.push("Duplicate publication + scientist link in workbook");
     seen.add(dedupeKey);
 
@@ -3260,7 +3284,11 @@ function previewPublicationAuthorRows(
       linkMethod: linkMethodRaw || "manual",
     };
     if (publication) data.publicationId = publication.id;
-    else { data._publicationDoi = doi; data._publicationPmid = pmid; }
+    else {
+      data._publicationDoi = doi;
+      data._publicationPmid = pmid;
+      data._publicationSdrTitle = sdrTitleKey;
+    }
     if (scientist) data.scientistId = scientist.id;
     else data._scientistEmail = email;
 
@@ -3648,6 +3676,7 @@ function buildPreviewResult(
   const inFileModuleCounts = new Map<string, number>();
   const inFilePublicationDois = new Set<string>();
   const inFilePublicationPmids = new Set<string>();
+  const inFilePublicationSdrTitles = new Set<string>();
   const inFileBranchNames = new Set<string>();
   const inFileDepartmentNames = new Set<string>();
   const inFileSectionKeys = new Set<string>();
@@ -3666,6 +3695,7 @@ function buildPreviewResult(
     if (s.name === "Publications") s.rows.forEach((r) => {
       const d = normalizeDoi(r.doi ?? ""); if (d) inFilePublicationDois.add(d);
       const pm = normalizeScalarKey(r.pmid ?? ""); if (pm) inFilePublicationPmids.add(pm);
+      const st = publicationSdrKey(r.title, r.sdrNumber); if (st) inFilePublicationSdrTitles.add(st);
     });
     if (s.name === "Branches") s.rows.forEach((r) => { const k = normalizeScalarKey(r.name); if (k) inFileBranchNames.add(k); });
     if (s.name === "Departments") s.rows.forEach((r) => { const k = normalizeScalarKey(r.name); if (k) inFileDepartmentNames.add(k); });
@@ -3751,7 +3781,7 @@ function buildPreviewResult(
         sheetEntries = previewJournalImpactFactorRows(sheet.rows, ctx);
         break;
       case "Publication Authors":
-        sheetEntries = previewPublicationAuthorRows(sheet.rows, ctx, inFilePublicationDois, inFilePublicationPmids, inFileScientistEmails);
+        sheetEntries = previewPublicationAuthorRows(sheet.rows, ctx, inFilePublicationDois, inFilePublicationPmids, inFilePublicationSdrTitles, inFileScientistEmails);
         break;
       case "Research Activity Members":
         sheetEntries = previewSdrMemberRows(sheet.rows, ctx, inFileSdrNumbers, inFileScientistEmails);
@@ -4055,6 +4085,10 @@ export async function applySection(
             const pmid = normalizeScalarKey(String(rowData.pmid ?? ""));
             if (doi) newPublicationByKey.set(doi, result.id);
             if (pmid) newPublicationByKey.set(pmid, result.id);
+            // Also key by title + SDR, so authors of a record that has no DOI or
+            // PMID can still find the publication created moments earlier.
+            const sdrTitle = String(rowData._sdrTitleKey ?? "");
+            if (sdrTitle) newPublicationByKey.set(sdrTitle, result.id);
           }
           if (!result.applied) sheetCounts.skipped++;
           else if (entry.action === "create") sheetCounts.created++;
@@ -4497,7 +4531,8 @@ async function applyPublicationRow(
   applyingScientistId?: number,
   applyingUserId?: number,
 ): Promise<{ applied: boolean; id: number | null }> {
-  const { id, ...payload } = data;
+  const { id, _sdrTitleKey, ...payload } = data;
+  void _sdrTitleKey; // indexing key only, never a column
   if (entry.action === "create") {
     if (!applyingScientistId) {
       throw new Error("Publication create is missing an auditable applying scientist");
@@ -4623,7 +4658,7 @@ async function resolveLinkEndpoints(
   newSdrByKey?: Map<string, number>,
 ): Promise<Record<string, unknown>> {
   const {
-    _publicationDoi, _publicationPmid, _scientistEmail, _sdrNumber, ...payload
+    _publicationDoi, _publicationPmid, _publicationSdrTitle, _scientistEmail, _sdrNumber, ...payload
   } = data;
 
   if (_scientistEmail) {
@@ -4635,10 +4670,15 @@ async function resolveLinkEndpoints(
     payload.scientistId = row.id;
   }
 
-  if (_publicationDoi || _publicationPmid) {
+  if (_publicationDoi || _publicationPmid || _publicationSdrTitle) {
     const doi = String(_publicationDoi ?? "");
     const pmid = String(_publicationPmid ?? "");
-    let publicationId = (doi && newPublicationByKey?.get(doi)) || (pmid && newPublicationByKey?.get(pmid)) || undefined;
+    const sdrTitle = String(_publicationSdrTitle ?? "");
+    let publicationId =
+      (doi && newPublicationByKey?.get(doi)) ||
+      (pmid && newPublicationByKey?.get(pmid)) ||
+      (sdrTitle && newPublicationByKey?.get(sdrTitle)) ||
+      undefined;
     if (!publicationId && doi) {
       const [row] = await tx.select({ id: publications.id }).from(publications).where(sql`lower(${publications.doi}) = ${doi}`);
       publicationId = row?.id;
@@ -4647,7 +4687,19 @@ async function resolveLinkEndpoints(
       const [row] = await tx.select({ id: publications.id }).from(publications).where(sql`lower(${publications.pmid}) = ${pmid}`);
       publicationId = row?.id;
     }
-    if (!publicationId) throw new Error(`Publication "${doi || pmid}" was not found while linking "${entryKey}"`);
+    if (!publicationId && sdrTitle) {
+      // Title within a research activity — the identity an unpublished record has.
+      const [title, sdrNumber] = sdrTitle.split("\u0000");
+      const [row] = await tx
+        .select({ id: publications.id })
+        .from(publications)
+        .innerJoin(researchActivities, eq(publications.researchActivityId, researchActivities.id))
+        .where(sql`lower(${publications.title}) = ${title} AND lower(${researchActivities.sdrNumber}) = ${sdrNumber}`);
+      publicationId = row?.id;
+    }
+    if (!publicationId) {
+      throw new Error(`Publication "${doi || pmid || sdrTitle.split("\u0000")[0]}" was not found while linking "${entryKey}"`);
+    }
     payload.publicationId = publicationId;
   }
 
