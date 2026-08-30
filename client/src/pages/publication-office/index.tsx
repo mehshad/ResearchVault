@@ -39,8 +39,12 @@ import type { JournalImpactFactor, InsertJournalImpactFactor, Publication } from
 import type { SidraScoreResult, SidraScoreSettings } from "@shared/sidraScore";
 import {
   IP_VETTING_READY_STATUS,
+  PUBLISHED_STATUS,
+  PUBLICATION_WORKFLOW_STAGES,
+  PUBLICATION_OFF_FLOW_STATES,
   isReadyForIpVetting,
 } from "@shared/publicationWorkflow";
+import { PublicationWorkflowFilter, ALL_STATES } from "@/components/PublicationWorkflowFilter";
 import { SidraScoreDetails } from "@/components/SidraScoreDetails";
 
 interface SavedSearch {
@@ -133,6 +137,9 @@ export default function PublicationOffice({ embeddedTab }: PublicationOfficeProp
 
   // New Publications tab filters (issue/tag, scientist, publication date range)
   const [npTagFilter, setNpTagFilter] = useState<string>("all");
+  // Workflow-state filter. Defaults to Published: those are the records awaiting
+  // an office decision (seal, or send back for correction).
+  const [npStatusFilter, setNpStatusFilter] = useState<string>(PUBLISHED_STATUS);
   const [npScientistId, setNpScientistId] = useState<string>("all");
   const [npDateFrom, setNpDateFrom] = useState<string>("");
   const [npDateTo, setNpDateTo] = useState<string>("");
@@ -867,10 +874,36 @@ export default function PublicationOffice({ embeddedTab }: PublicationOfficeProp
       .sort((a, b) => a.label.localeCompare(b.label));
   }, [newPublications, authorMap]);
 
-  // Apply the New Publications filters (issue/tag, scientist, date range).
+  // Counts per stored status across everything the office can act on, so the
+  // workflow strip reflects this list rather than a separate query.
+  const npCountsByStatus = useMemo(() => {
+    const counts: Record<string, number> = {};
+    for (const pub of newPublications) {
+      const status = pub.status ?? "";
+      if (status) counts[status] = (counts[status] ?? 0) + 1;
+    }
+    return counts;
+  }, [newPublications]);
+
+  // Sealed records are excluded from this list by design, so their count is
+  // fetched separately purely to show the terminal stage honestly.
+  const { data: sealedCountData } = useQuery<{ count: number }>({
+    queryKey: ['/api/publications', 'sealed-count'],
+    queryFn: async () => {
+      const response = await fetch('/api/publications?officeAccess=true');
+      if (!response.ok) throw new Error('Failed to fetch publications');
+      const all: Publication[] = await response.json();
+      return { count: all.filter((pub) => pub.status?.includes('*')).length };
+    },
+    enabled: activeTab === "new-publications",
+  });
+
+  // Apply the New Publications filters (workflow state, issue/tag, scientist, dates).
   const filteredNewPublications = useMemo(() => {
     return newPublications.filter((pub) => {
       const { missingFields, hasInternalAuthors, hasSdr, isVetted, hasIssues } = getPubIssues(pub);
+
+      if (npStatusFilter !== ALL_STATES && (pub.status ?? "") !== npStatusFilter) return false;
 
       if (npTagFilter !== "all") {
         if (npTagFilter === "missing-data" && missingFields.length === 0) return false;
@@ -899,7 +932,7 @@ export default function PublicationOffice({ embeddedTab }: PublicationOfficeProp
       return true;
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [newPublications, authorCounts, authorMap, npTagFilter, npScientistId, npDateFrom, npDateTo]);
+  }, [newPublications, authorCounts, authorMap, npStatusFilter, npTagFilter, npScientistId, npDateFrom, npDateTo]);
 
   // Export functionality
   const searchExportMutation = useMutation({
@@ -1591,6 +1624,17 @@ export default function PublicationOffice({ embeddedTab }: PublicationOfficeProp
               </div>
             </CardHeader>
             <CardContent>
+              {!newPublicationsLoading && newPublications.length > 0 && (
+                <div className="mb-5 rounded-lg border bg-muted/30 p-3">
+                  <PublicationWorkflowFilter
+                    countsByStatus={npCountsByStatus}
+                    sealedCount={sealedCountData?.count}
+                    selected={npStatusFilter}
+                    onSelect={setNpStatusFilter}
+                    total={newPublications.length}
+                  />
+                </div>
+              )}
               {newPublicationsLoading ? (
                 <div className="text-center py-8">Loading publications...</div>
               ) : newPublications.length === 0 ? (
@@ -1650,7 +1694,8 @@ export default function PublicationOffice({ embeddedTab }: PublicationOfficeProp
                         data-testid="input-np-date-to"
                       />
                     </div>
-                    {(npTagFilter !== "all" || npScientistId !== "all" || npDateFrom || npDateTo) && (
+                    {(npTagFilter !== "all" || npScientistId !== "all" || npDateFrom || npDateTo
+                      || npStatusFilter !== PUBLISHED_STATUS) && (
                       <Button
                         variant="ghost"
                         size="sm"
@@ -1659,6 +1704,9 @@ export default function PublicationOffice({ embeddedTab }: PublicationOfficeProp
                           setNpScientistId("all");
                           setNpDateFrom("");
                           setNpDateTo("");
+                          // Back to the office default rather than "all": Published
+                          // is the state awaiting a decision.
+                          setNpStatusFilter(PUBLISHED_STATUS);
                         }}
                         data-testid="button-np-clear-filters"
                       >
@@ -1727,7 +1775,10 @@ export default function PublicationOffice({ embeddedTab }: PublicationOfficeProp
                                   Auto-connect authors
                                 </Button>
                               )}
-                              {canMarkPublished && (
+                              {/* Mirrors the server precondition: finalize accepts only a
+                                  current Published record, so offering the action anywhere
+                                  else just produces a 400. */}
+                              {canMarkPublished && pub.status === PUBLISHED_STATUS && (
                                 <Button
                                   size="sm"
                                   onClick={() => markAsPublishedMutation.mutate(pub.id)}
@@ -1741,7 +1792,7 @@ export default function PublicationOffice({ embeddedTab }: PublicationOfficeProp
                                   Mark as Published *
                                 </Button>
                               )}
-                              {canMarkPublished && pub.status === "Published" && (
+                              {canMarkPublished && pub.status === PUBLISHED_STATUS && (
                                 <Button
                                   size="sm"
                                   variant="destructive"
