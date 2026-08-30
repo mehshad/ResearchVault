@@ -1,3 +1,5 @@
+import { ACCESS_ROLES } from "@shared/constants";
+
 export interface DummyUser {
   id: number;
   name: string;
@@ -5,26 +7,55 @@ export interface DummyUser {
   role: string;
 }
 
-// Role-emulation identities for development and demo testing. Keeping these
-// values outside the context module prevents Vite Fast Refresh from replacing
-// the context when only test-user data changes.
-export const DUMMY_USERS: DummyUser[] = [
-  { id: 1, name: "Dr. Sarah Chen", email: "s.chen@research.org", role: "Investigator" },
-  { id: 2, name: "Dr. Michael Rodriguez", email: "m.rodriguez@research.org", role: "Staff Scientist" },
-  { id: 3, name: "Dr. Emily Hassan", email: "e.hassan@research.org", role: "Physician" },
-  { id: 4, name: "Dr. James Wilson", email: "j.wilson@research.org", role: "Staff Scientist" },
-  { id: 5, name: "Lisa Thompson", email: "l.thompson@research.org", role: "Lab Manager" },
-  { id: 6, name: "Dr. Alex Kumar", email: "a.kumar@research.org", role: "Postdoctoral Researcher" },
-  { id: 7, name: "Maria Santos", email: "m.santos@research.org", role: "PhD Student" },
-  { id: 8, name: "Q-BRIDGE Administrator", email: "qbridge.admin@research.org", role: "Management" },
-  { id: 9, name: "Dr. Jennifer Park", email: "j.park@research.org", role: "IRB Board Member" },
-  { id: 10, name: "Dr. Robert Kim", email: "r.kim@research.org", role: "IBC Board Member" },
-  { id: 11, name: "Jessica Morgan", email: "j.morgan@research.org", role: "Outcome Officer" },
-  { id: 12, name: "Sarah Chen (PMO)", email: "sarah.chen@research.org", role: "PMO Officer" },
-  { id: 13, name: "Jennifer Park (IRB)", email: "jennifer.park@research.org", role: "IRB Officer" },
-  { id: 14, name: "Lisa Wong (IBC)", email: "lisa.wong@research.org", role: "IBC Officer" },
-  { id: 15, name: "Sarah Mitchell", email: "sarah.mitchell@example.com", role: "Research Officer" },
-];
+/**
+ * Role-emulation identities for development and demo testing.
+ *
+ * These are built from ACCESS_ROLES rather than hand-listed. The list used to be
+ * hard-coded and drifted: after the research roles were consolidated it still
+ * offered "Staff Scientist", "Postdoctoral Researcher" and "PhD Student" — none
+ * of which exist any more — while omitting "Researcher" and "IT Officer"
+ * entirely. Deriving it means retiring or adding an access role updates the
+ * selector on its own, and currentUserRoleData.test.ts fails if it ever
+ * diverges again.
+ *
+ * The names are here only so the selector reads like a list of people rather
+ * than a list of enum values. NAMES_BY_ROLE supplies one per role; any role
+ * without an entry still appears, named after the role itself.
+ *
+ * Kept out of the context module so Vite Fast Refresh does not replace the
+ * context when only this data changes.
+ */
+const NAMES_BY_ROLE: Record<string, string> = {
+  "Investigator": "Dr. Sarah Chen",
+  "Researcher": "Dr. Alex Kumar",
+  "Physician": "Dr. Emily Hassan",
+  "Lab Manager": "Lisa Thompson",
+  "Management": "Q-BRIDGE Administrator",
+  "IRB Board Member": "Dr. Jennifer Park",
+  "IBC Board Member": "Dr. Robert Kim",
+  "Outcome Officer": "Jessica Morgan",
+  "PMO Officer": "Sarah Chen (PMO)",
+  "IRB Officer": "Jennifer Park (IRB)",
+  "IBC Officer": "Lisa Wong (IBC)",
+  "Research Officer": "Sarah Mitchell",
+  "IT Officer": "Daniel Achebe",
+};
+
+function emailFor(name: string): string {
+  const local = name
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, ".")
+    .replace(/^\.+|\.+$/g, "");
+  return `${local}@research.org`;
+}
+
+export const DUMMY_USERS: DummyUser[] = ACCESS_ROLES.map((role, index) => {
+  const name = NAMES_BY_ROLE[role] ?? role;
+  return { id: index + 1, name, email: emailFor(name), role };
+});
+
+/** The role the demo session starts as, and the selector's initial value. */
+export const DEFAULT_DEMO_ROLE = "Management";
 
 // Only exposed in the role selector when AUTH_MODE=demo.
 export const SUPER_ADMIN_USER: DummyUser = {

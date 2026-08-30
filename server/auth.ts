@@ -1,5 +1,9 @@
 import { roleGroups, rolePermissions, users } from "@shared/schema";
-import { RESEARCH_OFFICER_ROLE } from "@shared/constants";
+import {
+  ACCESS_ROLES,
+  BUILT_IN_ASSIGNABLE_ROLES,
+  RESEARCH_OFFICER_ROLE,
+} from "@shared/constants";
 import {
   allRolesOf,
   hasAnyRole,
@@ -513,6 +517,38 @@ export function registerAuthRoutes(app: any) {
       res.status(503).json({ message: "Access could not be verified. Please try again." });
     }
   });
+
+  // ── Demo role emulation ──
+  //
+  // The sidebar role selector exists so demo mode can be explored as each role.
+  // It used to change only React state, so the session kept whatever DEMO_ROLE
+  // said and the server answered every request as that role. That was survivable
+  // while the server barely enforced roles; once the permission matrix became
+  // server-enforced it meant the interface and the API disagreed about who you
+  // were — the selector appeared to work and changed nothing.
+  //
+  // Registered only in demo mode, so outside it the path does not exist at all
+  // rather than existing and refusing.
+  if (mode === "demo") {
+    app.post("/api/auth/demo-role", (req: Request, res: Response) => {
+      const requested = typeof req.body?.role === "string" ? req.body.role.trim() : "";
+      if (!requested) {
+        return res.status(400).json({ message: "A role is required." });
+      }
+      // Only roles that really exist may be emulated, so the selector cannot
+      // put the session into a state no real account could reach.
+      const assignable = new Set<string>([...ACCESS_ROLES, ...BUILT_IN_ASSIGNABLE_ROLES, "superadmin"]);
+      if (!assignable.has(requested)) {
+        return res.status(400).json({ message: `"${requested}" is not an assignable role.` });
+      }
+      if (!req.session.user) {
+        return res.status(401).json({ message: "No demo session to update." });
+      }
+      req.session.user = { ...req.session.user, role: requested, secondaryRoles: [] };
+      authLog(`demo role switched to ${requested}`);
+      res.json({ user: req.session.user });
+    });
+  }
 
   // ── Login (local + ldap share the same endpoint) ──
   if (mode === "local" || mode === "ldap") {
