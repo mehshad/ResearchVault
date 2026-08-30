@@ -137,7 +137,10 @@ export default function PublicationOffice({ embeddedTab }: PublicationOfficeProp
   );
 
   // New Publications tab filters (issue/tag, scientist, publication date range)
-  const [npTagFilter, setNpTagFilter] = useState<string>("all");
+  // Defaults to records with no outstanding issues: those are the ones the
+  // office can actually act on. Anything with a missing SDR, missing internal
+  // authors or missing data needs fixing before it can be sealed or sent back.
+  const [npTagFilter, setNpTagFilter] = useState<string>("no-issues");
   // Workflow-state filter. Defaults to Published: those are the records awaiting
   // an office decision (seal, or send back for correction).
   const [npStatusFilter, setNpStatusFilter] = useState<string>(PUBLISHED_STATUS);
@@ -1699,13 +1702,13 @@ export default function PublicationOffice({ embeddedTab }: PublicationOfficeProp
                         data-testid="input-np-date-to"
                       />
                     </div>
-                    {(npTagFilter !== "all" || npScientistId !== "all" || npDateFrom || npDateTo
+                    {(npTagFilter !== "no-issues" || npScientistId !== "all" || npDateFrom || npDateTo
                       || npStatusFilter !== PUBLISHED_STATUS) && (
                       <Button
                         variant="ghost"
                         size="sm"
                         onClick={() => {
-                          setNpTagFilter("all");
+                          setNpTagFilter("no-issues");
                           setNpScientistId("all");
                           setNpDateFrom("");
                           setNpDateTo("");
@@ -1805,7 +1808,15 @@ export default function PublicationOffice({ embeddedTab }: PublicationOfficeProp
                                     setInvalidPublication(pub);
                                     setInvalidReason("");
                                   }}
-                                  disabled={markInvalidMutation.isPending}
+                                  // Sending a record back for correction asks its
+                                  // authors to fix it. A record that is already
+                                  // missing an SDR or its internal authors has
+                                  // nothing coherent to send back, so resolve
+                                  // those first.
+                                  disabled={markInvalidMutation.isPending || hasIssues}
+                                  title={hasIssues
+                                    ? `Resolve all issues first${missingFields.length ? ` (missing: ${missingFields.join(', ')})` : ''}${!hasSdr ? ' (no linked SDR)' : ''}${!hasInternalAuthors ? ' (no linked internal authors)' : ''}`
+                                    : 'Ask the linked authors to correct this publication'}
                                   data-testid={`button-mark-invalid-${pub.id}`}
                                 >
                                   <AlertTriangle className="h-4 w-4 mr-1" />
