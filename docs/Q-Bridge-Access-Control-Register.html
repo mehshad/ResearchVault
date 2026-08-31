@@ -804,6 +804,44 @@
         </tbody>
       </table>
     </div>
+    <h3>What the settings screen shows</h3>
+    <p>
+      Settings &rarr; Access Control opens with a read-only card, <em>Server-Enforced Access
+      Rules</em>, above the editable matrix. It exists so an administrator can see the rules the
+      matrix cannot change without reading the code. It is reproduced here in full, so this
+      register and that screen can be checked against each other &mdash; if they disagree, one of
+      them is out of date.
+    </p>
+    <div class="scroller">
+      <table>
+        <thead><tr><th>Rule</th><th>Area</th><th>Applies to</th><th>What the server does</th></tr></thead>
+        <tbody>
+          <tr><td class="k">The matrix is enforced on every API request</td><td>Permission matrix</td><td>All navigation areas, on the server as well as in the interface</td><td>Each area is resolved against the roles a person holds before their request reaches the data. GET needs view, POST needs create, and edit or delete needs edit. Someone holding several roles gets the most permissive of them. Hiding an area does not only hide the menu item &mdash; the endpoints behind it refuse the request.</td></tr>
+          <tr><td class="k">Administrators are not subject to the matrix</td><td>Permission matrix</td><td>Anyone holding <span class="mono">admin</span> in any role slot, and <span class="mono">superadmin</span></td><td>Administrators are admitted before the matrix is consulted, so no cell can lock out the people who would have to correct it. A matrix lookup that fails is treated as a refusal, never as permission.</td></tr>
+          <tr><td class="k">Forms and logs follow the area that owns them</td><td>Permission matrix</td><td>RA200 and RA205A forms, feature requests, the certificate import log</td><td>RA200 and RA205A resolve against <span class="mono">pmo-office</span>, feature requests against <span class="mono">dashboard</span>, and the certificate PDF import log against <span class="mono">certifications</span>. Each is refused unless the person holds the matching area.</td></tr>
+          <tr><td class="k">A new account can reach almost nothing until a role is assigned</td><td>Account onboarding</td><td>Accounts still holding only the default <span class="mono">user</span> role</td><td>Every API call is refused except a short allowlist: their own profile, ordinary publication and impact-factor reads, certification modules, and registration. Granting any role, primary or secondary, lifts the restriction.</td></tr>
+          <tr><td class="k">Only administrators can change user roles</td><td>Account administration</td><td>User access administration</td><td>Only administrators and superadministrators can update a user's role. The superadministrator role cannot be assigned from the interface.</td></tr>
+          <tr><td class="k">System configuration is administrator-only</td><td>System configuration</td><td>Theme, institution labels, section visibility, colour mode and every other stored setting</td><td>Reading the whole configuration, and creating, changing or deleting any setting, requires an administrator. Four presentation keys stay readable without a session because the sign-in page applies them. The Sidra Score settings remain with the Outcome Office.</td></tr>
+          <tr><td class="k">Only holders of the Investigator access role can be Principal Investigators</td><td>Investigator eligibility</td><td>Project leads, programme leadership, research activity PI and budget holder, IRB/IBC PIs, PI team roles</td><td>Eligibility is the Investigator access role, held as a primary role or alongside one. Neither the job title nor any profile flag confers it; the server derives it on every read from the linked account.</td></tr>
+          <tr><td class="k">Staff cannot grant themselves Investigator authority</td><td>Investigator eligibility</td><td>User role assignment, and job titles at first-time registration</td><td>Investigator is granted only in User Management, which is administrator-only. The Investigator and Staff Scientist job titles still cannot be self-assigned at registration, though a job title now grants no access.</td></tr>
+          <tr><td class="k">Profile changes are limited to the owner or Management</td><td>Staff records</td><td>Staff profile edits and deletion</td><td>Staff can update their own profile; Management and administrators can manage all of them. Deletion is limited to Management and administrators, and is blocked while a profile is referenced by other records.</td></tr>
+          <tr><td class="k">Bulk staff imports are restricted</td><td>Staff data</td><td>Staff import preview and apply</td><td>Only administrators can preview or apply staff imports. Organisation assignments are validated before staff records are saved.</td></tr>
+          <tr><td class="k">Record relationships can elevate access</td><td>Ownership access</td><td>Configured ownership rules, such as being an author, PI or requester</td><td>The effective level is the higher of the role-based access and a configured ownership override. Ownership rules are managed separately by administrators.</td></tr>
+          <tr><td class="k">IP vetting and sealed publications have extra safeguards</td><td>Publication workflow</td><td>Publication status changes and corrections</td><td>Only an Outcome Officer or higher can move a Complete Draft through IP vetting. Published records are sealed from ordinary changes; researcher corrections are limited to linked records.</td></tr>
+          <tr><td class="k">Unpublished publications are relationship-restricted</td><td>Publication visibility</td><td>Publication lists, direct details, staff profiles, charts, counts, filters, author-link checks</td><td>Published and <span class="mono">Published *</span> records remain generally visible. An unpublished record is visible only to its creator, a linked internal author, that author's direct line manager, or Management and administrators.</td></tr>
+          <tr><td class="k">Outcome Office access is limited to the authorised office view</td><td>Publication visibility</td><td>Outcome Office publication queues and the ordinary Publications page</td><td>Outcome Officers review all workflow records inside the server-authorised office view. That authority does not expose unrelated unpublished records on the ordinary Publications list or through a direct-detail request.</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="note">
+      <p>
+        <strong>Read-only by design.</strong> None of these is configurable from that screen, and
+        several could not safely be: they are the safeguards that keep a misconfigured matrix from
+        becoming a breach. Whenever a role restriction, ownership requirement, workflow guard or
+        eligibility rule changes in code, its plain-language entry there and its row here change
+        with it.
+      </p>
+    </div>
     <div class="note">
       <p>
         <strong>Administrators short-circuit before the matrix is read.</strong> No cell can lock
@@ -1021,7 +1059,6 @@
         </tbody>
       </table>
     </div>
-  </section>
 
     <h3>The SDR exception</h3>
     <p>
