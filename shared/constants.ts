@@ -110,6 +110,7 @@ export const JOB_TITLE_TAB_ALIASES: Record<string, readonly string[]> = {
   "research-associate": ["Research Associate"],
   "phd-student": ["PhD Student"],
   "lab-manager": ["Lab Manager"],
+  investigator: ["Investigator"],
   management: ["Management"],
   physician: ["Physician"],
   officers: ["IRB Officer", "IBC Officer", "PMO Officer", "Outcome Officer", "Research Officer"],

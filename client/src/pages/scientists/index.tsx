@@ -1,5 +1,4 @@
 import { useState } from "react";
-import { isInvestigatorEligible } from "@shared/investigatorEligibility";
 import { JOB_TITLE_TAB_ALIASES, matchesJobTitle } from "@shared/constants";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { Link, useLocation } from "wouter";
@@ -419,7 +418,12 @@ export default function StaffList() {
       matchesJobTitle(person.jobTitle, JOB_TITLE_TAB_ALIASES[tab] ?? []);
     if (activeTab === "management") return matchesSearch && inTab("management");
     if (activeTab === "physician") return matchesSearch && inTab("physician");
-    if (activeTab === "investigator") return matchesSearch && isInvestigatorEligible(person);
+    // By job title, like every other tab in this strip. It filtered on the
+    // Investigator *access role* instead, which is a different question from
+    // the one a directory tab labelled with a job title asks -- and since
+    // eligibility moved to the access role and not everyone holding the title
+    // has an account yet, the tab simply showed nothing.
+    if (activeTab === "investigator") return matchesSearch && inTab("investigator");
     if (activeTab === "staff-scientist") return matchesSearch && inTab("staff-scientist");
     if (activeTab === "research-specialist") return matchesSearch && inTab("research-specialist");
     if (activeTab === "research-assistant") return matchesSearch && inTab("research-assistant");
