@@ -19,6 +19,7 @@ import {
   Plus,
   ShieldCheck,
   LockKeyhole,
+  AlertTriangle,
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import {
@@ -156,7 +157,7 @@ interface OwnershipOverride {
 
 export default function RoleAccessConfig({ embedded = false }: { embedded?: boolean }) {
   const { toast } = useToast();
-  const { permissions, setPermissions, getAccessLevel } = usePermissions();
+  const { permissions, setPermissions, getAccessLevel, isUnconfigured, applyDefaultPermissions } = usePermissions();
 
   // ── Ownership overrides state ──────────────────────────────────────────────
   const [ownershipOverrides, setOwnershipOverrides] = useState<OwnershipOverride[]>([]);
@@ -271,8 +272,50 @@ export default function RoleAccessConfig({ embedded = false }: { embedded?: bool
     return permissions.find(p => p.jobTitle === jobTitle && p.navigationItem === navItemId);
   };
 
+  const applyStartingPoint = async () => {
+    try {
+      await applyDefaultPermissions();
+      toast({
+        title: "Starting point applied",
+        description:
+          "The generated matrix is now stored, recorded against your account. Review it before relying on it — it grants edit widely.",
+      });
+    } catch (error) {
+      toast({
+        title: "Could not apply the starting point",
+        description: error instanceof Error ? error.message : "Try again.",
+        variant: "destructive",
+      });
+    }
+  };
+
   return (
     <div className="space-y-6">
+      {isUnconfigured && (
+        <div
+          className="rounded-md border border-amber-300 bg-amber-50 p-4 dark:border-amber-800 dark:bg-amber-950/30"
+          data-testid="banner-matrix-unconfigured"
+        >
+          <div className="flex items-start gap-2">
+            <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-700 dark:text-amber-400" />
+            <div className="space-y-2">
+              <p className="font-medium text-amber-900 dark:text-amber-200">
+                This matrix has not been configured
+              </p>
+              <p className="text-sm text-amber-900/90 dark:text-amber-200/90">
+                Nothing is stored for this environment. What you see below is a generated
+                starting point that grants <strong>edit</strong> to most roles in most areas,
+                and it is not in force until it is applied or you save your own choices.
+                Applying it records your account against every cell, so an auditor can tell a
+                decision from a default.
+              </p>
+              <Button size="sm" onClick={applyStartingPoint} data-testid="button-apply-starting-point">
+                Apply this starting point
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
       {!embedded && (
         <div className="flex items-center justify-between flex-wrap gap-4">
           <div className="flex items-center gap-3">

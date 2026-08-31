@@ -625,9 +625,8 @@
       <p>
         A retired role's matrix rows merge into <span class="mono">Researcher</span> at the
         <em>most permissive</em> level any of them holds, so no remaining holder loses access.
-        Read together with AC-10, that has a consequence worth stating: against a database whose
-        matrix was generated rather than configured, the merge propagates generated values, not
-        decisions.
+        That has a consequence worth stating: against a database whose matrix was generated rather
+        than configured, the merge propagates generated values, not decisions.
       </p>
     </div>
 
@@ -878,16 +877,16 @@
       method table in section&nbsp;04, this says: the Research Officer may delete a grant, the
       Investigator may create one but not change it, the Researcher may only read, and the
       Physician receives a 403 from <span class="mono">/api/grants</span> whatever the menu shows.
-      The illustration is representative rather than a capture of live data &mdash; and per
-      <strong>AC-10</strong>, the values in any given environment may be generated defaults rather
-      than anyone's decision.
+      The illustration is representative rather than a capture of live data &mdash; and in any
+      environment whose matrix predates the change described below, the stored values may be
+      generated defaults rather than anyone's decision.
     </p>
 
     <div class="stats">
-      <div class="stat"><div class="v">18</div><div class="l">Roles</div></div>
-      <div class="stat"><div class="v">23</div><div class="l">Areas stored</div></div>
-      <div class="stat"><div class="v">414</div><div class="l">Cells</div></div>
-      <div class="stat"><div class="v warn">1</div><div class="l">Enforced server-side</div></div>
+      <div class="stat"><div class="v">13</div><div class="l">Roles</div></div>
+      <div class="stat"><div class="v">18</div><div class="l">Areas</div></div>
+      <div class="stat"><div class="v">234</div><div class="l">Cells</div></div>
+      <div class="stat"><div class="v">18</div><div class="l">Enforced server-side</div></div>
     </div>
 
     <h3>How a cell resolves</h3>
@@ -909,11 +908,18 @@
 
     <div class="note">
       <p>
-        <strong>A populated matrix is not evidence that anyone configured it.</strong> An empty
-        matrix is filled by the client with generated defaults and written back, indistinguishable
-        afterwards from deliberate configuration (<strong>AC-10</strong>). Any statement about
-        <em>what</em> a particular role may reach must therefore be read from the production
-        database, not from a development copy.
+        <strong>An unconfigured matrix stays unconfigured.</strong> Where nothing is stored, the
+        settings screen renders a generated starting point, says plainly that it is not in force,
+        and writes nothing until an administrator applies it &mdash; which stamps their account on
+        every cell. Nothing seeds the matrix on its own.
+      </p>
+      <p>
+        This does not vouch for matrices already in a database. Anything stored before that
+        behaviour changed may still be generated defaults that were written back silently, and it
+        travels: an export carries the matrix, so a generated one survives a backup and restore
+        intact. Any statement about <em>what</em> a particular role may reach must be read from the
+        production database, not from a development copy, and a matrix that has never been reviewed
+        should be treated as unreviewed however populated it looks.
       </p>
     </div>
 
@@ -1186,39 +1192,6 @@ DELETE /api/system-configurations/__probe_unauth_write   200</div>
       </p>
     </div>
 
-    <div class="finding high">
-      <div class="finding-head">
-        <span class="finding-id">AC-10</span>
-        <h4>A restored environment invents a permissive matrix and cannot be told from a configured one</h4>
-        <span class="chip high">High</span>
-      </div>
-      <p>
-        When the matrix is empty, the client does not leave it empty. It generates a default
-        matrix in the browser and writes it back to the database. A newly provisioned environment
-        starts empty, as does any database whose matrix has been cleared; backups carry the access
-        configuration, so a restore does not.
-      </p>
-      <p>
-        Those defaults begin at <em>edit</em> for every role and every area, narrowing only where a
-        role-specific rule applies. The result is a permissive matrix that is
-        indistinguishable, in the database and in the settings screen, from one an administrator
-        configured deliberately.
-      </p>
-      <div class="evidence">createDefaultPermissions() — let defaultAccess: AccessLevel = "edit"</div>
-      <p>
-        For an audit the consequence is precise: the presence of a populated access matrix is
-        <strong>not evidence that anyone configured it</strong>. A restored or freshly provisioned
-        environment produces one on its own, and nothing in the record distinguishes the two.
-      </p>
-      <p>
-        <span class="label">Recommendation</span>
-        Stop writing defaults back automatically. Show an unconfigured matrix as unconfigured and
-        require an administrator to apply a starting point explicitly, so the act of configuring it
-        is a decision with an actor and a timestamp — which
-        <span class="mono">role_permissions.updated_by</span> records.
-      </p>
-    </div>
-
     <div class="finding info">
       <div class="finding-head">
         <span class="finding-id">AC-05</span>
@@ -1298,7 +1271,7 @@ ORDER BY u.username;</div>
       <strong>Resolved findings are deleted, not archived.</strong> This document is a list of work
       outstanding, so a finding disappears from section&nbsp;08 once it is fixed rather than being
       marked closed. Identifiers are never reused, so an absent number means resolved — the gaps in
-      the sequence are AC-01, AC-02 and AC-06 to AC-09.
+      the sequence are AC-01, AC-02, AC-06 to AC-09, and AC-10.
     </p>
     <p>
       Counts reflect the stated commit and will drift as the code changes; re-run section&nbsp;09

@@ -48,6 +48,14 @@ interface PermissionsContextType {
   canCreate: (jobTitle: string, navigationItem: string) => boolean;
   isHidden: (jobTitle: string, navigationItem: string) => boolean;
   isReadOnly: (jobTitle: string, navigationItem: string) => boolean;
+  /**
+   * True when the database holds no matrix at all and what is on screen is the
+   * generated starting point rather than anyone's decision. Nothing is written
+   * back until an administrator applies it deliberately.
+   */
+  isUnconfigured: boolean;
+  /** Persist the generated starting point. Administrator action only. */
+  applyDefaultPermissions: () => Promise<void>;
 }
 
 const PermissionsContext = createContext<PermissionsContextType | undefined>(undefined);
@@ -173,7 +181,8 @@ interface PermissionsProviderProps {
 export function PermissionsProvider({ children }: PermissionsProviderProps) {
   const [permissions, setPermissions] = useState<NavigationPermission[]>([]);
   const [isLoaded, setIsLoaded] = useState(false);
-  const { authConfig, isAdmin } = useAuth();
+  const [isUnconfigured, setIsUnconfigured] = useState(false);
+  const { authConfig } = useAuth();
 
   // Load permissions from database on mount
   useEffect(() => {
@@ -184,16 +193,16 @@ export function PermissionsProvider({ children }: PermissionsProviderProps) {
           const dbPermissions = await response.json();
           if (dbPermissions.length > 0) {
             setPermissions(mergeWithDefaultPermissions(dbPermissions));
+            setIsUnconfigured(false);
           } else {
-            // No permissions stored yet. Use the defaults locally so the
-            // interface still renders, but only an administrator may write them
-            // back — seeding is a change to the access matrix, and any browser
-            // being able to make it was the hole this guard closes.
-            const defaults = createDefaultPermissions();
-            setPermissions(defaults);
-            if (isAdmin) {
-              await seedDefaultPermissions(defaults);
-            }
+            // No permissions stored yet. Render the generated starting point so
+            // the interface works, but do NOT write it back: a matrix that
+            // appears by itself is indistinguishable afterwards from one an
+            // administrator chose, and those defaults start at "edit" for every
+            // role and every area. Applying them is a decision, and it is made
+            // in the access matrix with an actor and a timestamp behind it.
+            setPermissions(createDefaultPermissions());
+            setIsUnconfigured(true);
           }
         } else {
           // API failed, use defaults  
@@ -208,27 +217,33 @@ export function PermissionsProvider({ children }: PermissionsProviderProps) {
     };
 
     loadPermissions();
-    // isAdmin arrives after the auth config resolves; re-run so a first-time
-    // seed is still performed for an administrator.
-  }, [isAdmin]);
+    // Nothing here writes any more, so there is nothing to wait for an
+    // administrator to arrive for: load once.
+  }, []);
 
-  // Seed default permissions to database
-  const seedDefaultPermissions = async (defaultPermissions: NavigationPermission[]) => {
-    try {
-      const dbFormat = convertFrontendPermissionsToDb(defaultPermissions);
-      await fetch('/api/role-permissions/bulk', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ permissions: dbFormat })
-      });
-    } catch (error) {
-      console.warn('Failed to seed default permissions:', error);
+  /**
+   * Write the generated starting point to the database. Called only from the
+   * access matrix, by an administrator who has chosen to apply it -- never on
+   * load. The server records who did it in role_permissions.updated_by.
+   */
+  const applyDefaultPermissions = async () => {
+    const dbFormat = convertFrontendPermissionsToDb(createDefaultPermissions());
+    const response = await fetch('/api/role-permissions/bulk', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ permissions: dbFormat })
+    });
+    if (!response.ok) {
+      throw new Error('Could not apply the starting point.');
     }
+    setPermissions(createDefaultPermissions());
+    setIsUnconfigured(false);
   };
 
   // Enhanced setPermissions that saves to database
   const setPermissionsWithPersistence = async (newPermissions: NavigationPermission[]) => {
     setPermissions(newPermissions);
+    setIsUnconfigured(false);
     
     try {
       const dbFormat = convertFrontendPermissionsToDb(newPermissions);
@@ -328,7 +343,9 @@ export function PermissionsProvider({ children }: PermissionsProviderProps) {
       canEdit,
       canCreate,
       isHidden,
-      isReadOnly
+      isReadOnly,
+      isUnconfigured,
+      applyDefaultPermissions
     }}>
       {children}
     </PermissionsContext.Provider>

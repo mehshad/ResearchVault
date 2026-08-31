@@ -10428,7 +10428,37 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // System Configuration endpoints
-  app.get('/api/system-configurations', async (req, res) => {
+  /**
+   * The only system-configuration keys readable without an administrator.
+   *
+   * These are applied while the page is still painting -- on the sign-in
+   * screen, before anyone has said who they are -- so requiring a session to
+   * read them would leave an unbranded, unthemed shell for every visitor.
+   * Everything else about system configuration is administrative.
+   */
+  const PUBLIC_SYSTEM_CONFIG_KEYS = new Set([
+    'app_theme_name',
+    'app_institution_labels',
+    'app_section_visibility',
+    'color_mode_default',
+  ]);
+
+  const requireSystemConfigRead = (req: Request, res: Response, next: NextFunction) => {
+    if (PUBLIC_SYSTEM_CONFIG_KEYS.has(req.params.key)) return next();
+    return requireAdmin(req, res, next);
+  };
+
+  /**
+   * Writes are administrator-only, with one standing exception: the Sidra Score
+   * settings belong to the Outcome Office, who are not all administrators.
+   */
+  const requireSystemConfigWrite = (req: Request, res: Response, next: NextFunction) => {
+    const key = req.params.key ?? (req.body as { key?: string } | undefined)?.key;
+    if (key === SIDRA_SCORE_SETTINGS_KEY && hasPublicationOfficerRole(req)) return next();
+    return requireAdmin(req, res, next);
+  };
+
+  app.get('/api/system-configurations', requireAdmin, async (req, res) => {
     try {
       const configs = await storage.getSystemConfigurations();
       res.json(configs);
@@ -10438,7 +10468,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.get('/api/system-configurations/:key', async (req, res) => {
+  app.get('/api/system-configurations/:key', requireSystemConfigRead, async (req, res) => {
     try {
       const config = await storage.getSystemConfiguration(req.params.key);
       if (!config) {
@@ -10451,7 +10481,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post('/api/system-configurations', async (req, res) => {
+  app.post('/api/system-configurations', requireSystemConfigWrite, async (req, res) => {
     try {
       if (req.body?.key === SIDRA_SCORE_SETTINGS_KEY && !hasPublicationOfficerRole(req)) {
         return res.status(403).json({ error: 'Outcome Office access is required to change Sidra Score settings' });
@@ -10464,7 +10494,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.put('/api/system-configurations/:key', async (req, res) => {
+  app.put('/api/system-configurations/:key', requireSystemConfigWrite, async (req, res) => {
     try {
       if (req.params.key === SIDRA_SCORE_SETTINGS_KEY && !hasPublicationOfficerRole(req)) {
         return res.status(403).json({ error: 'Outcome Office access is required to change Sidra Score settings' });
@@ -10480,7 +10510,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.delete('/api/system-configurations/:key', async (req, res) => {
+  app.delete('/api/system-configurations/:key', requireSystemConfigWrite, async (req, res) => {
     try {
       if (req.params.key === SIDRA_SCORE_SETTINGS_KEY && !hasPublicationOfficerRole(req)) {
         return res.status(403).json({ error: 'Outcome Office access is required to change Sidra Score settings' });

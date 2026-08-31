@@ -109,7 +109,7 @@ export const UNMAPPED_API_PREFIXES: ReadonlyArray<{ prefix: string; reason: stri
   { prefix: "/api/ownership-overrides", reason: "Already administrator-only via requireAdmin." },
   { prefix: "/api/management", reason: "Guarded by requireManagement, which now reads the matrix." },
   { prefix: "/api/office-dashboards", reason: "Guarded by the office guards, which now read the matrix." },
-  { prefix: "/api/system-configurations", reason: "No matrix area covers system configuration." },
+  { prefix: "/api/system-configurations", reason: "Administrator-only via requireAdmin; the theme, branding and section-visibility keys stay readable so the sign-in page can render." },
   { prefix: "/api/pdf-import-history", reason: "No matrix area covers import history." },
   { prefix: "/objects", reason: "Object storage, served outside the /api surface." },
 ];
