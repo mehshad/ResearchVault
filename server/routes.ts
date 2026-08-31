@@ -3452,19 +3452,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.delete('/api/scientists/:id', requireAuth, async (req: Request, res: Response) => {
+  // Administrator-only. Deleting a staff profile is irreversible and cannot be
+  // done in bulk anywhere else -- the import deliberately never deletes -- so
+  // it is held to the narrowest role rather than the management tier.
+  app.delete('/api/scientists/:id', requireAuth, requireAdmin, async (req: Request, res: Response) => {
     try {
       const id = parseInt(req.params.id);
       if (isNaN(id)) {
         return res.status(400).json({ message: "Invalid scientist ID" });
-      }
-
-      // Only Management/admin/superadmin may delete scientist profiles.
-      // Demo mode uses DEMO_ROLE=Management so this passes in dev.
-      if (!hasManagementRole(req)) {
-        return res.status(403).json({
-          message: "Forbidden. Management/admin access is required to delete a scientist profile.",
-        });
       }
 
       // Make sure the scientist exists before we go FK-hunting so the

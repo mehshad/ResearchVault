@@ -5,7 +5,13 @@ import { useLocation, useParams } from "wouter";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Scientist, ResearchActivity, Project, Program } from "@shared/schema";
-import { ArrowLeft, Mail, Building, User, Pencil, ChevronRight, ChevronDown, Folder, FileText, Users, ExternalLink } from "lucide-react";
+import { ArrowLeft, Mail, Building, User, Pencil, ChevronRight, ChevronDown, Folder, FileText, Users, ExternalLink, Trash2, Loader2 } from "lucide-react";
+import {
+  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
+  AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import { useToast } from "@/hooks/use-toast";
+import { isAdministrator } from "@shared/effectiveRoles";
 import { SiOrcid, SiGooglescholar } from "react-icons/si";
 import { FaLinkedin } from "react-icons/fa";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -202,6 +208,45 @@ export default function ScientistDetail() {
   const canImport = !isRestrictedRealUser && (
     isOwner || ["Outcome Officer", "Management", "admin", "superadmin"].includes(effectiveRole)
   );
+  // Deleting a staff profile is irreversible and cannot be undone in bulk
+  // anywhere else, so it is administrator-only -- matching the server, which
+  // refuses anyone else.
+  const canDelete = authConfig.mode === "demo"
+    ? isAdministrator({ role: currentUser.role })
+    : isAdministrator(user);
+  const { toast } = useToast();
+  const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
+  const [deleteBlockers, setDeleteBlockers] = useState<string | null>(null);
+
+  const deleteScientistMutation = useMutation({
+    mutationFn: async () => {
+      const response = await fetch(`/api/scientists/${id}`, {
+        method: "DELETE",
+        credentials: "include",
+      });
+      if (response.status === 204) return;
+      const body = await response.json().catch(() => ({}));
+      // A 409 means the record is still referenced. Carry the detail through
+      // so the dialog can say what to reassign rather than only that it failed.
+      throw Object.assign(new Error(body.message ?? "Failed to delete"), {
+        blockedBy: body.blockedBy as Record<string, number> | undefined,
+      });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/scientists"] });
+      toast({ title: "Staff record deleted" });
+      navigate("/scientists");
+    },
+    onError: (error: Error & { blockedBy?: Record<string, number> }) => {
+      const detail = error.blockedBy
+        ? Object.entries(error.blockedBy)
+            .map(([table, count]) => `${table.replace(/_/g, " ")} (${count})`)
+            .join(", ")
+        : null;
+      setDeleteBlockers(detail ? `Still referenced by ${detail}.` : error.message);
+    },
+  });
+
   const [scoreOpen, setScoreOpen] = useState(false);
   const [scoreResult, setScoreResult] = useState<SidraScoreResult | null>(null);
   const [missingForScore, setMissingForScore] = useState<any[]>([]);
@@ -344,7 +389,63 @@ export default function ScientistDetail() {
           Back
         </Button>
         <h1 className="text-2xl font-semibold text-foreground">{formatFullName(scientist)}</h1>
+        {canDelete && (
+          <Button
+            variant="outline"
+            size="sm"
+            className="ml-auto text-destructive hover:text-destructive"
+            onClick={() => { setDeleteBlockers(null); setConfirmDeleteOpen(true); }}
+            data-testid="button-delete-scientist"
+          >
+            <Trash2 className="h-4 w-4 mr-1" />
+            Delete
+          </Button>
+        )}
       </div>
+
+      <AlertDialog open={confirmDeleteOpen} onOpenChange={setConfirmDeleteOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete {formatFullName(scientist)}?</AlertDialogTitle>
+            <AlertDialogDescription asChild>
+              <div className="space-y-2">
+                <p>
+                  This removes the staff record permanently. It cannot be undone, and a
+                  staff import will not bring it back &mdash; imports only add and
+                  complete records.
+                </p>
+                <p>
+                  A record still linked to publications, grants, projects or another
+                  person&rsquo;s line manager cannot be deleted. Reassign those first.
+                </p>
+                {deleteBlockers && (
+                  <p className="rounded-md border border-destructive/40 bg-destructive/10 p-2 text-destructive">
+                    {deleteBlockers}
+                  </p>
+                )}
+              </div>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel data-testid="button-cancel-delete-scientist">Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              disabled={deleteScientistMutation.isPending}
+              onClick={(event) => {
+                // Keep the dialog open on failure so the reason stays visible.
+                event.preventDefault();
+                deleteScientistMutation.mutate();
+              }}
+              data-testid="button-confirm-delete-scientist"
+            >
+              {deleteScientistMutation.isPending && (
+                <Loader2 className="h-4 w-4 mr-1 animate-spin" />
+              )}
+              Delete permanently
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Left Column - Profile and Publications */}
