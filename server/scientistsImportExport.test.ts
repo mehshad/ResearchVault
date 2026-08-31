@@ -96,17 +96,66 @@ test("existing staff assigned to a newly inserted manager is updated", () => {
   assert.equal(preview.toUpdate[0].existingId, report.id);
 });
 
-test("manager email changes still resolve to the existing manager id", () => {
+test("a renamed manager email still resolves, but does not rename anyone", () => {
+  // Matching is by Staff ID first, so a row can carry a different email for
+  // someone already on file. A reference to that new email still resolves to
+  // the right person, but the import does not apply the rename: an email is
+  // never blank, and the import only fills blanks. Renaming is done in the
+  // interface.
   const manager = scientist(2, "Grace", "Hopper");
   const report = scientist(1, "Ada", "Lovelace", { supervisorId: manager.id });
   const managerRow = scientistsToRows([{ ...manager, email: "renamed.manager@example.org" }])[0];
   const reportRow = scientistsToRows([report])[0];
   reportRow["Line Manager Email"] = "renamed.manager@example.org";
+
   const preview = buildImportPreview([reportRow, managerRow], [report, manager], org);
+
+  assert.equal(preview.errors.length, 0, "the reference resolves rather than erroring");
+  assert.equal(preview.toInsert.length, 0, "the renamed row is recognised, not treated as new");
+  assert.equal(preview.toUpdate.length, 0, "and nothing is overwritten");
+  assert.equal(preview.unchanged, 2);
+});
+
+test("an import fills blanks but never overwrites what is already there", () => {
+  // The failure this prevents: a roster that omitted several columns blanked
+  // them for everyone already on file -- staff IDs, ORCIDs and organisation
+  // placement all disappeared -- and a shortened surname renamed the person.
+  const existingRecord = scientist(1, "Meritxell", "Espino Guarch", {
+    // Explicit: the helper derives the email from the name, and a surname with
+    // a space would make an invalid one.
+    email: "mespinoguarch@example.org",
+    staffId: "21240",
+    orcidId: "0000-0002-7649-5092",
+    departmentId: 10,
+    sectionId: 20,
+    jobTitle: "Staff Scientist",
+  });
+  const row = scientistsToRows([existingRecord])[0];
+  row["Staff ID"] = "21240";          // matched on this
+  row["Last Name"] = "Guarch";        // a shortened surname
+  row["ORCID ID"] = "";               // omitted column
+  row["Department ID"] = "";
+  row["Section ID"] = "";
+  row["Job Title"] = "";
+
+  const preview = buildImportPreview([row], [existingRecord], org);
+
   assert.equal(preview.errors.length, 0);
-  assert.equal(preview.toUpdate.length, 1);
-  assert.equal(preview.toUpdate[0].existingId, manager.id);
+  assert.equal(preview.toUpdate.length, 0, "nothing is overwritten, so there is nothing to update");
   assert.equal(preview.unchanged, 1);
+});
+
+test("an import does fill a field the record is missing", () => {
+  const existingRecord = scientist(1, "Ada", "Lovelace", { orcidId: null, jobTitle: null });
+  const row = scientistsToRows([existingRecord])[0];
+  row["ORCID ID"] = "0000-0001-2345-6789";
+  row["Job Title"] = "Principal Investigator";
+
+  const preview = buildImportPreview([row], [existingRecord], org);
+
+  assert.equal(preview.toUpdate.length, 1, "a blank field is filled from the file");
+  assert.equal(preview.toUpdate[0].row.orcidId, "0000-0001-2345-6789");
+  assert.equal(preview.toUpdate[0].row.jobTitle, "Principal Investigator");
 });
 
 test("import rejects a section from another department", () => {
