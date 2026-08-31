@@ -4521,6 +4521,10 @@ export async function applySection(
       const errCount = preview.rows.filter((r) => r.action === "error").length;
       throw new Error(`Cannot apply: ${errCount} row error(s) must be resolved first.`);
     }
+    // The callback owns the list. Should the transaction ever be retried, a
+    // list left over from the abandoned attempt would report every rejected
+    // row twice.
+    rejected.length = 0;
     if (skipInvalidRows) {
       for (const row of preview.rows.filter((r) => r.action === "error")) {
         rejected.push({
@@ -4606,8 +4610,16 @@ export async function applySection(
       const sheetCounts: ApplyCounts = { created: 0, updated: 0, skipped: 0 };
       transactionCounts[sheetName] = sheetCounts;
 
-      // Count skips
-      sheetCounts.skipped = preview.rows.filter((r) => r.sheetName === sheetName && r.action === "skip").length;
+      // Count skips. "Skipped" means present in the workbook and not written,
+      // so with skipping on it has to cover the rows that failed validation
+      // too -- otherwise the summary reports nothing skipped while the list of
+      // rejected rows below it names several, and created + updated + skipped
+      // no longer accounts for every row in the sheet.
+      sheetCounts.skipped = preview.rows.filter(
+        (r) =>
+          r.sheetName === sheetName &&
+          (r.action === "skip" || (skipInvalidRows && r.action === "error")),
+      ).length;
 
       // Rows that actually reached the database. Second-pass work (supervisor
       // links, organisation placement) must only run for these; a rejected row

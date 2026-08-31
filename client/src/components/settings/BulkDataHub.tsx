@@ -275,6 +275,12 @@ export default function BulkDataHub() {
     setFile(null);
     setPreview(null);
     setResult(null);
+    // The choice belongs to the workbook it was made for. Left standing it
+    // rides into the next one unseen: a workbook with no errors renders no
+    // checkbox, so an operator cannot tell the flag is still set -- and it
+    // still puts every row in its own savepoint, dropping rows that fail at
+    // write time instead of stopping the apply.
+    setSkipInvalidRows(false);
     if (inputRef.current) inputRef.current.value = "";
   };
 
@@ -294,7 +300,10 @@ export default function BulkDataHub() {
         fileBase64: file.base64,
         fileName: file.name,
         fingerprint: preview.fingerprint,
-        skipInvalidRows,
+        // Only ever asked for against a preview that actually reports errors.
+        // Skipping is a partial write; it must not be requested for a workbook
+        // the operator was never shown the option on.
+        skipInvalidRows: skipInvalidRows && errorCount > 0,
       });
       return response.json() as Promise<ApplyResult>;
     },
@@ -636,7 +645,7 @@ export default function BulkDataHub() {
       </Card>
       <AlertDialog open={confirmOpen} onOpenChange={setConfirmOpen}>
         <AlertDialogContent>
-          <AlertDialogHeader><AlertDialogTitle>Apply this workbook?</AlertDialogTitle><AlertDialogDescription>This will create {counts?.create ?? 0} records and update {counts?.update ?? 0} records in {selectedSection?.label ?? "this section"}. Verify the preview carefully before continuing.</AlertDialogDescription></AlertDialogHeader>
+          <AlertDialogHeader><AlertDialogTitle>Apply this workbook?</AlertDialogTitle><AlertDialogDescription>This will create {counts?.create ?? 0} records and update {counts?.update ?? 0} records in {selectedSection?.label ?? "this section"}.{skipInvalidRows && errorCount > 0 ? ` ${errorCount} row${errorCount === 1 ? "" : "s"} that failed validation will be left out and never written; ${errorCount === 1 ? "it is" : "they are"} listed afterwards.` : ""} Verify the preview carefully before continuing.</AlertDialogDescription></AlertDialogHeader>
           <AlertDialogFooter><AlertDialogCancel data-testid="button-cancel-bulk-apply">Cancel</AlertDialogCancel><AlertDialogAction onClick={() => applyMutation.mutate()} disabled={applyMutation.isPending} data-testid="button-confirm-bulk-apply">{applyMutation.isPending ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Applying…</> : "Yes, apply workbook"}</AlertDialogAction></AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
