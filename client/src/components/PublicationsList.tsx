@@ -10,6 +10,15 @@ import { ExternalLink, FileText, ChevronRight, ArrowRight, AlertTriangle, Chevro
 import { format } from "date-fns";
 import { useToast } from "@/hooks/use-toast";
 import { isPreprintRecord } from "@shared/publicationDeduplication";
+import {
+  PREFERENCE_KEYS,
+  readPreferenceOneOf,
+  writePreference,
+} from "@/lib/uiPreference";
+import {
+  PUBLISHED_INVALID_STATUS,
+  publicationStageOf,
+} from "@shared/publicationWorkflow";
 
 interface JournalImpactFactor {
   id: number;
@@ -55,6 +64,8 @@ function ImpactFactorDisplay({ journal, publicationYear }: { journal: string; pu
 interface Publication {
   id: number;
   researchActivityId: number | null;
+  /** Why no SDR applies, when one genuinely does not. Excludes an SDR link. */
+  sdrExemptionReason?: string | null;
   title: string;
   authors: string;
   journal: string;
@@ -88,7 +99,15 @@ const authorshipColors = {
   'Corresponding Author': 'bg-red-100 text-red-800 dark:bg-red-950 dark:text-red-300',
 };
 
-/** Compute the data-quality issues for a publication record. */
+/**
+ * Compute the data-quality issues for a publication record.
+ *
+ * Each check is gated on the stage that makes it meaningful. A Concept has no
+ * journal, no DOI and no page numbers because it has not been written yet --
+ * flagging all of that told an author nothing and buried the one thing they
+ * could actually act on. Stage 4 is the first submission, stage 7 the first
+ * published state.
+ */
 function getPublicationIssues(pub: Publication, ifChecked: boolean, hasImpactFactor: boolean): string[] {
   const issues: string[] = [];
   // Preprints have no impact factor and no volume/issue/pages by nature, so
@@ -99,15 +118,34 @@ function getPublicationIssues(pub: Publication, ifChecked: boolean, hasImpactFac
     publicationType: pub.publicationType,
     journal: pub.journal,
   });
-  if (!pub.researchActivityId) issues.push('No linked SDR');
-  if (!pub.journal) issues.push('Missing journal');
-  if (!pub.publicationDate) issues.push('Missing publication date');
-  if (!pub.authors) issues.push('Missing authors');
-  if (!pub.doi) issues.push('Missing DOI');
-  // Only flag a missing IF once the lookup has actually finished, so a still-loading
-  // query doesn't produce a false "No impact factor" while data is in flight.
-  if (!isPreprint && pub.journal && ifChecked && !hasImpactFactor) issues.push('No impact factor on record');
-  if (!isPreprint && (!pub.volume || !pub.issue || !pub.pages)) issues.push('Incomplete citation (volume/issue/pages)');
+
+  const stage = publicationStageOf(pub.status);
+  // "Published - Invalid" sits off the linear flow but is a published record,
+  // so it answers for everything a published record answers for.
+  const isPublished = pub.status === PUBLISHED_INVALID_STATUS || (stage != null && stage >= 7);
+  const isSubmitted = isPublished || (stage != null && stage >= 4);
+
+  // An SDR link is expected from the moment the record exists: it is what ties
+  // the work to a research activity, and it is answerable at any stage. A
+  // recorded exception is an answer -- work done for a collaborator elsewhere
+  // has no local research activity to link -- so it settles the question
+  // rather than leaving it open.
+  if (!pub.researchActivityId && !pub.sdrExemptionReason) issues.push('No linked SDR');
+
+  if (isSubmitted) {
+    if (!pub.journal) issues.push('Missing journal');
+    if (!pub.authors) issues.push('Missing authors');
+  }
+
+  if (isPublished) {
+    if (!pub.publicationDate) issues.push('Missing publication date');
+    if (!pub.doi) issues.push('Missing DOI');
+    // Only flag a missing IF once the lookup has actually finished, so a still-loading
+    // query doesn't produce a false "No impact factor" while data is in flight.
+    if (!isPreprint && pub.journal && ifChecked && !hasImpactFactor) issues.push('No impact factor on record');
+    if (!isPreprint && (!pub.volume || !pub.issue || !pub.pages)) issues.push('Incomplete citation (volume/issue/pages)');
+  }
+
   return issues;
 }
 
@@ -255,7 +293,8 @@ function PublicationRow({
   );
 }
 
-type YearsMode = "3" | "5" | "all";
+const YEARS_MODES = ["3", "5", "all"] as const;
+type YearsMode = (typeof YEARS_MODES)[number];
 
 export function PublicationsList({
   scientistId,
@@ -265,9 +304,21 @@ export function PublicationsList({
   demoViewerScientistId,
 }: PublicationsListProps) {
   const [expandedIds, setExpandedIds] = React.useState<Set<number>>(new Set());
-  const [yearsMode, setYearsMode] = React.useState<YearsMode>(
-    yearsSince === 3 ? "3" : "5"
+  // The viewer's own choice outlives the visit: reopening a profile should show
+  // the range they last put it in, not the caller's default. Their choice wins
+  // over `yearsSince`, which is only the starting point for someone who has
+  // never picked one.
+  const [yearsMode, setYearsMode] = React.useState<YearsMode>(() =>
+    readPreferenceOneOf<YearsMode>(
+      PREFERENCE_KEYS.profilePublicationYears,
+      YEARS_MODES,
+      yearsSince === 3 ? "3" : "5",
+    ),
   );
+  const chooseYearsMode = (mode: YearsMode) => {
+    setYearsMode(mode);
+    writePreference(PREFERENCE_KEYS.profilePublicationYears, mode);
+  };
   const yearsParam = yearsMode === "all" ? 100 : parseInt(yearsMode, 10);
   const queryParams = new URLSearchParams({ years: String(yearsParam) });
   if (demoViewerRole) queryParams.set("viewerRole", demoViewerRole);
@@ -402,7 +453,7 @@ export function PublicationsList({
         <button
           key={mode}
           type="button"
-          onClick={() => setYearsMode(mode)}
+          onClick={() => chooseYearsMode(mode)}
           data-testid={`button-publications-years-${mode}`}
           className={`px-2.5 py-1 text-xs font-medium transition-colors ${
             yearsMode === mode

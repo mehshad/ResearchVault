@@ -999,6 +999,10 @@ export class DatabaseStorage implements IStorage {
       .select({
         id: publications.id,
         researchActivityId: publications.researchActivityId,
+        // Mutually exclusive with researchActivityId: a record either links an
+        // SDR or records why none applies. Without this the profile list cannot
+        // tell the two apart and flags an accepted exception as a missing link.
+        sdrExemptionReason: publications.sdrExemptionReason,
         title: publications.title,
         abstract: publications.abstract,
         authors: publications.authors,
