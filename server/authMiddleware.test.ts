@@ -13,9 +13,31 @@ import {
   hashPassword,
   demoBannerMiddleware,
   requireAuth,
-  requireContractsOfficer,
-  requireContractsRead,
+  createRequireResearchOfficer,
+  createRequirePmoOfficer,
 } from "./auth";
+
+// ── Stub loaders ─────────────────────────────────────────────────────────────
+// Inject a mock NavigationAccessLoader so tests never touch the database.
+// The loader returns the access level the named role holds for the area,
+// mirroring the matrix values set by 20260830_consolidate_research_officer.sql.
+
+/** research-office: Research Officer → edit, Management → view, everyone else → null */
+const researchOfficeLoader = async (role: string, _item: string) => {
+  if (role === "Research Officer") return "edit" as const;
+  if (role === "Management")       return "view" as const;
+  return null;
+};
+
+/** pmo-office: PMO Officer → edit, Management → view, everyone else → null */
+const pmoOfficeLoader = async (role: string, _item: string) => {
+  if (role === "PMO Officer") return "edit" as const;
+  if (role === "Management")  return "view" as const;
+  return null;
+};
+
+const requireResearchOfficer = createRequireResearchOfficer(researchOfficeLoader);
+const requirePmoOfficer       = createRequirePmoOfficer(pmoOfficeLoader);
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -209,61 +231,122 @@ test("requireAuth returns 401 in local mode without a session user", () => {
 });
 
 // ---------------------------------------------------------------------------
-// requireContractsOfficer
+// requireResearchOfficer
+// Guards /api/grants, /api/research-contracts after the role consolidation in
+// 20260830_consolidate_research_officer.sql.  "Grant Officer" and "Contracts
+// Officer" were merged into "Research Officer"; the guard now reads the matrix.
 // ---------------------------------------------------------------------------
 
-const CONTRACTS_ALLOWED = ["Contracts Officer", "admin", "superadmin", "Management"];
-const CONTRACTS_DENIED  = ["Investigator", "Grant Officer", "IRB Officer", "user"];
-
-for (const role of CONTRACTS_ALLOWED) {
-  test(`requireContractsOfficer allows role="${role}"`, () => {
-    const req = fakeReq({ session: { user: { id: 1, role } } } as any);
-    const res = fakeRes();
-    let called = false;
-    requireContractsOfficer(req, res, () => { called = true; });
-    assert.ok(called, `expected next() for role="${role}"`);
-  });
-}
-
-for (const role of CONTRACTS_DENIED) {
-  test(`requireContractsOfficer blocks role="${role}" with 403`, () => {
-    const req = fakeReq({ session: { user: { id: 1, role } } } as any);
-    const res = fakeRes();
-    let called = false;
-    requireContractsOfficer(req, res, () => { called = true; });
-    assert.ok(!called, `expected 403 for role="${role}"`);
-    assert.equal(res.statusCode, 403);
-  });
-}
-
-test("requireContractsOfficer returns 403 for anonymous (no session user)", () => {
-  const req = fakeReq({ session: {} } as any);
+test("requireResearchOfficer allows Research Officer (has edit on research-office)", async () => {
+  const req = fakeReq({ session: { user: { id: 1, role: "Research Officer" } } } as any);
   const res = fakeRes();
   let called = false;
-  requireContractsOfficer(req, res, () => { called = true; });
+  await requireResearchOfficer(req, res, () => { called = true; });
+  assert.ok(called, "Research Officer must reach the handler");
+});
+
+test("requireResearchOfficer allows Management (has view on research-office)", async () => {
+  const req = fakeReq({ session: { user: { id: 2, role: "Management" } } } as any);
+  const res = fakeRes();
+  let called = false;
+  await requireResearchOfficer(req, res, () => { called = true; });
+  assert.ok(called, "Management (view) must pass GET guard");
+});
+
+test("requireResearchOfficer blocks Management on write (view < create)", async () => {
+  const req = fakeReq({
+    method: "POST",
+    session: { user: { id: 2, role: "Management" } },
+  } as any);
+  const res = fakeRes();
+  let called = false;
+  await requireResearchOfficer(req, res, () => { called = true; });
+  assert.ok(!called, "Management (view) must not POST");
+  assert.equal(res.statusCode, 403);
+});
+
+test("requireResearchOfficer blocks Investigator (no matrix entry)", async () => {
+  const req = fakeReq({ session: { user: { id: 3, role: "Investigator" } } } as any);
+  const res = fakeRes();
+  let called = false;
+  await requireResearchOfficer(req, res, () => { called = true; });
   assert.ok(!called);
   assert.equal(res.statusCode, 403);
 });
 
-// ---------------------------------------------------------------------------
-// requireContractsRead
-// ---------------------------------------------------------------------------
-
-test("requireContractsRead calls next() and sets currentUser when session user exists", () => {
-  const user = { id: 3, role: "Investigator" };
-  const req = fakeReq({ session: { user } } as any);
-  const res = fakeRes();
-  let called = false;
-  requireContractsRead(req, res, () => { called = true; });
-  assert.ok(called);
-  assert.deepEqual((req as any).currentUser, user);
-});
-
-test("requireContractsRead returns 401 when no session user", () => {
+test("requireResearchOfficer blocks anonymous request", async () => {
   const req = fakeReq({ session: {} } as any);
   const res = fakeRes();
   let called = false;
-  requireContractsRead(req, res, () => { called = true; });
+  await requireResearchOfficer(req, res, () => { called = true; });
   assert.ok(!called);
-  assert.equal(res.statusCode, 401);
+  assert.equal(res.statusCode, 403);
+});
+
+test("requireResearchOfficer allows superadmin (administrator short-circuit)", async () => {
+  const req = fakeReq({ session: { user: { id: 99, role: "superadmin" } } } as any);
+  const res = fakeRes();
+  let called = false;
+  await requireResearchOfficer(req, res, () => { called = true; });
+  assert.ok(called, "superadmin bypasses the matrix");
+});
+
+// ---------------------------------------------------------------------------
+// requirePmoOfficer
+// Guards /api/programs, /api/projects, /api/research-activities after the
+// consolidation in 20260831_consolidate_navigation_areas.sql.
+// ---------------------------------------------------------------------------
+
+test("requirePmoOfficer allows PMO Officer (has edit on pmo-office)", async () => {
+  const req = fakeReq({ session: { user: { id: 1, role: "PMO Officer" } } } as any);
+  const res = fakeRes();
+  let called = false;
+  await requirePmoOfficer(req, res, () => { called = true; });
+  assert.ok(called);
+});
+
+test("requirePmoOfficer allows Management GET (has view on pmo-office)", async () => {
+  const req = fakeReq({ session: { user: { id: 2, role: "Management" } } } as any);
+  const res = fakeRes();
+  let called = false;
+  await requirePmoOfficer(req, res, () => { called = true; });
+  assert.ok(called);
+});
+
+test("requirePmoOfficer blocks Management POST (view < create)", async () => {
+  const req = fakeReq({
+    method: "POST",
+    session: { user: { id: 2, role: "Management" } },
+  } as any);
+  const res = fakeRes();
+  let called = false;
+  await requirePmoOfficer(req, res, () => { called = true; });
+  assert.ok(!called);
+  assert.equal(res.statusCode, 403);
+});
+
+test("requirePmoOfficer blocks Researcher (no matrix entry)", async () => {
+  const req = fakeReq({ session: { user: { id: 5, role: "Researcher" } } } as any);
+  const res = fakeRes();
+  let called = false;
+  await requirePmoOfficer(req, res, () => { called = true; });
+  assert.ok(!called);
+  assert.equal(res.statusCode, 403);
+});
+
+test("requirePmoOfficer blocks anonymous request", async () => {
+  const req = fakeReq({ session: {} } as any);
+  const res = fakeRes();
+  let called = false;
+  await requirePmoOfficer(req, res, () => { called = true; });
+  assert.ok(!called);
+  assert.equal(res.statusCode, 403);
+});
+
+test("requirePmoOfficer allows admin (administrator short-circuit)", async () => {
+  const req = fakeReq({ session: { user: { id: 99, role: "admin" } } } as any);
+  const res = fakeRes();
+  let called = false;
+  await requirePmoOfficer(req, res, () => { called = true; });
+  assert.ok(called, "admin bypasses the matrix");
 });
