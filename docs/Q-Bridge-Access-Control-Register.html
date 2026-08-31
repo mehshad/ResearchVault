@@ -1083,6 +1083,57 @@
 
     <div class="finding high">
       <div class="finding-head">
+        <span class="finding-id">AC-11</span>
+        <h4>Seven endpoints require no authentication at all</h4>
+        <span class="chip high">High</span>
+      </div>
+      <p>
+        Eight of the routes no guard covers must be reachable before a role is resolved at all
+        &mdash; sign-in, registration, the liveness probe, object storage. Seven more have no
+        matrix area that describes them:
+        <span class="mono">/api/system-configurations</span> (5) and
+        <span class="mono">/api/pdf-import-history</span> (2).
+      </p>
+      <p>
+        These seven carry <em>no route-level guard either</em>. Nothing global supplies one:
+        <span class="mono">restrictDefaultUserApiAccess</span> returns
+        <span class="mono">false</span> for a caller with no session, so an anonymous request
+        passes through it and reaches the handler. The consequence is not that any assigned role
+        can reach them &mdash; it is that <strong>no account is needed</strong>.
+      </p>
+      <p>
+        Confirmed against a running server in <span class="mono">local</span> mode with no cookie
+        of any kind. <span class="mono">/api/scientists</span> and
+        <span class="mono">/api/publications</span> answer 403 as they should; these answer in
+        full, and accept writes:
+      </p>
+      <div class="evidence">GET    /api/system-configurations        200   (guarded routes return 403)
+GET    /api/pdf-import-history           200
+POST   /api/system-configurations        201   {"key":"__probe_unauth_write", ...}
+GET    /api/system-configurations/__probe_unauth_write   200
+DELETE /api/system-configurations/__probe_unauth_write   200</div>
+      <p>
+        The row was created, read back and deleted by an unauthenticated caller. The only
+        authorisation anywhere on these handlers is a single special case for the Sidra Score
+        settings key; every other key is writable by anyone who can reach the port. Those keys
+        carry the theme, the institution labels, section visibility and the default colour mode
+        &mdash; so this is defacement and configuration tampering, not disclosure. System
+        configuration is also absent from every section of the bulk-data archive, so a full
+        restore silently loses it.
+      </p>
+      <p>
+        <span class="label">Recommendation</span>
+        Put <span class="mono">/api/system-configurations</span> behind
+        <span class="mono">requireAdmin</span> immediately &mdash; it is administrator-only in
+        substance, and the read paths the client needs before sign-in should be narrowed to the
+        specific keys rather than left open on the whole prefix. Import history is a read-only log
+        and can follow whichever area owns bulk import. Whatever is chosen, both prefixes should
+        leave <span class="mono">UNMAPPED_API_PREFIXES</span>.
+      </p>
+    </div>
+
+    <div class="finding high">
+      <div class="finding-head">
         <span class="finding-id">AC-03</span>
         <h4>Demo mode disables authorisation entirely</h4>
         <span class="chip high">High</span>
@@ -1187,37 +1238,6 @@
       </p>
     </div>
 
-    <div class="finding info">
-      <div class="finding-head">
-        <span class="finding-id">AC-11</span>
-        <h4>Seven endpoints have no area to enforce</h4>
-        <span class="chip info">Medium</span>
-      </div>
-      <p>
-        Eight of the routes no guard covers must be reachable before a role is resolved at all
-        &mdash; sign-in, registration, the liveness probe, object storage. Seven more have no
-        matrix area that describes them:
-        <span class="mono">/api/system-configurations</span> (5) and
-        <span class="mono">/api/pdf-import-history</span> (2).
-      </p>
-      <p>
-        They are recorded in <span class="mono">UNMAPPED_API_PREFIXES</span> with the reason
-        beside each, so this is a known gap rather than a silent one &mdash; but a known gap is
-        still a gap: any signed-in account holding any assigned role reaches them.
-      </p>
-      <p>
-        System configuration is the one that matters. Its five routes carry the theme, the
-        institution labels, section visibility and the default colour mode &mdash; and the write
-        methods among them are reachable by any assigned role. It is also absent from every
-        section of the bulk-data archive, so a full restore silently loses it.
-      </p>
-      <p>
-        <span class="label">Recommendation</span>
-        Settle system configuration: it is administrator-only in substance, so either give it an
-        area of its own in the matrix or put it behind <span class="mono">requireAdmin</span>.
-        Import history is a read-only log and can follow whichever area owns bulk import.
-      </p>
-    </div>
 
     
   </section>
