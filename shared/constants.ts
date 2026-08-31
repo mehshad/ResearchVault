@@ -184,10 +184,10 @@ export const BUILT_IN_ASSIGNABLE_ROLES = ["user", "admin"] as const;
 export const RESTRICTED_USER_ROLE = "user";
 
 export const NAVIGATION_ITEMS = [
-  { id: "dashboard", name: "Dashboard", description: "System overview and statistics" },
+  { id: "dashboard", name: "Dashboard & Feature Requests", description: "System overview, statistics and feature requests" },
   { id: "scientists", name: "Scientists & Staff", description: "Research team management" },
   { id: "facilities", name: "Facilities", description: "Buildings and rooms management" },
-  { id: "pmo-office", name: "PMO Office", description: "Programs, projects and research activities" },
+  { id: "pmo-office", name: "PMO Office", description: "Programs, projects, research activities and RA200/RA205A forms" },
   { id: "irb-applications", name: "IRB Applications", description: "Ethics review applications" },
   { id: "irb-office", name: "IRB Office", description: "IRB administration" },
   { id: "irb-reviewer", name: "IRB Reviewer", description: "IRB review interface" },

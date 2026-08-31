@@ -61,6 +61,8 @@ export const NAVIGATION_ROUTE_RULES: NavigationRouteRule[] = [
   { prefix: "/api/research-activities", navigationItem: "pmo-office", label: "PMO office" },
   { prefix: "/api/project-members", navigationItem: "pmo-office", label: "PMO office" },
   { prefix: "/api/pmo-applications", navigationItem: "pmo-office", label: "PMO office" },
+  { prefix: "/api/ra200-applications", navigationItem: "pmo-office", label: "PMO office" },
+  { prefix: "/api/ra205a-applications", navigationItem: "pmo-office", label: "PMO office" },
 
   // ── Compliance ───────────────────────────────────────────────────────────
   { prefix: "/api/irb-applications", navigationItem: "irb-applications", label: "IRB applications" },
@@ -89,6 +91,7 @@ export const NAVIGATION_ROUTE_RULES: NavigationRouteRule[] = [
 
   // ── Overview ─────────────────────────────────────────────────────────────
   { prefix: "/api/dashboard", navigationItem: "dashboard", label: "Dashboard" },
+  { prefix: "/api/feature-requests", navigationItem: "dashboard", label: "Dashboard" },
   { prefix: "/api/reports", navigationItem: "reports", label: "Reports" },
 ];
 
@@ -107,10 +110,7 @@ export const UNMAPPED_API_PREFIXES: ReadonlyArray<{ prefix: string; reason: stri
   { prefix: "/api/management", reason: "Guarded by requireManagement, which now reads the matrix." },
   { prefix: "/api/office-dashboards", reason: "Guarded by the office guards, which now read the matrix." },
   { prefix: "/api/system-configurations", reason: "No matrix area covers system configuration." },
-  { prefix: "/api/feature-requests", reason: "No matrix area covers feature requests." },
   { prefix: "/api/pdf-import-history", reason: "No matrix area covers import history." },
-  { prefix: "/api/ra200-applications", reason: "No matrix area covers RA200 forms." },
-  { prefix: "/api/ra205a-applications", reason: "No matrix area covers RA205A forms." },
   { prefix: "/objects", reason: "Object storage, served outside the /api surface." },
 ];
 

@@ -1046,16 +1046,16 @@
 
     <div class="stats">
       <div class="stat"><div class="v">295</div><div class="l">API routes</div></div>
-      <div class="stat"><div class="v">278</div><div class="l">Reach a guard</div></div>
+      <div class="stat"><div class="v">280</div><div class="l">Reach a guard</div></div>
       <div class="stat"><div class="v">94%</div><div class="l">Covered</div></div>
-      <div class="stat"><div class="v warn">17</div><div class="l">Have no area</div></div>
+      <div class="stat"><div class="v warn">15</div><div class="l">Have no area</div></div>
     </div>
 
     <p>
-      The 17 that remain are not an oversight; they are listed in
+      The 15 that remain are not an oversight; they are listed in
       <span class="mono">UNMAPPED_API_PREFIXES</span> beside the reason each is excluded. Eight of
       them must be reachable without a resolved role at all &mdash; sign-in, registration, the
-      liveness probe, object storage. The other nine have no matrix area that describes them, and
+      liveness probe, object storage. The other seven have no matrix area that describes them, and
       that is <strong>AC-11</strong>.
     </p>
     <div class="note">
@@ -1190,18 +1190,15 @@
     <div class="finding info">
       <div class="finding-head">
         <span class="finding-id">AC-11</span>
-        <h4>Nine endpoints have no area to enforce</h4>
+        <h4>Seven endpoints have no area to enforce</h4>
         <span class="chip info">Medium</span>
       </div>
       <p>
-        Of the 17 routes not covered by a guard, eight must be reachable before a role is resolved
-        at all &mdash; sign-in, registration, the liveness probe, object storage. The other nine
-        have no matrix area that describes them:
-        <span class="mono">/api/system-configurations</span> (5),
-        <span class="mono">/api/feature-requests</span> (5, though these overlap the first),
-        <span class="mono">/api/pdf-import-history</span> (2),
-        <span class="mono">/api/ra200-applications</span> (1) and
-        <span class="mono">/api/ra205a-applications</span> (1).
+        Eight of the routes no guard covers must be reachable before a role is resolved at all
+        &mdash; sign-in, registration, the liveness probe, object storage. Seven more have no
+        matrix area that describes them:
+        <span class="mono">/api/system-configurations</span> (5) and
+        <span class="mono">/api/pdf-import-history</span> (2).
       </p>
       <p>
         They are recorded in <span class="mono">UNMAPPED_API_PREFIXES</span> with the reason
@@ -1209,9 +1206,16 @@
         still a gap: any signed-in account holding any assigned role reaches them.
       </p>
       <p>
+        System configuration is the one that matters. Its five routes carry the theme, the
+        institution labels, section visibility and the default colour mode &mdash; and the write
+        methods among them are reachable by any assigned role. It is also absent from every
+        section of the bulk-data archive, so a full restore silently loses it.
+      </p>
+      <p>
         <span class="label">Recommendation</span>
-        Decide for each group whether it belongs to an existing area, deserves a new one, or should
-        simply be administrator-only. System configuration is the one worth settling first.
+        Settle system configuration: it is administrator-only in substance, so either give it an
+        area of its own in the matrix or put it behind <span class="mono">requireAdmin</span>.
+        Import history is a read-only log and can follow whichever area owns bulk import.
       </p>
     </div>
 
