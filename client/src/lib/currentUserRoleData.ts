@@ -4,7 +4,18 @@ export interface DummyUser {
   id: number;
   name: string;
   email: string;
+  /** Primary access role. */
   role: string;
+  /**
+   * Roles held alongside the primary one; access is the union of all of them.
+   *
+   * Carried here because every client-side authorisation check resolves against
+   * this object. Without it `isAdministrator` and `getEffectiveAccessLevel` saw
+   * the primary role alone, so someone holding admin as a secondary -- which is
+   * how administrator rights are normally granted -- was refused by the
+   * interface while the server was granting them.
+   */
+  secondaryRoles?: string[];
 }
 
 /**

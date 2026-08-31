@@ -1,10 +1,16 @@
 import { ReactNode } from "react";
 import { usePermissions } from "@/hooks/usePermissions";
+import { useCurrentUser } from "@/hooks/useCurrentUser";
 import { Badge } from "@/components/ui/badge";
 import { Eye } from "lucide-react";
 
 interface PermissionWrapperProps {
   children: ReactNode;
+  /**
+   * The current user's primary role. Retained because every call site passes
+   * it and its presence is what asks for a check at all; the answer itself is
+   * resolved for the whole person, not for this one role.
+   */
   currentUserRole?: string;
   navigationItem?: string;
   requiredPermissions?: ('canEdit' | 'canCreate' | 'canAdd' | 'canView' | 'canDelete')[];
@@ -20,25 +26,26 @@ export function PermissionWrapper({
   fallback = null,
   showReadOnlyBanner = true
 }: PermissionWrapperProps) {
-  const { isHidden, isReadOnly, canEdit, canCreate, canView } = usePermissions();
+  const { getEffectiveAccessLevel } = usePermissions();
+  const { currentUser } = useCurrentUser();
+
+  // Resolved for the person rather than for one role string. Access is the
+  // union of the primary role and the secondaries, and administrator rights
+  // are normally held as a secondary -- so resolving the primary alone hid
+  // screens from exactly the people entitled to edit them, over an API that
+  // was granting them.
+  const accessLevel = navigationItem
+    ? getEffectiveAccessLevel(currentUser, navigationItem)
+    : null;
 
   // Handle button-level permission checking with requiredPermissions
   if (requiredPermissions && currentUserRole && navigationItem) {
     const hasRequiredPermission = requiredPermissions.every(permission => {
-      if (permission === 'canEdit') {
-        return canEdit(currentUserRole, navigationItem);
-      } else if (permission === 'canCreate') {
-        return canCreate(currentUserRole, navigationItem);
-      } else if (permission === 'canView') {
-        return canView(currentUserRole, navigationItem);
-      } else if (permission === 'canAdd') {
-        // canAdd maps to canCreate
-        return canCreate(currentUserRole, navigationItem);
-      } else if (permission === 'canDelete') {
-        // canDelete is treated the same as canEdit
-        return canEdit(currentUserRole, navigationItem);
+      if (permission === 'canView') {
+        return accessLevel === 'view' || accessLevel === 'edit';
       }
-      return false;
+      // canEdit, canCreate, canAdd and canDelete all require edit.
+      return accessLevel === 'edit';
     });
 
     if (!hasRequiredPermission) {
@@ -52,12 +59,12 @@ export function PermissionWrapper({
   // Handle page-level permission checking with currentUserRole and navigationItem
   if (currentUserRole && navigationItem) {
     // If the section is hidden, don't render anything
-    if (isHidden(currentUserRole, navigationItem)) {
+    if (accessLevel === 'hide') {
       return <>{fallback}</>;
     }
 
     // If it's read-only, wrap with read-only styling and banner
-    if (isReadOnly(currentUserRole, navigationItem)) {
+    if (accessLevel === 'view') {
       return (
         <div className="space-y-4">
           {showReadOnlyBanner && (
@@ -86,16 +93,23 @@ export function PermissionWrapper({
   return <>{children}</>;
 }
 
-// Hook to check permissions for specific elements
+// Hook to check permissions for specific elements.
+//
+// `currentUserRole` is kept for call-site compatibility; like PermissionWrapper
+// this resolves the whole person, so a role held as a secondary counts.
 export function useElementPermissions(currentUserRole: string, navigationItem: string) {
-  const { isHidden, isReadOnly, canEdit, canCreate } = usePermissions();
+  const { getEffectiveAccessLevel } = usePermissions();
+  const { currentUser } = useCurrentUser();
+  void currentUserRole;
+
+  const accessLevel = getEffectiveAccessLevel(currentUser, navigationItem);
 
   return {
-    isHidden: isHidden(currentUserRole, navigationItem),
-    isReadOnly: isReadOnly(currentUserRole, navigationItem),
-    canEdit: canEdit(currentUserRole, navigationItem),
-    canCreate: canCreate(currentUserRole, navigationItem),
-    shouldHideEditButtons: !canEdit(currentUserRole, navigationItem),
-    readOnlyClass: isReadOnly(currentUserRole, navigationItem) ? "read-only" : ""
+    isHidden: accessLevel === "hide",
+    isReadOnly: accessLevel === "view",
+    canEdit: accessLevel === "edit",
+    canCreate: accessLevel === "edit",
+    shouldHideEditButtons: accessLevel !== "edit",
+    readOnlyClass: accessLevel === "view" ? "read-only" : ""
   };
 }
