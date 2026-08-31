@@ -32,10 +32,34 @@ test("template uses the canonical staff columns", async () => {
   assert.ok(workbook.getWorksheet("Instructions"));
 });
 
-test("export preserves current structured fields", () => {
-  const rows = scientistsToRows([scientist(1, "Ada", "Lovelace", { departmentId: 10, sectionId: 20 })]);
-  assert.equal(rows[0]["Department ID"], 10);
-  assert.equal(rows[0]["Section ID"], 20);
+test("export carries organisation placement by name, not by database id", () => {
+  // Ids are meaningless outside the database they came from: a file exported
+  // here and imported elsewhere would have placed people in whichever
+  // department happened to hold that id.
+  const rows = scientistsToRows(
+    [scientist(1, "Ada", "Lovelace", { departmentId: 10, sectionId: 20 })],
+    org,
+  );
+  assert.equal(rows[0]["Org Department"], "Genomics");
+  assert.equal(rows[0]["Org Section"], "Lab");
+  assert.equal("Department ID" in rows[0], false);
+  assert.equal("Section ID" in rows[0], false);
+});
+
+test("a placement round-trips through export and import", () => {
+  const placed = scientist(1, "Ada", "Lovelace", { departmentId: 10, sectionId: 20 });
+  const row = scientistsToRows([placed], org)[0];
+  const preview = buildImportPreview([row], [], org);
+  assert.equal(preview.errors.length, 0);
+  assert.equal(preview.toInsert[0].departmentId, 10);
+  assert.equal(preview.toInsert[0].sectionId, 20);
+});
+
+test("an organisation name that does not exist here is an error, not a guess", () => {
+  const row = scientistsToRows([scientist(1, "Ada", "Lovelace")], org)[0];
+  row["Org Department"] = "Department Of Elsewhere";
+  const preview = buildImportPreview([row], [], org);
+  assert.match(preview.errors[0].errors.join(" "), /Org Department .* does not exist/);
 });
 
 test("the workbook carries no Investigator column", () => {
@@ -169,7 +193,10 @@ test("an import does fill a field the record is missing", () => {
 
 test("import rejects a section from another department", () => {
   const badOrg = { ...org, departments: [...org.departments, { ...org.departments[0], id: 11, name: "Other" }] };
-  const row = scientistsToRows([scientist(1, "Ada", "Lovelace", { departmentId: 11, sectionId: 20 })])[0];
+  const row = scientistsToRows(
+    [scientist(1, "Ada", "Lovelace", { departmentId: 11, sectionId: 20 })],
+    badOrg,
+  )[0];
   const preview = buildImportPreview([row], [], badOrg);
   assert.match(preview.errors[0].errors.join(" "), /does not belong/);
 });

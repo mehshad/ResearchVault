@@ -7,7 +7,16 @@ import type { PgDatabase } from "drizzle-orm/pg-core";
 import { Scientist, InsertScientist, Branch, Department, Section } from "@shared/schema";
 import { inferPlacementFromLineManagers } from "@shared/sectionInference";
 
-type StaffFileKey = keyof Scientist | "supervisorEmail";
+/**
+ * A column key. Most map straight onto a Scientist field; the rest are the
+ * portable forms of a relationship -- a line manager's email, and organisation
+ * placement by name rather than by this database's ids.
+ */
+type StaffFileKey =
+  | keyof Scientist
+  | "supervisorEmail"
+  | "orgDepartment"
+  | "orgSection";
 
 export const EXPORT_COLUMNS: Array<{ header: string; key: StaffFileKey; description: string }> = [
   { header: "Staff ID", key: "staffId", description: "Unique staff identifier" },
@@ -17,8 +26,8 @@ export const EXPORT_COLUMNS: Array<{ header: string; key: StaffFileKey; descript
   { header: "Email", key: "email", description: "Required unique email" },
   { header: "Job Title", key: "jobTitle", description: "Profile job title" },
   { header: "Staff Type", key: "staffType", description: "scientific or administrative" },
-  { header: "Department ID", key: "departmentId", description: "Numeric ID from Settings > Organization" },
-  { header: "Section ID", key: "sectionId", description: "Numeric ID; must belong to Department ID" },
+  { header: "Org Department", key: "orgDepartment", description: "Department name from the organisation chart" },
+  { header: "Org Section", key: "orgSection", description: "Section name; must belong to Org Department" },
   { header: "Legacy Department", key: "department", description: "Older free-text department value" },
   { header: "Initials", key: "profileImageInitials", description: "Up to two characters" },
   { header: "Line Manager Email", key: "supervisorEmail", description: "Email of another staff row in this file" },
@@ -36,6 +45,11 @@ const HEADER_TO_KEY: Record<string, string> = EXPORT_COLUMNS.reduce((acc, col) =
 // Backward compatibility for exports created before the structured
 // organization fields were added.
 HEADER_TO_KEY["department"] = "department";
+// Older exports carried raw database ids. They still import, but only into the
+// database they came from -- an id means nothing anywhere else, which is why
+// the columns are names now.
+HEADER_TO_KEY["department id"] = "departmentId";
+HEADER_TO_KEY["section id"] = "sectionId";
 
 export interface StaffOrgData {
   branches: Branch[];
@@ -102,15 +116,28 @@ export function orderScientistsForExport(scientists: Scientist[], org: StaffOrgD
   return ordered;
 }
 
-export function scientistsToRows(scientists: Scientist[]): Record<string, any>[] {
+export function scientistsToRows(
+  scientists: Scientist[],
+  org?: StaffOrgData,
+): Record<string, any>[] {
   const idToEmail = new Map<number, string>();
   scientists.forEach(s => idToEmail.set(s.id, s.email));
+  // Organisation placement travels as names. It used to be exported as the raw
+  // database ids, which are meaningless in any other database: a file exported
+  // here and imported elsewhere would have placed people in whichever
+  // department happened to hold that id.
+  const departmentNameById = new Map((org?.departments ?? []).map(d => [d.id, d.name]));
+  const sectionNameById = new Map((org?.sections ?? []).map(s => [s.id, s.name]));
 
   return scientists.map(s => {
     const row: Record<string, any> = {};
     for (const col of EXPORT_COLUMNS) {
       if (col.key === "supervisorEmail") {
         row[col.header] = s.supervisorId ? idToEmail.get(s.supervisorId) ?? "" : "";
+      } else if (col.key === "orgDepartment") {
+        row[col.header] = s.departmentId ? departmentNameById.get(s.departmentId) ?? "" : "";
+      } else if (col.key === "orgSection") {
+        row[col.header] = s.sectionId ? sectionNameById.get(s.sectionId) ?? "" : "";
       } else {
         const v = (s as any)[col.key];
         row[col.header] = v == null ? "" : v;
@@ -125,7 +152,7 @@ export async function buildExportBuffer(
   format: "xlsx" | "csv",
   org?: StaffOrgData
 ): Promise<{ buffer: Buffer; mime: string; filename: string }> {
-  const rows = scientistsToRows(org ? orderScientistsForExport(scientists, org) : scientists);
+  const rows = scientistsToRows(org ? orderScientistsForExport(scientists, org) : scientists, org);
   const stamp = new Date().toISOString().slice(0, 10);
 
   if (format === "csv") {
@@ -248,6 +275,8 @@ const fileRowSchema = z.object({
   ),
   departmentId: optionalInteger,
   sectionId: optionalInteger,
+  orgDepartment: z.string().trim().optional(),
+  orgSection: z.string().trim().optional(),
   department: z.string().trim().optional(),
   profileImageInitials: z.string().trim().max(2).optional(),
   supervisorEmail: z.string().trim().toLowerCase().optional(),
@@ -451,8 +480,54 @@ export function buildImportPreview(
     }
 
     const matchedRecord = staffIdMatch ?? emailMatch ?? null;
-    if (!presentKeys.has("departmentId")) row.departmentId = matchedRecord?.departmentId ?? undefined;
-    if (!presentKeys.has("sectionId")) row.sectionId = matchedRecord?.sectionId ?? undefined;
+
+    // Names are the portable form, so resolve them to this database's ids
+    // before anything else looks at the placement. A file exported from another
+    // environment carries names that exist there; if a name is unknown here
+    // that is a real error, not something to resolve to whatever id matches.
+    if (org) {
+      const orgDepartment = (row.orgDepartment ?? "").trim();
+      const orgSection = (row.orgSection ?? "").trim();
+      if (orgDepartment) {
+        const match = org.departments.find(
+          (d) => d.name.trim().toLowerCase() === orgDepartment.toLowerCase(),
+        );
+        if (!match) rowErrors.push(`Org Department '${orgDepartment}' does not exist`);
+        else row.departmentId = match.id;
+      }
+      if (orgSection) {
+        const candidates = org.sections.filter(
+          (sec) => sec.name.trim().toLowerCase() === orgSection.toLowerCase(),
+        );
+        const match = row.departmentId
+          ? candidates.find((sec) => sec.departmentId === row.departmentId)
+          : candidates.length === 1 ? candidates[0] : undefined;
+        if (!match && candidates.length === 0) {
+          rowErrors.push(`Org Section '${orgSection}' does not exist`);
+        } else if (!match && candidates.length > 1) {
+          rowErrors.push(
+            `Org Section '${orgSection}' exists in more than one department; set Org Department too`,
+          );
+        } else if (!match) {
+          rowErrors.push(`Org Section '${orgSection}' does not belong to Org Department '${orgDepartment}'`);
+        } else {
+          row.sectionId = match.id;
+          row.departmentId = row.departmentId ?? match.departmentId;
+        }
+      }
+    }
+    if (rowErrors.length) {
+      errors.push({ rowNumber, identifier, errors: rowErrors });
+      return;
+    }
+
+    const placesByName = !!(row.orgDepartment ?? "").trim() || !!(row.orgSection ?? "").trim();
+    if (!presentKeys.has("departmentId") && !placesByName) {
+      row.departmentId = matchedRecord?.departmentId ?? undefined;
+    }
+    if (!presentKeys.has("sectionId") && !placesByName) {
+      row.sectionId = matchedRecord?.sectionId ?? undefined;
+    }
     if (org) {
       const department = row.departmentId ? departmentsById.get(row.departmentId) : undefined;
       const section = row.sectionId ? sectionsById.get(row.sectionId) : undefined;

@@ -213,7 +213,7 @@ function StaffImportExportButtons() {
               <ul className="list-disc pl-5 text-muted-foreground space-y-1">
                 <li>Required: Honorific Title, First Name, Last Name, and Email.</li>
                 <li>Staff Type must be scientific or administrative.</li>
-                <li>Department ID and Section ID come from Settings → Organization, and the section must belong to the department.</li>
+                <li>Org Department and Org Section are names from the organisation chart, and the section must belong to the department. Leave the section blank to inherit it from the person's line manager.</li>
                 <li>Line Manager Email must identify someone in the file or already on staff.</li>
               </ul>
             </div>
