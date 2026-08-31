@@ -138,6 +138,54 @@ test("several job titles resolve to the one Researcher access role", async () =>
   assert.ok(ACCESS_ROLES.includes("Investigator"));
 });
 
+test("a job title written differently is not a mismatch", async () => {
+  const { isRoleTitleMismatch, accessRoleForJobTitle, RESEARCHER_ROLE } =
+    await import("./constants.js");
+
+  // The stored title is whatever the organisation calls the post, and it
+  // arrives through staff imports. Sixteen people held "Post Doctoral Fellow"
+  // or "Post-doctoral Fellow" against the canonical "Postdoctoral Researcher"
+  // and every one was flagged -- a warning about nothing.
+  for (const spelling of [
+    "Post Doctoral Fellow",
+    "Post-doctoral Fellow",
+    "Postdoctoral Fellow",
+    "postdoc",
+    "POSTDOCTORAL RESEARCHER",
+  ]) {
+    assert.equal(
+      accessRoleForJobTitle(spelling),
+      RESEARCHER_ROLE,
+      `"${spelling}" should resolve to Researcher`,
+    );
+    assert.equal(isRoleTitleMismatch(RESEARCHER_ROLE, spelling), false);
+  }
+
+  // Punctuation and case cannot turn a correct assignment into a mismatch.
+  assert.equal(isRoleTitleMismatch("Research Officer", "research  officer"), false);
+  assert.equal(isRoleTitleMismatch("IRB Officer", "irb-officer"), false);
+});
+
+test("an unrecognised title implies no role, so it is not a mismatch", async () => {
+  const { isRoleTitleMismatch, accessRoleForJobTitle } = await import("./constants.js");
+  // "Other" says nothing about what someone should reach, so there is nothing
+  // for a role to disagree with. It used to resolve to itself and therefore
+  // flagged against every possible role.
+  for (const title of ["Other", "Visiting Scholar", "Consultant (external)"]) {
+    assert.equal(accessRoleForJobTitle(title), null);
+    assert.equal(isRoleTitleMismatch("Researcher", title), false);
+    assert.equal(isRoleTitleMismatch("Management", title), false);
+  }
+});
+
+test("a genuine mismatch is still reported", async () => {
+  const { isRoleTitleMismatch } = await import("./constants.js");
+  // The tolerance above must not swallow the case the warning exists for.
+  assert.equal(isRoleTitleMismatch("IRB Officer", "Staff Scientist"), true);
+  assert.equal(isRoleTitleMismatch("Researcher", "Investigator"), true);
+  assert.equal(isRoleTitleMismatch("Physician", "Post Doctoral Fellow"), true);
+});
+
 test("built-in roles are never reported as a title mismatch", async () => {
   const { isRoleTitleMismatch } = await import("./constants.js");
   // These are granted deliberately and say nothing about the person's job, so
