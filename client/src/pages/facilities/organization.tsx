@@ -208,7 +208,7 @@ export default function OrganizationStructure() {
   return (
     <div className="space-y-6">
       <div className="flex items-center gap-2">
-        <Button variant="ghost" size="sm" onClick={() => navigate("/facilities")} data-testid="button-back">
+        <Button variant="ghost" size="sm" onClick={() => navigate("/scientists")} data-testid="button-back">
           <ArrowLeft className="h-4 w-4 mr-1" />
           Back
         </Button>

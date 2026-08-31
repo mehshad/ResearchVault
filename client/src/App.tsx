@@ -209,6 +209,9 @@ function AppRouter() {
 
         {/* Facilities */}
         <Route path="/facilities" component={FacilitiesList} />
+        <Route path="/scientists/organization" component={OrganizationStructure} />
+        {/* The chart used to live under Facilities. Kept so existing links and
+            bookmarks reach it rather than falling through to Not Found. */}
         <Route path="/facilities/organization" component={OrganizationStructure} />
         <Route path="/facilities/buildings/create" component={CreateBuilding} />
         <Route path="/facilities/buildings/edit/:id" component={EditBuilding} />

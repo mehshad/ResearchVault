@@ -35,7 +35,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { Scientist, Department, Section } from "@shared/schema";
-import { Plus, Search, MoreHorizontal, Mail, Phone, ChevronDown, ChevronUp, ArrowUpDown, Download, Upload, AlertCircle, Loader2 } from "lucide-react";
+import { Plus, Search, MoreHorizontal, Mail, Phone, ChevronDown, ChevronUp, ArrowUpDown, Download, Upload, AlertCircle, Loader2, Network } from "lucide-react";
 import { UploadingModal } from "@/components/ui/upload-modal";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Badge } from "@/components/ui/badge";
@@ -214,7 +214,7 @@ function StaffImportExportButtons() {
                 <li>Required: Honorific Title, First Name, Last Name, and Email.</li>
                 <li>Staff Type must be scientific or administrative; Investigator must be Yes or No.</li>
                 <li>Department ID and Section ID come from Settings → Organization, and the section must belong to the department.</li>
-                <li>Line Manager Email must identify another row in the same file.</li>
+                <li>Line Manager Email must identify someone in the file or already on staff.</li>
               </ul>
             </div>
             <Input
@@ -467,6 +467,15 @@ export default function StaffList() {
         <div className="flex items-center justify-between flex-wrap gap-4">
           <h1 className="text-2xl font-semibold text-foreground">Staff Directory</h1>
           <div className="flex items-center gap-3">
+            {/* The organisation chart is about where staff sit, so it belongs
+                beside the staff who populate it rather than under Facilities,
+                which is buildings and rooms. */}
+            <Link href="/scientists/organization">
+              <Button variant="outline" className="flex items-center gap-2" data-testid="button-organization">
+                <Network className="h-4 w-4" />
+                Organization
+              </Button>
+            </Link>
             <PermissionWrapper
               currentUserRole={currentUser.role}
               navigationItem="scientists"

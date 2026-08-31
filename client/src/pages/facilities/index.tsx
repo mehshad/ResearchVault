@@ -165,12 +165,6 @@ export default function FacilitiesList() {
         <div className="flex items-center justify-between flex-wrap gap-4">
           <h1 className="text-2xl font-semibold text-foreground">Facilities</h1>
           <div className="flex gap-2">
-            <Link href="/facilities/organization">
-              <Button variant="outline" className="flex items-center gap-2" data-testid="button-organization">
-                <Users className="h-4 w-4" />
-                Organization
-              </Button>
-            </Link>
             <PermissionWrapper 
               currentUserRole={currentUser.role} 
               navigationItem="facilities"
