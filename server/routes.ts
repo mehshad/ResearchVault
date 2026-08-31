@@ -30,7 +30,6 @@ import {
   buildTemplateBuffer,
   parseUploadedFile,
   buildImportPreview,
-  enrichDeletesWithReferences,
   rowToInsertScientist,
   findReferencingRecords,
 } from "./scientistsImportExport";
@@ -3234,9 +3233,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
       const existing = await storage.getScientists();
       const org = { branches: await storage.getBranches(), departments: await storage.getDepartments(), sections: await storage.getSections() };
-      const preview = buildImportPreview(fileRows, existing, org);
-      await enrichDeletesWithReferences(preview, db, existing);
-      res.json(preview);
+      res.json(buildImportPreview(fileRows, existing, org));
     } catch (error) {
       console.error('Staff import preview failed:', error);
       res.status(500).json({ message: 'Failed to build import preview' });
@@ -3263,13 +3260,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const existing = await storage.getScientists();
       const org = { branches: await storage.getBranches(), departments: await storage.getDepartments(), sections: await storage.getSections() };
       const preview = buildImportPreview(fileRows, existing, org);
-      await enrichDeletesWithReferences(preview, db, existing);
 
       if (preview.errors.length > 0) {
         return res.status(400).json({
           message: 'Import has validation errors. Re-run preview and fix them first.',
           errors: preview.errors,
-          toDelete: preview.toDelete,
         });
       }
 
@@ -3303,7 +3298,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
           // Add freshly-inserted rows.
           insertedIdByEmail.forEach((id, email) => emailToId.set(email, id));
           // Remove rows being deleted so nothing resolves to a doomed id.
-          for (const d of preview.toDelete) emailToId.delete(d.email.toLowerCase());
 
           // 3. Defensive consistency check: every supervisorEmail in the
           //    file must resolve. Preview validated this against
@@ -3338,25 +3332,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
             }
           }
 
-          // 4. Delete missing rows. Postgres will throw 23503 on FK violation; we wrap to give a clear error.
-          if (preview.toDelete.length > 0) {
-            try {
-              await tx.delete(scientists).where(inArray(scientists.id, preview.toDelete.map(d => d.id)));
-            } catch (e: any) {
-              if (e?.code === '23503') {
-                const detail = e?.detail ? ` Database detail: ${e.detail}` : '';
-                throw new Error(
-                  `Cannot delete one or more staff because they are still referenced by another record (FK violation).${detail} Re-run preview to see exactly which records reference them, reassign those, then re-import.`
-                );
-              }
-              throw e;
-            }
-          }
-
           return {
             inserted: preview.toInsert.length,
             updated: preview.toUpdate.length,
-            deleted: preview.toDelete.length,
             unchanged: preview.unchanged,
           };
         });

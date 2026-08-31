@@ -46,16 +46,9 @@ import { ScientistAvatar } from "@/components/ScientistAvatar";
 import { queryClient, apiRequest, invalidateScientistLists } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 
-interface ReferencingRecord {
-  table: string;
-  column: string;
-  count: number;
-  sampleIds: number[];
-}
 interface ImportPreview {
   toInsert: any[];
   toUpdate: Array<{ existingId: number; row: any }>;
-  toDelete: Array<{ id: number; email: string; name: string; referencedBy?: ReferencingRecord[] }>;
   errors: Array<{ rowNumber: number; identifier: string; errors: string[] }>;
   unchanged: number;
 }
@@ -120,7 +113,7 @@ function StaffImportExportButtons() {
       invalidateScientistLists();
       toast({
         title: "Import applied",
-        description: `Inserted ${data.inserted}, updated ${data.updated}, deleted ${data.deleted}, unchanged ${data.unchanged}.`,
+        description: `Inserted ${data.inserted}, updated ${data.updated}, unchanged ${data.unchanged}.`,
       });
       resetDialog();
     },
@@ -152,7 +145,7 @@ function StaffImportExportButtons() {
   };
 
   const totalChanges = preview
-    ? preview.toInsert.length + preview.toUpdate.length + preview.toDelete.length
+    ? preview.toInsert.length + preview.toUpdate.length
     : 0;
   const canApply = !!preview && preview.errors.length === 0 && totalChanges > 0;
 
@@ -191,10 +184,9 @@ function StaffImportExportButtons() {
           <DialogHeader>
             <DialogTitle>Import staff from file</DialogTitle>
             <DialogDescription>
-              Upload an .xlsx or .csv file (typically one previously exported and edited). Staff are matched by{" "}
-              <strong>Staff ID</strong> first, then <strong>Email</strong> as a fallback. Rows in the file replace
-              the current staff list: matched rows update, new rows insert, and rows missing from the file are
-              deleted (if not referenced elsewhere).
+              Upload an .xlsx or .csv file. Staff are matched by <strong>Staff ID</strong> first, then{" "}
+              <strong>Email</strong> as a fallback: matched rows are updated and unmatched rows are added.
+              Staff who are not in the file are left untouched, so you can import a partial list.
             </DialogDescription>
           </DialogHeader>
 
@@ -240,7 +232,7 @@ function StaffImportExportButtons() {
 
             {preview && (
               <div className="space-y-3">
-                <div className="grid grid-cols-4 gap-2 text-sm">
+                <div className="grid grid-cols-3 gap-2 text-sm">
                   <div className="rounded border bg-green-50 border-green-200 p-2 dark:bg-green-950 dark:border-green-800" data-testid="preview-insert-count">
                     <div className="font-semibold text-green-700 dark:text-green-300">Insert</div>
                     <div className="text-2xl">{preview.toInsert.length}</div>
@@ -248,10 +240,6 @@ function StaffImportExportButtons() {
                   <div className="rounded border bg-blue-50 border-blue-200 p-2 dark:bg-blue-950 dark:border-blue-800" data-testid="preview-update-count">
                     <div className="font-semibold text-blue-700 dark:text-blue-300">Update</div>
                     <div className="text-2xl">{preview.toUpdate.length}</div>
-                  </div>
-                  <div className="rounded border bg-red-50 border-red-200 p-2 dark:bg-red-950 dark:border-red-800" data-testid="preview-delete-count">
-                    <div className="font-semibold text-red-700 dark:text-red-300">Delete</div>
-                    <div className="text-2xl">{preview.toDelete.length}</div>
                   </div>
                   <div className="rounded border bg-muted p-2" data-testid="preview-unchanged-count">
                     <div className="font-semibold">Unchanged</div>
@@ -309,26 +297,6 @@ function StaffImportExportButtons() {
                   </details>
                 )}
 
-                {preview.toDelete.length > 0 && (
-                  <div className="rounded border border-amber-300 bg-amber-50 p-3 text-sm dark:border-amber-700 dark:bg-amber-950">
-                    <div className="font-semibold text-amber-800 mb-1 dark:text-amber-300">Staff missing from file (will be deleted):</div>
-                    <ul className="text-amber-900 max-h-40 overflow-y-auto space-y-1 dark:text-amber-200" data-testid="preview-delete-list">
-                      {preview.toDelete.map(d => (
-                        <li key={d.id}>
-                          <span className="font-medium">{d.name || d.email}</span>
-                          {d.referencedBy && d.referencedBy.length > 0 && (
-                            <span className="text-red-700 ml-1 dark:text-red-300">
-                              — blocked: referenced by{" "}
-                              {d.referencedBy
-                                .map(r => `${r.table}.${r.column} (${r.count} row${r.count === 1 ? "" : "s"}, ids: ${r.sampleIds.join(", ")}${r.count > r.sampleIds.length ? "…" : ""})`)
-                                .join("; ")}
-                            </span>
-                          )}
-                        </li>
-                      ))}
-                    </ul>
-                  </div>
-                )}
               </div>
             )}
           </div>
@@ -359,9 +327,9 @@ function StaffImportExportButtons() {
           <AlertDialogHeader>
             <AlertDialogTitle>Apply staff import?</AlertDialogTitle>
             <AlertDialogDescription>
-              This will insert {preview?.toInsert.length ?? 0}, update {preview?.toUpdate.length ?? 0}, and{" "}
-              <span className="font-semibold text-red-700 dark:text-red-300">delete {preview?.toDelete.length ?? 0}</span> staff record(s).
-              This cannot be undone.
+              This will insert {preview?.toInsert.length ?? 0} and update{" "}
+              {preview?.toUpdate.length ?? 0} staff record(s). Staff not in the file are left
+              untouched. This cannot be undone.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

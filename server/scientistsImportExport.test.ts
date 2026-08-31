@@ -115,3 +115,44 @@ test("import rejects a section from another department", () => {
   const preview = buildImportPreview([row], [], badOrg);
   assert.match(preview.errors[0].errors.join(" "), /does not belong/);
 });
+// ── Staff absent from the file ─────────────────────────────────────────────
+
+test("staff missing from the file are left alone", () => {
+  // An import adds and updates; it is not a statement that the file is the
+  // complete roster. Treating omission as an instruction to delete meant
+  // importing one department proposed removing everybody else.
+  const staying = scientist(1, "Ada", "Lovelace");
+  const alsoStaying = scientist(2, "Grace", "Hopper");
+  const arriving = scientistsToRows([scientist(3, "Alan", "Turing")])[0];
+
+  const preview = buildImportPreview([arriving], [staying, alsoStaying], org);
+
+  assert.equal(preview.errors.length, 0);
+  assert.equal(preview.toInsert.length, 1, "the row in the file is added");
+  assert.equal(preview.toUpdate.length, 0);
+  assert.equal(
+    (preview as Record<string, unknown>).toDelete,
+    undefined,
+    "the preview no longer proposes deletions at all",
+  );
+});
+
+test("an empty file is a no-op rather than a purge", () => {
+  const preview = buildImportPreview([], [scientist(1, "Ada", "Lovelace")], org);
+  assert.equal(preview.toInsert.length, 0);
+  assert.equal(preview.toUpdate.length, 0);
+  assert.equal(preview.errors.length, 0);
+});
+
+test("a partial import still updates the rows it does contain", () => {
+  const changing = scientist(1, "Ada", "Lovelace");
+  const untouched = scientist(2, "Grace", "Hopper");
+  const row = scientistsToRows([changing])[0];
+  row["Job Title"] = "Principal Investigator";
+
+  const preview = buildImportPreview([row], [changing, untouched], org);
+
+  assert.equal(preview.toUpdate.length, 1);
+  assert.equal(preview.toUpdate[0].existingId, changing.id);
+  assert.equal(preview.unchanged, 0);
+});

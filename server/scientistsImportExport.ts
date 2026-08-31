@@ -266,17 +266,9 @@ export interface ReferencingRecord {
   sampleIds: number[];
 }
 
-export interface DeleteCandidate {
-  id: number;
-  email: string;
-  name: string;
-  referencedBy?: ReferencingRecord[];
-}
-
 export interface ImportPreview {
   toInsert: FileRow[];
   toUpdate: Array<{ existingId: number; row: FileRow }>;
-  toDelete: DeleteCandidate[];
   errors: ImportRowError[];
   unchanged: number;
 }
@@ -455,17 +447,11 @@ export function buildImportPreview(
     else toUpdate.push({ existingId: matchedId, row });
   });
 
-  // Anything in DB but not matched → delete
-  const matchedIds = new Set(matched.filter(m => m.matchedId != null).map(m => m.matchedId!));
-  const toDelete: DeleteCandidate[] = existing
-    .filter(s => !matchedIds.has(s.id))
-    .map(s => ({
-      id: s.id,
-      email: s.email,
-      name: `${s.honorificTitle} ${s.firstName} ${s.lastName}`.trim(),
-    }));
-
-  return { toInsert, toUpdate, toDelete, errors, unchanged };
+  // Staff absent from the file are left alone. An import adds and updates; it
+  // is not a statement that the file is the complete roster. Treating omission
+  // as an instruction to delete meant importing a partial list -- one
+  // department, one new intake -- proposed removing everybody else.
+  return { toInsert, toUpdate, errors, unchanged };
 }
 
 /**
@@ -601,94 +587,6 @@ export async function findReferencingRecords(
   }
 
   return result;
-}
-
-/**
- * Compute scientists.supervisor_id self-reference blockers, taking the
- * planned import into account: a row whose supervisor will be reassigned by
- * this import is NOT a blocker for the old supervisor's deletion, and a
- * referencing row that is itself being deleted is also not a blocker.
- */
-function computeSelfRefBlockers(
-  toDeleteIds: Set<number>,
-  existing: Scientist[],
-  toUpdateByExistingId: Map<number, FileRow>,
-  emailToId: Map<string, number>
-): Map<number, ReferencingRecord> {
-  const byTarget = new Map<number, number[]>();
-  for (const s of existing) {
-    if (s.supervisorId == null) continue;
-    if (!toDeleteIds.has(s.supervisorId)) continue;
-    if (toDeleteIds.has(s.id)) continue; // referencer also being deleted
-
-    // If s is being updated, check its NEW supervisor — only block if it
-    // still points at the deletion target.
-    const newRow = toUpdateByExistingId.get(s.id);
-    if (newRow) {
-      const newSupId = newRow.supervisorEmail
-        ? emailToId.get(newRow.supervisorEmail) ?? null
-        : null;
-      if (newSupId !== s.supervisorId) continue; // reassigned away
-    }
-
-    if (!byTarget.has(s.supervisorId)) byTarget.set(s.supervisorId, []);
-    byTarget.get(s.supervisorId)!.push(s.id);
-  }
-
-  const out = new Map<number, ReferencingRecord>();
-  byTarget.forEach((ids, targetId) => {
-    out.set(targetId, {
-      table: "scientists",
-      column: "supervisor_id",
-      count: ids.length,
-      sampleIds: ids.slice(0, 5),
-    });
-  });
-  return out;
-}
-
-export async function enrichDeletesWithReferences(
-  preview: ImportPreview,
-  database: PgDatabase<any, any, any>,
-  existing: Scientist[]
-): Promise<void> {
-  if (preview.toDelete.length === 0) return;
-
-  const toDeleteIds = new Set(preview.toDelete.map(d => d.id));
-
-  // Build the post-import email→id map the apply step will use, so the
-  // self-reference check reflects the intended final state.
-  const emailToId = new Map<string, number>();
-  for (const s of existing) emailToId.set(s.email.toLowerCase(), s.id);
-  for (const { existingId, row } of preview.toUpdate) emailToId.set(row.email, existingId);
-  for (const d of preview.toDelete) emailToId.delete(d.email.toLowerCase());
-  // toInsert rows have no id yet, so unresolved-on-insert is fine here —
-  // a row referencing a new scientist's email simply won't appear as a
-  // self-ref blocker (the new scientist isn't a delete candidate anyway).
-
-  const toUpdateByExistingId = new Map<number, FileRow>(
-    preview.toUpdate.map(u => [u.existingId, u.row])
-  );
-
-  const externalRefs = await findReferencingRecords(database, preview.toDelete.map(d => d.id));
-  const selfRefs = computeSelfRefBlockers(toDeleteIds, existing, toUpdateByExistingId, emailToId);
-
-  for (const d of preview.toDelete) {
-    const combined: ReferencingRecord[] = [...(externalRefs.get(d.id) ?? [])];
-    const self = selfRefs.get(d.id);
-    if (self) combined.push(self);
-    if (combined.length > 0) {
-      d.referencedBy = combined;
-      const summary = combined
-        .map(x => `${x.table}.${x.column} (${x.count} row${x.count === 1 ? "" : "s"}; ids: ${x.sampleIds.join(", ")}${x.count > x.sampleIds.length ? "…" : ""})`)
-        .join("; ");
-      preview.errors.push({
-        rowNumber: 0,
-        identifier: `${d.name} <${d.email}>`,
-        errors: [`Cannot delete: still referenced by ${summary}. Reassign these rows in the import file before re-importing.`],
-      });
-    }
-  }
 }
 
 export function rowToInsertScientist(
