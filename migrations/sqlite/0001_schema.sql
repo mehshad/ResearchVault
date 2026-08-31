@@ -5,6 +5,23 @@
 PRAGMA journal_mode = WAL;
 PRAGMA foreign_keys = ON;
 
+-- auditLog
+CREATE TABLE IF NOT EXISTS "audit_log" (
+  "id" INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+  "table_name" TEXT NOT NULL,
+  "record_id" INTEGER,
+  "action" TEXT NOT NULL,
+  "old_values" TEXT,
+  "new_values" TEXT,
+  "changed_fields" TEXT,
+  "changed_by" INTEGER,
+  "changed_at" TEXT NOT NULL,
+  "ip_address" TEXT,
+  "user_agent" TEXT,
+  "reason" TEXT,
+  "route" TEXT
+);
+
 -- branches
 CREATE TABLE IF NOT EXISTS "branches" (
   "id" INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
@@ -693,6 +710,9 @@ CREATE TABLE IF NOT EXISTS "publications" (
   "publication_type" TEXT,
   "status" TEXT DEFAULT 'Concept',
   "invalid_reason" TEXT,
+  "sdr_exemption_reason" TEXT,
+  "sdr_exemption_requested_by" INTEGER,
+  "sdr_exemption_requested_at" TEXT,
   "vetted_for_submission_by_ip_office" INTEGER DEFAULT 0,
   "prepublication_url" TEXT,
   "prepublication_site" TEXT,

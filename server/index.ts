@@ -17,6 +17,7 @@ import MssqlStoreFactory from "connect-mssql-v2";
 import { createHash } from "crypto";
 import { restrictDefaultUserApiAccess } from "./restrictedUserPolicy";
 import { registerNavigationAccessGuards } from "./navigationAccess";
+import { auditContextMiddleware } from "./auditContext";
 import { startBulkDataArchiveScheduler } from "./bulkDataArchives";
 import { db } from "./db";
 import { sql } from "drizzle-orm";
@@ -172,6 +173,10 @@ app.use((req: Request, res: Response, next: NextFunction) => {
   // Refresh real authenticated principals from users before every application
   // API request so role changes take effect immediately and fail closed.
   app.use("/api", refreshSessionAuthorization);
+
+  // Attach a per-request AuditService (req.audit) so any route can record an
+  // audit entry without knowing the caller's identity or HTTP context.
+  app.use("/api", auditContextMiddleware);
 
   // Real accounts that still have the built-in "user" onboarding role are
   // denied by default. Only profile, registration, and ordinary publication

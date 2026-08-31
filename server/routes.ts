@@ -23,8 +23,8 @@ import {
 } from "./objectStorage";
 import { LocalObjectStorageService } from "./localObjectStorage";
 import { db } from "./db";
-import { scientists, publicationAuthors, journals, journalImpactFactorMetrics, manuscriptHistory, users, branches, departments, sections, roleGroups, userRoleAssignments } from "@shared/schema";
-import { and, eq, inArray, isNull, desc, sql } from "drizzle-orm";
+import { scientists, publicationAuthors, journals, journalImpactFactorMetrics, manuscriptHistory, users, branches, departments, sections, roleGroups, userRoleAssignments, auditLog } from "@shared/schema";
+import { and, eq, inArray, isNull, desc, sql, gte, lte, count, type SQL } from "drizzle-orm";
 import {
   buildExportBuffer,
   buildTemplateBuffer,
@@ -153,6 +153,7 @@ import {
 } from "./bulkDataArchives";
 import { registerOfficeDashboardRoutes } from "./officeDashboardRoutes";
 import { registerManagementReportRoutes } from "./managementReportRoutes";
+import { systemAudit } from "./auditService";
 
 const isLocalStorage = process.env.STORAGE_TYPE === "local";
 
@@ -3390,6 +3391,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const orgError = await validateOrgAssignment(validateData);
       if (orgError) return res.status(400).json({ message: orgError });
       const scientist = await storage.createScientist(validateData);
+      await req.audit.logInsert("scientists", scientist.id, scientist as Record<string, unknown>);
       res.status(201).json(scientist);
     } catch (error) {
       if (error instanceof ZodError) {
@@ -3431,12 +3433,21 @@ export async function registerRoutes(app: Express): Promise<Server> {
         const orgError = await validateOrgAssignment(validateData, existing);
         if (orgError) return res.status(400).json({ message: orgError });
       }
+      const beforeScientist = await storage.getScientist(id);
       const scientist = await storage.updateScientist(id, validateData);
-      
+
       if (!scientist) {
         return res.status(404).json({ message: "Scientist not found" });
       }
-      
+
+      if (beforeScientist) {
+        await req.audit.logUpdate(
+          "scientists", id,
+          beforeScientist as Record<string, unknown>,
+          scientist as Record<string, unknown>,
+          req.body?.reason,
+        );
+      }
       res.json(scientist);
     } catch (error) {
       if (error instanceof ZodError) {
@@ -3518,6 +3529,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(404).json({ message: "Scientist not found" });
       }
 
+      await req.audit.logDelete("scientists", id, existing as Record<string, unknown>);
       res.status(204).send();
     } catch (error) {
       console.error("Error deleting scientist:", error);
@@ -5154,6 +5166,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         });
       }
 
+      await req.audit.logInsert("publications", publication.id, publication as Record<string, unknown>);
       res.status(201).json(publication);
     } catch (error) {
       console.error("Publication creation error:", error);
@@ -5239,6 +5252,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
         });
       }
 
+      await req.audit.logUpdate(
+        "publications", id,
+        existing as Record<string, unknown>,
+        publication as Record<string, unknown>,
+        req.body?.reason,
+      );
       res.json(publication);
     } catch (error) {
       if (error instanceof ZodError) {
@@ -5599,7 +5618,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
           message: "The publication changed before this status update completed. Refresh and try again.",
         });
       }
-      
+
+      // Audit the status transition — this is the most important write in the
+      // publications workflow: it captures reviewer decisions, rejections, and
+      // final approvals with full context.
+      await req.audit.logStatusChange(
+        "publications", id,
+        currentStatus,
+        status,
+        undefined,
+        req.body?.changeReason ?? req.body?.reason,
+      );
+
       res.json(updatedPublication);
     } catch (error) {
       console.error('Error updating publication status:', error);
@@ -6538,6 +6568,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
       
       const application = await storage.createIrbApplication(validateData);
+      await req.audit.logInsert("irb_applications", application.id, application as Record<string, unknown>);
       res.status(201).json(application);
     } catch (error) {
       if (error instanceof ZodError) {
@@ -6627,12 +6658,31 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }
       }
       
+      const existingIrb = await storage.getIrbApplication(id);
       const application = await storage.updateIrbApplication(id, validateData);
-      
+
       if (!application) {
         return res.status(404).json({ message: "IRB application not found" });
       }
-      
+
+      // Audit status changes with a dedicated entry; audit all other updates too.
+      if (existingIrb && validateData.workflowStatus && validateData.workflowStatus !== existingIrb.workflowStatus) {
+        await req.audit.logStatusChange(
+          "irb_applications", id,
+          existingIrb.workflowStatus ?? null,
+          validateData.workflowStatus,
+          undefined,
+          req.body?.reason,
+        );
+      } else if (existingIrb) {
+        await req.audit.logUpdate(
+          "irb_applications", id,
+          existingIrb as Record<string, unknown>,
+          application as Record<string, unknown>,
+          req.body?.reason,
+        );
+      }
+
       res.json(application);
     } catch (error) {
       if (error instanceof ZodError) {
@@ -6791,7 +6841,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       console.log("Creating IBC application...");
       const application = await storage.createIbcApplication(validateData, researchActivityIds || []);
       console.log("IBC application created successfully:", application.id);
-      
+      await req.audit.logInsert("ibc_applications", application.id, application as Record<string, unknown>);
       res.status(201).json(application);
     } catch (error) {
       console.error("Error creating IBC application:", error);
@@ -6915,7 +6965,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           'active': 'Active',
           'expired': 'Expired'
         };
-        
+
         await storage.createIbcApplicationComment({
           applicationId: id,
           commentType: 'status_change',
@@ -6926,8 +6976,23 @@ export async function registerRoutes(app: Express): Promise<Server> {
           statusTo: validateData.status,
           isInternal: false
         });
+
+        await req.audit.logStatusChange(
+          "ibc_applications", id,
+          currentApplication.status ?? null,
+          validateData.status,
+          undefined,
+          req.body?.reason,
+        );
+      } else {
+        await req.audit.logUpdate(
+          "ibc_applications", id,
+          currentApplication as Record<string, unknown>,
+          application as Record<string, unknown>,
+          req.body?.reason,
+        );
       }
-      
+
       res.json(application);
     } catch (error) {
       console.error('Error in PATCH /api/ibc-applications/:id:', error);
@@ -7839,6 +7904,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         ...validateData,
         contractNumber,
       });
+      await req.audit.logInsert("research_contracts", contract.id, contract as Record<string, unknown>);
       res.status(201).json(contract);
     } catch (error) {
       if (error instanceof ZodError) {
@@ -7880,11 +7946,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
       
       const contract = await storage.updateResearchContract(id, validateData);
-      
+
       if (!contract) {
         return res.status(404).json({ message: "Research contract not found" });
       }
-      
+
+      await req.audit.logUpdate(
+        "research_contracts", id,
+        existingContract as Record<string, unknown>,
+        contract as Record<string, unknown>,
+        req.body?.reason,
+      );
       res.json(contract);
     } catch (error) {
       if (error instanceof ZodError) {
@@ -7914,11 +7986,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       const success = await storage.deleteResearchContract(id);
-      
+
       if (!success) {
         return res.status(404).json({ message: "Research contract not found" });
       }
-      
+
+      await req.audit.logDelete("research_contracts", id, existingContract as Record<string, unknown>);
       res.status(204).send();
     } catch (error) {
       console.error('Error deleting research contract:', error);
@@ -9766,15 +9839,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
         ...lifecycle,
       });
       const grant = await storage.createGrant(validatedData);
+      await req.audit.logInsert("grants", grant.id, grant as Record<string, unknown>);
       res.status(201).json(grant);
     } catch (error) {
       if (error instanceof GrantLifecycleError) {
         return res.status(400).json({ message: error.message });
       }
       if (error instanceof ZodError) {
-        return res.status(400).json({ 
-          message: "Invalid grant data", 
-          details: fromZodError(error).toString() 
+        return res.status(400).json({
+          message: "Invalid grant data",
+          details: fromZodError(error).toString()
         });
       }
       console.error('Error creating grant:', error);
@@ -9827,6 +9901,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
         validatedData,
         desiredResearchActivityIds,
       );
+      await req.audit.logUpdate(
+        "grants", id,
+        existingGrant as Record<string, unknown>,
+        grant as Record<string, unknown>,
+        req.body?.reason,
+      );
       res.json(grant);
     } catch (error) {
       if (error instanceof GrantSdrLifecycleStorageError) {
@@ -9858,11 +9938,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).json({ message: "Invalid grant ID" });
       }
 
+      const existing = await storage.getGrant(id);
       const success = await storage.deleteGrant(id);
       if (!success) {
         return res.status(404).json({ message: "Grant not found" });
       }
 
+      if (existing) {
+        await req.audit.logDelete("grants", id, existing as Record<string, unknown>);
+      }
       res.status(204).send();
     } catch (error) {
       if (error instanceof GrantSdrLifecycleStorageError) {
@@ -11091,6 +11175,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // A role held as primary would be redundant as a secondary.
       const keep = groups.filter((group) => group.name !== target.role);
 
+      // Snapshot current secondary roles before replacing them.
+      const prevAssignments = await db
+        .select({ name: roleGroups.name })
+        .from(userRoleAssignments)
+        .innerJoin(roleGroups, eq(userRoleAssignments.roleGroupId, roleGroups.id))
+        .where(eq(userRoleAssignments.userId, id));
+      const prevRoles = prevAssignments.map((a) => a.name).sort();
+
       await db.transaction(async (tx: any) => {
         await tx.delete(userRoleAssignments).where(eq(userRoleAssignments.userId, id));
         if (keep.length) {
@@ -11104,7 +11196,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }
       });
 
-      res.json({ id, secondaryRoles: keep.map((group) => group.name).sort() });
+      const nextRoles = keep.map((group) => group.name).sort();
+      await req.audit.logUpdate(
+        "user_role_assignments", id,
+        { userId: id, secondaryRoles: prevRoles },
+        { userId: id, secondaryRoles: nextRoles },
+        `Secondary roles replaced by admin`,
+      );
+
+      res.json({ id, secondaryRoles: nextRoles });
     } catch (err) {
       console.error('Error updating secondary roles:', err);
       res.status(500).json({ message: 'Failed to update secondary roles' });
@@ -11136,8 +11236,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).json({ message: 'Invalid role' });
       }
 
+      const [before] = await db.select({ id: users.id, role: users.role }).from(users).where(eq(users.id, id)).limit(1);
       const updated = await storage.updateUser(id, { role } as any);
       if (!updated) return res.status(404).json({ message: 'User not found' });
+
+      await req.audit.logUpdate(
+        "users", id,
+        { role: before?.role ?? null },
+        { role },
+        `Primary role changed by admin`,
+      );
+
       res.json(updated);
     } catch (err) {
       console.error('Error updating user role:', err);
@@ -11508,6 +11617,96 @@ export async function registerRoutes(app: Express): Promise<Server> {
         : 500;
       console.error('Bulk data apply failed:', error);
       res.status(status).json({ message });
+    }
+  });
+
+  // ── Audit Log ─────────────────────────────────────────────────────────────
+  // Read-only access for admins and superadmins.
+  //
+  // Query parameters (all optional):
+  //   table      — filter by table_name (e.g. ?table=grants)
+  //   recordId   — filter by record_id  (e.g. ?recordId=42)
+  //   userId     — filter by changed_by (e.g. ?userId=7)
+  //   action     — filter by action     (INSERT | UPDATE | DELETE)
+  //   field      — filter to entries where changed_fields contains this key
+  //   from       — ISO date lower bound  (e.g. ?from=2026-01-01)
+  //   to         — ISO date upper bound  (e.g. ?to=2026-12-31)
+  //   limit      — max rows (default 100, max 1000)
+  //   offset     — pagination offset (default 0)
+
+  app.get('/api/audit-log', requireAuth, requireAdmin, async (req: Request, res: Response) => {
+    try {
+      const {
+        table,
+        recordId: rawRecordId,
+        userId: rawUserId,
+        action,
+        field,
+        from: rawFrom,
+        to: rawTo,
+        limit: rawLimit = "100",
+        offset: rawOffset = "0",
+      } = req.query as Record<string, string | undefined>;
+
+      const limit  = Math.min(parseInt(rawLimit  ?? "100",  10) || 100,  1000);
+      const offset = Math.max(parseInt(rawOffset ?? "0",   10) || 0,    0);
+
+      const conditions: SQL[] = [];
+
+      if (table)       conditions.push(eq(auditLog.tableName, table));
+      if (rawRecordId) conditions.push(eq(auditLog.recordId, parseInt(rawRecordId, 10)));
+      if (rawUserId)   conditions.push(eq(auditLog.changedBy, parseInt(rawUserId, 10)));
+      if (action && ["INSERT", "UPDATE", "DELETE"].includes(action.toUpperCase())) {
+        conditions.push(eq(auditLog.action, action.toUpperCase()));
+      }
+      if (field) {
+        // changed_fields is a JSON array of strings. Use @> (contains) on jsonb.
+        conditions.push(sql`${auditLog.changedFields} @> ${JSON.stringify([field])}::jsonb`);
+      }
+      if (rawFrom) {
+        const fromDate = new Date(rawFrom);
+        if (!isNaN(fromDate.getTime())) conditions.push(gte(auditLog.changedAt, fromDate));
+      }
+      if (rawTo) {
+        const toDate = new Date(rawTo);
+        if (!isNaN(toDate.getTime())) conditions.push(lte(auditLog.changedAt, toDate));
+      }
+
+      const where = conditions.length ? and(...conditions) : undefined;
+
+      const [rows, [{ total }]] = await Promise.all([
+        db.select().from(auditLog)
+          .where(where)
+          .orderBy(desc(auditLog.changedAt))
+          .limit(limit)
+          .offset(offset),
+        db.select({ total: count() }).from(auditLog).where(where),
+      ]);
+
+      res.json({ total: Number(total), limit, offset, rows });
+    } catch (err) {
+      console.error("Error fetching audit log:", err);
+      res.status(500).json({ message: "Failed to fetch audit log" });
+    }
+  });
+
+  // GET /api/audit-log/:table/:recordId — full history for one record
+  app.get('/api/audit-log/:table/:recordId', requireAuth, requireAdmin, async (req: Request, res: Response) => {
+    try {
+      const { table, recordId: rawId } = req.params;
+      const recordId = parseInt(rawId, 10);
+      if (isNaN(recordId)) return res.status(400).json({ message: "Invalid record ID" });
+
+      const rows = await db
+        .select()
+        .from(auditLog)
+        .where(and(eq(auditLog.tableName, table), eq(auditLog.recordId, recordId)))
+        .orderBy(desc(auditLog.changedAt));
+
+      res.json(rows);
+    } catch (err) {
+      console.error("Error fetching record audit history:", err);
+      res.status(500).json({ message: "Failed to fetch record history" });
     }
   });
 
