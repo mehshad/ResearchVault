@@ -3,6 +3,10 @@
 import { eq, and, desc, asc, or, sql, inArray, notInArray, gte, ilike } from "drizzle-orm";
 import { ACCESS_ROLES, BUILT_IN_ASSIGNABLE_ROLES } from "@shared/constants";
 import { db } from "./db";
+import {
+  resolveInvestigatorScientistIds,
+  withInvestigatorFlag,
+} from "./investigatorRoleResolver";
 import { IStorage } from "./storage";
 import { isGrantSdrEligible } from "@shared/grantSdrEligibility";
 import {
@@ -207,7 +211,11 @@ export class DatabaseStorage implements IStorage {
 
   // Scientist operations
   async getScientists(): Promise<Scientist[]> {
-    return await db.select().from(scientists).orderBy(scientists.lastName, scientists.firstName);
+    const rows = await db.select().from(scientists).orderBy(scientists.lastName, scientists.firstName);
+    // isInvestigator is derived from the access role on each person's account,
+    // not read from the staff profile, so the flag the interface sees and the
+    // role an administrator granted are always the same thing.
+    return withInvestigatorFlag(rows, await resolveInvestigatorScientistIds());
   }
 
   async getScientistsWithActivityCount(): Promise<(Scientist & { activeResearchActivities: number })[]> {
@@ -238,7 +246,9 @@ export class DatabaseStorage implements IStorage {
 
   async getScientist(id: number): Promise<Scientist | undefined> {
     const [scientist] = await db.select().from(scientists).where(eq(scientists.id, id));
-    return scientist;
+    if (!scientist) return undefined;
+    const investigatorIds = await resolveInvestigatorScientistIds();
+    return { ...scientist, isInvestigator: investigatorIds.has(scientist.id) };
   }
 
   async createScientist(scientist: InsertScientist): Promise<Scientist> {
@@ -266,14 +276,15 @@ export class DatabaseStorage implements IStorage {
   }
 
   async getPrincipalInvestigators(): Promise<Scientist[]> {
-    // Include title-based eligibility plus the additional designation.
-    return await db.select().from(scientists)
-      .where(or(
-        eq(scientists.jobTitle, "Investigator"),
-        eq(scientists.jobTitle, "Staff Scientist"),
-        eq(scientists.isInvestigator, true)
-      ))
+    // Whoever holds the Investigator access role, and nobody else. This used to
+    // include every "Staff Scientist" by job title, which put twenty-one people
+    // in a list of investigators regardless of whether they led anything.
+    const investigatorIds = await resolveInvestigatorScientistIds();
+    if (investigatorIds.size === 0) return [];
+    const rows = await db.select().from(scientists)
+      .where(inArray(scientists.id, [...investigatorIds]))
       .orderBy(scientists.lastName, scientists.firstName);
+    return withInvestigatorFlag(rows, investigatorIds);
   }
 
   // Research Activity operations

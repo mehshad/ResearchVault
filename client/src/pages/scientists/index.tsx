@@ -212,7 +212,7 @@ function StaffImportExportButtons() {
               </div>
               <ul className="list-disc pl-5 text-muted-foreground space-y-1">
                 <li>Required: Honorific Title, First Name, Last Name, and Email.</li>
-                <li>Staff Type must be scientific or administrative; Investigator must be Yes or No.</li>
+                <li>Staff Type must be scientific or administrative.</li>
                 <li>Department ID and Section ID come from Settings → Organization, and the section must belong to the department.</li>
                 <li>Line Manager Email must identify someone in the file or already on staff.</li>
               </ul>

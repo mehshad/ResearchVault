@@ -16,7 +16,6 @@ export const EXPORT_COLUMNS: Array<{ header: string; key: StaffFileKey; descript
   { header: "Email", key: "email", description: "Required unique email" },
   { header: "Job Title", key: "jobTitle", description: "Profile job title" },
   { header: "Staff Type", key: "staffType", description: "scientific or administrative" },
-  { header: "Investigator", key: "isInvestigator", description: "Yes or No" },
   { header: "Department ID", key: "departmentId", description: "Numeric ID from Settings > Organization" },
   { header: "Section ID", key: "sectionId", description: "Numeric ID; must belong to Department ID" },
   { header: "Legacy Department", key: "department", description: "Older free-text department value" },
@@ -113,7 +112,7 @@ export function scientistsToRows(scientists: Scientist[]): Record<string, any>[]
         row[col.header] = s.supervisorId ? idToEmail.get(s.supervisorId) ?? "" : "";
       } else {
         const v = (s as any)[col.key];
-        row[col.header] = col.key === "isInvestigator" ? (v ? "Yes" : "No") : v == null ? "" : v;
+        row[col.header] = v == null ? "" : v;
       }
     }
     return row;
@@ -246,7 +245,6 @@ const fileRowSchema = z.object({
       errorMap: () => ({ message: "Staff Type must be scientific or administrative" }),
     }).default("scientific"),
   ),
-  isInvestigator: optionalBoolean,
   departmentId: optionalInteger,
   sectionId: optionalInteger,
   department: z.string().trim().optional(),
@@ -319,10 +317,9 @@ function fillBlanksOnly(existingRecord: Scientist, row: FileRow, existingSupervi
     // The email identifies the person; a matched row never renames it.
     email: existingRecord.email.toLowerCase(),
     jobTitle: keepText(existingRecord.jobTitle, row.jobTitle),
-    // staffType and isInvestigator always hold a value, so there is no blank
-    // to fill and the stored one stands.
+    // staffType always holds a value, so there is no blank to fill and the
+    // stored one stands.
     staffType: existingRecord.staffType as FileRow["staffType"],
-    isInvestigator: existingRecord.isInvestigator,
     departmentId: keepNumber(existingRecord.departmentId, row.departmentId),
     sectionId: keepNumber(existingRecord.sectionId, row.sectionId),
     department: keepText(existingRecord.department, row.department),
@@ -418,7 +415,6 @@ export function buildImportPreview(
     }
 
     const matchedRecord = staffIdMatch ?? emailMatch ?? null;
-    if (!presentKeys.has("isInvestigator")) row.isInvestigator = matchedRecord?.isInvestigator ?? false;
     if (!presentKeys.has("departmentId")) row.departmentId = matchedRecord?.departmentId ?? undefined;
     if (!presentKeys.has("sectionId")) row.sectionId = matchedRecord?.sectionId ?? undefined;
     if (org) {
@@ -499,7 +495,6 @@ export function buildImportPreview(
       existingRecord.email.toLowerCase() === row.email &&
       (existingRecord.jobTitle ?? "") === (row.jobTitle ?? "") &&
       existingRecord.staffType === row.staffType &&
-      existingRecord.isInvestigator === (row.isInvestigator ?? false) &&
       (existingRecord.departmentId ?? null) === (row.departmentId ?? null) &&
       (existingRecord.sectionId ?? null) === (row.sectionId ?? null) &&
       (existingRecord.department ?? "") === (row.department ?? "") &&
@@ -675,7 +670,6 @@ export function rowToInsertScientist(
       row.profileImageInitials ?? `${row.firstName[0] ?? ""}${row.lastName[0] ?? ""}`,
     supervisorId,
     staffType: row.staffType,
-    isInvestigator: row.isInvestigator ?? false,
     departmentId: row.departmentId ?? null,
     sectionId: row.sectionId ?? null,
     orcidId: row.orcidId ?? null,

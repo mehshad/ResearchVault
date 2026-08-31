@@ -33,10 +33,19 @@ test("template uses the canonical staff columns", async () => {
 });
 
 test("export preserves current structured fields", () => {
-  const rows = scientistsToRows([scientist(1, "Ada", "Lovelace", { isInvestigator: true, departmentId: 10, sectionId: 20 })]);
-  assert.equal(rows[0]["Investigator"], "Yes");
+  const rows = scientistsToRows([scientist(1, "Ada", "Lovelace", { departmentId: 10, sectionId: 20 })]);
   assert.equal(rows[0]["Department ID"], 10);
   assert.equal(rows[0]["Section ID"], 20);
+});
+
+test("the workbook carries no Investigator column", () => {
+  // Investigator status is the access role now, granted in User Management. A
+  // column here could not set it, so carrying one would invite an
+  // administrator to fill in a value that does nothing.
+  assert.equal(EXPORT_COLUMNS.some((column) => column.key === "isInvestigator"), false);
+  assert.equal(EXPORT_COLUMNS.some((column) => column.header === "Investigator"), false);
+  const rows = scientistsToRows([scientist(1, "Ada", "Lovelace", { isInvestigator: true })]);
+  assert.equal("Investigator" in rows[0], false);
 });
 
 test("organization order puts managers before reports within a section", () => {

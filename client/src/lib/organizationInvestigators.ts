@@ -9,10 +9,11 @@ export type SectionMember = Pick<
 /**
  * Group investigators by the section they are placed in.
  *
- * Two things decide whether someone appears: the management-controlled
- * `isInvestigator` designation, and an actual section placement. Job title is
- * not consulted — someone titled "Investigator" who has not been designated one
- * is not, and the chart should say what the record says.
+ * Two things decide whether someone appears: holding the Investigator access
+ * role, and an actual section placement. Job title is not consulted — someone
+ * titled "Investigator" who has not been granted the role is not one, and the
+ * chart should say what the roles say. The server derives `isInvestigator` from
+ * the account, so this reads it without knowing how it was resolved.
  *
  * Sorted by surname so a section with several reads as a list rather than
  * whatever order the query returned.

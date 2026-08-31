@@ -448,30 +448,10 @@ export default function EditScientist() {
                   }}
                 />
 
-                {canManage && (
-                  <FormField
-                    control={form.control}
-                    name="isInvestigator"
-                    render={({ field }) => (
-                      <FormItem className="flex flex-row items-center justify-between rounded-lg border p-4">
-                        <div className="space-y-0.5">
-                          <FormLabel>Additional Investigator designation</FormLabel>
-                          <FormDescription>
-                            Allows this staff member to lead projects and fill
-                            investigator-only roles without changing their job title.
-                          </FormDescription>
-                        </div>
-                        <FormControl>
-                          <Switch
-                            checked={field.value}
-                            onCheckedChange={field.onChange}
-                            aria-label="Additional Investigator designation"
-                          />
-                        </FormControl>
-                      </FormItem>
-                    )}
-                  />
-                )}
+                {/* The Investigator designation is not set here any more. It
+                    is the Investigator access role, granted in Settings ->
+                    Users, so that one place decides it and the staff profile
+                    cannot disagree with the account. */}
                 
                 <FormField
                   control={form.control}

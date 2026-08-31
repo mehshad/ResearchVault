@@ -54,24 +54,17 @@ async function withPolicyServer(
   }
 }
 
-test("investigator eligibility preserves legacy titles and accepts the additional designation", () => {
-  assert.equal(isInvestigatorEligible({ jobTitle: "Investigator" }), true);
-  assert.equal(isInvestigatorEligible({ jobTitle: "Staff Scientist" }), true);
-  assert.equal(
-    isInvestigatorEligible({
-      jobTitle: "Physician",
-      isInvestigator: true,
-    }),
-    true
-  );
-  assert.equal(
-    isInvestigatorEligible({
-      jobTitle: "Physician",
-      isInvestigator: false,
-    }),
-    false
-  );
+test("investigator eligibility is the access role and nothing else", () => {
+  // It used to come from the job title too, and the eligible titles were
+  // "Investigator" and "Staff Scientist" -- so every staff scientist counted as
+  // an investigator, and a title change silently granted or removed the ability
+  // to lead a project. The server derives isInvestigator from the account's
+  // access role; this is the only thing consulted.
+  assert.equal(isInvestigatorEligible({ isInvestigator: true }), true);
+  assert.equal(isInvestigatorEligible({ isInvestigator: false }), false);
+  assert.equal(isInvestigatorEligible({}), false);
   assert.equal(isInvestigatorEligible(null), false);
+  assert.equal(isInvestigatorEligible(undefined), false);
 });
 
 test("staff cannot self-promote by submitting the protected designation field", async () => {

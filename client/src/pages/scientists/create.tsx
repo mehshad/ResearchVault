@@ -29,7 +29,7 @@ import { Scientist, Department, Section } from "@shared/schema";
 import { ArrowLeft } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
 import { useCurrentUser } from "@/hooks/useCurrentUser";
-import { INVESTIGATOR_ELIGIBLE_JOB_TITLES } from "@shared/investigatorEligibility";
+import { MANAGER_ASSIGNED_JOB_TITLES } from "@shared/investigatorEligibility";
 
 // Extend the insert schema with additional validations
 const createScientistSchema = insertScientistSchema.extend({
@@ -281,8 +281,8 @@ export default function CreateScientist() {
                               .filter(
                                 (title) =>
                                   canManage ||
-                                  !INVESTIGATOR_ELIGIBLE_JOB_TITLES.includes(
-                                    title as (typeof INVESTIGATOR_ELIGIBLE_JOB_TITLES)[number]
+                                  !MANAGER_ASSIGNED_JOB_TITLES.includes(
+                                    title as (typeof MANAGER_ASSIGNED_JOB_TITLES)[number]
                                   )
                               )
                               .map((t) => ({ value: t, label: t }))}
@@ -305,30 +305,10 @@ export default function CreateScientist() {
                   }}
                 />
 
-                {canManage && (
-                  <FormField
-                    control={form.control}
-                    name="isInvestigator"
-                    render={({ field }) => (
-                      <FormItem className="flex flex-row items-center justify-between rounded-lg border p-4">
-                        <div className="space-y-0.5">
-                          <FormLabel>Additional Investigator designation</FormLabel>
-                          <FormDescription>
-                            Allows this staff member to lead projects and fill
-                            investigator-only roles without changing their job title.
-                          </FormDescription>
-                        </div>
-                        <FormControl>
-                          <Switch
-                            checked={field.value}
-                            onCheckedChange={field.onChange}
-                            aria-label="Additional Investigator designation"
-                          />
-                        </FormControl>
-                      </FormItem>
-                    )}
-                  />
-                )}
+                {/* The Investigator designation is not set here any more. It
+                    is the Investigator access role, granted in Settings ->
+                    Users, so that one place decides it and the staff profile
+                    cannot disagree with the account. */}
                 
                 <FormField
                   control={form.control}
