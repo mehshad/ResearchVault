@@ -16,6 +16,7 @@ import MemoryStore from "memorystore";
 import MssqlStoreFactory from "connect-mssql-v2";
 import { createHash } from "crypto";
 import { restrictDefaultUserApiAccess } from "./restrictedUserPolicy";
+import { registerNavigationAccessGuards } from "./navigationAccess";
 import { startBulkDataArchiveScheduler } from "./bulkDataArchives";
 import { db } from "./db";
 import { sql } from "drizzle-orm";
@@ -176,6 +177,12 @@ app.use((req: Request, res: Response, next: NextFunction) => {
   // denied by default. Only profile, registration, and ordinary publication
   // APIs are explicitly allowed. Demo mode is bypassed inside the middleware.
   app.use("/api", restrictDefaultUserApiAccess);
+
+  // Enforce the permission matrix on the server, per navigation area. Mounted
+  // after the principal is resolved and the restricted-user policy has run,
+  // and before any route is registered, so a route added later under a mapped
+  // prefix is covered by being written rather than by being remembered.
+  registerNavigationAccessGuards(app);
 
   // Register API routes
   // ── Health / availability endpoint ────────────────────────────────────────

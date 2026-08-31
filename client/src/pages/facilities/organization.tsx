@@ -24,6 +24,7 @@ import {
   ArrowLeft, Plus, Pencil, Trash2, ChevronDown, ChevronRight,
   Network, Building2, FlaskConical, Briefcase, Boxes, Loader2, Stethoscope,
 } from "lucide-react";
+import { isAdministrator, hasAnyRole } from "@shared/effectiveRoles";
 
 type Level = "branch" | "department" | "section";
 
@@ -68,7 +69,7 @@ export default function OrganizationStructure() {
 
   const canManage =
     currentUser.role === "Management" ||
-    currentUser.role === "admin" ||
+    isAdministrator(currentUser) ||
     currentUser.role === "superadmin";
 
   const { data: branches, isLoading: branchesLoading } = useQuery<Branch[]>({

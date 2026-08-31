@@ -1,28 +1,18 @@
-export const NAVIGATION_ITEMS = [
-  "dashboard",
-  "scientists",
-  "facilities",
-  "programs",
-  "projects",
-  "research-activities",
-  "pmo-office",
-  "research-office",
-  "irb-applications",
-  "irb-office",
-  "irb-reviewer",
-  "ibc-applications",
-  "ibc-office",
-  "ibc-reviewer",
-  "data-management",
-  "contracts",
-  "publications",
-  "outcome-office",
-  "patents",
-  "reports",
-  "grants",
-  "certifications",
-  "management",
-] as const;
+import {
+  NAVIGATION_ITEMS as SHARED_NAVIGATION_ITEMS,
+  RESEARCH_OFFICER_ROLE,
+} from "@shared/constants";
+
+/**
+ * The navigation areas, as bare ids.
+ *
+ * Derived from the shared list rather than repeated. These two definitions used
+ * to be maintained separately and drifted: this file listed 23 areas while
+ * shared/constants.ts listed 20, so the permission matrix was seeded from one
+ * and the settings grid rendered from the other. Three areas existed only in
+ * the matrix, enforced but impossible for an administrator to review.
+ */
+export const NAVIGATION_ITEMS = SHARED_NAVIGATION_ITEMS.map((item) => item.id);
 
 export function getOfficeDashboardDefaultAccess(
   role: string,
@@ -32,8 +22,7 @@ export function getOfficeDashboardDefaultAccess(
     return role === "PMO Officer" || role === "Management" ? "edit" : "hide";
   }
   if (navigationItem === "research-office") {
-    return role === "Grant Officer" ||
-      role === "Contracts Officer" ||
+    return role === RESEARCH_OFFICER_ROLE ||
       role === "Management"
       ? "edit"
       : "hide";

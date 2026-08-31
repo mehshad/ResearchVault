@@ -19,6 +19,7 @@ import TeamManagement from "@/components/settings/TeamManagement";
 import BulkDataHub from "@/components/settings/BulkDataHub";
 import RoleAccessConfig from "@/pages/scientists/role-access-config";
 import { useCurrentUser } from "@/hooks/useCurrentUser";
+import { isAdministrator, hasAnyRole } from "@shared/effectiveRoles";
 
 // Types for feature requests
 interface FeatureRequest {
@@ -78,7 +79,7 @@ export default function Settings() {
   const { authConfig } = useAuth();
   const { currentUser } = useCurrentUser();
   const userIsAdmin =
-    currentUser.role === 'admin' ||
+    isAdministrator(currentUser) ||
     currentUser.role === 'superadmin' ||
     (authConfig.mode === 'demo' && currentUser.role === 'Management');
   const { toast } = useToast();

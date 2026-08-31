@@ -1,4 +1,21 @@
 import { roleGroups, rolePermissions, users } from "@shared/schema";
+import {
+  ACCESS_ROLES,
+  BUILT_IN_ASSIGNABLE_ROLES,
+  RESEARCH_OFFICER_ROLE,
+  resolveNavigationArea,
+} from "@shared/constants";
+import {
+  allRolesOf,
+  hasAnyRole,
+  isAdministrator,
+  isRestrictedOnly,
+  effectiveAccessLevel,
+  satisfiesAccessLevel,
+  type AccessLevel,
+} from "@shared/effectiveRoles";
+import { userRoleAssignments } from "@shared/schema";
+import { inArray } from "drizzle-orm";
 import { db } from "./db";
 import { and, eq } from "drizzle-orm";
 import { createHash } from "crypto";
@@ -22,7 +39,13 @@ export interface SessionUser {
   username: string;
   name: string;
   email: string;
+  /** Primary access role. */
   role: string;
+  /**
+   * Additional roles held alongside the primary one. Access is the union of
+   * all of them — see @shared/effectiveRoles.
+   */
+  secondaryRoles: string[];
   scientistId: number | null;
   needsRegistration: boolean; // true if user has no linked scientist profile yet
 }
@@ -93,6 +116,7 @@ export function demoBannerMiddleware(req: Request, _res: Response, next: NextFun
       name: process.env.DEMO_NAME || "Demo User",
       email: process.env.DEMO_EMAIL || "demo@researchvault.local",
       role: process.env.DEMO_ROLE || "Management",
+      secondaryRoles: [],
       scientistId: null,
       needsRegistration: false,
     };
@@ -108,14 +132,15 @@ export function requireAuth(req: Request, res: Response, next: NextFunction) {
 }
 
 export function requireAdmin(req: Request, res: Response, next: NextFunction) {
-  const role = req.session?.user?.role;
+  const user = req.session?.user;
+  const role = user?.role;
+  // Administrator rights are normally held as a secondary role, so this checks
+  // every slot rather than the primary alone.
   // Demo role switching is intentionally client-side. The demo server session
   // remains Management even when a tester selects the Super Admin persona, so
   // treat that fixed demo session as the administrator for protected previews.
-  // Real local/LDAP/OIDC sessions still require admin or superadmin exactly.
   if (
-    role === "admin" ||
-    role === "superadmin" ||
+    isAdministrator(user) ||
     (getAuthMode() === "demo" && role === "Management")
   ) {
     return next();
@@ -124,39 +149,16 @@ export function requireAdmin(req: Request, res: Response, next: NextFunction) {
   res.status(403).json({ message: "Forbidden. Admin access required." });
 }
 
-export function requireContractsOfficer(req: Request, res: Response, next: NextFunction) {
-  const role = req.session?.user?.role;
-  if (role === "Contracts Officer" || role === "admin" || role === "superadmin" || role === "Management") return next();
-  authLog(`403 contracts officer required: ${req.method} ${req.path} user=${req.session?.user?.username ?? "anonymous"} role=${role ?? "none"}`);
-  res.status(403).json({ message: "Forbidden. Contracts officer access required." });
-}
-
-export function requireResearchOfficer(req: Request, res: Response, next: NextFunction) {
-  const role = req.session?.user?.role;
-  if (
-    role === "Grant Officer" ||
-    role === "Contracts Officer" ||
-    role === "admin" ||
-    role === "superadmin" ||
-    role === "Management"
-  ) return next();
-  authLog(`403 research officer required: ${req.method} ${req.path} user=${req.session?.user?.username ?? "anonymous"} role=${role ?? "none"}`);
-  res.status(403).json({ message: "Forbidden. Research office access required." });
-}
-
-export function requirePmoOfficer(req: Request, res: Response, next: NextFunction) {
-  const role = req.session?.user?.role;
-  if (role === "PMO Officer" || role === "admin" || role === "superadmin" || role === "Management") return next();
-  authLog(`403 PMO officer required: ${req.method} ${req.path} user=${req.session?.user?.username ?? "anonymous"} role=${role ?? "none"}`);
-  res.status(403).json({ message: "Forbidden. PMO access required." });
-}
-
 export type NavigationAccessLoader = (
   role: string,
   navigationItem: string,
 ) => Promise<string | null>;
 
-async function loadNavigationAccess(role: string, navigationItem: string): Promise<string | null> {
+async function loadNavigationAccess(role: string, rawNavigationItem: string): Promise<string | null> {
+  // Resolve any area that was folded into another, so a guard naming a retired
+  // id still finds the surviving row rather than nothing -- and nothing means
+  // hide.
+  const navigationItem = resolveNavigationArea(rawNavigationItem);
   const [permission] = await db
     .select({ accessLevel: rolePermissions.accessLevel })
     .from(rolePermissions)
@@ -169,51 +171,146 @@ async function loadNavigationAccess(role: string, navigationItem: string): Promi
   return permission?.accessLevel ?? null;
 }
 
+/**
+ * The access level a request needs, from its method.
+ *
+ * The matrix has four levels and "create" means exactly what it says: may add
+ * new records but not change existing ones. Mapping POST to "create" rather
+ * than "edit" is what makes that level mean anything on the server.
+ */
+export function requiredLevelForMethod(method: string): AccessLevel {
+  switch (method.toUpperCase()) {
+    case "GET":
+    case "HEAD":
+    case "OPTIONS":
+      return "view";
+    case "POST":
+      return "create";
+    default:
+      return "edit";
+  }
+}
+
+/**
+ * Enforces the permission matrix for one navigation area.
+ *
+ * Until this existed the matrix was enforced in the browser for every area but
+ * one: the server consulted it only for "outcome-office", so 22 of the 23
+ * configured columns were advisory. Hiding a menu item does not stop anyone
+ * calling the endpoint behind it.
+ *
+ * Three cases short-circuit before the matrix is read:
+ *
+ *  - Anonymous requests are refused. There is no role to resolve.
+ *  - Administrators pass. `admin` in any slot, or `superadmin`, is full access
+ *    by definition, so no matrix cell can lock an administrator out.
+ *  - A restricted "user" account holds no matrix role, so the matrix would
+ *    refuse it everywhere. That would revoke the narrow allowlist
+ *    restrictDefaultUserApiAccess grants it -- its own profile, ordinary
+ *    publication reads -- both of which sit under mapped prefixes. The caller
+ *    supplies `allowRestricted` so that one policy stays the single owner of
+ *    what a restricted account may reach. Left unset, restricted accounts are
+ *    refused, so the guard is safe on a route mounted without that middleware.
+ */
+export function createRequireNavigationAccess(
+  navigationItem: string,
+  options: {
+    label?: string;
+    loadAccess?: NavigationAccessLoader;
+    /** Whether a restricted "user" account may make this request. */
+    allowRestricted?: (req: Request) => boolean;
+  } = {},
+) {
+  const loadAccess = options.loadAccess ?? loadNavigationAccess;
+  const label = options.label ?? navigationItem;
+  const allowRestricted = options.allowRestricted ?? (() => false);
+  const deny = (req: Request, res: Response, reason: string) => {
+    const user = req.session?.user;
+    // originalUrl, not path: these guards are mounted on a prefix, and express
+    // strips the mount point from req.path, so req.path would log "/" for every
+    // denial. The whole point of this line is to say which endpoint was refused.
+    const where = (req.originalUrl ?? req.path ?? "").split("?")[0] || req.path;
+    authLog(
+      `403 ${navigationItem} access required: ${req.method} ${where} ` +
+      `user=${user?.username ?? "anonymous"} roles=${allRolesOf(user).join("|") || "none"} ` +
+      `needed=${requiredLevelForMethod(req.method)} (${reason})`,
+    );
+    return res.status(403).json({ message: `Forbidden. ${label} access required.` });
+  };
+
+  return async function requireNavigationAccess(req: Request, res: Response, next: NextFunction) {
+    const user = req.session?.user;
+    if (!user?.role) return deny(req, res, "not signed in");
+    if (isAdministrator(user)) return next();
+    if (isRestrictedOnly(user)) {
+      return allowRestricted(req) ? next() : deny(req, res, "restricted account");
+    }
+
+    try {
+      // Someone holding several roles gets the most permissive of them, which
+      // is how /api/access-check has always resolved multi-role access.
+      const roles = allRolesOf(user);
+      const levels = await Promise.all(
+        roles.map((held) => loadAccess(held, navigationItem)),
+      );
+      const levelByRole = new Map(roles.map((held, index) => [held, levels[index]]));
+      const best = effectiveAccessLevel(
+        user,
+        (held) => (levelByRole.get(held) as AccessLevel | null) ?? null,
+      );
+      if (satisfiesAccessLevel(best, requiredLevelForMethod(req.method))) return next();
+      return deny(req, res, `holds ${best}`);
+    } catch (error) {
+      // A lookup that failed is not permission granted.
+      authError(`${navigationItem} matrix lookup failed for user=${user.username}`, error);
+      return deny(req, res, "matrix lookup failed");
+    }
+  };
+}
+
 export function createRequirePublicationOfficer(
   loadAccess: NavigationAccessLoader = loadNavigationAccess,
 ) {
-  return async function requirePublicationOfficer(req: Request, res: Response, next: NextFunction) {
-    const role = req.session?.user?.role;
-    if (!role) {
-      authLog(`403 publication office required: ${req.method} ${req.path} user=anonymous role=none`);
-      return res.status(403).json({ message: "Forbidden. Publication office access required." });
-    }
-
-    if (role === "admin" || role === "superadmin") return next();
-
-    try {
-      const accessLevel = await loadAccess(role, "outcome-office");
-      const requiredLevel = req.method === "GET" || req.method === "HEAD" ? "view" : "edit";
-      const allowed = requiredLevel === "view"
-        ? accessLevel === "view" || accessLevel === "edit"
-        : accessLevel === "edit";
-      if (allowed) return next();
-    } catch (error) {
-      authError(`publication office matrix lookup failed for role=${role}`, error);
-    }
-
-    authLog(`403 publication office required: ${req.method} ${req.path} user=${req.session?.user?.username ?? "anonymous"} role=${role}`);
-    return res.status(403).json({ message: "Forbidden. Publication office access required." });
-  };
+  return createRequireNavigationAccess("outcome-office", {
+    label: "Publication office",
+    loadAccess,
+  });
 }
 
 export const requirePublicationOfficer = createRequirePublicationOfficer();
 
-/** Restricts Management Hub/report endpoints to the management tier. */
-export function requireManagement(req: Request, res: Response, next: NextFunction) {
-  const role = req.session?.user?.role;
-  if (role === "Management" || role === "admin" || role === "superadmin") return next();
-  authLog(`403 management required: ${req.method} ${req.path} user=${req.session?.user?.username ?? "anonymous"} role=${role ?? "none"}`);
-  res.status(403).json({ message: "Forbidden. Management access required." });
+/**
+ * The office guards resolve the matrix instead of naming roles.
+ *
+ * They used to admit a hard-coded list -- "Research Officer", "PMO Officer",
+ * "Management", plus administrators. That made the code a second authority on
+ * access, competing with the matrix an administrator actually configures, and
+ * the code always won: granting an area in the matrix admitted nobody the
+ * guard had not been written to expect, and revoking it shut nobody out. The
+ * matrix is now the only authority, with administrators short-circuiting as
+ * they do everywhere else.
+ *
+ * "research-office" and "pmo-office" are real configured areas. They are
+ * absent from NAVIGATION_ITEMS only because that list describes what appears
+ * in the menu, not what is configurable.
+ */
+export function createRequireResearchOfficer(loadAccess?: NavigationAccessLoader) {
+  return createRequireNavigationAccess("research-office", { label: "Research office", loadAccess });
 }
 
-export function requireContractsRead(req: Request, res: Response, next: NextFunction) {
-  if (req.session?.user) {
-    (req as any).currentUser = req.session.user;
-    return next();
-  }
-  res.status(401).json({ message: "Unauthorized. Please log in." });
+export function createRequirePmoOfficer(loadAccess?: NavigationAccessLoader) {
+  return createRequireNavigationAccess("pmo-office", { label: "PMO office", loadAccess });
 }
+
+export function createRequireManagement(loadAccess?: NavigationAccessLoader) {
+  return createRequireNavigationAccess("management", { label: "Management", loadAccess });
+}
+
+export const requireResearchOfficer = createRequireResearchOfficer();
+export const requirePmoOfficer = createRequirePmoOfficer();
+
+/** Management Hub and reporting, resolved against the "management" area. */
+export const requireManagement = createRequireManagement();
 
 // ── Local auth helpers ─────────────────────────────────────────────────────────
 
@@ -263,19 +360,44 @@ async function findOrCreateExternalUser(
   }
 
   if (!user) return null;
-  return toSessionUser(user);
+  return toSessionUser(user, await loadSecondaryRoles(user.id));
 }
 
-function toSessionUser(user: typeof users.$inferSelect): SessionUser {
+function toSessionUser(
+  user: typeof users.$inferSelect,
+  secondaryRoles: string[] = [],
+): SessionUser {
   return {
     id: user.id,
     username: user.username,
     name: user.name,
     email: user.email,
     role: user.role,
+    secondaryRoles,
     scientistId: (user as any).scientistId ?? null,
     needsRegistration: !(user as any).scientistId,
   };
+}
+
+/**
+ * Secondary roles held by a user, resolved to role-group names. Loaded on login
+ * and on every session refresh so a change takes effect on the next request
+ * rather than at next sign-in.
+ */
+export async function loadSecondaryRoles(userId: number): Promise<string[]> {
+  if (!userId || userId <= 0) return [];
+  try {
+    const rows = await db
+      .select({ name: roleGroups.name })
+      .from(userRoleAssignments)
+      .innerJoin(roleGroups, eq(userRoleAssignments.roleGroupId, roleGroups.id))
+      .where(eq(userRoleAssignments.userId, userId));
+    return rows.map((row: { name: string }) => row.name).filter(Boolean);
+  } catch (error) {
+    // A failure here must not silently widen access, so treat it as none.
+    authError(`failed to load secondary roles for user id=${userId}`, error);
+    return [];
+  }
 }
 
 async function recordSuccessfulLogin(userId: number): Promise<void> {
@@ -307,7 +429,7 @@ async function refreshSessionUserFromDatabase(
       return null;
     }
 
-    const refreshedUser = toSessionUser(currentUser);
+    const refreshedUser = toSessionUser(currentUser, await loadSecondaryRoles(currentUser.id));
     if (
       refreshedUser.role !== sessionUser.role ||
       refreshedUser.scientistId !== sessionUser.scientistId ||
@@ -358,7 +480,9 @@ export function createRefreshSessionAuthorizationMiddleware(
         return res.status(401).json({ message: "Your account is no longer available." });
       }
 
-      req.session.user = toSessionUser(currentUser);
+      // Reload secondaries too, so revoking one takes effect on the next
+      // request rather than at next sign-in.
+      req.session.user = toSessionUser(currentUser, await loadSecondaryRoles(currentUser.id));
       return next();
     } catch (error) {
       authError(`failed authorization refresh for user id=${sessionUser.id}`, error);
@@ -399,6 +523,38 @@ export function registerAuthRoutes(app: any) {
     }
   });
 
+  // ── Demo role emulation ──
+  //
+  // The sidebar role selector exists so demo mode can be explored as each role.
+  // It used to change only React state, so the session kept whatever DEMO_ROLE
+  // said and the server answered every request as that role. That was survivable
+  // while the server barely enforced roles; once the permission matrix became
+  // server-enforced it meant the interface and the API disagreed about who you
+  // were — the selector appeared to work and changed nothing.
+  //
+  // Registered only in demo mode, so outside it the path does not exist at all
+  // rather than existing and refusing.
+  if (mode === "demo") {
+    app.post("/api/auth/demo-role", (req: Request, res: Response) => {
+      const requested = typeof req.body?.role === "string" ? req.body.role.trim() : "";
+      if (!requested) {
+        return res.status(400).json({ message: "A role is required." });
+      }
+      // Only roles that really exist may be emulated, so the selector cannot
+      // put the session into a state no real account could reach.
+      const assignable = new Set<string>([...ACCESS_ROLES, ...BUILT_IN_ASSIGNABLE_ROLES, "superadmin"]);
+      if (!assignable.has(requested)) {
+        return res.status(400).json({ message: `"${requested}" is not an assignable role.` });
+      }
+      if (!req.session.user) {
+        return res.status(401).json({ message: "No demo session to update." });
+      }
+      req.session.user = { ...req.session.user, role: requested, secondaryRoles: [] };
+      authLog(`demo role switched to ${requested}`);
+      res.json({ user: req.session.user });
+    });
+  }
+
   // ── Login (local + ldap share the same endpoint) ──
   if (mode === "local" || mode === "ldap") {
     app.post("/api/auth/login", async (req: Request, res: Response) => {
@@ -431,9 +587,9 @@ export function registerAuthRoutes(app: any) {
         if (resolvedRole !== user.role) {
           authLog(`escalating role for user id=${user.id} username=${username}: ${user.role} -> ${resolvedRole}`);
           const [updated] = await db.update(users).set({ role: resolvedRole, updatedAt: new Date() }).where(eq(users.id, user.id)).returning();
-          sessionUser = toSessionUser(updated);
+          sessionUser = toSessionUser(updated, await loadSecondaryRoles(updated.id));
         } else {
-          sessionUser = toSessionUser(user);
+          sessionUser = toSessionUser(user, await loadSecondaryRoles(user.id));
         }
 
       } else {

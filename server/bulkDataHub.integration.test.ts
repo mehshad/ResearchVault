@@ -20,6 +20,9 @@ import {
   journals,
   journalImpactFactorMetrics,
   users,
+  roleGroups,
+  rolePermissions,
+  userRoleAssignments,
 } from "@shared/schema";
 import { db } from "./db.js";
 import { applySection, previewSection } from "./bulkDataHub.js";
@@ -1029,4 +1032,188 @@ integrationTest("JIF mixed-case journals keep distinct years, support metric CLE
     (await db.select().from(journalImpactFactorMetrics).where(eq(journalImpactFactorMetrics.journalId, journal.id))).length,
     2,
   );
+});
+
+// ---- Access control -------------------------------------------------------
+
+integrationTest("access configuration round-trips through a wipe", async (t) => {
+  const roleName = uniqueKey("ROLE");
+  const username = uniqueKey("USER").toLowerCase();
+  const secondRole = uniqueKey("ROLE2");
+
+  t.after(async () => {
+    await db.delete(users).where(eq(users.username, username));
+    await db.delete(roleGroups).where(inArray(roleGroups.name, [roleName, secondRole]));
+  });
+
+  const fileBase64 = await workbookBase64([
+    {
+      name: "Access Roles",
+      headers: ["Role Name", "Description"],
+      rows: [[roleName, "Round-trip role"], [secondRole, "Second role"]],
+    },
+    {
+      name: "Role Permissions",
+      headers: ["Role Name", "Navigation Item", "Access Level"],
+      rows: [
+        [roleName, "publications", "edit"],
+        [roleName, "grants", "view"],
+        [secondRole, "publications", "hide"],
+      ],
+    },
+    {
+      name: "User Accounts",
+      headers: ["Username", "Full Name", "Email", "Primary Access Role", "Auth Provider"],
+      rows: [[username, "Round Trip", `${username}@example.invalid`, roleName, "oidc"]],
+    },
+    {
+      name: "User Roles",
+      headers: ["Username", "Role Name"],
+      rows: [[username, secondRole]],
+    },
+  ]);
+
+  const preview = await previewSection("access-control", fileBase64, "access.xlsx");
+  assert.equal(preview.canApply, true, preview.rows.find((r) => r.action === "error")?.reason);
+
+  const applied = await applySection(
+    "access-control", fileBase64, "access.xlsx", preview.fingerprint,
+  );
+  assert.deepEqual(applied.counts["Access Roles"], { created: 2, updated: 0, skipped: 0 });
+  assert.deepEqual(applied.counts["Role Permissions"], { created: 3, updated: 0, skipped: 0 });
+  assert.deepEqual(applied.counts["User Accounts"], { created: 1, updated: 0, skipped: 0 });
+  assert.deepEqual(applied.counts["User Roles"], { created: 1, updated: 0, skipped: 0 });
+
+  const [created] = await db.select().from(users).where(eq(users.username, username));
+  assert.equal(created.role, roleName);
+  assert.equal(created.authProvider, "oidc");
+  // The archive carries no credential, so an imported account gets the same
+  // empty password SSO provisioning writes — one no hash can ever match.
+  assert.equal(created.password, "");
+
+  const [role] = await db.select().from(roleGroups).where(eq(roleGroups.name, roleName));
+  const permissions = await db
+    .select()
+    .from(rolePermissions)
+    .where(eq(rolePermissions.roleGroupId, role.id));
+  assert.equal(permissions.length, 2);
+  assert.equal(
+    permissions.find((p) => p.navigationItem === "publications")?.accessLevel,
+    "edit",
+  );
+
+  const assignments = await db
+    .select()
+    .from(userRoleAssignments)
+    .where(eq(userRoleAssignments.userId, created.id));
+  assert.equal(assignments.length, 1, "the secondary role was restored");
+
+  // Replaying the same archive must change nothing. Restores get re-run.
+  const second = await previewSection("access-control", fileBase64, "access.xlsx");
+  const ownRows = second.rows.filter((row) =>
+    row.key === roleName || row.key === secondRole || row.key === username
+    || row.key.startsWith(`${roleName} + `) || row.key.startsWith(`${secondRole} + `)
+    || row.key.startsWith(`${username} + `));
+  assert.equal(ownRows.length > 0, true);
+  assert.equal(
+    ownRows.every((row) => row.action === "skip"),
+    true,
+    "a replayed archive reports no changes",
+  );
+});
+
+integrationTest("an import cannot grant superadmin", async (t) => {
+  const username = uniqueKey("ESCALATE").toLowerCase();
+  t.after(async () => {
+    await db.delete(users).where(eq(users.username, username));
+  });
+
+  // superadmin is derived from SUPER_ADMIN_EMAIL at login. An account that does
+  // not already hold it must not acquire it from a spreadsheet cell, or the
+  // importer becomes an escalation path from admin to superadmin.
+  const fileBase64 = await workbookBase64([
+    {
+      name: "User Accounts",
+      headers: ["Username", "Full Name", "Email", "Primary Access Role"],
+      rows: [[username, "Would Be Root", `${username}@example.invalid`, "superadmin"]],
+    },
+  ]);
+
+  const preview = await previewSection("access-control", fileBase64, "access.xlsx");
+  assert.equal(preview.canApply, true, "the row restores rather than failing the archive");
+
+  await applySection("access-control", fileBase64, "access.xlsx", preview.fingerprint);
+  const [created] = await db.select().from(users).where(eq(users.username, username));
+  assert.equal(
+    created.role,
+    "user",
+    "an account that did not already hold superadmin falls back to the restricted role",
+  );
+});
+
+integrationTest("an import cannot grant superadmin as a secondary role", async (t) => {
+  const username = uniqueKey("ESCALATE2").toLowerCase();
+  t.after(async () => {
+    await db.delete(users).where(eq(users.username, username));
+    await db.delete(roleGroups).where(eq(roleGroups.name, "superadmin"));
+  });
+
+  // isAdministrator() reads every slot a person holds, so a secondary role
+  // named superadmin is not inert the way the role group itself is.
+  const fileBase64 = await workbookBase64([
+    {
+      name: "Access Roles",
+      headers: ["Role Name", "Description"],
+      rows: [["superadmin", "Inert on its own"]],
+    },
+    {
+      name: "User Accounts",
+      headers: ["Username", "Full Name", "Email", "Primary Access Role"],
+      rows: [[username, "Would Be Root", `${username}@example.invalid`, "admin"]],
+    },
+    {
+      name: "User Roles",
+      headers: ["Username", "Role Name"],
+      rows: [[username, "superadmin"]],
+    },
+  ]);
+
+  const preview = await previewSection("access-control", fileBase64, "access.xlsx");
+  const link = preview.rows.find((row) => row.sheetName === "User Roles");
+  assert.equal(link?.action, "error");
+  assert.match(String(link?.reason), /superadmin cannot be granted as a secondary role/);
+  assert.equal(preview.canApply, false);
+});
+
+integrationTest("an unknown access level is rejected, an unknown area is kept", async (t) => {
+  const roleName = uniqueKey("LEVELS");
+  t.after(async () => {
+    await db.delete(roleGroups).where(eq(roleGroups.name, roleName));
+  });
+
+  const fileBase64 = await workbookBase64([
+    {
+      name: "Access Roles",
+      headers: ["Role Name"],
+      rows: [[roleName]],
+    },
+    {
+      name: "Role Permissions",
+      headers: ["Role Name", "Navigation Item", "Access Level"],
+      rows: [
+        [roleName, "publications", "sudo"],
+        // The database already holds areas NAVIGATION_ITEMS no longer lists. A
+        // backup that refuses to restore what is really there is not a backup,
+        // and an unrecognised area is inert: nothing reads it.
+        [roleName, "retired-area", "view"],
+      ],
+    },
+  ]);
+
+  const preview = await previewSection("access-control", fileBase64, "access.xlsx");
+  const bad = preview.rows.find((row) => row.key.includes("publications"));
+  const retired = preview.rows.find((row) => row.key.includes("retired-area"));
+  assert.equal(bad?.action, "error");
+  assert.match(String(bad?.reason), /Access Level/);
+  assert.equal(retired?.action, "create", "an unrecognised navigation area still restores");
 });

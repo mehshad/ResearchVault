@@ -1,13 +1,17 @@
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
 import { useLocation } from 'wouter';
 import { useToast } from '@/hooks/use-toast';
+import { isAdministrator } from "@shared/effectiveRoles";
 
 interface User {
   id: number;
   username: string;
   name: string;
   email: string;
+  /** Primary access role. */
   role: string;
+  /** Roles held alongside the primary one; access is the union of all of them. */
+  secondaryRoles?: string[];
   scientistId: number | null;
   needsRegistration: boolean;
 }
@@ -172,7 +176,10 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         refreshUser,
         completeRegistration: setUser,
         isAuthenticated: !!user,
-        isAdmin: user?.role === 'admin' || user?.role === 'superadmin',
+        // Administrator rights are normally held as a secondary role, so this
+        // must look at every role the person holds. Checking only the primary
+        // would hide the whole admin interface from its own administrators.
+        isAdmin: isAdministrator(user),
       }}
     >
       {children}

@@ -414,8 +414,8 @@ function ReportBuilder() {
 
 export default function ManagementHub() {
   const { currentUser } = useCurrentUser();
-  const { canView } = usePermissions();
-  if (!canView(currentUser.role, "management")) {
+  const { canViewAs } = usePermissions();
+  if (!canViewAs(currentUser, "management")) {
     return (
       <div className="flex min-h-[60vh] items-center justify-center p-6">
         <Card className="max-w-md"><CardContent className="flex flex-col items-center p-8 text-center"><ShieldX className="mb-4 h-10 w-10 text-muted-foreground" /><h1 className="text-xl font-semibold">Management access required</h1><p className="mt-2 text-sm text-muted-foreground">This hub contains institution-wide reporting and is only available to authorized management roles.</p></CardContent></Card>

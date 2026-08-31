@@ -19,10 +19,12 @@ test("office dashboard defaults expose each dashboard only to its intended offic
   assert.equal(getOfficeDashboardDefaultAccess("PMO Officer", "pmo-office"), "edit");
   assert.equal(getOfficeDashboardDefaultAccess("Management", "pmo-office"), "edit");
   assert.equal(getOfficeDashboardDefaultAccess("Scientist", "pmo-office"), "hide");
-  assert.equal(getOfficeDashboardDefaultAccess("Grant Officer", "pmo-office"), "hide");
+  assert.equal(getOfficeDashboardDefaultAccess("Research Officer", "pmo-office"), "hide");
 
-  assert.equal(getOfficeDashboardDefaultAccess("Grant Officer", "research-office"), "edit");
-  assert.equal(getOfficeDashboardDefaultAccess("Contracts Officer", "research-office"), "edit");
+  // Grants and contracts are one office under one role.
+  assert.equal(getOfficeDashboardDefaultAccess("Research Officer", "research-office"), "edit");
+  assert.equal(getOfficeDashboardDefaultAccess("Contracts Officer", "research-office"), "hide",
+    "the retired Contracts Officer role must no longer open the research office");
   assert.equal(getOfficeDashboardDefaultAccess("Management", "research-office"), "edit");
   assert.equal(getOfficeDashboardDefaultAccess("Scientist", "research-office"), "hide");
   assert.equal(getOfficeDashboardDefaultAccess("PMO Officer", "research-office"), "hide");

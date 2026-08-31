@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { useLocation } from "wouter";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -16,6 +17,7 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { SdrExemptionDialog, NO_SDR_OPTION } from "@/components/SdrExemptionDialog";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
@@ -35,15 +37,25 @@ const createPublicationSchema = insertPublicationSchema.extend({
   pmid: z.string().optional(),
   publicationDate: z.string().optional(),
   publicationType: z.string().optional(),
-  researchActivityId: z.number().min(1, "Research Activity (SDR) is required"),
+  researchActivityId: z.number().min(1).optional(),
+  sdrExemptionReason: z.string().trim().optional(),
   status: z.string().optional(),
-});
+}).refine(
+  (data) => data.researchActivityId != null || (data.sdrExemptionReason?.length ?? 0) > 0,
+  {
+    // A publication must account for its research activity one way or the
+    // other: by linking one, or by explaining why none applies.
+    path: ["researchActivityId"],
+    message: "Choose a research activity, or record why no SDR applies.",
+  },
+);
 
 type CreatePublicationFormValues = z.infer<typeof createPublicationSchema>;
 
 export default function CreatePublication() {
   const [, navigate] = useLocation();
   const { toast } = useToast();
+  const [exemptionDialogOpen, setExemptionDialogOpen] = useState(false);
   
   // Get all research activities for selection
   const { data: researchActivities, isLoading: activitiesLoading } = useQuery<ResearchActivity[]>({
@@ -95,12 +107,20 @@ export default function CreatePublication() {
     },
   });
 
+  // Watched so the select can show the exception as its chosen value and the
+  // summary can render beneath it without a second piece of state to keep in
+  // step with the form.
+  const exemptionReason = form.watch("sdrExemptionReason");
+
   const onSubmit = (data: CreatePublicationFormValues) => {
     // Convert date to string format for API
     const submitData = {
       ...data,
       publicationDate: data.publicationDate ? data.publicationDate : undefined,
       researchActivityId: data.researchActivityId,
+      // Only ever one of the two reaches the server; they are mutually
+      // exclusive and the server clears the reason if an SDR is present.
+      sdrExemptionReason: data.researchActivityId ? undefined : data.sdrExemptionReason,
     };
     createPublicationMutation.mutate(submitData);
   };
@@ -147,12 +167,22 @@ export default function CreatePublication() {
                   render={({ field }) => (
                     <FormItem className="col-span-full">
                       <FormLabel>Research Activity (SDR) *</FormLabel>
-                      <Select 
-                        onValueChange={(value) => field.onChange(parseInt(value))}
-                        value={field.value?.toString()}
+                      <Select
+                        onValueChange={(value) => {
+                          if (value === NO_SDR_OPTION) {
+                            setExemptionDialogOpen(true);
+                            return;
+                          }
+                          field.onChange(parseInt(value));
+                          form.setValue("sdrExemptionReason", undefined);
+                        }}
+                        value={
+                          field.value?.toString()
+                          ?? (exemptionReason ? NO_SDR_OPTION : undefined)
+                        }
                       >
                         <FormControl>
-                          <SelectTrigger>
+                          <SelectTrigger data-testid="select-research-activity">
                             <SelectValue placeholder="Select research activity" />
                           </SelectTrigger>
                         </FormControl>
@@ -166,8 +196,34 @@ export default function CreatePublication() {
                               </SelectItem>
                             ))
                           )}
+                          <SelectItem value={NO_SDR_OPTION} data-testid="option-no-sdr">
+                            No SDR applies — request an exception
+                          </SelectItem>
                         </SelectContent>
                       </Select>
+                      {exemptionReason && (
+                        <div className="mt-2 rounded-md border border-amber-300 bg-amber-50 p-3 text-sm dark:border-amber-900 dark:bg-amber-950/40">
+                          <div className="flex items-start justify-between gap-3">
+                            <div>
+                              <p className="font-medium text-amber-900 dark:text-amber-200">
+                                No SDR — exception claimed
+                              </p>
+                              <p className="mt-1 whitespace-pre-wrap text-amber-900/90 dark:text-amber-200/90">
+                                {exemptionReason}
+                              </p>
+                            </div>
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => setExemptionDialogOpen(true)}
+                              data-testid="button-edit-sdr-exemption"
+                            >
+                              Edit
+                            </Button>
+                          </div>
+                        </div>
+                      )}
                       <FormMessage />
                     </FormItem>
                   )}
@@ -436,6 +492,16 @@ export default function CreatePublication() {
           </Card>
         </div>
       </div>
+
+      <SdrExemptionDialog
+        open={exemptionDialogOpen}
+        onOpenChange={setExemptionDialogOpen}
+        initialReason={exemptionReason ?? ""}
+        onConfirm={(reason) => {
+          form.setValue("sdrExemptionReason", reason, { shouldValidate: true });
+          form.setValue("researchActivityId", undefined, { shouldValidate: true });
+        }}
+      />
     </div>
   );
 }

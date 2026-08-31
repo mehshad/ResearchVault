@@ -127,7 +127,12 @@ for migration in \
     "migrations/20260825_add_grant_master_fields.sql" \
     "migrations/20260826_add_bulk_data_archives.sql" \
     "migrations/20260826_publications_authors_nullable.sql" \
-    "migrations/20260827_add_publication_invalid_reason.sql"; do
+    "migrations/20260827_add_publication_invalid_reason.sql" \
+    "migrations/20260830_consolidate_research_officer.sql" \
+    "migrations/20260830_consolidate_researcher_role.sql" \
+    "migrations/20260830_role_permissions_foreign_key.sql" \
+    "migrations/20260831_add_sdr_exemption.sql" \
+    "migrations/20260831_consolidate_navigation_areas.sql"; do
   if [ -f "/app/$migration" ]; then
     echo "  Applying $migration..."
     if [ "$migration" = "migrations/20260820_grant_lifecycle_consistency.sql" ] || \

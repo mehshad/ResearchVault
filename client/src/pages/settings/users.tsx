@@ -8,6 +8,8 @@ import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
 import { useCurrentUser } from "@/hooks/useCurrentUser";
 import { AlertTriangle, Shield, User } from "lucide-react";
+import { isAdministrator, hasAnyRole } from "@shared/effectiveRoles";
+import { isRoleTitleMismatch, accessRoleForJobTitle } from "@shared/constants";
 
 interface AppUser {
   id: number;
@@ -15,6 +17,7 @@ interface AppUser {
   name: string;
   email: string;
   role: string;
+  secondaryRoles?: string[];
   scientistId: number | null;
   profileJobTitle: string | null;
   lastLoginAt: string | null;
@@ -51,9 +54,34 @@ export default function AdminUsersPage() {
       return res.json();
     },
   });
+  // Several job titles share one access role — a "Postdoctoral Researcher" holds
+  // "Researcher" — so a plain string comparison would flag every one of them.
   const mismatchCount = users.filter(
-    (user) => user.profileJobTitle && user.role !== user.profileJobTitle
+    (user) => isRoleTitleMismatch(user.role, user.profileJobTitle)
   ).length;
+
+  // Secondary roles are additive — a person's access is the union of their
+  // primary role and these. Saved as a whole set so removing one is the same
+  // operation as adding one.
+  const [pendingSecondary, setPendingSecondary] = useState<Record<number, string[]>>({});
+  const secondaryMutation = useMutation({
+    mutationFn: async ({ id, roles }: { id: number; roles: string[] }) => {
+      const res = await apiRequest("PUT", `/api/admin/users/${id}/secondary-roles`, { roles });
+      return res.json();
+    },
+    onSuccess: (_data, variables) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/users"] });
+      setPendingSecondary((prev) => {
+        const next = { ...prev };
+        delete next[variables.id];
+        return next;
+      });
+      toast({ title: "Secondary roles updated" });
+    },
+    onError: (err: Error) => {
+      toast({ title: "Failed to update secondary roles", description: err.message, variant: "destructive" });
+    },
+  });
 
   const roleMutation = useMutation({
     mutationFn: async ({ id, role }: { id: number; role: string }) => {
@@ -61,16 +89,16 @@ export default function AdminUsersPage() {
       return res.json();
     },
     onSuccess: (_data, { id }) => {
-      toast({ title: "Access role updated successfully" });
+      toast({ title: "Primary access role updated" });
       setPendingRole((prev) => { const copy = { ...prev }; delete copy[id]; return copy; });
       queryClient.invalidateQueries({ queryKey: ["/api/admin/users"] });
     },
     onError: (err: any) => {
-      toast({ title: "Failed to update access role", description: err.message, variant: "destructive" });
+      toast({ title: "Failed to update primary access role", description: err.message, variant: "destructive" });
     },
   });
 
-  if (!me || (me.role !== "admin" && me.role !== "superadmin")) {
+  if (!me || !isAdministrator(me)) {
     return (
       <div className="p-8 text-center text-muted-foreground">
         You do not have permission to view this page.
@@ -85,7 +113,8 @@ export default function AdminUsersPage() {
           <Shield className="w-6 h-6" /> User Management
         </h1>
         <p className="text-muted-foreground mt-1">
-          Access roles assigned here control permissions. Profile job titles are shown for reference
+          Access roles assigned here control permissions — a person's access is the union of their
+          primary role and any secondary roles. Profile job titles are shown for reference
           and do not grant access. The super admin account (set via <code>SUPER_ADMIN_EMAIL</code>) cannot be changed here.
         </p>
       </div>
@@ -109,28 +138,43 @@ export default function AdminUsersPage() {
                 <div className="mb-4 flex items-start gap-2 rounded-md border border-amber-500/40 bg-amber-500/10 p-3 text-sm">
                   <AlertTriangle className="mt-0.5 h-4 w-4 flex-shrink-0 text-amber-600 dark:text-amber-400" />
                   <p>
-                    Highlighted users have an access role that differs from their profile job title.
-                    This may be intentional; permissions always follow the access role.
+                    Highlighted users hold an access role that does not correspond to their profile
+                    job title. Several titles share one role — a Postdoctoral Researcher holds
+                    Researcher — and those are not flagged. This may still be intentional;
+                    permissions always follow the access role.
                   </p>
                 </div>
               )}
               <div className="divide-y">
-              <div className="hidden md:grid grid-cols-[minmax(0,1fr)_11rem_13rem_16rem] gap-4 pb-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+              <div className="hidden md:grid grid-cols-[minmax(0,1fr)_9rem_11rem_13rem_15rem] gap-4 pb-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
                 <div>User</div>
                 <div>Last login</div>
                 <div>Profile job title</div>
-                <div>Access role</div>
+                <div>Primary access role</div>
+                <div>Secondary roles</div>
               </div>
               {users.map((u) => {
                 const isSelf = u.id === me.id;
                 const isSuperAdmin = u.role === "superadmin";
                 const currentRole = pendingRole[u.id] ?? u.role;
-                const hasRoleTitleMismatch =
-                  Boolean(u.profileJobTitle) && u.role !== u.profileJobTitle;
+                const savedSecondary = u.secondaryRoles ?? [];
+                const currentSecondary = pendingSecondary[u.id] ?? savedSecondary;
+                const secondaryChanged =
+                  JSON.stringify([...currentSecondary].sort()) !== JSON.stringify([...savedSecondary].sort());
+                // A role already held as primary would be redundant, and
+                // superadmin is never assignable from here.
+                const availableSecondary = assignableRoles.filter(
+                  (role) =>
+                    role !== "user" &&
+                    role !== currentRole &&
+                    role !== "superadmin" &&
+                    !currentSecondary.includes(role),
+                );
+                const hasRoleTitleMismatch = isRoleTitleMismatch(u.role, u.profileJobTitle);
                 return (
                   <div
                     key={u.id}
-                    className={`grid gap-3 py-4 md:grid-cols-[minmax(0,1fr)_11rem_13rem_16rem] md:items-center md:gap-4 ${
+                    className={`grid gap-3 py-4 md:grid-cols-[minmax(0,1fr)_9rem_11rem_13rem_15rem] md:items-start md:gap-4 ${
                       hasRoleTitleMismatch
                         ? "border-l-4 border-l-amber-500 bg-amber-500/5 pl-3 pr-2"
                         : ""
@@ -174,7 +218,7 @@ export default function AdminUsersPage() {
                     </div>
 
                     <div className="flex flex-wrap items-center gap-3 md:justify-start">
-                      <span className="font-medium text-foreground md:hidden">Access role:</span>
+                      <span className="font-medium text-foreground md:hidden">Primary access role:</span>
                       {isSuperAdmin ? (
                         <Badge variant="destructive">Super Admin</Badge>
                       ) : isSelf ? (
@@ -211,6 +255,80 @@ export default function AdminUsersPage() {
                             </Button>
                           )}
                         </>
+                      )}
+                    </div>
+
+                    {/* Secondary roles: additive, and how administrator rights
+                        are granted. Superadmin is excluded because it comes
+                        from configuration, never from this screen. */}
+                    <div className="min-w-0">
+                      <span className="mr-2 font-medium text-foreground md:hidden">Secondary roles:</span>
+                      {isSuperAdmin ? (
+                        <span className="text-xs text-muted-foreground">Not applicable</span>
+                      ) : (
+                        <div className="flex flex-wrap items-center gap-1.5">
+                          {currentSecondary.length === 0 && (
+                            <span className="text-xs text-muted-foreground">None</span>
+                          )}
+                          {currentSecondary.map((role) => (
+                            <Badge
+                              key={role}
+                              variant={role === "admin" ? "default" : "secondary"}
+                              className="gap-1 pr-1 text-xs font-normal"
+                            >
+                              {role}
+                              <button
+                                type="button"
+                                aria-label={`Remove ${role}`}
+                                className="rounded-sm px-0.5 hover:bg-background/40"
+                                onClick={() =>
+                                  setPendingSecondary((prev) => ({
+                                    ...prev,
+                                    [u.id]: currentSecondary.filter((held) => held !== role),
+                                  }))
+                                }
+                              >
+                                ×
+                              </button>
+                            </Badge>
+                          ))}
+                          <Select
+                            value=""
+                            onValueChange={(value) =>
+                              setPendingSecondary((prev) => ({
+                                ...prev,
+                                [u.id]: [...currentSecondary, value].sort(),
+                              }))
+                            }
+                          >
+                            <SelectTrigger className="h-7 w-28 text-xs" aria-label="Add a secondary role">
+                              <SelectValue placeholder="Add…" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {availableSecondary.length === 0 ? (
+                                <SelectItem value="__none" disabled className="text-xs">
+                                  Nothing left to add
+                                </SelectItem>
+                              ) : (
+                                availableSecondary.map((role) => (
+                                  <SelectItem key={role} value={role} className="text-xs">
+                                    {role}
+                                  </SelectItem>
+                                ))
+                              )}
+                            </SelectContent>
+                          </Select>
+                          {secondaryChanged && (
+                            <Button
+                              size="sm"
+                              className="h-7"
+                              onClick={() => secondaryMutation.mutate({ id: u.id, roles: currentSecondary })}
+                              disabled={secondaryMutation.isPending}
+                            >
+                              Save
+                            </Button>
+                          )}
+                        </div>
                       )}
                     </div>
                   </div>

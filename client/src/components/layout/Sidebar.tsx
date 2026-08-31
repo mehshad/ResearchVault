@@ -17,6 +17,7 @@ import { useCurrentUser } from "@/hooks/useCurrentUser";
 import { DUMMY_USERS, SUPER_ADMIN_USER } from "@/lib/currentUserRoleData";
 import { useTheme, themes } from "@/contexts/ThemeContext";
 import qbridgeLogo from "@assets/image_1767775219373.png";
+import { isAdministrator, hasAnyRole } from "@shared/effectiveRoles";
 
 interface SidebarProps {
   mobile?: boolean;
@@ -525,7 +526,7 @@ export default function Sidebar({ mobile = false, onClose, onCollapsedChange }: 
                   <MessageSquarePlus className="w-4 h-4" />
                 </button>
               </Link>}
-              {(currentUser.role === 'admin' || currentUser.role === 'superadmin' || currentUser.role === 'Management') && (
+              {hasAnyRole(currentUser, ['admin', 'superadmin', 'Management']) && (
                 <>
                   <Link href="/settings/users" title="Manage Users" onClick={() => { if (mobile && onClose) onClose(); }}>
                     <button className="p-2 rounded-lg text-muted-foreground hover:text-primary hover:bg-primary/10 transition-colors">
@@ -569,7 +570,7 @@ export default function Sidebar({ mobile = false, onClose, onCollapsedChange }: 
                   <span className="text-[10px]">Request</span>
                 </button>
               </Link>}
-              {(currentUser.role === 'admin' || currentUser.role === 'superadmin' || currentUser.role === 'Management') && (
+              {hasAnyRole(currentUser, ['admin', 'superadmin', 'Management']) && (
                 <>
                   <Link href="/settings/users" onClick={() => { if (mobile && onClose) onClose(); }}>
                     <button className="flex flex-col items-center gap-0.5 text-muted-foreground hover:text-primary transition-colors p-1">

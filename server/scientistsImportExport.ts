@@ -237,7 +237,15 @@ const fileRowSchema = z.object({
   lastName: z.string().trim().min(1, "Last Name is required"),
   email: z.string().trim().toLowerCase().email("Invalid email"),
   jobTitle: z.string().trim().optional(),
-  staffType: z.enum(["scientific", "administrative"]).default("scientific"),
+  // Case-insensitive: the column is filled in by hand as often as it is
+  // exported, and "Scientific" with a capital S failed every row in the file
+  // with an enum error that named the value but not the fix.
+  staffType: z.preprocess(
+    (v) => (typeof v === "string" ? v.trim().toLowerCase() : v),
+    z.enum(["scientific", "administrative"], {
+      errorMap: () => ({ message: "Staff Type must be scientific or administrative" }),
+    }).default("scientific"),
+  ),
   isInvestigator: optionalBoolean,
   departmentId: optionalInteger,
   sectionId: optionalInteger,
@@ -266,17 +274,9 @@ export interface ReferencingRecord {
   sampleIds: number[];
 }
 
-export interface DeleteCandidate {
-  id: number;
-  email: string;
-  name: string;
-  referencedBy?: ReferencingRecord[];
-}
-
 export interface ImportPreview {
   toInsert: FileRow[];
   toUpdate: Array<{ existingId: number; row: FileRow }>;
-  toDelete: DeleteCandidate[];
   errors: ImportRowError[];
   unchanged: number;
 }
@@ -289,6 +289,51 @@ function normaliseRow(raw: Record<string, any>): Record<string, any> {
     out[key] = typeof value === "string" ? value : value == null ? "" : String(value);
   }
   return out;
+}
+
+/**
+ * Merge a file row onto an existing staff record, filling blanks only.
+ *
+ * An import adds people and completes records. It does not correct them: a
+ * value already in the database is never replaced by one from a spreadsheet.
+ * Without this, importing a roster that omitted a column blanked it for
+ * everyone already on file -- staff IDs, ORCIDs and organisation placement all
+ * disappeared -- and a shortened surname silently renamed the person.
+ *
+ * Anything already set therefore wins, and the file only supplies what is
+ * missing. The consequence worth knowing: fixing an existing record has to be
+ * done in the interface, because a re-import cannot overwrite it.
+ */
+function fillBlanksOnly(existingRecord: Scientist, row: FileRow, existingSupervisorEmail: string | null): FileRow {
+  const keepText = (current: string | null | undefined, incoming: string | undefined) =>
+    (current ?? "").trim() ? (current as string) : incoming;
+  const keepNumber = (current: number | null | undefined, incoming: number | undefined) =>
+    current != null ? current : incoming;
+
+  return {
+    ...row,
+    staffId: keepText(existingRecord.staffId, row.staffId),
+    honorificTitle: keepText(existingRecord.honorificTitle, row.honorificTitle) ?? row.honorificTitle,
+    firstName: keepText(existingRecord.firstName, row.firstName) ?? row.firstName,
+    lastName: keepText(existingRecord.lastName, row.lastName) ?? row.lastName,
+    // The email identifies the person; a matched row never renames it.
+    email: existingRecord.email.toLowerCase(),
+    jobTitle: keepText(existingRecord.jobTitle, row.jobTitle),
+    // staffType and isInvestigator always hold a value, so there is no blank
+    // to fill and the stored one stands.
+    staffType: existingRecord.staffType as FileRow["staffType"],
+    isInvestigator: existingRecord.isInvestigator,
+    departmentId: keepNumber(existingRecord.departmentId, row.departmentId),
+    sectionId: keepNumber(existingRecord.sectionId, row.sectionId),
+    department: keepText(existingRecord.department, row.department),
+    profileImageInitials: keepText(existingRecord.profileImageInitials, row.profileImageInitials),
+    supervisorEmail: existingSupervisorEmail ?? row.supervisorEmail,
+    orcidId: keepText(existingRecord.orcidId, row.orcidId),
+    linkedInUrl: keepText(existingRecord.linkedInUrl, row.linkedInUrl),
+    googleScholarUrl: keepText(existingRecord.googleScholarUrl, row.googleScholarUrl),
+    webOfScienceId: keepText(existingRecord.webOfScienceId, row.webOfScienceId),
+    bio: keepText(existingRecord.bio, row.bio),
+  };
 }
 
 export function buildImportPreview(
@@ -393,20 +438,28 @@ export function buildImportPreview(
     matched.push({ row, rowNumber, matchedId: matchedRecord ? matchedRecord.id : null });
   });
 
-  // Supervisor emails must resolve against the FINAL intended set — i.e.
-  // every row that will exist in the DB after the import (matched updates,
-  // unchanged matches, and new inserts). This deliberately excludes the
-  // emails of existing scientists that aren't in the file, since those rows
-  // will be deleted and pointing at them would resolve to nothing at apply
-  // time.
-  const allKnownEmails = new Set<string>(matched.map(m => m.row.email));
-  const finalExistingIdByEmail = new Map<string, number>(
-    matched
+  // Supervisor emails resolve against the final intended set: every row that
+  // will exist after the import. That is the file's rows plus everyone already
+  // in the database, because staff absent from the file are left alone.
+  //
+  // This used to exclude existing staff who were not in the file, on the
+  // grounds that they were about to be deleted. Once the import stopped
+  // deleting them, naming an existing colleague as a line manager -- the
+  // ordinary case when importing one department -- started failing validation.
+  const allKnownEmails = new Set<string>([
+    ...existing.map(s => s.email.toLowerCase()),
+    ...matched.map(m => m.row.email),
+  ]);
+  const finalExistingIdByEmail = new Map<string, number>([
+    ...existing.map(s => [s.email.toLowerCase(), s.id] as [string, number]),
+    // A row in the file wins, since it may be renaming that person's email.
+    ...matched
       .filter((m): m is typeof m & { matchedId: number } => m.matchedId != null)
-      .map(m => [m.row.email, m.matchedId])
-  );
+      .map(m => [m.row.email, m.matchedId] as [string, number]),
+  ]);
 
-  matched.forEach(({ row, rowNumber, matchedId }) => {
+  matched.forEach(({ row: fileRow, rowNumber, matchedId }) => {
+    let row = fileRow;
     if (row.supervisorEmail && !allKnownEmails.has(row.supervisorEmail)) {
       errors.push({
         rowNumber,
@@ -422,6 +475,13 @@ export function buildImportPreview(
     }
 
     const existingRecord = existing.find(s => s.id === matchedId)!;
+    // Fill blanks only: whatever the record already holds is kept, and the file
+    // supplies just the gaps.
+    const existingSupervisorEmail = existingRecord.supervisorId != null
+      ? existing.find(s => s.id === existingRecord.supervisorId)?.email.toLowerCase() ?? null
+      : null;
+    row = fillBlanksOnly(existingRecord, row, existingSupervisorEmail);
+
     const desiredExistingSupervisorId = row.supervisorEmail
       ? finalExistingIdByEmail.get(row.supervisorEmail) ?? null
       : null;
@@ -455,17 +515,11 @@ export function buildImportPreview(
     else toUpdate.push({ existingId: matchedId, row });
   });
 
-  // Anything in DB but not matched → delete
-  const matchedIds = new Set(matched.filter(m => m.matchedId != null).map(m => m.matchedId!));
-  const toDelete: DeleteCandidate[] = existing
-    .filter(s => !matchedIds.has(s.id))
-    .map(s => ({
-      id: s.id,
-      email: s.email,
-      name: `${s.honorificTitle} ${s.firstName} ${s.lastName}`.trim(),
-    }));
-
-  return { toInsert, toUpdate, toDelete, errors, unchanged };
+  // Staff absent from the file are left alone. An import adds and updates; it
+  // is not a statement that the file is the complete roster. Treating omission
+  // as an instruction to delete meant importing a partial list -- one
+  // department, one new intake -- proposed removing everybody else.
+  return { toInsert, toUpdate, errors, unchanged };
 }
 
 /**
@@ -601,94 +655,6 @@ export async function findReferencingRecords(
   }
 
   return result;
-}
-
-/**
- * Compute scientists.supervisor_id self-reference blockers, taking the
- * planned import into account: a row whose supervisor will be reassigned by
- * this import is NOT a blocker for the old supervisor's deletion, and a
- * referencing row that is itself being deleted is also not a blocker.
- */
-function computeSelfRefBlockers(
-  toDeleteIds: Set<number>,
-  existing: Scientist[],
-  toUpdateByExistingId: Map<number, FileRow>,
-  emailToId: Map<string, number>
-): Map<number, ReferencingRecord> {
-  const byTarget = new Map<number, number[]>();
-  for (const s of existing) {
-    if (s.supervisorId == null) continue;
-    if (!toDeleteIds.has(s.supervisorId)) continue;
-    if (toDeleteIds.has(s.id)) continue; // referencer also being deleted
-
-    // If s is being updated, check its NEW supervisor — only block if it
-    // still points at the deletion target.
-    const newRow = toUpdateByExistingId.get(s.id);
-    if (newRow) {
-      const newSupId = newRow.supervisorEmail
-        ? emailToId.get(newRow.supervisorEmail) ?? null
-        : null;
-      if (newSupId !== s.supervisorId) continue; // reassigned away
-    }
-
-    if (!byTarget.has(s.supervisorId)) byTarget.set(s.supervisorId, []);
-    byTarget.get(s.supervisorId)!.push(s.id);
-  }
-
-  const out = new Map<number, ReferencingRecord>();
-  byTarget.forEach((ids, targetId) => {
-    out.set(targetId, {
-      table: "scientists",
-      column: "supervisor_id",
-      count: ids.length,
-      sampleIds: ids.slice(0, 5),
-    });
-  });
-  return out;
-}
-
-export async function enrichDeletesWithReferences(
-  preview: ImportPreview,
-  database: PgDatabase<any, any, any>,
-  existing: Scientist[]
-): Promise<void> {
-  if (preview.toDelete.length === 0) return;
-
-  const toDeleteIds = new Set(preview.toDelete.map(d => d.id));
-
-  // Build the post-import email→id map the apply step will use, so the
-  // self-reference check reflects the intended final state.
-  const emailToId = new Map<string, number>();
-  for (const s of existing) emailToId.set(s.email.toLowerCase(), s.id);
-  for (const { existingId, row } of preview.toUpdate) emailToId.set(row.email, existingId);
-  for (const d of preview.toDelete) emailToId.delete(d.email.toLowerCase());
-  // toInsert rows have no id yet, so unresolved-on-insert is fine here —
-  // a row referencing a new scientist's email simply won't appear as a
-  // self-ref blocker (the new scientist isn't a delete candidate anyway).
-
-  const toUpdateByExistingId = new Map<number, FileRow>(
-    preview.toUpdate.map(u => [u.existingId, u.row])
-  );
-
-  const externalRefs = await findReferencingRecords(database, preview.toDelete.map(d => d.id));
-  const selfRefs = computeSelfRefBlockers(toDeleteIds, existing, toUpdateByExistingId, emailToId);
-
-  for (const d of preview.toDelete) {
-    const combined: ReferencingRecord[] = [...(externalRefs.get(d.id) ?? [])];
-    const self = selfRefs.get(d.id);
-    if (self) combined.push(self);
-    if (combined.length > 0) {
-      d.referencedBy = combined;
-      const summary = combined
-        .map(x => `${x.table}.${x.column} (${x.count} row${x.count === 1 ? "" : "s"}; ids: ${x.sampleIds.join(", ")}${x.count > x.sampleIds.length ? "…" : ""})`)
-        .join("; ");
-      preview.errors.push({
-        rowNumber: 0,
-        identifier: `${d.name} <${d.email}>`,
-        errors: [`Cannot delete: still referenced by ${summary}. Reassign these rows in the import file before re-importing.`],
-      });
-    }
-  }
 }
 
 export function rowToInsertScientist(

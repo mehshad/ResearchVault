@@ -23,14 +23,13 @@ import {
 } from "./objectStorage";
 import { LocalObjectStorageService } from "./localObjectStorage";
 import { db } from "./db";
-import { scientists, publicationAuthors, journals, journalImpactFactorMetrics, manuscriptHistory, users, branches, departments, sections, roleGroups } from "@shared/schema";
+import { scientists, publicationAuthors, journals, journalImpactFactorMetrics, manuscriptHistory, users, branches, departments, sections, roleGroups, userRoleAssignments } from "@shared/schema";
 import { and, eq, inArray, isNull, desc, sql } from "drizzle-orm";
 import {
   buildExportBuffer,
   buildTemplateBuffer,
   parseUploadedFile,
   buildImportPreview,
-  enrichDeletesWithReferences,
   rowToInsertScientist,
   findReferencingRecords,
 } from "./scientistsImportExport";
@@ -73,9 +72,9 @@ import {
   insertDepartmentSchema,
   insertSectionSchema
 } from "@shared/schema";
-import { requireAuth, requireAdmin, requireContractsOfficer, requireContractsRead, requirePublicationOfficer, getAuthMode } from "./auth";
+import { requireAuth, requireAdmin, requirePublicationOfficer, getAuthMode } from "./auth";
 import { buildAssignableRoles } from "./assignableRoles";
-import { JOB_TITLES } from "@shared/constants";
+import { ACCESS_ROLES } from "@shared/constants";
 import { resolveOwnershipAccess, maxAccess, type AccessLevel as OwnershipAccessLevel } from "./ownershipResolver";
 import { matchesAuthorName, isLinkedAuthorInAuthorsText, isUnambiguousAuthorMatch, suggestInternalAuthors } from "@shared/authorMatching";
 import { detectDuplicateGroups, pickDefaultSurvivorId, normalizeDoi as canonicalDoi, isPreprintRecord, classifyResolvedPublication, preprintRepairEvidence } from "@shared/publicationDeduplication";
@@ -110,6 +109,8 @@ import {
   PUBLISHED_INVALID_STATUS,
   PUBLISHED_STATUS,
   WITHDRAWN_STATUS,
+  hasSdrOrExemption,
+  validateSdrExemptionReason,
 } from "@shared/publicationWorkflow";
 import {
   isInvestigatorEligible,
@@ -3232,9 +3233,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
       const existing = await storage.getScientists();
       const org = { branches: await storage.getBranches(), departments: await storage.getDepartments(), sections: await storage.getSections() };
-      const preview = buildImportPreview(fileRows, existing, org);
-      await enrichDeletesWithReferences(preview, db, existing);
-      res.json(preview);
+      res.json(buildImportPreview(fileRows, existing, org));
     } catch (error) {
       console.error('Staff import preview failed:', error);
       res.status(500).json({ message: 'Failed to build import preview' });
@@ -3261,13 +3260,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const existing = await storage.getScientists();
       const org = { branches: await storage.getBranches(), departments: await storage.getDepartments(), sections: await storage.getSections() };
       const preview = buildImportPreview(fileRows, existing, org);
-      await enrichDeletesWithReferences(preview, db, existing);
 
       if (preview.errors.length > 0) {
         return res.status(400).json({
           message: 'Import has validation errors. Re-run preview and fix them first.',
           errors: preview.errors,
-          toDelete: preview.toDelete,
         });
       }
 
@@ -3301,7 +3298,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
           // Add freshly-inserted rows.
           insertedIdByEmail.forEach((id, email) => emailToId.set(email, id));
           // Remove rows being deleted so nothing resolves to a doomed id.
-          for (const d of preview.toDelete) emailToId.delete(d.email.toLowerCase());
 
           // 3. Defensive consistency check: every supervisorEmail in the
           //    file must resolve. Preview validated this against
@@ -3336,25 +3332,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
             }
           }
 
-          // 4. Delete missing rows. Postgres will throw 23503 on FK violation; we wrap to give a clear error.
-          if (preview.toDelete.length > 0) {
-            try {
-              await tx.delete(scientists).where(inArray(scientists.id, preview.toDelete.map(d => d.id)));
-            } catch (e: any) {
-              if (e?.code === '23503') {
-                const detail = e?.detail ? ` Database detail: ${e.detail}` : '';
-                throw new Error(
-                  `Cannot delete one or more staff because they are still referenced by another record (FK violation).${detail} Re-run preview to see exactly which records reference them, reassign those, then re-import.`
-                );
-              }
-              throw e;
-            }
-          }
-
           return {
             inserted: preview.toInsert.length,
             updated: preview.toUpdate.length,
-            deleted: preview.toDelete.length,
             unchanged: preview.unchanged,
           };
         });
@@ -5009,6 +4989,75 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  /**
+   * Resolves the SDR-exemption fields for a create or update.
+   *
+   * The reason is the scientist's own claim, so who made it and when are
+   * stamped from the session rather than taken from the request body -- a
+   * client must not be able to attribute an exception to someone else.
+   *
+   * Linking an SDR clears the exemption. The two are mutually exclusive: a
+   * publication that names its research activity is not also claiming there
+   * is none.
+   */
+  const resolveSdrExemption = (
+    req: Request,
+    incoming: Record<string, unknown>,
+    existing?: { researchActivityId?: number | null; sdrExemptionReason?: string | null },
+  ): { ok: true; fields: Record<string, unknown> } | { ok: false; message: string } => {
+    const linkedSdr = incoming.researchActivityId !== undefined
+      ? incoming.researchActivityId
+      : existing?.researchActivityId ?? null;
+
+    if (linkedSdr != null) {
+      return {
+        ok: true,
+        fields: {
+          sdrExemptionReason: null,
+          sdrExemptionRequestedBy: null,
+          sdrExemptionRequestedAt: null,
+        },
+      };
+    }
+
+    // Absent from the payload on an update: leave whatever is already stored.
+    if (incoming.sdrExemptionReason === undefined) {
+      return { ok: true, fields: {} };
+    }
+
+    const raw = incoming.sdrExemptionReason;
+    if (raw === null || (typeof raw === "string" && raw.trim() === "")) {
+      return {
+        ok: true,
+        fields: {
+          sdrExemptionReason: null,
+          sdrExemptionRequestedBy: null,
+          sdrExemptionRequestedAt: null,
+        },
+      };
+    }
+
+    const result = validateSdrExemptionReason(raw);
+    if (!result.ok) return { ok: false, message: result.message };
+
+    // Re-saving the same reason must not restamp it as a fresh request.
+    if (existing?.sdrExemptionReason?.trim() === result.reason) {
+      return { ok: true, fields: {} };
+    }
+
+    return {
+      ok: true,
+      fields: {
+        sdrExemptionReason: result.reason,
+        // The demo session uses id 0, which is not a real user row. `|| null`
+        // rather than `?? null` so it records nobody instead of failing the
+        // foreign key.
+        sdrExemptionRequestedBy: req.session?.user?.id || null,
+        sdrExemptionRequestedAt: new Date(),
+      },
+    };
+  };
+
   app.post('/api/publications', requireAuth, rejectPublicationCreateWorkflowMutation, async (req: Request, res: Response) => {
     try {
       // Create a validation schema that makes authors optional for concept status
@@ -5034,31 +5083,48 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }
       }
 
+      const exemption = resolveSdrExemption(req, publicationData as Record<string, unknown>);
+      if (!exemption.ok) {
+        return res.status(400).json({ message: exemption.message });
+      }
+      const claimsExemption = typeof exemption.fields.sdrExemptionReason === "string";
+
       if (!hasPublicationOfficerRole(req)) {
-        if (!researchActivity) {
+        // A publication with no SDR is normally a researcher recording work
+        // outside any research activity, which this ownership rule exists to
+        // prevent. The exception is a collaborator's paper: there is no SDR
+        // here to be a member of, so the explanation stands in for the check
+        // and the Outcome Office reads it before the record is finalised.
+        if (!researchActivity && !claimsExemption) {
           return res.status(403).json({
             message:
-              "Researchers must choose an SDR where they are the budget holder or a project member.",
+              "Researchers must choose an SDR where they are the budget holder or a project member, or explain why no SDR applies.",
           });
         }
-        const projectMembers = await storage.getProjectMembers(researchActivity.id);
-        if (
-          !canCreatePublicationForResearchActivity(
-            req,
-            researchActivity.budgetHolderId,
-            projectMembers.map((member) => member.scientistId)
-          )
-        ) {
-          return res.status(403).json({
-            message:
-              "You may only create publications for an SDR where you are the budget holder or a project member.",
-          });
+        if (researchActivity) {
+          const projectMembers = await storage.getProjectMembers(researchActivity.id);
+          if (
+            !canCreatePublicationForResearchActivity(
+              req,
+              researchActivity.budgetHolderId,
+              projectMembers.map((member) => member.scientistId)
+            )
+          ) {
+            return res.status(403).json({
+              message:
+                "You may only create publications for an SDR where you are the budget holder or a project member.",
+            });
+          }
         }
       }
-      
-      const creatorUserId = req.session?.user?.id ?? null;
+
+      // The demo session uses id 0, which is not a real user row, so `??` here
+      // wrote 0 and the users foreign key rejected the insert -- creating a
+      // publication in demo mode failed outright. `||` records nobody instead.
+      const creatorUserId = req.session?.user?.id || null;
       const publication = await storage.createPublication({
         ...publicationData,
+        ...exemption.fields,
         createdByUserId: creatorUserId,
       } as any);
 
@@ -5072,7 +5138,22 @@ export async function registerRoutes(app: Express): Promise<Server> {
         changedBy: creatorUserId ?? 1,
         changeReason: 'Publication created',
       });
-      
+
+      // The exception is a claim someone made. Record it in the timeline so it
+      // survives a later correction and can be traced to whoever made it.
+      if (typeof exemption.fields.sdrExemptionReason === 'string') {
+        await storage.createManuscriptHistoryEntry({
+          publicationId: publication.id,
+          fromStatus: publication.status || 'Concept',
+          toStatus: publication.status || 'Concept',
+          changedField: 'sdrExemption',
+          oldValue: null,
+          newValue: exemption.fields.sdrExemptionReason as string,
+          changedBy: creatorUserId ?? 1,
+          changeReason: `No SDR: ${exemption.fields.sdrExemptionReason}`,
+        });
+      }
+
       res.status(201).json(publication);
     } catch (error) {
       console.error("Publication creation error:", error);
@@ -5126,13 +5207,38 @@ export async function registerRoutes(app: Express): Promise<Server> {
           return res.status(404).json({ message: "Research activity not found" });
         }
       }
-      
-      const publication = await storage.updatePublication(id, validateData);
-      
+
+      const exemption = resolveSdrExemption(
+        req,
+        validateData as Record<string, unknown>,
+        existing,
+      );
+      if (!exemption.ok) {
+        return res.status(400).json({ message: exemption.message });
+      }
+
+      const publication = await storage.updatePublication(id, {
+        ...validateData,
+        ...exemption.fields,
+      });
+
       if (!publication) {
         return res.status(404).json({ message: "Publication not found" });
       }
-      
+
+      if (typeof exemption.fields.sdrExemptionReason === 'string') {
+        await storage.createManuscriptHistoryEntry({
+          publicationId: id,
+          fromStatus: existing.status || '',
+          toStatus: publication.status || '',
+          changedField: 'sdrExemption',
+          oldValue: existing.sdrExemptionReason ?? null,
+          newValue: exemption.fields.sdrExemptionReason as string,
+          changedBy: req.session?.user?.id ?? 1,
+          changeReason: `No SDR: ${exemption.fields.sdrExemptionReason}`,
+        });
+      }
+
       res.json(publication);
     } catch (error) {
       if (error instanceof ZodError) {
@@ -5323,7 +5429,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
       if (!publication.authors?.trim()) issues.push("missing authors");
       if (!publication.abstract?.trim()) issues.push("missing abstract");
-      if (!publication.researchActivityId) issues.push("no linked SDR");
+      // An accepted explanation stands in for the link. The office reads the
+      // reason on the card before finalising, which is the vetting step.
+      if (!hasSdrOrExemption(publication)) issues.push("no linked SDR or exception");
       const internalAuthors = await storage.getPublicationAuthors(id);
       if (internalAuthors.length === 0) issues.push("no linked internal authors");
       if (issues.length > 0) {
@@ -8829,7 +8937,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Role Permissions Routes
-  app.get('/api/role-permissions', async (req: Request, res: Response) => {
+  // Readable by any signed-in user: every client loads the matrix on mount to
+  // decide what to render for its own role. Writing it is a different matter —
+  // see the administrator guards on the mutating routes below.
+  app.get('/api/role-permissions', requireAuth, async (req: Request, res: Response) => {
     try {
       const permissions = await storage.getRolePermissions();
       res.json(permissions);
@@ -8839,7 +8950,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post('/api/role-permissions', async (req: Request, res: Response) => {
+  // The access matrix decides what every role may reach, so changing it is an
+  // administrator action. Without this guard any signed-in account could grant
+  // itself edit on any area, including the one the server enforces.
+  app.post('/api/role-permissions', requireAuth, requireAdmin, async (req: Request, res: Response) => {
     try {
       const validateData = insertRolePermissionSchema.parse(req.body);
       const permission = await storage.createRolePermission(validateData);
@@ -8854,7 +8968,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.patch('/api/role-permissions/:jobTitle/:navigationItem', async (req: Request, res: Response) => {
+  app.patch('/api/role-permissions/:jobTitle/:navigationItem', requireAuth, requireAdmin, async (req: Request, res: Response) => {
     try {
       const { jobTitle, navigationItem } = req.params;
       const { accessLevel } = req.body;
@@ -8875,14 +8989,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post('/api/role-permissions/bulk', async (req: Request, res: Response) => {
+  app.post('/api/role-permissions/bulk', requireAuth, requireAdmin, async (req: Request, res: Response) => {
     try {
       const { permissions } = req.body;
       if (!Array.isArray(permissions)) {
         return res.status(400).json({ message: "Permissions must be an array" });
       }
 
-      const results = await storage.updateRolePermissionsBulk(permissions);
+      const results = await storage.updateRolePermissionsBulk(
+        permissions,
+        req.session?.user?.id ?? undefined,
+      );
       res.json(results);
     } catch (error) {
       console.error('Error bulk updating role permissions:', error);
@@ -10870,8 +10987,20 @@ export async function registerRoutes(app: Express): Promise<Server> {
         .from(users)
         .leftJoin(scientists, eq(users.scientistId, scientists.id))
         .orderBy(users.name);
+      // One query for every assignment, then grouped in memory — a per-user
+      // lookup here would be one query per row.
+      const assignments = await db
+        .select({ userId: userRoleAssignments.userId, name: roleGroups.name })
+        .from(userRoleAssignments)
+        .innerJoin(roleGroups, eq(userRoleAssignments.roleGroupId, roleGroups.id));
+      const secondaryByUser = new Map<number, string[]>();
+      for (const assignment of assignments) {
+        const list = secondaryByUser.get(assignment.userId) ?? [];
+        list.push(assignment.name);
+        secondaryByUser.set(assignment.userId, list);
+      }
       res.json(rows.map(({ user, profileJobTitle }) =>
-        toAdminUserResponse(user, profileJobTitle)
+        toAdminUserResponse(user, profileJobTitle, (secondaryByUser.get(user.id) ?? []).sort())
       ));
     } catch (err) {
       console.error('Error fetching users:', err);
@@ -10886,7 +11015,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     await db
       .insert(roleGroups)
       .values(
-        JOB_TITLES.map((name) => ({
+        ACCESS_ROLES.map((name) => ({
           name,
           description: 'Default access-matrix role',
         }))
@@ -10907,6 +11036,81 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.status(500).json({ message: 'Failed to fetch assignable roles' });
     }
   });
+  // PUT /api/admin/users/:id/secondary-roles — replace a user's secondary roles
+  //
+  // Secondary roles are additive: access is the union of the primary and these.
+  // Administrator rights are normally granted this way, so this endpoint can
+  // escalate privilege and is administrator-only, like the primary-role route.
+  app.put('/api/admin/users/:id/secondary-roles', requireAuth, requireAdmin, async (req: Request, res: Response) => {
+    const id = parseInt(req.params.id);
+    if (isNaN(id)) return res.status(400).json({ message: 'Invalid user id' });
+
+    const { roles } = req.body as { roles?: unknown };
+    if (!Array.isArray(roles) || roles.some((role) => typeof role !== 'string')) {
+      return res.status(400).json({ message: 'roles must be an array of role names' });
+    }
+    const requested = [...new Set((roles as string[]).map((role) => role.trim()).filter(Boolean))];
+
+    // superadmin is granted by SUPER_ADMIN_EMAIL alone, never through the API.
+    if (requested.includes('superadmin')) {
+      return res.status(400).json({ message: 'superadmin cannot be assigned' });
+    }
+    // "user" is the absence of a role, so it is meaningless as a secondary.
+    if (requested.includes('user')) {
+      return res.status(400).json({ message: '"user" is the default role and cannot be a secondary role' });
+    }
+
+    try {
+      const [target] = await db.select({ id: users.id, role: users.role }).from(users).where(eq(users.id, id)).limit(1);
+      if (!target) return res.status(404).json({ message: 'User not found' });
+
+      await ensureDefaultRoleGroups();
+      const groups = requested.length
+        ? await db.select({ id: roleGroups.id, name: roleGroups.name })
+            .from(roleGroups)
+            .where(inArray(roleGroups.name, requested))
+        : [];
+
+      // "admin" is a legitimate secondary but is not a matrix role, so it has
+      // no role_groups row until one is created for it.
+      const known = new Set(groups.map((group) => group.name));
+      const missing = requested.filter((role) => !known.has(role));
+      if (missing.length) {
+        const [created] = await db
+          .insert(roleGroups)
+          .values(missing.map((name) => ({ name, description: 'Assignable access role' })))
+          .onConflictDoNothing({ target: roleGroups.name })
+          .returning();
+        void created;
+        const refreshed = await db.select({ id: roleGroups.id, name: roleGroups.name })
+          .from(roleGroups)
+          .where(inArray(roleGroups.name, requested));
+        groups.splice(0, groups.length, ...refreshed);
+      }
+
+      // A role held as primary would be redundant as a secondary.
+      const keep = groups.filter((group) => group.name !== target.role);
+
+      await db.transaction(async (tx: any) => {
+        await tx.delete(userRoleAssignments).where(eq(userRoleAssignments.userId, id));
+        if (keep.length) {
+          await tx.insert(userRoleAssignments).values(
+            keep.map((group) => ({
+              userId: id,
+              roleGroupId: group.id,
+              assignedBy: req.session?.user?.id ?? null,
+            })),
+          );
+        }
+      });
+
+      res.json({ id, secondaryRoles: keep.map((group) => group.name).sort() });
+    } catch (err) {
+      console.error('Error updating secondary roles:', err);
+      res.status(500).json({ message: 'Failed to update secondary roles' });
+    }
+  });
+
   // PATCH /api/admin/users/:id/role — change a user's role
   app.patch('/api/admin/users/:id/role', requireAuth, requireAdmin, async (req: Request, res: Response) => {
     const id = parseInt(req.params.id);

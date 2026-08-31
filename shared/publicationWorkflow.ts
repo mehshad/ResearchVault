@@ -23,6 +23,55 @@ export function validateInvalidPublicationReason(reason: unknown):
   return { ok: true, reason: trimmed };
 }
 
+/**
+ * A publication normally links to a Scientific Data Record. The exception is
+ * work done for a collaborator at another institution: the scientist is an
+ * author, but there is no research activity here to link.
+ *
+ * The reason replaces the link rather than excusing its absence, so it is
+ * required and bounded exactly like the invalid-publication reason.
+ */
+export const SDR_EXEMPTION_REASON_MAX_LENGTH = 2000;
+
+export function validateSdrExemptionReason(reason: unknown):
+  | { ok: true; reason: string }
+  | { ok: false; message: string } {
+  if (typeof reason !== "string" || reason.trim().length === 0) {
+    return {
+      ok: false,
+      message: "Explain why no SDR applies to this publication.",
+    };
+  }
+  const trimmed = reason.trim();
+  if (trimmed.length > SDR_EXEMPTION_REASON_MAX_LENGTH) {
+    return {
+      ok: false,
+      message: `The explanation must be ${SDR_EXEMPTION_REASON_MAX_LENGTH} characters or fewer.`,
+    };
+  }
+  return { ok: true, reason: trimmed };
+}
+
+type SdrLinkable = {
+  researchActivityId?: number | null;
+  sdrExemptionReason?: string | null;
+};
+
+/**
+ * True when a publication accounts for its research activity — either by
+ * linking one, or by explaining why none applies.
+ *
+ * The single place that answers "does this publication satisfy the SDR
+ * requirement". The office list, the finalize gate and the forms all ask it, so
+ * they cannot drift into disagreeing about what counts.
+ */
+export function hasSdrOrExemption(publication: SdrLinkable): boolean {
+  return (
+    publication.researchActivityId != null ||
+    (publication.sdrExemptionReason?.trim().length ?? 0) > 0
+  );
+}
+
 type IpVettingPublication = {
   status?: string | null;
   vettedForSubmissionByIpOffice?: boolean | null;

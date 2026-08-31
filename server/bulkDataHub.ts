@@ -2,7 +2,7 @@
  * Bulk Data Hub - Section-based bulk import/export engine.
  *
  * Sections: research-management, pmo-office, research-compliance,
- *           research-services, research-output.
+ *           research-services, research-output, access-control.
  *
  * Each section maps to one XLSX workbook with multiple canonical worksheets.
  * Export contains current DB records; templates contain headers only.
@@ -24,6 +24,10 @@
  *   Rooms:              building name + room number
  *   Certification Modules: module name
  *   Certifications:     scientist email + module name + start date
+ *   Access Roles:       role name
+ *   Role Permissions:   role name + navigation item
+ *   User Accounts:      username
+ *   User Roles:         username + role name
  *
  * Relationships use business keys only (emails, programId, projectId, sdrNumber).
  * Blank cells leave the DB value unchanged; literal "CLEAR" clears nullable fields.
@@ -57,8 +61,13 @@ import {
   certifications,
   publicationAuthors,
   projectMembers,
+  users,
+  roleGroups,
+  rolePermissions,
+  userRoleAssignments,
   SECTION_TYPES,
   GRANT_CURRENCY_VALUES,
+  USER_AUTH_PROVIDERS,
 } from "@shared/schema";
 import type {
   Scientist,
@@ -82,11 +91,16 @@ import type {
   JournalImpactFactorMetric,
   PublicationAuthor,
   ProjectMember,
+  User,
+  RoleGroup,
+  UserRoleAssignment,
 } from "@shared/schema";
+import { validateSdrExemptionReason } from "@shared/publicationWorkflow";
 import {
   reconcileGrantLifecycle,
   GrantLifecycleError,
 } from "@shared/grantLifecycle";
+import { ACCESS_LEVELS, RESTRICTED_USER_ROLE } from "@shared/constants";
 import {
   isRoomManagerEligible,
   isRoomSupervisorEligible,
@@ -128,7 +142,8 @@ export type SectionId =
   | "pmo-office"
   | "research-compliance"
   | "research-services"
-  | "research-output";
+  | "research-output"
+  | "access-control";
 
 export interface SheetSpec {
   name: string;
@@ -197,6 +212,21 @@ export const SECTION_META: SectionMeta[] = [
       { name: "Publications", description: "Publication records", businessKey: "Publication ID, DOI, PMID, title + publication date + journal, or title + SDR number" },
       { name: "Journal Impact Factors", description: "Journal metadata and annual impact metrics", businessKey: "journal name + year" },
       { name: "Publication Authors", description: "Internal authorship links between publications and staff", businessKey: "publication (DOI or PMID) + scientist email" },
+    ],
+  },
+  {
+    // Deliberately its own workbook rather than columns bolted onto Scientists.
+    // Access configuration is restored, reviewed and rotated on a different
+    // schedule from research data, and it is the one section an auditor asks
+    // for on its own.
+    id: "access-control",
+    label: "Access Control",
+    description: "Access roles, the permission matrix, and user accounts",
+    sheets: [
+      { name: "Access Roles", description: "Assignable access roles", businessKey: "role name" },
+      { name: "Role Permissions", description: "The permission matrix: one row per role and navigation area", businessKey: "role name + navigation item" },
+      { name: "User Accounts", description: "Accounts and their primary access role. Carries no credentials.", businessKey: "username" },
+      { name: "User Roles", description: "Secondary roles held alongside the primary one", businessKey: "username + role name" },
     ],
   },
 ];
@@ -438,11 +468,20 @@ const PUBLICATION_COLS: ColDef[] = [
   // excluded the entire corpus from SIDRA scoring.
   { header: "Status", key: "status", description: `One of: ${PUBLICATION_STATUS_VALUES.join(", ")}` },
   { header: "Vetted By IP Office", key: "vettedForSubmissionByIpOffice", description: "Yes or No" },
+  // Without this a restore drops every exception and the whole corpus
+  // re-flags as missing an SDR. Who claimed it and when are audit stamps and
+  // stay out of the workbook, as elsewhere.
+  { header: "SDR Exemption Reason", key: "sdrExemptionReason", description: "Why no SDR applies; leave blank when an SDR is linked" },
 ];
 
 const PUBLICATION_AUTHOR_COLS: ColDef[] = [
-  { header: "Publication DOI", key: "publicationDoi", description: "Identifies the publication; DOI or PMID is required" },
+  { header: "Publication DOI", key: "publicationDoi", description: "Identifies the publication" },
   { header: "Publication PMID", key: "publicationPmid", description: "Used when the DOI is absent" },
+  // A publication that is not published yet has no DOI or PMID, so its authors
+  // could not be expressed at all. These mirror the fallback the Publications
+  // sheet accepts, keeping the two sheets able to describe the same records.
+  { header: "Publication Title", key: "publicationTitle", description: "Used with SDR Number when there is no DOI or PMID" },
+  { header: "Publication SDR Number", key: "publicationSdrNumber", description: "Used with Publication Title" },
   { header: "Scientist Email", key: "scientistEmail", required: true, description: "Internal author being credited" },
   { header: "Authorship Type", key: "authorshipType", required: true, description: "First Author, Last Author, Corresponding Author, etc." },
   { header: "Author Position", key: "authorPosition", description: "Position in the author list (1, 2, 3...)" },
@@ -521,6 +560,39 @@ const CERTIFICATION_COLS: ColDef[] = [
   { header: "Notes", key: "notes" },
 ];
 
+// ── Access control ─────────────────────────────────────────────────────────
+// No credential column exists anywhere in this section, by design. The export
+// is a restore and review artefact; password hashes have no place in it, and
+// an account created by import is given the same empty password SSO
+// provisioning uses, which no hash can ever match.
+
+const ACCESS_ROLE_COLS: ColDef[] = [
+  { header: "Role Name", key: "name", required: true },
+  { header: "Description", key: "description" },
+];
+
+const ROLE_PERMISSION_COLS: ColDef[] = [
+  { header: "Role Name", key: "roleName", required: true, description: "Must match a row in Access Roles" },
+  { header: "Navigation Item", key: "navigationItem", required: true, description: "Navigation area id, e.g. outcome-office" },
+  { header: "Access Level", key: "accessLevel", required: true, description: ACCESS_LEVELS.join(", ") },
+];
+
+const USER_ACCOUNT_COLS: ColDef[] = [
+  { header: "Username", key: "username", required: true },
+  { header: "Full Name", key: "name", required: true },
+  { header: "Email", key: "email", required: true },
+  { header: "Primary Access Role", key: "role", required: true, description: "superadmin cannot be assigned here" },
+  { header: "Auth Provider", key: "authProvider", description: `${USER_AUTH_PROVIDERS.join(", ")} (default local)` },
+  { header: "Entra OID", key: "entraOid", description: "OIDC subject id; blank unless federated" },
+  { header: "Scientist Email", key: "scientistEmail", description: "Links the account to a staff profile" },
+];
+
+const USER_ROLE_COLS: ColDef[] = [
+  { header: "Username", key: "username", required: true, description: "Must match a row in User Accounts" },
+  { header: "Role Name", key: "roleName", required: true, description: "Secondary role held alongside the primary" },
+  { header: "Assigned By Username", key: "assignedByUsername", description: "Who granted it; kept for the audit trail" },
+];
+
 const SHEET_COLS: Record<string, ColDef[]> = {
   "Scientists": SCIENTIST_COLS,
   "Grants": GRANT_COLS,
@@ -535,6 +607,10 @@ const SHEET_COLS: Record<string, ColDef[]> = {
   "Journal Impact Factors": JOURNAL_IMPACT_FACTOR_COLS,
   "Publication Authors": PUBLICATION_AUTHOR_COLS,
   "Research Activity Members": SDR_MEMBER_COLS,
+  "Access Roles": ACCESS_ROLE_COLS,
+  "Role Permissions": ROLE_PERMISSION_COLS,
+  "User Accounts": USER_ACCOUNT_COLS,
+  "User Roles": USER_ROLE_COLS,
   "Branches": BRANCH_COLS,
   "Departments": DEPARTMENT_COLS,
   "Sections": SECTION_COLS,
@@ -732,6 +808,10 @@ function addInstructionsSheet(wb: ExcelJS.Workbook, sectionId: SectionId): void 
     "• Journal Impact Factors: Journal Name + Year",
     "• Publication Authors: Publication DOI or PMID + Scientist Email",
     "• Research Activity Members: SDR Number + Scientist Email",
+    "• Access Roles: Role Name",
+    "• Role Permissions: Role Name + Navigation Item",
+    "• User Accounts: Username",
+    "• User Roles: Username + Role Name",
     "• Branches: Branch Name",
     "• Departments: Branch Name + Department Name",
     "• Sections: Department Name + Section Name",
@@ -790,6 +870,7 @@ function publicationAuthorsToRows(
   links: PublicationAuthor[],
   publicationById: Map<number, Publication>,
   scientistById: Map<number, Scientist>,
+  sdrByDbId?: Map<number, ResearchActivity>,
 ): Record<string, unknown>[] {
   return links.flatMap((link) => {
     const publication = publicationById.get(link.publicationId);
@@ -800,6 +881,10 @@ function publicationAuthorsToRows(
     return [{
       publicationDoi: publication.doi ?? "",
       publicationPmid: publication.pmid ?? "",
+      publicationTitle: publication.title ?? "",
+      publicationSdrNumber: publication.researchActivityId
+        ? (sdrByDbId?.get(publication.researchActivityId)?.sdrNumber ?? "")
+        : "",
       scientistEmail: scientist.email,
       authorshipType: link.authorshipType,
       authorPosition: link.authorPosition ?? "",
@@ -1095,6 +1180,7 @@ function publicationsToRows(
     prepublicationSite: p.prepublicationSite ?? "",
     status: p.status ?? "Concept",
     vettedForSubmissionByIpOffice: p.vettedForSubmissionByIpOffice ? "Yes" : "No",
+    sdrExemptionReason: p.sdrExemptionReason ?? "",
   }));
 }
 
@@ -1193,6 +1279,78 @@ function certificationsToRows(
 // Context loader — fetches all DB data needed for a section
 // ---------------------------------------------------------------------------
 
+function accessRolesToRows(list: RoleGroup[]): Record<string, unknown>[] {
+  return [...list]
+    .sort((a, b) => a.name.localeCompare(b.name))
+    .map((role) => ({ name: role.name, description: role.description ?? "" }));
+}
+
+function rolePermissionsToRows(
+  list: Array<{ roleGroupId: number; navigationItem: string; accessLevel: string }>,
+  roleById: Map<number, RoleGroup>,
+): Record<string, unknown>[] {
+  const rows: Record<string, unknown>[] = [];
+  for (const permission of list) {
+    const role = roleById.get(permission.roleGroupId);
+    // A permission row whose role group is gone cannot be keyed, so it cannot
+    // be restored either. Dropping it here keeps the workbook round-trippable.
+    if (!role) continue;
+    rows.push({
+      roleName: role.name,
+      navigationItem: permission.navigationItem,
+      accessLevel: permission.accessLevel,
+    });
+  }
+  return rows.sort((a, b) =>
+    String(a.roleName).localeCompare(String(b.roleName))
+    || String(a.navigationItem).localeCompare(String(b.navigationItem)));
+}
+
+function userAccountsToRows(
+  list: User[],
+  scientistById: Map<number, Scientist>,
+): Record<string, unknown>[] {
+  return [...list]
+    .sort((a, b) => a.username.localeCompare(b.username))
+    .map((user) => ({
+      username: user.username,
+      name: user.name,
+      email: user.email,
+      role: user.role,
+      authProvider: user.authProvider,
+      entraOid: user.entraOid ?? "",
+      // The account's link to a staff profile travels as the profile's email,
+      // like every other cross-record reference in this workbook.
+      scientistEmail: user.scientistId != null
+        ? scientistById.get(user.scientistId)?.email ?? ""
+        : "",
+    }));
+}
+
+function userRolesToRows(
+  list: UserRoleAssignment[],
+  userById: Map<number, User>,
+  roleById: Map<number, RoleGroup>,
+): Record<string, unknown>[] {
+  const rows: Record<string, unknown>[] = [];
+  for (const assignment of list) {
+    const user = userById.get(assignment.userId);
+    const role = roleById.get(assignment.roleGroupId);
+    // Either endpoint missing means the link has no business key to travel on.
+    if (!user || !role) continue;
+    rows.push({
+      username: user.username,
+      roleName: role.name,
+      assignedByUsername: assignment.assignedBy != null
+        ? userById.get(assignment.assignedBy)?.username ?? ""
+        : "",
+    });
+  }
+  return rows.sort((a, b) =>
+    String(a.username).localeCompare(String(b.username))
+    || String(a.roleName).localeCompare(String(b.roleName)));
+}
+
 interface DbContext {
   scientists: Scientist[];
   scientistByEmail: Map<string, Scientist>;
@@ -1258,6 +1416,16 @@ interface DbContext {
   certifications?: Certification[];
   certificationByKey?: Map<string, Certification>;
   ambiguousCertificationKeys?: Set<string>;
+  roleGroupList?: RoleGroup[];
+  roleGroupByName?: Map<string, RoleGroup>;
+  roleGroupById?: Map<number, RoleGroup>;
+  rolePermissionList?: Array<{ id: number; roleGroupId: number; navigationItem: string; accessLevel: string; updatedAt: Date | null }>;
+  rolePermissionByKey?: Map<string, { roleGroupId: number; navigationItem: string; accessLevel: string }>; // roleGroupId + NUL + navigationItem
+  userList?: User[];
+  userByUsername?: Map<string, User>;
+  userById?: Map<number, User>;
+  userRoleAssignmentList?: UserRoleAssignment[];
+  userRoleAssignmentByKey?: Map<string, UserRoleAssignment>; // userId + NUL + roleGroupId
 }
 
 async function loadDbContext(sectionId: SectionId, executor: any = db): Promise<DbContext> {
@@ -1515,6 +1683,55 @@ async function loadDbContext(sectionId: SectionId, executor: any = db): Promise<
     });
   }
 
+  if (sectionId === "access-control") {
+    const roleGroupList: RoleGroup[] = await executor.select().from(roleGroups);
+    const roleGroupByName = new Map<string, RoleGroup>();
+    const roleGroupById = new Map<number, RoleGroup>();
+    for (const role of roleGroupList) {
+      // role_groups.name is unique in the schema, so no ambiguity set is needed.
+      roleGroupByName.set(normalizeScalarKey(role.name), role);
+      roleGroupById.set(role.id, role);
+    }
+
+    const rolePermissionList = await executor
+      .select({
+        id: rolePermissions.id,
+        roleGroupId: rolePermissions.roleGroupId,
+        navigationItem: rolePermissions.navigationItem,
+        accessLevel: rolePermissions.accessLevel,
+        updatedAt: rolePermissions.updatedAt,
+      })
+      .from(rolePermissions);
+    const rolePermissionByKey = new Map<string, typeof rolePermissionList[number]>();
+    for (const permission of rolePermissionList) {
+      rolePermissionByKey.set(
+        `${permission.roleGroupId}\u0000${normalizeScalarKey(permission.navigationItem)}`,
+        permission,
+      );
+    }
+
+    const userList: User[] = await executor.select().from(users);
+    const userByUsername = new Map<string, User>();
+    const userById = new Map<number, User>();
+    for (const user of userList) {
+      userByUsername.set(normalizeScalarKey(user.username), user);
+      userById.set(user.id, user);
+    }
+
+    const userRoleAssignmentList: UserRoleAssignment[] = await executor.select().from(userRoleAssignments);
+    const userRoleAssignmentByKey = new Map<string, UserRoleAssignment>();
+    for (const assignment of userRoleAssignmentList) {
+      userRoleAssignmentByKey.set(`${assignment.userId}\u0000${assignment.roleGroupId}`, assignment);
+    }
+
+    Object.assign(ctx, {
+      roleGroupList, roleGroupByName, roleGroupById,
+      rolePermissionList, rolePermissionByKey,
+      userList, userByUsername, userById,
+      userRoleAssignmentList, userRoleAssignmentByKey,
+    });
+  }
+
   return ctx;
 }
 
@@ -1551,7 +1768,12 @@ export async function buildExportWorkbook(sectionId: SectionId): Promise<Buffer>
     addDataSheet(wb, "Patents", PATENT_COLS, patentsToRows(ctx.patentList!, ctx.sdrByDbId!));
     addDataSheet(wb, "Publications", PUBLICATION_COLS, publicationsToRows(ctx.publicationList!, ctx.sdrByDbId!));
     addDataSheet(wb, "Journal Impact Factors", JOURNAL_IMPACT_FACTOR_COLS, journalImpactFactorsToRows(ctx.journals!, ctx.journalMetrics!));
-    addDataSheet(wb, "Publication Authors", PUBLICATION_AUTHOR_COLS, publicationAuthorsToRows(ctx.publicationAuthorList!, ctx.publicationById!, ctx.scientistById));
+    addDataSheet(wb, "Publication Authors", PUBLICATION_AUTHOR_COLS, publicationAuthorsToRows(ctx.publicationAuthorList!, ctx.publicationById!, ctx.scientistById, ctx.sdrByDbId));
+  } else if (sectionId === "access-control") {
+    addDataSheet(wb, "Access Roles", ACCESS_ROLE_COLS, accessRolesToRows(ctx.roleGroupList!));
+    addDataSheet(wb, "Role Permissions", ROLE_PERMISSION_COLS, rolePermissionsToRows(ctx.rolePermissionList!, ctx.roleGroupById!));
+    addDataSheet(wb, "User Accounts", USER_ACCOUNT_COLS, userAccountsToRows(ctx.userList!, ctx.scientistById));
+    addDataSheet(wb, "User Roles", USER_ROLE_COLS, userRolesToRows(ctx.userRoleAssignmentList!, ctx.userById!, ctx.roleGroupById!));
   }
 
   const buf = await wb.xlsx.writeBuffer();
@@ -3035,6 +3257,9 @@ function previewPublicationRows(
     const data: Record<string, unknown> = {};
     if (existing) data.id = existing.id;
     if (title) data.title = title;
+    // Carried through to apply so a newly created publication can be indexed by
+    // the same key its author rows use. Stripped before the row is written.
+    if (sdrComposite) data._sdrTitleKey = sdrComposite;
     const textFields = [
       "abstract", "authors", "journal", "volume", "issue", "pages", "pmid",
       "publicationType", "prepublicationUrl", "prepublicationSite",
@@ -3063,6 +3288,21 @@ function previewPublicationRows(
     if (vettedRaw && !isClear(vettedRaw)) {
       const vetted = parseBool(vettedRaw, "Vetted By IP Office", errors);
       if (vetted !== null) data.vettedForSubmissionByIpOffice = vetted;
+    }
+    // An SDR and an exemption are mutually exclusive; a row claiming both is a
+    // contradiction rather than a preference to resolve silently.
+    const exemptionRaw = (row.sdrExemptionReason ?? "").trim();
+    const sdrCell = (row.sdrNumber ?? "").trim();
+    if (exemptionRaw) {
+      if (isClear(exemptionRaw)) {
+        data.sdrExemptionReason = null;
+      } else if (sdrCell && !isClear(sdrCell)) {
+        errors.push("A row cannot carry both an SDR Number and an SDR Exemption Reason");
+      } else {
+        const exemption = validateSdrExemptionReason(exemptionRaw);
+        if (!exemption.ok) errors.push(`SDR Exemption Reason: ${exemption.message}`);
+        else data.sdrExemptionReason = exemption.reason;
+      }
     }
     const sdrRaw = (row.sdrNumber ?? "").trim();
     if (sdrRaw) {
@@ -3201,6 +3441,7 @@ function previewPublicationAuthorRows(
   ctx: DbContext,
   inFilePublicationDois: Set<string>,
   inFilePublicationPmids: Set<string>,
+  inFilePublicationSdrTitles: Set<string>,
   inFileScientistEmails: Set<string>,
 ): RowEntry[] {
   const seen = new Set<string>();
@@ -3211,10 +3452,16 @@ function previewPublicationAuthorRows(
 
     const doi = normalizeDoi(row.publicationDoi ?? "");
     const pmid = normalizeScalarKey(row.publicationPmid ?? "");
+    // Fallback identity for a publication that has no DOI or PMID because it is
+    // not published yet.
+    const sdrTitleKey = publicationSdrKey(row.publicationTitle, row.publicationSdrNumber);
     const email = (row.scientistEmail ?? "").trim().toLowerCase();
-    const label = `${doi || pmid || `row ${rowNumber}`} + ${email || "?"}`;
+    const shownKey = doi || pmid || (row.publicationTitle ?? "").trim() || `row ${rowNumber}`;
+    const label = `${shownKey} + ${email || "?"}`;
 
-    if (!doi && !pmid) errors.push("Publication DOI or Publication PMID is required");
+    if (!doi && !pmid && !sdrTitleKey) {
+      errors.push("Publication DOI, PMID, or Title plus SDR Number is required");
+    }
     if (!email) errors.push("Scientist Email is required");
 
     // Resolve the publication by its business keys, allowing one created by
@@ -3222,13 +3469,17 @@ function previewPublicationAuthorRows(
     let publication: Publication | undefined;
     const byDoi = doi ? ctx.publicationByDoi?.get(doi) : undefined;
     const byPmid = pmid ? ctx.publicationByPmid?.get(pmid) : undefined;
-    if ((byDoi?.length ?? 0) > 1 || (byPmid?.length ?? 0) > 1) {
+    const bySdrTitle = sdrTitleKey ? ctx.publicationBySdrTitle?.get(sdrTitleKey) : undefined;
+    if ((byDoi?.length ?? 0) > 1 || (byPmid?.length ?? 0) > 1 || (bySdrTitle?.length ?? 0) > 1) {
       errors.push("Publication key matches multiple publications");
     }
-    publication = byDoi?.[0] ?? byPmid?.[0];
-    const publicationInFile = (doi && inFilePublicationDois.has(doi)) || (pmid && inFilePublicationPmids.has(pmid));
-    if (!publication && !publicationInFile && (doi || pmid)) {
-      errors.push(`Publication "${doi || pmid}" was not found`);
+    publication = byDoi?.[0] ?? byPmid?.[0] ?? bySdrTitle?.[0];
+    const publicationInFile =
+      (doi && inFilePublicationDois.has(doi)) ||
+      (pmid && inFilePublicationPmids.has(pmid)) ||
+      (sdrTitleKey && inFilePublicationSdrTitles.has(sdrTitleKey));
+    if (!publication && !publicationInFile && (doi || pmid || sdrTitleKey)) {
+      errors.push(`Publication "${shownKey}" was not found`);
     }
 
     const scientist = email ? ctx.scientistByEmail.get(email) : undefined;
@@ -3250,7 +3501,7 @@ function previewPublicationAuthorRows(
       errors.push(`Link Method: must be manual or automatic (got "${row.linkMethod}")`);
     }
 
-    const dedupeKey = `${doi || pmid}\u0000${email}`;
+    const dedupeKey = `${doi || pmid || sdrTitleKey}\u0000${email}`;
     if (dedupeKey.trim() && seen.has(dedupeKey)) errors.push("Duplicate publication + scientist link in workbook");
     seen.add(dedupeKey);
 
@@ -3260,7 +3511,11 @@ function previewPublicationAuthorRows(
       linkMethod: linkMethodRaw || "manual",
     };
     if (publication) data.publicationId = publication.id;
-    else { data._publicationDoi = doi; data._publicationPmid = pmid; }
+    else {
+      data._publicationDoi = doi;
+      data._publicationPmid = pmid;
+      data._publicationSdrTitle = sdrTitleKey;
+    }
     if (scientist) data.scientistId = scientist.id;
     else data._scientistEmail = email;
 
@@ -3323,6 +3578,260 @@ function previewSdrMemberRows(
       "Research Activity Members", rowNumber, label,
       existing as unknown as Record<string, unknown>, data, errors,
       new Set(["researchActivityId", "scientistId"]),
+    );
+  });
+}
+
+// -- Access control ---------------------------------------------------------
+
+function previewAccessRoleRows(rows: Record<string, string>[], ctx: DbContext): RowEntry[] {
+  const counts = new Map<string, number>();
+  rows.forEach((r) => { const k = normalizeScalarKey(r.name); if (k) counts.set(k, (counts.get(k) ?? 0) + 1); });
+  return rows.map((row, index) => {
+    const rowNumber = index + 1;
+    const name = (row.name ?? "").trim();
+    const key = normalizeScalarKey(name);
+    const errors: string[] = [];
+    rejectRequiredClear(row, ACCESS_ROLE_COLS, errors);
+    if (!name || isClear(name)) errors.push("Role Name is required");
+    if ((counts.get(key) ?? 0) > 1) errors.push("Duplicate role name in workbook");
+    // A role group is only a name and a matrix row; defining one grants nobody
+    // anything until it is assigned, and buildAssignableRoles already filters
+    // "superadmin" out of what an administrator can hand out. The name is
+    // therefore restored verbatim rather than rejected — a backup that refuses
+    // to carry what the database holds is not a backup. Escalation is blocked
+    // where it would actually happen: assignment, in the two sheets below.
+
+    const existing = ctx.roleGroupByName?.get(key);
+    const data: Record<string, unknown> = { name };
+    const description = maybeText(row.description ?? "", !!existing);
+    if (description !== undefined) data.description = description;
+    return finishStructuredEntry(
+      "Access Roles", rowNumber, name,
+      existing as unknown as Record<string, unknown>, data, errors, new Set(["name"]),
+    );
+  });
+}
+
+function previewRolePermissionRows(
+  rows: Record<string, string>[],
+  ctx: DbContext,
+  inFileRoleNames: Set<string>,
+): RowEntry[] {
+  const seen = new Set<string>();
+  return rows.map((row, index) => {
+    const rowNumber = index + 1;
+    const errors: string[] = [];
+    rejectRequiredClear(row, ROLE_PERMISSION_COLS, errors);
+
+    const roleName = (row.roleName ?? "").trim();
+    const roleKey = normalizeScalarKey(roleName);
+    const navigationItem = (row.navigationItem ?? "").trim();
+    const navKey = normalizeScalarKey(navigationItem);
+    const label = roleName || "row " + rowNumber;
+    const shownLabel = label + " + " + (navigationItem || "?");
+
+    if (!roleName || isClear(roleName)) errors.push("Role Name is required");
+    if (!navigationItem || isClear(navigationItem)) errors.push("Navigation Item is required");
+
+    const role = roleKey ? ctx.roleGroupByName?.get(roleKey) : undefined;
+    if (roleName && !role && !inFileRoleNames.has(roleKey)) {
+      errors.push('Access role "' + roleName + '" was not found');
+    }
+
+    // Access level is validated against the shared list; navigation item is
+    // not. The database already holds areas that NAVIGATION_ITEMS no longer
+    // lists, and a backup that refuses to restore what is really there is not
+    // a backup. An unknown area is inert -- nothing reads it.
+    const accessLevel = (row.accessLevel ?? "").trim().toLowerCase();
+    if (!accessLevel) errors.push("Access Level is required");
+    else if (!(ACCESS_LEVELS as readonly string[]).includes(accessLevel)) {
+      errors.push("Access Level: must be one of " + ACCESS_LEVELS.join(", ") + ' (got "' + row.accessLevel + '")');
+    }
+
+    const dedupeKey = `${roleKey}\u0000${navKey}`;
+    if (roleKey && navKey && seen.has(dedupeKey)) errors.push("Duplicate role + navigation item in workbook");
+    seen.add(dedupeKey);
+
+    const data: Record<string, unknown> = { navigationItem, accessLevel };
+    if (role) data.roleGroupId = role.id;
+    else data._roleName = roleKey;
+
+    const existing = role
+      ? ctx.rolePermissionByKey?.get(`${role.id}\u0000${navKey}`)
+      : undefined;
+    return finishStructuredEntry(
+      "Role Permissions", rowNumber, shownLabel,
+      existing as unknown as Record<string, unknown>, data, errors,
+      new Set(["roleGroupId", "navigationItem"]),
+    );
+  });
+}
+
+function previewUserAccountRows(
+  rows: Record<string, string>[],
+  ctx: DbContext,
+  inFileRoleNames: Set<string>,
+  inFileScientistEmails: Set<string>,
+): RowEntry[] {
+  const counts = new Map<string, number>();
+  const oidCounts = new Map<string, number>();
+  rows.forEach((r) => {
+    const k = normalizeScalarKey(r.username);
+    if (k) counts.set(k, (counts.get(k) ?? 0) + 1);
+    const oid = (r.entraOid ?? "").trim();
+    if (oid) oidCounts.set(oid, (oidCounts.get(oid) ?? 0) + 1);
+  });
+
+  return rows.map((row, index) => {
+    const rowNumber = index + 1;
+    const errors: string[] = [];
+    rejectRequiredClear(row, USER_ACCOUNT_COLS, errors);
+
+    const username = (row.username ?? "").trim();
+    const key = normalizeScalarKey(username);
+    if (!username || isClear(username)) errors.push("Username is required");
+    if ((counts.get(key) ?? 0) > 1) errors.push("Duplicate username in workbook");
+
+    const existing = key ? ctx.userByUsername?.get(key) : undefined;
+
+    const name = (row.name ?? "").trim();
+    if (!name && !existing) errors.push("Full Name is required for a new account");
+    const email = (row.email ?? "").trim();
+    if (!email && !existing) errors.push("Email is required for a new account");
+
+    const role = (row.role ?? "").trim();
+    const roleKey = normalizeScalarKey(role);
+    if (!role && !existing) errors.push("Primary Access Role is required for a new account");
+    // superadmin is derived from SUPER_ADMIN_EMAIL at every login, never
+    // granted by data. Rejecting the row outright would make a real
+    // environment unrestorable, because the account that runs the system
+    // legitimately holds it. Restoring it verbatim would turn the importer
+    // into an escalation path from admin to superadmin, which the admin API
+    // explicitly refuses.
+    //
+    // So it is kept only where the target account already holds it: a restore
+    // into the same database is lossless, and no import can ever add the
+    // privilege. Anywhere else it falls back to the restricted role, and the
+    // next login re-derives the truth from SUPER_ADMIN_EMAIL.
+    const isSuperadminRow = roleKey === "superadmin";
+    const effectiveRole = isSuperadminRow
+      ? (existing?.role === "superadmin" ? "superadmin" : RESTRICTED_USER_ROLE)
+      : role;
+    // A role that is neither built in nor a known access role would leave the
+    // account holding a string nothing grants -- which reads as configured
+    // access but is not.
+    const isBuiltIn = roleKey === "user" || roleKey === "admin";
+    if (role && !isBuiltIn && !isSuperadminRow
+        && !ctx.roleGroupByName?.has(roleKey) && !inFileRoleNames.has(roleKey)) {
+      errors.push('Primary Access Role "' + role + '" is not a known access role');
+    }
+
+    const authProviderRaw = (row.authProvider ?? "").trim().toLowerCase();
+    if (authProviderRaw && !(USER_AUTH_PROVIDERS as readonly string[]).includes(authProviderRaw)) {
+      errors.push("Auth Provider: must be one of " + USER_AUTH_PROVIDERS.join(", ") + ' (got "' + row.authProvider + '")');
+    }
+
+    const entraOid = (row.entraOid ?? "").trim();
+    if (entraOid && !isClear(entraOid) && (oidCounts.get(entraOid) ?? 0) > 1) {
+      errors.push("Duplicate Entra OID in workbook");
+    }
+
+    const data: Record<string, unknown> = {};
+    if (name) data.name = name;
+    if (email) data.email = email;
+    if (role) data.role = effectiveRole;
+    if (authProviderRaw) data.authProvider = authProviderRaw;
+    else if (!existing) data.authProvider = "local";
+
+    const oidValue = maybeText(row.entraOid ?? "", !!existing);
+    if (oidValue !== undefined) data.entraOid = oidValue;
+
+    const scientistEmailRaw = (row.scientistEmail ?? "").trim();
+    if (scientistEmailRaw === "") {
+      // Absent on a new account means genuinely unlinked; absent on an update
+      // leaves the existing link alone, like every other blank cell.
+      if (!existing) data.scientistId = null;
+    } else if (isClear(scientistEmailRaw)) {
+      data.scientistId = null;
+    } else {
+      const scientistKey = scientistEmailRaw.toLowerCase();
+      const scientist = ctx.scientistByEmail.get(scientistKey);
+      if (scientist) data.scientistId = scientist.id;
+      else if (inFileScientistEmails.has(scientistKey)) data._scientistEmail = scientistKey;
+      else errors.push('Scientist Email: "' + scientistEmailRaw + '" was not found');
+    }
+
+    return finishStructuredEntry(
+      "User Accounts", rowNumber, username,
+      existing as unknown as Record<string, unknown>, data, errors, new Set(["username"]),
+    );
+  });
+}
+
+function previewUserRoleRows(
+  rows: Record<string, string>[],
+  ctx: DbContext,
+  inFileUsernames: Set<string>,
+  inFileRoleNames: Set<string>,
+): RowEntry[] {
+  const seen = new Set<string>();
+  return rows.map((row, index) => {
+    const rowNumber = index + 1;
+    const errors: string[] = [];
+    rejectRequiredClear(row, USER_ROLE_COLS, errors);
+
+    const username = (row.username ?? "").trim();
+    const userKey = normalizeScalarKey(username);
+    const roleName = (row.roleName ?? "").trim();
+    const roleKey = normalizeScalarKey(roleName);
+    const label = (username || "row " + rowNumber) + " + " + (roleName || "?");
+
+    if (!username || isClear(username)) errors.push("Username is required");
+    if (!roleName || isClear(roleName)) errors.push("Role Name is required");
+
+    const user = userKey ? ctx.userByUsername?.get(userKey) : undefined;
+    if (username && !user && !inFileUsernames.has(userKey)) {
+      errors.push('User "' + username + '" was not found');
+    }
+    const role = roleKey ? ctx.roleGroupByName?.get(roleKey) : undefined;
+    if (roleName && !role && !inFileRoleNames.has(roleKey)) {
+      errors.push('Access role "' + roleName + '" was not found');
+    }
+
+    const assignedByRaw = (row.assignedByUsername ?? "").trim();
+    const assignedByKey = normalizeScalarKey(assignedByRaw);
+    const assignedBy = assignedByKey ? ctx.userByUsername?.get(assignedByKey) : undefined;
+    if (assignedByRaw && !isClear(assignedByRaw) && !assignedBy && !inFileUsernames.has(assignedByKey)) {
+      errors.push('Assigned By Username: "' + assignedByRaw + '" was not found');
+    }
+
+    const dedupeKey = `${userKey}\u0000${roleKey}`;
+    if (userKey && roleKey && seen.has(dedupeKey)) errors.push("Duplicate user + role assignment in workbook");
+    seen.add(dedupeKey);
+
+    const data: Record<string, unknown> = {};
+    if (user) data.userId = user.id;
+    else data._username = userKey;
+    if (role) data.roleGroupId = role.id;
+    else data._roleName = roleKey;
+    if (assignedBy) data.assignedBy = assignedBy.id;
+    else if (assignedByKey && !isClear(assignedByRaw)) data._assignedByUsername = assignedByKey;
+
+    const existing = user && role
+      ? ctx.userRoleAssignmentByKey?.get(`${user.id}\u0000${role.id}`)
+      : undefined;
+    // Unlike the role group itself, this link is not inert: isAdministrator()
+    // reads every slot a person holds, so creating it would grant the highest
+    // privilege in the system from a spreadsheet cell. An assignment that
+    // already exists restores unchanged; a new one is refused.
+    if (roleKey === "superadmin" && !existing) {
+      errors.push("superadmin cannot be granted as a secondary role");
+    }
+    return finishStructuredEntry(
+      "User Roles", rowNumber, label,
+      existing as unknown as Record<string, unknown>, data, errors,
+      new Set(["userId", "roleGroupId"]),
     );
   });
 }
@@ -3648,10 +4157,13 @@ function buildPreviewResult(
   const inFileModuleCounts = new Map<string, number>();
   const inFilePublicationDois = new Set<string>();
   const inFilePublicationPmids = new Set<string>();
+  const inFilePublicationSdrTitles = new Set<string>();
   const inFileBranchNames = new Set<string>();
   const inFileDepartmentNames = new Set<string>();
   const inFileSectionKeys = new Set<string>();
   const inFileScientistEmails = new Set<string>();
+  const inFileRoleNames = new Set<string>();
+  const inFileUsernames = new Set<string>();
 
   for (const s of sheets) {
     if (s.name === "Programs") s.rows.forEach((r) => { if (r.programId) inFileProgramIds.add(r.programId.toLowerCase()); });
@@ -3666,6 +4178,7 @@ function buildPreviewResult(
     if (s.name === "Publications") s.rows.forEach((r) => {
       const d = normalizeDoi(r.doi ?? ""); if (d) inFilePublicationDois.add(d);
       const pm = normalizeScalarKey(r.pmid ?? ""); if (pm) inFilePublicationPmids.add(pm);
+      const st = publicationSdrKey(r.title, r.sdrNumber); if (st) inFilePublicationSdrTitles.add(st);
     });
     if (s.name === "Branches") s.rows.forEach((r) => { const k = normalizeScalarKey(r.name); if (k) inFileBranchNames.add(k); });
     if (s.name === "Departments") s.rows.forEach((r) => { const k = normalizeScalarKey(r.name); if (k) inFileDepartmentNames.add(k); });
@@ -3674,6 +4187,8 @@ function buildPreviewResult(
       if (n) inFileSectionKeys.add(`${normalizeScalarKey(r.departmentName)}\u0000${n}`);
     });
     if (s.name === "Scientists") s.rows.forEach((r) => { const e = (r.email ?? "").trim().toLowerCase(); if (e) inFileScientistEmails.add(e); });
+    if (s.name === "Access Roles") s.rows.forEach((r) => { const k = normalizeScalarKey(r.name); if (k) inFileRoleNames.add(k); });
+    if (s.name === "User Accounts") s.rows.forEach((r) => { const k = normalizeScalarKey(r.username); if (k) inFileUsernames.add(k); });
   }
 
   // Build within-file email and staffId maps for Scientists
@@ -3751,7 +4266,7 @@ function buildPreviewResult(
         sheetEntries = previewJournalImpactFactorRows(sheet.rows, ctx);
         break;
       case "Publication Authors":
-        sheetEntries = previewPublicationAuthorRows(sheet.rows, ctx, inFilePublicationDois, inFilePublicationPmids, inFileScientistEmails);
+        sheetEntries = previewPublicationAuthorRows(sheet.rows, ctx, inFilePublicationDois, inFilePublicationPmids, inFilePublicationSdrTitles, inFileScientistEmails);
         break;
       case "Research Activity Members":
         sheetEntries = previewSdrMemberRows(sheet.rows, ctx, inFileSdrNumbers, inFileScientistEmails);
@@ -3776,6 +4291,18 @@ function buildPreviewResult(
         break;
       case "Certifications":
         sheetEntries = previewCertificationRows(sheet.rows, ctx, inFileModuleCounts, effectiveScientistByEmail);
+        break;
+      case "Access Roles":
+        sheetEntries = previewAccessRoleRows(sheet.rows, ctx);
+        break;
+      case "Role Permissions":
+        sheetEntries = previewRolePermissionRows(sheet.rows, ctx, inFileRoleNames);
+        break;
+      case "User Accounts":
+        sheetEntries = previewUserAccountRows(sheet.rows, ctx, inFileRoleNames, inFileScientistEmails);
+        break;
+      case "User Roles":
+        sheetEntries = previewUserRoleRows(sheet.rows, ctx, inFileUsernames, inFileRoleNames);
         break;
     }
     allRows.push(...sheetEntries);
@@ -3833,6 +4360,15 @@ function buildDbSnapshot(ctx: DbContext): Record<string, unknown> {
     rooms: versions(ctx.rooms),
     certificationModules: versions(ctx.certificationModules),
     certifications: versions(ctx.certifications),
+    // Access configuration takes part in the staleness check for the same
+    // reason as everything else: a matrix edited between preview and apply
+    // must invalidate the confirmed plan rather than be silently overwritten.
+    roleGroups: versions(ctx.roleGroupList),
+    rolePermissions: versions(ctx.rolePermissionList),
+    users: versions(ctx.userList),
+    userRoleAssignments: (ctx.userRoleAssignmentList ?? [])
+      .map((a) => [a.id, a.assignedAt?.toISOString() ?? null])
+      .sort((a, b) => Number(a[0]) - Number(b[0])),
   };
 }
 
@@ -3881,6 +4417,13 @@ async function lockBulkDataSection(tx: any, sectionId: SectionId): Promise<void>
       "journals",
       "journal_impact_factor_metrics",
       "publication_authors",
+    ],
+    "access-control": [
+      "scientists",
+      "role_groups",
+      "role_permissions",
+      "users",
+      "user_role_assignments",
     ],
   };
   await tx.execute(
@@ -4051,6 +4594,8 @@ export async function applySection(
     const newBranchByKey = new Map<string, number>();
     const newDepartmentByKey = new Map<string, number>();
     const newSectionByKey = new Map<string, number>();
+    const newRoleGroupByKey = new Map<string, number>();
+    const newUserByKey = new Map<string, number>();
 
     const sectionSheetOrder: string[] = getSectionSheetOrder(sectionId);
 
@@ -4129,6 +4674,10 @@ export async function applySection(
             const pmid = normalizeScalarKey(String(rowData.pmid ?? ""));
             if (doi) newPublicationByKey.set(doi, result.id);
             if (pmid) newPublicationByKey.set(pmid, result.id);
+            // Also key by title + SDR, so authors of a record that has no DOI or
+            // PMID can still find the publication created moments earlier.
+            const sdrTitle = String(rowData._sdrTitleKey ?? "");
+            if (sdrTitle) newPublicationByKey.set(sdrTitle, result.id);
           }
           if (!result.applied) sheetCounts.skipped++;
           else if (entry.action === "create") sheetCounts.created++;
@@ -4180,6 +4729,24 @@ export async function applySection(
           else sheetCounts.updated++;
         } else if (sheetName === "Certifications") {
           await applyCertificationRow(tx, entry, rowData, newModuleByKey, applyingScientistId);
+          if (entry.action === "create") sheetCounts.created++;
+          else sheetCounts.updated++;
+        } else if (sheetName === "Access Roles") {
+          const newId = await applyAccessRoleRow(tx, entry, rowData);
+          if (newId) newRoleGroupByKey.set(normalizeScalarKey(entry.key), newId);
+          if (entry.action === "create") sheetCounts.created++;
+          else sheetCounts.updated++;
+        } else if (sheetName === "Role Permissions") {
+          await applyRolePermissionRow(tx, entry, rowData, newRoleGroupByKey, applyingUserId);
+          if (entry.action === "create") sheetCounts.created++;
+          else sheetCounts.updated++;
+        } else if (sheetName === "User Accounts") {
+          const newId = await applyUserAccountRow(tx, entry, rowData);
+          if (newId) newUserByKey.set(normalizeScalarKey(entry.key), newId);
+          if (entry.action === "create") sheetCounts.created++;
+          else sheetCounts.updated++;
+        } else if (sheetName === "User Roles") {
+          await applyUserRoleRow(tx, entry, rowData, newUserByKey, newRoleGroupByKey);
           if (entry.action === "create") sheetCounts.created++;
           else sheetCounts.updated++;
         }
@@ -4247,6 +4814,9 @@ function getSectionSheetOrder(sectionId: SectionId): string[] {
     case "research-compliance": return ["IRB Applications", "IBC Applications"];
     case "research-services": return ["Research Contracts", "Grants"];
     case "research-output": return ["Patents", "Publications", "Journal Impact Factors", "Publication Authors"];
+    // Roles before the matrix and before accounts; accounts before the
+    // secondary-role links that point at them.
+    case "access-control": return ["Access Roles", "Role Permissions", "User Accounts", "User Roles"];
   }
 }
 
@@ -4571,7 +5141,8 @@ async function applyPublicationRow(
   applyingScientistId?: number,
   applyingUserId?: number,
 ): Promise<{ applied: boolean; id: number | null }> {
-  const { id, ...payload } = data;
+  const { id, _sdrTitleKey, ...payload } = data;
+  void _sdrTitleKey; // indexing key only, never a column
   if (entry.action === "create") {
     if (!applyingScientistId) {
       throw new Error("Publication create is missing an auditable applying scientist");
@@ -4697,7 +5268,7 @@ async function resolveLinkEndpoints(
   newSdrByKey?: Map<string, number>,
 ): Promise<Record<string, unknown>> {
   const {
-    _publicationDoi, _publicationPmid, _scientistEmail, _sdrNumber, ...payload
+    _publicationDoi, _publicationPmid, _publicationSdrTitle, _scientistEmail, _sdrNumber, ...payload
   } = data;
 
   if (_scientistEmail) {
@@ -4709,10 +5280,15 @@ async function resolveLinkEndpoints(
     payload.scientistId = row.id;
   }
 
-  if (_publicationDoi || _publicationPmid) {
+  if (_publicationDoi || _publicationPmid || _publicationSdrTitle) {
     const doi = String(_publicationDoi ?? "");
     const pmid = String(_publicationPmid ?? "");
-    let publicationId = (doi && newPublicationByKey?.get(doi)) || (pmid && newPublicationByKey?.get(pmid)) || undefined;
+    const sdrTitle = String(_publicationSdrTitle ?? "");
+    let publicationId =
+      (doi && newPublicationByKey?.get(doi)) ||
+      (pmid && newPublicationByKey?.get(pmid)) ||
+      (sdrTitle && newPublicationByKey?.get(sdrTitle)) ||
+      undefined;
     if (!publicationId && doi) {
       const [row] = await tx.select({ id: publications.id }).from(publications).where(sql`lower(${publications.doi}) = ${doi}`);
       publicationId = row?.id;
@@ -4721,7 +5297,19 @@ async function resolveLinkEndpoints(
       const [row] = await tx.select({ id: publications.id }).from(publications).where(sql`lower(${publications.pmid}) = ${pmid}`);
       publicationId = row?.id;
     }
-    if (!publicationId) throw new Error(`Publication "${doi || pmid}" was not found while linking "${entryKey}"`);
+    if (!publicationId && sdrTitle) {
+      // Title within a research activity — the identity an unpublished record has.
+      const [title, sdrNumber] = sdrTitle.split("\u0000");
+      const [row] = await tx
+        .select({ id: publications.id })
+        .from(publications)
+        .innerJoin(researchActivities, eq(publications.researchActivityId, researchActivities.id))
+        .where(sql`lower(${publications.title}) = ${title} AND lower(${researchActivities.sdrNumber}) = ${sdrNumber}`);
+      publicationId = row?.id;
+    }
+    if (!publicationId) {
+      throw new Error(`Publication "${doi || pmid || sdrTitle.split("\u0000")[0]}" was not found while linking "${entryKey}"`);
+    }
     payload.publicationId = publicationId;
   }
 
@@ -4778,6 +5366,193 @@ async function applyPublicationAuthorRow(
     .update(publicationAuthors)
     .set(updates)
     .where(sql`${publicationAuthors.publicationId} = ${publicationId} AND ${publicationAuthors.scientistId} = ${scientistId}`);
+}
+
+// -- Access control ---------------------------------------------------------
+
+async function applyAccessRoleRow(
+  tx: TxDb,
+  entry: RowEntry,
+  data: Record<string, unknown>,
+): Promise<number | undefined> {
+  const name = String(data.name ?? entry.key);
+  if (entry.action === "create") {
+    // role_groups.name is unique, so a replayed archive updates rather than
+    // failing. Restores are re-run; they must be idempotent.
+    const [row] = await tx
+      .insert(roleGroups)
+      .values({ name, description: (data.description as string | null) ?? null })
+      .onConflictDoUpdate({
+        target: roleGroups.name,
+        set: { description: (data.description as string | null) ?? null, updatedAt: new Date() },
+      })
+      .returning({ id: roleGroups.id });
+    return row?.id;
+  }
+  const { name: _name, ...updates } = data;
+  const [row] = await tx
+    .update(roleGroups)
+    .set({ ...updates, updatedAt: new Date() })
+    .where(caseInsensitiveKey(roleGroups.name, name))
+    .returning({ id: roleGroups.id });
+  requireUpdatedRow(row, "Access role", name);
+  return row?.id;
+}
+
+async function applyRolePermissionRow(
+  tx: TxDb,
+  entry: RowEntry,
+  data: Record<string, unknown>,
+  newRoleGroupByKey: Map<string, number>,
+  updatedBy?: number,
+): Promise<void> {
+  const { _roleName, ...payload } = data;
+  let roleGroupId = payload.roleGroupId as number | undefined;
+  if (roleGroupId == null && _roleName) {
+    roleGroupId = await resolveRoleGroupId(tx, String(_roleName), newRoleGroupByKey, entry.key);
+  }
+  if (roleGroupId == null) throw new Error(`Access role could not be resolved for "${entry.key}"`);
+
+  const navigationItem = String(payload.navigationItem ?? "");
+  const accessLevel = String(payload.accessLevel ?? "");
+  await tx
+    .insert(rolePermissions)
+    .values({ roleGroupId, navigationItem, accessLevel, updatedBy: updatedBy ?? null })
+    .onConflictDoUpdate({
+      target: [rolePermissions.roleGroupId, rolePermissions.navigationItem],
+      set: { accessLevel, updatedBy: updatedBy ?? null, updatedAt: new Date() },
+    });
+}
+
+async function applyUserAccountRow(
+  tx: TxDb,
+  entry: RowEntry,
+  data: Record<string, unknown>,
+): Promise<number | undefined> {
+  const { _scientistEmail, ...payload } = data;
+  if (_scientistEmail) {
+    const [row] = await tx
+      .select({ id: scientists.id })
+      .from(scientists)
+      .where(caseInsensitiveKey(scientists.email, String(_scientistEmail)));
+    if (!row) {
+      throw new Error(`Scientist "${String(_scientistEmail)}" was not found while linking account "${entry.key}"`);
+    }
+    payload.scientistId = row.id;
+  }
+
+  if (entry.action === "create") {
+    const [row] = await tx
+      .insert(users)
+      .values({
+        username: entry.key,
+        name: String(payload.name ?? entry.key),
+        email: String(payload.email ?? ""),
+        // No credential travels in the archive. The empty string is what SSO
+        // provisioning already writes, and hashPassword never returns it, so
+        // an imported account cannot be signed into until its provider
+        // authenticates it or an administrator sets a password.
+        password: "",
+        role: String(payload.role ?? RESTRICTED_USER_ROLE),
+        authProvider: String(payload.authProvider ?? "local"),
+        entraOid: (payload.entraOid as string | null) ?? null,
+        scientistId: (payload.scientistId as number | null) ?? null,
+      })
+      .onConflictDoUpdate({
+        target: users.username,
+        set: {
+          name: String(payload.name ?? entry.key),
+          email: String(payload.email ?? ""),
+          role: String(payload.role ?? RESTRICTED_USER_ROLE),
+          authProvider: String(payload.authProvider ?? "local"),
+          entraOid: (payload.entraOid as string | null) ?? null,
+          scientistId: (payload.scientistId as number | null) ?? null,
+          updatedAt: new Date(),
+        },
+      })
+      .returning({ id: users.id });
+    return row?.id;
+  }
+
+  // An update never touches password, lastLoginAt or createdAt: the archive
+  // carries no credential and no session history, so it must not overwrite any.
+  const [row] = await tx
+    .update(users)
+    .set({ ...payload, updatedAt: new Date() })
+    .where(caseInsensitiveKey(users.username, entry.key))
+    .returning({ id: users.id });
+  requireUpdatedRow(row, "User account", entry.key);
+  return row?.id;
+}
+
+async function applyUserRoleRow(
+  tx: TxDb,
+  entry: RowEntry,
+  data: Record<string, unknown>,
+  newUserByKey: Map<string, number>,
+  newRoleGroupByKey: Map<string, number>,
+): Promise<void> {
+  const { _username, _roleName, _assignedByUsername, ...payload } = data;
+  let userId = payload.userId as number | undefined;
+  if (userId == null && _username) {
+    userId = await resolveUserId(tx, String(_username), newUserByKey, entry.key);
+  }
+  let roleGroupId = payload.roleGroupId as number | undefined;
+  if (roleGroupId == null && _roleName) {
+    roleGroupId = await resolveRoleGroupId(tx, String(_roleName), newRoleGroupByKey, entry.key);
+  }
+  if (userId == null) throw new Error(`User could not be resolved for "${entry.key}"`);
+  if (roleGroupId == null) throw new Error(`Access role could not be resolved for "${entry.key}"`);
+
+  let assignedBy = (payload.assignedBy as number | null | undefined) ?? null;
+  if (assignedBy == null && _assignedByUsername) {
+    // The audit trail is best-effort: if the granting account is gone, the
+    // assignment still restores rather than failing the whole row.
+    assignedBy = (await resolveUserId(tx, String(_assignedByUsername), newUserByKey, entry.key, true)) ?? null;
+  }
+
+  await tx
+    .insert(userRoleAssignments)
+    .values({ userId, roleGroupId, assignedBy })
+    .onConflictDoUpdate({
+      target: [userRoleAssignments.userId, userRoleAssignments.roleGroupId],
+      set: { assignedBy },
+    });
+}
+
+async function resolveRoleGroupId(
+  tx: TxDb,
+  roleKey: string,
+  newRoleGroupByKey: Map<string, number>,
+  entryKey: string,
+): Promise<number> {
+  const fromThisFile = newRoleGroupByKey.get(roleKey);
+  if (fromThisFile != null) return fromThisFile;
+  const [row] = await tx
+    .select({ id: roleGroups.id })
+    .from(roleGroups)
+    .where(caseInsensitiveKey(roleGroups.name, roleKey));
+  if (!row) throw new Error(`Access role "${roleKey}" was not found while linking "${entryKey}"`);
+  return row.id;
+}
+
+async function resolveUserId(
+  tx: TxDb,
+  usernameKey: string,
+  newUserByKey: Map<string, number>,
+  entryKey: string,
+  optional = false,
+): Promise<number | undefined> {
+  const fromThisFile = newUserByKey.get(usernameKey);
+  if (fromThisFile != null) return fromThisFile;
+  const [row] = await tx
+    .select({ id: users.id })
+    .from(users)
+    .where(caseInsensitiveKey(users.username, usernameKey));
+  if (!row && !optional) {
+    throw new Error(`User "${usernameKey}" was not found while linking "${entryKey}"`);
+  }
+  return row?.id;
 }
 
 async function applySdrMemberRow(

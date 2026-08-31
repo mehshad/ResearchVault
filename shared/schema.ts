@@ -34,6 +34,14 @@ export type ContractType = typeof CONTRACT_TYPES[number];
 export type ContractStatus = typeof CONTRACT_STATUS_VALUES[number];
 
 // User schema (for authentication)
+/**
+ * How an account authenticates. Exported as a runtime list so validators read
+ * the same source the column comment describes rather than a copy of it.
+ */
+export const USER_AUTH_PROVIDERS = ["local", "demo", "ldap", "oidc"] as const;
+
+export type UserAuthProvider = typeof USER_AUTH_PROVIDERS[number];
+
 export const users = pgTable("users", {
   id: serial("id").primaryKey(),
   username: text("username").notNull().unique(),
@@ -295,6 +303,14 @@ export const publications = pgTable("publications", {
   publicationType: text("publication_type"), // Journal Article, Conference Paper, Book, etc.
   status: text("status").default("Concept"), // Workflow status
   invalidReason: text("invalid_reason"),
+  // An SDR is normally required. The exception is a publication that came from
+  // helping a collaborator at another institution -- there is no research
+  // activity here to link, and forcing one would put a fictional record in the
+  // system. The scientist gives a reason instead; it is mutually exclusive with
+  // researchActivityId, and the Outcome Office reads it before finalising.
+  sdrExemptionReason: text("sdr_exemption_reason"),
+  sdrExemptionRequestedBy: integer("sdr_exemption_requested_by").references(() => users.id),
+  sdrExemptionRequestedAt: timestamp("sdr_exemption_requested_at"),
   vettedForSubmissionByIpOffice: boolean("vetted_for_submission_by_ip_office").default(false),
   prepublicationUrl: text("prepublication_url"), // URL/DOI for prepublication
   prepublicationSite: text("prepublication_site"), // bioRxiv, arXiv, etc.
@@ -981,7 +997,11 @@ export type InsertUserRoleAssignment = z.infer<typeof insertUserRoleAssignmentSc
 // Role permissions schema - stores access level for each role/navigation item combination
 export const rolePermissions = pgTable("role_permissions", {
   id: serial("id").primaryKey(),
-  roleGroupId: integer("role_group_id").notNull(), // FK to role_groups (replaces job_title)
+  // A declared foreign key, not a documented one. Before it was declared,
+  // deleting a role left its permission rows behind, invisible to every read.
+  roleGroupId: integer("role_group_id")
+    .notNull()
+    .references(() => roleGroups.id, { onDelete: "cascade" }),
   navigationItem: text("navigation_item").notNull(), // e.g., "facilities", "programs", etc.
   accessLevel: text("access_level").notNull(), // "hide", "view", "edit", or "create"
   updatedBy: integer("updated_by"),

@@ -1,13 +1,31 @@
 import { createContext, useContext, useState, ReactNode, useEffect } from "react";
-import { RESTRICTED_USER_ROLE } from "@shared/constants";
+import {
+  RESTRICTED_USER_ROLE,
+  RESEARCH_OFFICER_ROLE,
+  RESEARCHER_ROLE,
+  ACCESS_ROLES,
+  resolveNavigationArea,
+} from "@shared/constants";
+import {
+  allRolesOf,
+  isAdministrator,
+  isRestrictedOnly,
+  maxAccessLevel,
+  type RoleBearer,
+} from "@shared/effectiveRoles";
 import { useAuth } from "@/hooks/useAuth";
 import {
   getOfficeDashboardDefaultAccess,
   isAdministratorRole,
   NAVIGATION_ITEMS,
 } from "@/lib/navigationPermissions";
+import type { AccessLevel } from "@shared/constants";
 
-export type AccessLevel = "hide" | "view" | "edit";
+// Re-exported from the shared constant so the interface offers exactly the
+// levels the matrix stores and the server enforces. It used to declare three
+// of the four, which left "create" unselectable and, worse, unrenderable: a
+// cell holding it showed no badge at all.
+export type { AccessLevel };
 
 export interface NavigationPermission {
   id: string;
@@ -19,7 +37,12 @@ export interface NavigationPermission {
 interface PermissionsContextType {
   permissions: NavigationPermission[];
   setPermissions: (permissions: NavigationPermission[]) => void;
+  /** Access for one role — what the matrix editor asks. */
   getAccessLevel: (jobTitle: string, navigationItem: string) => AccessLevel;
+  /** Access for a person, taking the union of every role they hold. */
+  getEffectiveAccessLevel: (user: RoleBearer | null | undefined, navigationItem: string) => AccessLevel;
+  canViewAs: (user: RoleBearer | null | undefined, navigationItem: string) => boolean;
+  canEditAs: (user: RoleBearer | null | undefined, navigationItem: string) => boolean;
   canView: (jobTitle: string, navigationItem: string) => boolean;
   canEdit: (jobTitle: string, navigationItem: string) => boolean;
   canCreate: (jobTitle: string, navigationItem: string) => boolean;
@@ -29,31 +52,19 @@ interface PermissionsContextType {
 
 const PermissionsContext = createContext<PermissionsContextType | undefined>(undefined);
 
-const JOB_TITLES = [
-  "Investigator",
-  "Staff Scientist", 
-  "Physician",
-  "Research Specialist",
-  "Research Associate",
-  "Research Assistant",
-  "Lab Manager",
-  "Postdoctoral Researcher",
-  "PhD Student",
-  "Management",
-  "IRB Board Member",
-  "IBC Board Member", 
-  "PMO Officer",
-  "IRB Officer",
-  "IBC Officer",
-  "Outcome Officer",
-  "Grant Officer",
-  "Contracts Officer",
-  "IT Officer"
-];
+// The matrix is keyed by access role, not job title: several job titles share
+// one access role, so the two lists are no longer the same set.
+const MATRIX_ROLES = ACCESS_ROLES;
 
-const createDefaultPermissions = (): NavigationPermission[] => {
+/**
+ * The starting matrix, used when nothing is configured and by the reset button
+ * in settings. Exported so there is one definition of what "default" means --
+ * the settings page kept its own copy, annotated as needing to be "kept in step
+ * with the same defaults in usePermissions", and it had already fallen behind.
+ */
+export const createDefaultPermissions = (): NavigationPermission[] => {
   const defaultPermissions: NavigationPermission[] = [];
-  JOB_TITLES.forEach((jobTitle) => {
+  MATRIX_ROLES.forEach((jobTitle) => {
     NAVIGATION_ITEMS.forEach((navItem) => {
       // Set some realistic defaults for different roles
       let defaultAccess: AccessLevel = "edit";
@@ -67,42 +78,28 @@ const createDefaultPermissions = (): NavigationPermission[] => {
         }
       }
       
-      // PhD Students have more restrictions
-      if (jobTitle === "PhD Student") {
-        if (navItem.includes("-office") || navItem.includes("-reviewer") || 
-            navItem === "contracts" || navItem === "patents") {
+      // Bench and support staff read the wider picture rather than change it.
+      // This branch used to key on "PhD Student", a role retired into
+      // Researcher, so it had quietly stopped matching anything.
+      if (jobTitle === RESEARCHER_ROLE) {
+        if (navItem.includes("-office") || navItem.includes("-reviewer") || navItem === "patents") {
           defaultAccess = "hide";
-        } else if (navItem === "reports" || navItem === "programs") {
+        } else if (navItem === "reports") {
           defaultAccess = "view";
         }
       }
-      
-      // Grant Officer has specialized access
-      if (jobTitle === "Grant Officer") {
+
+      // The Research Office owns grants and contracts together, which are now
+      // the single "research-office" area granted by
+      // getOfficeDashboardDefaultAccess below. What remains here is the
+      // surrounding context that office needs.
+      if (jobTitle === RESEARCH_OFFICER_ROLE) {
         if (navItem.includes("-office") || navItem.includes("-reviewer")) {
-          // Hide other department offices/reviewer functions
-          if (navItem !== "grants") {
-            defaultAccess = "hide";
-          }
-        } else if (navItem === "grants" || navItem === "contracts" || navItem === "programs" || navItem === "projects") {
-          // Full access to grants and related areas
+          // Other departments' offices and reviewer screens stay hidden.
+          defaultAccess = "hide";
+        } else if (navItem === "scientists") {
           defaultAccess = "edit";
         } else if (navItem === "reports" || navItem === "publications" || navItem === "patents") {
-          // View access to reports and research outputs
-          defaultAccess = "view";
-        }
-      }
-      
-      // Contracts Officer has specialized access
-      if (jobTitle === "Contracts Officer") {
-        if (navItem.includes("-office") || navItem.includes("-reviewer")) {
-          // Hide other department offices/reviewer functions
-          defaultAccess = "hide";
-        } else if (navItem === "contracts" || navItem === "programs" || navItem === "projects" || navItem === "research-activities") {
-          // Full access to contracts and related areas
-          defaultAccess = "edit";
-        } else if (navItem === "reports" || navItem === "publications" || navItem === "patents" || navItem === "grants" || navItem === "scientists") {
-          // View access to reports and research outputs
           defaultAccess = "view";
         }
       }
@@ -176,7 +173,7 @@ interface PermissionsProviderProps {
 export function PermissionsProvider({ children }: PermissionsProviderProps) {
   const [permissions, setPermissions] = useState<NavigationPermission[]>([]);
   const [isLoaded, setIsLoaded] = useState(false);
-  const { authConfig } = useAuth();
+  const { authConfig, isAdmin } = useAuth();
 
   // Load permissions from database on mount
   useEffect(() => {
@@ -188,10 +185,15 @@ export function PermissionsProvider({ children }: PermissionsProviderProps) {
           if (dbPermissions.length > 0) {
             setPermissions(mergeWithDefaultPermissions(dbPermissions));
           } else {
-            // No permissions in database, seed with defaults
+            // No permissions stored yet. Use the defaults locally so the
+            // interface still renders, but only an administrator may write them
+            // back — seeding is a change to the access matrix, and any browser
+            // being able to make it was the hole this guard closes.
             const defaults = createDefaultPermissions();
             setPermissions(defaults);
-            await seedDefaultPermissions(defaults);
+            if (isAdmin) {
+              await seedDefaultPermissions(defaults);
+            }
           }
         } else {
           // API failed, use defaults  
@@ -206,7 +208,9 @@ export function PermissionsProvider({ children }: PermissionsProviderProps) {
     };
 
     loadPermissions();
-  }, []);
+    // isAdmin arrives after the auth config resolves; re-run so a first-time
+    // seed is still performed for an administrator.
+  }, [isAdmin]);
 
   // Seed default permissions to database
   const seedDefaultPermissions = async (defaultPermissions: NavigationPermission[]) => {
@@ -238,7 +242,12 @@ export function PermissionsProvider({ children }: PermissionsProviderProps) {
     }
   };
 
-  const getAccessLevel = (jobTitle: string, navigationItem: string): AccessLevel => {
+  const getAccessLevel = (jobTitle: string, rawNavigationItem: string): AccessLevel => {
+    // Pages still ask about the areas that were folded away -- "programs",
+    // "grants" -- so resolve to the area that absorbed them rather than
+    // rewriting every call site and risking a missed one falling through to
+    // hide.
+    const navigationItem = resolveNavigationArea(rawNavigationItem);
     // Administrators always have full access — they are not in the configurable
     // permissions matrix, so we must short-circuit before the DB lookup.
     if (jobTitle === "superadmin" || jobTitle === "admin") {
@@ -254,6 +263,33 @@ export function PermissionsProvider({ children }: PermissionsProviderProps) {
     );
     return permission?.accessLevel || "hide";
   };
+
+  /**
+   * Access for a person rather than for a single role. Someone may hold a
+   * primary role plus secondaries — a Physician who is also an Investigator,
+   * or anyone carrying admin as a secondary — and their access is the union.
+   * Use this wherever the *current user* is being checked; getAccessLevel
+   * stays the per-role answer the matrix editor needs.
+   */
+  const getEffectiveAccessLevel = (user: RoleBearer | null | undefined, navigationItem: string): AccessLevel => {
+    if (isAdministrator(user)) return "edit";
+    if (authConfig.mode !== "demo" && isRestrictedOnly(user)) {
+      return navigationItem === "publications" ? "view" : "hide";
+    }
+    let best: AccessLevel | null = null;
+    for (const role of allRolesOf(user)) {
+      best = maxAccessLevel(best, getAccessLevel(role, navigationItem)) as AccessLevel | null;
+    }
+    return best ?? "hide";
+  };
+
+  const canViewAs = (user: RoleBearer | null | undefined, navigationItem: string): boolean => {
+    const level = getEffectiveAccessLevel(user, navigationItem);
+    return level === "view" || level === "edit";
+  };
+
+  const canEditAs = (user: RoleBearer | null | undefined, navigationItem: string): boolean =>
+    getEffectiveAccessLevel(user, navigationItem) === "edit";
 
   const canView = (jobTitle: string, navigationItem: string): boolean => {
     const accessLevel = getAccessLevel(jobTitle, navigationItem);
@@ -285,6 +321,9 @@ export function PermissionsProvider({ children }: PermissionsProviderProps) {
       permissions,
       setPermissions: setPermissionsWithPersistence,
       getAccessLevel,
+      getEffectiveAccessLevel,
+      canViewAs,
+      canEditAs,
       canView,
       canEdit,
       canCreate,

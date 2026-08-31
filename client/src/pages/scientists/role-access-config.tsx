@@ -21,8 +21,13 @@ import {
   LockKeyhole,
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
-import { usePermissions, type AccessLevel, type NavigationPermission } from "@/hooks/usePermissions";
-import { JOB_TITLES, NAVIGATION_ITEMS } from "@shared/constants";
+import {
+  usePermissions,
+  createDefaultPermissions,
+  type AccessLevel,
+  type NavigationPermission,
+} from "@/hooks/usePermissions";
+import { RESEARCH_OFFICER_ROLE, RESEARCHER_ROLE, ACCESS_ROLES, NAVIGATION_ITEMS } from "@shared/constants";
 
 const KNOWN_RELATIONSHIPS = [
   "is_author",
@@ -33,7 +38,49 @@ const KNOWN_RELATIONSHIPS = [
   "is_requester",
 ] as const;
 
+/**
+ * Areas the permission matrix stores and the server enforces, but which the
+ * navigation menu does not list — so the grid below, built from
+ * NAVIGATION_ITEMS, cannot show them.
+ *
+ * Listed here rather than left silent: an administrator reading this screen
+ * would otherwise reasonably conclude it shows everything that governs access.
+ * Once these areas are folded into the ones the menu does list, this becomes an
+ * empty array and the notice disappears on its own.
+ */
+const UNLISTED_ENFORCED_AREAS: ReadonlyArray<{ id: string; label: string }> = [
+  // Empty, and the notice below disappears with it. PMO Office, Research
+  // Office and Certifications used to sit here: stored in the matrix and
+  // enforced on every request, but absent from the grid because the matrix was
+  // seeded from one list of areas and the grid rendered from another. Both now
+  // come from NAVIGATION_ITEMS, so everything enforced is reviewable here.
+  //
+  // Kept as a constant rather than deleted: if an area is ever enforced without
+  // being listed again, naming it here restores the warning.
+];
+
 const SERVER_ENFORCED_RULES = [
+  {
+    category: "Permission matrix",
+    title: "The matrix below is enforced on every API request",
+    appliesTo: "All navigation areas, on the server as well as in this interface",
+    enforcement:
+      "Each area is resolved against the roles a person holds before their request reaches the data. GET needs View, POST needs Add, and edit or delete needs Edit. Someone holding several roles gets the most permissive of them. Hiding an area no longer only hides the menu item — the endpoints behind it refuse the request.",
+  },
+  {
+    category: "Permission matrix",
+    title: "Administrators are not subject to the matrix",
+    appliesTo: "Anyone holding admin in any role slot, and superadmin",
+    enforcement:
+      "Administrators are admitted before the matrix is consulted, so no cell can lock out the people who would have to correct it. A matrix lookup that fails is treated as a refusal, never as permission.",
+  },
+  {
+    category: "Account onboarding",
+    title: "A new account can reach almost nothing until a role is assigned",
+    appliesTo: "Accounts still holding only the default user role",
+    enforcement:
+      "Every API call is refused except a short allowlist: their own profile, ordinary publication and impact-factor reads, certification modules, and registration. Granting any role — primary or secondary — lifts the restriction.",
+  },
   {
     category: "Investigator eligibility",
     title: "Only approved staff can be Principal Investigators",
@@ -203,54 +250,9 @@ export default function RoleAccessConfig({ embedded = false }: { embedded?: bool
   };
 
   const resetToDefaults = () => {
-    const defaultPermissions: NavigationPermission[] = [];
-    JOB_TITLES.forEach((jobTitle) => {
-      NAVIGATION_ITEMS.forEach((navItem) => {
-        // Set some realistic defaults for different roles
-        let defaultAccess: AccessLevel = "edit";
-        
-        // Investigators have limited access to office/reviewer functions
-        if (jobTitle === "Investigator") {
-          if (navItem.id.includes("-office") || navItem.id.includes("-reviewer")) {
-            defaultAccess = "hide";
-          } else if (navItem.id === "reports") {
-            defaultAccess = "view";
-          }
-        }
-        
-        // PhD Students have more restrictions
-        if (jobTitle === "PhD Student") {
-          if (navItem.id.includes("-office") || navItem.id.includes("-reviewer") || 
-              navItem.id === "contracts" || navItem.id === "patents") {
-            defaultAccess = "hide";
-          } else if (navItem.id === "reports" || navItem.id === "programs") {
-            defaultAccess = "view";
-          }
-        }
-        
-        // Grant Officer has specialized access
-        if (jobTitle === "Grant Officer") {
-          if (navItem.id.includes("-office") || navItem.id.includes("-reviewer")) {
-            // Hide other department offices/reviewer functions
-            defaultAccess = "hide";
-          } else if (navItem.id === "grants" || navItem.id === "contracts" || navItem.id === "programs" || navItem.id === "projects") {
-            // Full access to grants and related areas
-            defaultAccess = "edit";
-          } else if (navItem.id === "reports" || navItem.id === "publications" || navItem.id === "patents") {
-            // View access to reports and research outputs
-            defaultAccess = "view";
-          }
-        }
-        
-        defaultPermissions.push({
-          id: `${jobTitle}-${navItem.id}`,
-          jobTitle,
-          navigationItem: navItem.id,
-          accessLevel: defaultAccess
-        });
-      });
-    });
-    setPermissions(defaultPermissions);
+    // The same defaults the application starts from, rather than a second copy
+    // of the rules that has to be kept in step by hand.
+    setPermissions(createDefaultPermissions());
     toast({
       title: "Reset Complete",
       description: "All navigation permissions have been reset to defaults with role-appropriate access levels."
@@ -358,9 +360,25 @@ export default function RoleAccessConfig({ embedded = false }: { embedded?: bool
           <CardTitle>Navigation Permission Matrix</CardTitle>
           <p className="text-sm text-muted-foreground">
             Configure navigation visibility and screen-level access for each job role:
-            Hide (not visible), View Only (read-only), or Full Access (can edit).
-            Server-enforced rules above still apply to every request.
+            Hide (not visible), View (read-only), Add (may create but not change
+            existing records), or Edit (full access). Every level is enforced by
+            the server on each request, not only by what the menu shows.
           </p>
+          {UNLISTED_ENFORCED_AREAS.length > 0 && (
+            <div className="mt-3 rounded-md border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-200">
+              <p className="font-medium">Not everything enforced appears below</p>
+              <p className="mt-1">
+                {UNLISTED_ENFORCED_AREAS.map((area) => area.label).join(", ")}
+                {UNLISTED_ENFORCED_AREAS.length === 1 ? " is" : " are"} stored in the
+                permission matrix and enforced on every request, but{" "}
+                {UNLISTED_ENFORCED_AREAS.length === 1 ? "does" : "do"} not appear
+                here — this grid is built from the navigation menu, and{" "}
+                {UNLISTED_ENFORCED_AREAS.length === 1 ? "it is" : "they are"} not on
+                it. Their access cannot currently be reviewed or changed from this
+                screen.
+              </p>
+            </div>
+          )}
         </CardHeader>
         
         {/* Quick Navigation */}
@@ -400,7 +418,7 @@ export default function RoleAccessConfig({ embedded = false }: { embedded?: bool
                   </div>
 
                   {/* Permission rows */}
-                  {JOB_TITLES.map((jobTitle) => {
+                  {ACCESS_ROLES.map((jobTitle) => {
                     const permission = getPermissionForRole(jobTitle, navItem.id);
                     if (!permission) return null;
 
@@ -418,6 +436,13 @@ export default function RoleAccessConfig({ embedded = false }: { embedded?: bool
                             <Badge variant="secondary" className="bg-blue-100 text-blue-800 flex items-center gap-1 dark:bg-blue-950 dark:text-blue-300">
                               <Eye className="h-3 w-3" />
                               View Only
+                            </Badge>
+                          );
+                        case "create":
+                          return (
+                            <Badge variant="secondary" className="bg-amber-100 text-amber-800 flex items-center gap-1 dark:bg-amber-950 dark:text-amber-300">
+                              <Plus className="h-3 w-3" />
+                              Add Only
                             </Badge>
                           );
                         case "edit":
@@ -452,6 +477,13 @@ export default function RoleAccessConfig({ embedded = false }: { embedded?: bool
                               <Label htmlFor={`${permission.id}-view`} className="flex items-center gap-1 text-xs cursor-pointer">
                                 <Eye className="h-3 w-3" />
                                 View
+                              </Label>
+                            </div>
+                            <div className="flex items-center space-x-1">
+                              <RadioGroupItem value="create" id={`${permission.id}-create`} />
+                              <Label htmlFor={`${permission.id}-create`} className="flex items-center gap-1 text-xs cursor-pointer">
+                                <Plus className="h-3 w-3" />
+                                Add
                               </Label>
                             </div>
                             <div className="flex items-center space-x-1">
