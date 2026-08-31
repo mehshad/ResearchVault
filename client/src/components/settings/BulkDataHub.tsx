@@ -69,6 +69,8 @@ type Preview = {
 type ApplyResult = {
   sectionId: string;
   counts: Record<string, { created: number; updated: number; skipped: number }>;
+  /** Rows dropped because they failed validation, when skipping was chosen. */
+  rejected?: Array<{ sheetName: string; rowNumber: number; key: string; reason: string }>;
 };
 type BulkDataArchive = {
   id: string;
@@ -242,6 +244,11 @@ export default function BulkDataHub() {
   const [preview, setPreview] = useState<Preview | null>(null);
   const [result, setResult] = useState<ApplyResult | null>(null);
   const [confirmOpen, setConfirmOpen] = useState(false);
+  // A single unreadable cell otherwise costs the whole section: one bad
+  // quartile in 33,407 impact-factor rows blocks every publication and author
+  // link in the workbook. The server has always supported skipping those rows;
+  // nothing offered it.
+  const [skipInvalidRows, setSkipInvalidRows] = useState(false);
 
   const sectionsQuery = useQuery<{ sections: Section[] }>({
     queryKey: ["/api/bulk-data/sections"],
@@ -287,6 +294,7 @@ export default function BulkDataHub() {
         fileBase64: file.base64,
         fileName: file.name,
         fingerprint: preview.fingerprint,
+        skipInvalidRows,
       });
       return response.json() as Promise<ApplyResult>;
     },
@@ -383,7 +391,14 @@ export default function BulkDataHub() {
     (total, sheet) => ({ total: total.total + sheet.total, create: total.create + sheet.create, update: total.update + sheet.update, skip: total.skip + sheet.skip, error: total.error + sheet.error }),
     { total: 0, create: 0, update: 0, skip: 0, error: 0 },
   );
-  const applyReady = Boolean(preview?.canApply && (counts?.create || 0) + (counts?.update || 0) > 0 && !applyMutation.isPending);
+  const errorCount = counts?.error || 0;
+  // With skipping on, rows that failed validation are dropped and the rest is
+  // written, so a workbook the preview marks unapplyable can still go in.
+  const applyReady = Boolean(
+    (preview?.canApply || (skipInvalidRows && errorCount > 0)) &&
+    (counts?.create || 0) + (counts?.update || 0) > 0 &&
+    !applyMutation.isPending,
+  );
 
   if (operation === "section-workbooks" && sectionsQuery.isLoading) {
     return <div className="space-y-6"><OperationSelector value={operation} onValueChange={handleOperationChange} /><Card><CardHeader><Skeleton className="h-6 w-64" /><Skeleton className="h-4 w-96" /></CardHeader><CardContent><Skeleton className="h-10 w-full" /></CardContent></Card></div>;
@@ -479,10 +494,45 @@ export default function BulkDataHub() {
                 <div className="flex items-center justify-between border-b px-3 py-2"><div className="text-sm font-medium">Row review <span className="font-normal text-muted-foreground">({preview.rows.length})</span></div><div className="text-xs text-muted-foreground">Review errors before applying</div></div>
                 <div className="max-h-80 overflow-y-auto divide-y">{preview.rows.length === 0 ? <div className="p-4 text-sm text-muted-foreground">No data rows found in this workbook.</div> : preview.rows.map((row) => <details key={`${row.sheetName}-${row.rowNumber}`} className={`group px-3 py-2 text-sm ${row.action === "error" ? "bg-red-50/40 dark:bg-red-950/10" : ""}`}><summary className="flex cursor-pointer list-none items-center gap-2"><Badge variant="outline" className={`uppercase ${actionClass(row.action)}`}>{row.action}</Badge><span className="font-mono text-xs text-muted-foreground">{row.sheetName} · row {row.rowNumber}</span><span className="truncate font-medium">{row.key || "No business key"}</span><ChevronDown className="ml-auto h-4 w-4 text-muted-foreground transition-transform group-open:rotate-180" /></summary><div className="ml-[76px] mt-2 space-y-1 text-xs text-muted-foreground">{row.reason && <div>{row.reason}</div>}{row.changes && <div>Changes: {Array.isArray(row.changes) ? row.changes.join(", ") : Object.keys(row.changes).join(", ")}</div>}</div></details>)}</div>
               </div>
-              {preview.canApply && <div className="flex flex-col gap-3 rounded-md border border-amber-200 bg-amber-50/60 p-3 text-sm dark:border-amber-900 dark:bg-amber-950/20 sm:flex-row sm:items-center sm:justify-between"><div className="flex items-start gap-2"><AlertCircle className="mt-0.5 h-4 w-4 shrink-0 text-amber-700" /><span>Applying will write {((counts?.create || 0) + (counts?.update || 0))} reviewed record changes. This action should be treated as irreversible.</span></div><Button onClick={() => setConfirmOpen(true)} disabled={!applyReady} data-testid="button-apply-bulk-data"><Upload className="mr-2 h-4 w-4" />Review and apply</Button></div>}
+              {errorCount > 0 && (
+                <label className="flex items-start gap-2 rounded-md border border-amber-200 bg-amber-50/60 p-3 text-sm dark:border-amber-900 dark:bg-amber-950/20" data-testid="label-skip-invalid-rows">
+                  <input
+                    type="checkbox"
+                    className="mt-1"
+                    checked={skipInvalidRows}
+                    onChange={(event) => setSkipInvalidRows(event.target.checked)}
+                    data-testid="checkbox-skip-invalid-rows"
+                  />
+                  <span>
+                    <span className="font-medium">Skip the {errorCount} row{errorCount === 1 ? "" : "s"} that failed validation</span>
+                    <span className="block text-muted-foreground">
+                      Everything else in the workbook is written, and each skipped row is
+                      listed afterwards so you know exactly what was left out. Without this
+                      a single unreadable cell holds back the whole section.
+                    </span>
+                  </span>
+                </label>
+              )}
+              {(preview.canApply || (skipInvalidRows && errorCount > 0)) && <div className="flex flex-col gap-3 rounded-md border border-amber-200 bg-amber-50/60 p-3 text-sm dark:border-amber-900 dark:bg-amber-950/20 sm:flex-row sm:items-center sm:justify-between"><div className="flex items-start gap-2"><AlertCircle className="mt-0.5 h-4 w-4 shrink-0 text-amber-700" /><span>Applying will write {((counts?.create || 0) + (counts?.update || 0))} reviewed record changes{errorCount > 0 && skipInvalidRows ? `, skipping ${errorCount}` : ""}. This action should be treated as irreversible.</span></div><Button onClick={() => setConfirmOpen(true)} disabled={!applyReady} data-testid="button-apply-bulk-data"><Upload className="mr-2 h-4 w-4" />Review and apply</Button></div>}
             </div>
           )}
-          {result && <div className="rounded-md border border-emerald-200 bg-emerald-50/60 p-4 dark:border-emerald-900 dark:bg-emerald-950/20"><div className="flex items-center gap-2 font-medium text-emerald-800 dark:text-emerald-300"><CheckCircle2 className="h-4 w-4" />Workbook applied successfully</div><div className="mt-2 grid gap-2 text-sm sm:grid-cols-2 lg:grid-cols-3">{Object.entries(result.counts).map(([name, values]) => <div key={name} className="rounded border border-emerald-200/70 bg-background/70 p-2 dark:border-emerald-900"><div className="font-medium">{name}</div><div className="text-muted-foreground">{values.created} created · {values.updated} updated · {values.skipped} skipped</div></div>)}</div></div>}
+          {result && <div className="rounded-md border border-emerald-200 bg-emerald-50/60 p-4 dark:border-emerald-900 dark:bg-emerald-950/20"><div className="flex items-center gap-2 font-medium text-emerald-800 dark:text-emerald-300"><CheckCircle2 className="h-4 w-4" />Workbook applied successfully</div><div className="mt-2 grid gap-2 text-sm sm:grid-cols-2 lg:grid-cols-3">{Object.entries(result.counts).map(([name, values]) => <div key={name} className="rounded border border-emerald-200/70 bg-background/70 p-2 dark:border-emerald-900"><div className="font-medium">{name}</div><div className="text-muted-foreground">{values.created} created · {values.updated} updated · {values.skipped} skipped</div></div>)}</div>
+            {result.rejected && result.rejected.length > 0 && (
+              <div className="mt-3 rounded-md border border-amber-300 bg-amber-50 p-3 text-sm dark:border-amber-800 dark:bg-amber-950/40" data-testid="list-rejected-rows">
+                <div className="font-medium text-amber-900 dark:text-amber-200">
+                  {result.rejected.length} row{result.rejected.length === 1 ? " was" : "s were"} skipped and not written
+                </div>
+                <ul className="mt-1 max-h-48 space-y-1 overflow-y-auto text-amber-900/90 dark:text-amber-200/90">
+                  {result.rejected.map((row, index) => (
+                    <li key={`${row.sheetName}-${row.rowNumber}-${index}`}>
+                      <span className="font-medium">{row.sheetName} row {row.rowNumber}</span>
+                      {row.key ? ` [${row.key}]` : ""}: {row.reason}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+          </div>}
         </CardContent>
       </Card>
       <Card className="overflow-hidden">
