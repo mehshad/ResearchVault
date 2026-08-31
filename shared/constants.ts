@@ -79,9 +79,41 @@ export const ACCESS_ROLES = [
  * change the answer. "Post-doctoral Fellow", "Post Doctoral Fellow" and
  * "Postdoctoral Fellow" are one title written three ways.
  */
-function jobTitleKey(value: string): string {
+export function jobTitleKey(value: string): string {
   return value.toLowerCase().replace(/[^a-z0-9]/g, "");
 }
+
+/**
+ * Whether a stored job title is one of `accepted`, ignoring spacing, hyphens
+ * and case.
+ *
+ * Titles are typed by hand and arrive through imports, so the same post is
+ * written several ways: "Post Doctoral Fellow" and "Post-doctoral Fellow" are
+ * one job. Filtering on exact equality split them, and a tab showed two of
+ * sixteen people without any sign the rest existed.
+ */
+export function matchesJobTitle(
+  jobTitle: string | null | undefined,
+  accepted: readonly string[],
+): boolean {
+  if (!jobTitle) return false;
+  const key = jobTitleKey(jobTitle);
+  return accepted.some((candidate) => jobTitleKey(candidate) === key);
+}
+
+/** Spellings of each staff-directory tab's job title that are in real use. */
+export const JOB_TITLE_TAB_ALIASES: Record<string, readonly string[]> = {
+  "post-doc": ["Postdoctoral Researcher", "Postdoctoral Fellow", "Postdoc"],
+  "staff-scientist": ["Staff Scientist"],
+  "research-specialist": ["Research Specialist"],
+  "research-assistant": ["Research Assistant"],
+  "research-associate": ["Research Associate"],
+  "phd-student": ["PhD Student"],
+  "lab-manager": ["Lab Manager"],
+  management: ["Management"],
+  physician: ["Physician"],
+  officers: ["IRB Officer", "IBC Officer", "PMO Officer", "Outcome Officer", "Research Officer"],
+};
 
 /**
  * Spellings of a postdoctoral post that are in real use but are not the

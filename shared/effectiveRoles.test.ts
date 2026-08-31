@@ -198,3 +198,42 @@ test("built-in roles are never reported as a title mismatch", async () => {
   // A genuine mismatch is still reported.
   assert.equal(isRoleTitleMismatch("IRB Officer", "Staff Scientist"), true);
 });
+
+// ── Job title tabs on the staff directory ──────────────────────────────────
+
+test("a job title tab matches every spelling of that post", async () => {
+  const { matchesJobTitle, JOB_TITLE_TAB_ALIASES } = await import("./constants.js");
+  // The failure this prevents: the post-doc tab compared with === against
+  // "Post-doctoral Fellow" and showed two of sixteen people, because the other
+  // fourteen were stored as "Post Doctoral Fellow".
+  for (const spelling of [
+    "Post Doctoral Fellow",
+    "Post-doctoral Fellow",
+    "Postdoctoral Fellow",
+    "Postdoctoral Researcher",
+    "postdoc",
+  ]) {
+    assert.equal(
+      matchesJobTitle(spelling, JOB_TITLE_TAB_ALIASES["post-doc"]),
+      true,
+      `"${spelling}" belongs in the post-doc tab`,
+    );
+  }
+});
+
+test("a tab does not sweep in a different post", async () => {
+  const { matchesJobTitle, JOB_TITLE_TAB_ALIASES } = await import("./constants.js");
+  assert.equal(matchesJobTitle("Staff Scientist", JOB_TITLE_TAB_ALIASES["post-doc"]), false);
+  assert.equal(matchesJobTitle("Investigator", JOB_TITLE_TAB_ALIASES["staff-scientist"]), false);
+  assert.equal(matchesJobTitle("Research Officer", JOB_TITLE_TAB_ALIASES["officers"]), true);
+  assert.equal(matchesJobTitle("Physician", JOB_TITLE_TAB_ALIASES["officers"]), false);
+});
+
+test("a missing or unknown title matches no tab", async () => {
+  const { matchesJobTitle, JOB_TITLE_TAB_ALIASES } = await import("./constants.js");
+  for (const tab of Object.keys(JOB_TITLE_TAB_ALIASES)) {
+    assert.equal(matchesJobTitle(null, JOB_TITLE_TAB_ALIASES[tab]), false);
+    assert.equal(matchesJobTitle("", JOB_TITLE_TAB_ALIASES[tab]), false);
+    assert.equal(matchesJobTitle("Other", JOB_TITLE_TAB_ALIASES[tab]), false);
+  }
+});

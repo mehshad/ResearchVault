@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { isInvestigatorEligible } from "@shared/investigatorEligibility";
+import { JOB_TITLE_TAB_ALIASES, matchesJobTitle } from "@shared/constants";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { Link, useLocation } from "wouter";
 import { Button } from "@/components/ui/button";
@@ -411,17 +412,22 @@ export default function StaffList() {
     if (activeTab === "administrative") return matchesSearch && person.staffType === "administrative";
     
     // Filter by job title (legacy support)
-    if (activeTab === "management") return matchesSearch && person.jobTitle === "Management";
-    if (activeTab === "physician") return matchesSearch && person.jobTitle === "Physician";
+    // Compared by the letters of the title, not the exact string: the same post
+    // is written several ways, and exact equality showed two of sixteen
+    // post-docs with no sign the rest existed.
+    const inTab = (tab: string) =>
+      matchesJobTitle(person.jobTitle, JOB_TITLE_TAB_ALIASES[tab] ?? []);
+    if (activeTab === "management") return matchesSearch && inTab("management");
+    if (activeTab === "physician") return matchesSearch && inTab("physician");
     if (activeTab === "investigator") return matchesSearch && isInvestigatorEligible(person);
-    if (activeTab === "staff-scientist") return matchesSearch && person.jobTitle === "Staff Scientist";
-    if (activeTab === "research-specialist") return matchesSearch && person.jobTitle === "Research Specialist";
-    if (activeTab === "research-assistant") return matchesSearch && person.jobTitle === "Research Assistant";
-    if (activeTab === "phd-student") return matchesSearch && person.jobTitle === "PhD Student";
-    if (activeTab === "post-doc") return matchesSearch && person.jobTitle === "Post-doctoral Fellow";
-    if (activeTab === "lab-manager") return matchesSearch && person.jobTitle === "Lab Manager";
-    if (activeTab === "research-associate") return matchesSearch && person.jobTitle === "Research Associate";
-    if (activeTab === "officers") return matchesSearch && (person.jobTitle === "IRB Officer" || person.jobTitle === "IBC Officer" || person.jobTitle === "PMO Officer" || person.jobTitle === "Outcome Officer" || person.jobTitle === "Research Officer");
+    if (activeTab === "staff-scientist") return matchesSearch && inTab("staff-scientist");
+    if (activeTab === "research-specialist") return matchesSearch && inTab("research-specialist");
+    if (activeTab === "research-assistant") return matchesSearch && inTab("research-assistant");
+    if (activeTab === "phd-student") return matchesSearch && inTab("phd-student");
+    if (activeTab === "post-doc") return matchesSearch && inTab("post-doc");
+    if (activeTab === "lab-manager") return matchesSearch && inTab("lab-manager");
+    if (activeTab === "research-associate") return matchesSearch && inTab("research-associate");
+    if (activeTab === "officers") return matchesSearch && inTab("officers");
     
     return matchesSearch;
   });

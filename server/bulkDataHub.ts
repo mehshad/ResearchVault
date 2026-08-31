@@ -4532,36 +4532,49 @@ export async function applySection(
       }
     }
 
-    let applyingScientistId: number | undefined;
     const applyingUserId = actor?.userId ?? undefined;
-    const createsAuditedRecord = preview.rows.some(
-      (row) => (row.sheetName === "Certifications" || row.sheetName === "Publications")
-        && row.action === "create",
-    );
-    if (createsAuditedRecord) {
-      if (actor?.scientistId != null) {
-        const [linked] = await tx
-          .select({ id: scientists.id })
-          .from(scientists)
-          .where(eq(scientists.id, actor.scientistId));
-        applyingScientistId = linked?.id;
-      }
-      if (!applyingScientistId && actor?.email) {
-        const matches = await tx
-          .select({ id: scientists.id })
-          .from(scientists)
-          .where(caseInsensitiveKey(scientists.email, actor.email));
-        if (matches.length > 1) {
-          throw new Error(`Certification apply actor email "${actor.email}" is ambiguous`);
+
+    /**
+     * The staff profile to attribute created certifications and publications
+     * to, resolved the first time one is actually written.
+     *
+     * Deliberately lazy. Resolving it up front made a restore into an empty
+     * database impossible: the applying administrator's own staff profile is
+     * itself in the archive, created by the Scientists sheet earlier in this
+     * same transaction, so looking for it before the sheets ran could only
+     * ever fail. Anyone restoring a fresh environment hit an error telling
+     * them to link a user to a scientist that the restore was about to create.
+     */
+    let applyingScientistId: number | undefined;
+    let applyingScientistResolved = false;
+    const resolveApplyingScientistId = async (): Promise<number> => {
+      if (!applyingScientistResolved) {
+        applyingScientistResolved = true;
+        if (actor?.scientistId != null) {
+          const [linked] = await tx
+            .select({ id: scientists.id })
+            .from(scientists)
+            .where(eq(scientists.id, actor.scientistId));
+          applyingScientistId = linked?.id;
         }
-        applyingScientistId = matches[0]?.id;
+        if (!applyingScientistId && actor?.email) {
+          const matches = await tx
+            .select({ id: scientists.id })
+            .from(scientists)
+            .where(caseInsensitiveKey(scientists.email, actor.email));
+          if (matches.length > 1) {
+            throw new Error(`Certification apply actor email "${actor.email}" is ambiguous`);
+          }
+          applyingScientistId = matches[0]?.id;
+        }
       }
       if (!applyingScientistId) {
         throw new Error(
           "Certification and Publication imports that create records require an auditable applying user linked to a scientist",
         );
       }
-    }
+      return applyingScientistId;
+    };
     const createsPublication = preview.rows.some(
       (row) => row.sheetName === "Publications" && row.action === "create",
     );
@@ -4653,7 +4666,7 @@ export async function applySection(
             tx,
             entry,
             rowData,
-            applyingScientistId,
+            entry.action === "create" ? await resolveApplyingScientistId() : applyingScientistId,
             applyingUserId,
           );
           if (result.id != null) {
@@ -4717,7 +4730,10 @@ export async function applySection(
           if (entry.action === "create") sheetCounts.created++;
           else sheetCounts.updated++;
         } else if (sheetName === "Certifications") {
-          await applyCertificationRow(tx, entry, rowData, newModuleByKey, applyingScientistId);
+          await applyCertificationRow(
+            tx, entry, rowData, newModuleByKey,
+            entry.action === "create" ? await resolveApplyingScientistId() : undefined,
+          );
           if (entry.action === "create") sheetCounts.created++;
           else sheetCounts.updated++;
         } else if (sheetName === "Access Roles") {
