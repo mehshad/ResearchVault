@@ -11083,8 +11083,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
         groups.splice(0, groups.length, ...refreshed);
       }
 
-      // A role held as primary would be redundant as a secondary.
-      const keep = groups.filter((group) => group.name !== target.role);
+      // Deliberately NOT filtered against the current primary role. Dropping a
+      // secondary that duplicates the primary reads as tidy but is a trap: grant
+      // `admin` as a secondary while `admin` is still the primary and it is
+      // silently stored as nothing, so moving the primary to another role
+      // afterwards leaves the person with no administrator rights and no sign
+      // that anything was discarded. Access is the union of every slot, so
+      // holding one role in both costs nothing.
+      void target.role;
+      const keep = groups;
 
       await db.transaction(async (tx: any) => {
         await tx.delete(userRoleAssignments).where(eq(userRoleAssignments.userId, id));
@@ -11093,7 +11100,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
             keep.map((group) => ({
               userId: id,
               roleGroupId: group.id,
-              assignedBy: req.session?.user?.id ?? null,
+              // The demo session uses id 0, which is not a real user row, so
+              // `??` wrote 0 and the users foreign key rejected the insert:
+              // granting any secondary role in demo mode failed outright,
+              // while clearing them all succeeded because that deletes only.
+              // `||` records nobody instead.
+              assignedBy: req.session?.user?.id || null,
             })),
           );
         }
