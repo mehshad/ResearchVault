@@ -74,7 +74,7 @@ import {
 } from "@shared/schema";
 import { requireAuth, requireAdmin, requirePublicationOfficer, getAuthMode } from "./auth";
 import { buildAssignableRoles } from "./assignableRoles";
-import { ACCESS_ROLES } from "@shared/constants";
+import { ACCESS_ROLES, JOB_TITLE_TAB_ALIASES, matchesJobTitle } from "@shared/constants";
 import { resolveOwnershipAccess, maxAccess, type AccessLevel as OwnershipAccessLevel } from "./ownershipResolver";
 import { matchesAuthorName, isLinkedAuthorInAuthorsText, isUnambiguousAuthorMatch, suggestInternalAuthors } from "@shared/authorMatching";
 import { detectDuplicateGroups, pickDefaultSurvivorId, normalizeDoi as canonicalDoi, isPreprintRecord, classifyResolvedPublication, preprintRepairEvidence } from "@shared/publicationDeduplication";
@@ -11179,6 +11179,117 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (err) {
       console.error('Error updating user role:', err);
       res.status(500).json({ message: 'Failed to update role' });
+    }
+  });
+
+  /**
+   * POST /api/admin/users/provision-investigators
+   *
+   * Creates an account for every staff member titled Investigator who has none.
+   *
+   * Investigator eligibility is the Investigator *access role*, which lives on
+   * an account -- so a person holding the job title but no account cannot be
+   * made a PI, and an import that assigns them one is refused. This closes that
+   * gap by giving them an account to hold the role.
+   *
+   * The accounts are created with the restricted `user` role, not Investigator.
+   * Seeding a privilege from a job title is exactly the coupling that was
+   * removed when eligibility moved to the access role; an administrator grants
+   * Investigator deliberately in User Management afterwards. Every account
+   * therefore starts fail-closed, like any other new account.
+   *
+   * Pass `dryRun` to see the plan without writing anything.
+   */
+  app.post('/api/admin/users/provision-investigators', requireAuth, requireAdmin, async (req: Request, res: Response) => {
+    const dryRun = (req.body as { dryRun?: boolean } | undefined)?.dryRun === true;
+    try {
+      const allScientists = await storage.getScientists();
+      const existingUsers = await db
+        .select({
+          id: users.id,
+          username: users.username,
+          email: users.email,
+          scientistId: users.scientistId,
+        })
+        .from(users);
+
+      const takenUsernames = new Set(existingUsers.map((u) => u.username.toLowerCase()));
+      const linkedScientistIds = new Set(
+        existingUsers.map((u) => u.scientistId).filter((v): v is number => v != null),
+      );
+      const takenEmails = new Set(
+        existingUsers.map((u) => (u.email ?? '').trim().toLowerCase()).filter(Boolean),
+      );
+
+      const candidates = allScientists.filter((scientist: any) =>
+        matchesJobTitle(scientist.jobTitle, JOB_TITLE_TAB_ALIASES.investigator ?? []),
+      );
+
+      const toCreate: Array<{ scientistId: number; username: string; name: string; email: string }> = [];
+      const skipped: Array<{ name: string; reason: string }> = [];
+
+      for (const scientist of candidates as any[]) {
+        const name = [scientist.firstName, scientist.lastName].filter(Boolean).join(' ').trim()
+          || scientist.email
+          || `Scientist ${scientist.id}`;
+        if (linkedScientistIds.has(scientist.id)) {
+          skipped.push({ name, reason: 'Already has an account' });
+          continue;
+        }
+        const email = (scientist.email ?? '').trim();
+        if (!email) {
+          // The username an external provider would send is derived from the
+          // address, so without one there is nothing to match a future sign-in.
+          skipped.push({ name, reason: 'No email on the staff profile' });
+          continue;
+        }
+        if (takenEmails.has(email.toLowerCase())) {
+          skipped.push({ name, reason: 'Another account already uses this email' });
+          continue;
+        }
+
+        const base = email.split('@')[0].toLowerCase().replace(/[^a-z0-9._-]/g, '');
+        if (!base) {
+          skipped.push({ name, reason: 'Email does not yield a usable username' });
+          continue;
+        }
+        let username = base;
+        let suffix = 2;
+        while (takenUsernames.has(username)) username = `${base}${suffix++}`;
+
+        takenUsernames.add(username);
+        takenEmails.add(email.toLowerCase());
+        toCreate.push({ scientistId: scientist.id, username, name, email });
+      }
+
+      if (dryRun || toCreate.length === 0) {
+        return res.json({ dryRun: true, created: [], plan: toCreate, skipped });
+      }
+
+      const created = await db.transaction(async (tx: any) =>
+        tx
+          .insert(users)
+          .values(
+            toCreate.map((entry) => ({
+              username: entry.username,
+              name: entry.name,
+              email: entry.email,
+              // NOT NULL with no default. Empty means no local password is set,
+              // so the account cannot be signed into with one -- the same state
+              // every account restored from an archive is in. An external
+              // provider matches on username and adopts the row on first login.
+              password: '',
+              role: 'user',
+              scientistId: entry.scientistId,
+            })),
+          )
+          .returning({ id: users.id, username: users.username, name: users.name }),
+      );
+
+      res.json({ dryRun: false, created, plan: toCreate, skipped });
+    } catch (err) {
+      console.error('Error provisioning investigator accounts:', err);
+      res.status(500).json({ message: 'Failed to create investigator accounts' });
     }
   });
 

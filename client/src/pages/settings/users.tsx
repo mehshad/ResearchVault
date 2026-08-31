@@ -7,7 +7,17 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
 import { useCurrentUser } from "@/hooks/useCurrentUser";
-import { AlertTriangle, Shield, User } from "lucide-react";
+import { AlertTriangle, Loader2, Shield, User, UserPlus } from "lucide-react";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { isAdministrator, hasAnyRole } from "@shared/effectiveRoles";
 import { isRoleTitleMismatch, accessRoleForJobTitle } from "@shared/constants";
 
@@ -98,6 +108,41 @@ export default function AdminUsersPage() {
     },
   });
 
+  // Staff titled Investigator who hold no account cannot be granted the
+  // Investigator access role, and eligibility now lives entirely on that role.
+  // This creates the accounts so the role has somewhere to go; it does not
+  // grant it.
+  type ProvisionPlan = {
+    plan: Array<{ username: string; name: string; email: string }>;
+    skipped: Array<{ name: string; reason: string }>;
+    created: Array<{ id: number; username: string; name: string }>;
+  };
+  const [provisionPlan, setProvisionPlan] = useState<ProvisionPlan | null>(null);
+  const provisionMutation = useMutation({
+    mutationFn: async (dryRun: boolean) => {
+      const res = await apiRequest("POST", "/api/admin/users/provision-investigators", { dryRun });
+      return (await res.json()) as ProvisionPlan;
+    },
+    onSuccess: (data, dryRun) => {
+      if (dryRun) {
+        setProvisionPlan(data);
+        return;
+      }
+      setProvisionPlan(null);
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/users"] });
+      toast({
+        title: `${data.created.length} account${data.created.length === 1 ? "" : "s"} created`,
+        description:
+          data.created.length > 0
+            ? "Each starts with the restricted user role. Grant Investigator to the ones who need it."
+            : "Nothing to create.",
+      });
+    },
+    onError: (err: Error) => {
+      toast({ title: "Could not create accounts", description: err.message, variant: "destructive" });
+    },
+  });
+
   if (!me || !isAdministrator(me)) {
     return (
       <div className="p-8 text-center text-muted-foreground">
@@ -116,6 +161,23 @@ export default function AdminUsersPage() {
           Access roles assigned here control permissions — a person's access is the union of their
           primary role and any secondary roles. Profile job titles are shown for reference
           and do not grant access. The super admin account (set via <code>SUPER_ADMIN_EMAIL</code>) cannot be changed here.
+        </p>
+        <Button
+          variant="outline"
+          className="mt-4"
+          onClick={() => provisionMutation.mutate(true)}
+          disabled={provisionMutation.isPending}
+          data-testid="button-provision-investigators"
+        >
+          {provisionMutation.isPending ? (
+            <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Checking…</>
+          ) : (
+            <><UserPlus className="mr-2 h-4 w-4" />Create accounts for Investigators</>
+          )}
+        </Button>
+        <p className="mt-2 text-xs text-muted-foreground">
+          Gives every staff member titled Investigator an account to hold an access role. They are
+          created with the restricted <code>user</code> role — grant Investigator here afterwards.
         </p>
       </div>
 
@@ -339,6 +401,67 @@ export default function AdminUsersPage() {
           )}
         </CardContent>
       </Card>
+
+      <AlertDialog
+        open={provisionPlan !== null}
+        onOpenChange={(open) => { if (!open) setProvisionPlan(null); }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              {provisionPlan?.plan.length
+                ? `Create ${provisionPlan.plan.length} account${provisionPlan.plan.length === 1 ? "" : "s"}?`
+                : "Nothing to create"}
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              {provisionPlan?.plan.length
+                ? "Each account is created with the restricted user role and no password, so it grants nothing until you assign a role. An external sign-in matches it by username and adopts it."
+                : "Every staff member titled Investigator already has an account, or has nothing to create one from."}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+
+          {provisionPlan && provisionPlan.plan.length > 0 && (
+            <div className="max-h-56 overflow-y-auto rounded-md border" data-testid="list-provision-plan">
+              {provisionPlan.plan.map((entry) => (
+                <div key={entry.username} className="flex items-baseline justify-between gap-3 border-b px-3 py-2 text-sm last:border-b-0">
+                  <span className="font-medium">{entry.name}</span>
+                  <span className="font-mono text-xs text-muted-foreground">{entry.username}</span>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {provisionPlan && provisionPlan.skipped.length > 0 && (
+            <div className="rounded-md border border-amber-300 bg-amber-50 p-3 text-sm dark:border-amber-800 dark:bg-amber-950/30" data-testid="list-provision-skipped">
+              <p className="font-medium text-amber-900 dark:text-amber-200">
+                {provisionPlan.skipped.length} skipped
+              </p>
+              <ul className="mt-1 max-h-32 space-y-0.5 overflow-y-auto text-amber-900/90 dark:text-amber-200/90">
+                {provisionPlan.skipped.map((entry, index) => (
+                  <li key={`${entry.name}-${index}`}>{entry.name} — {entry.reason}</li>
+                ))}
+              </ul>
+            </div>
+          )}
+
+          <AlertDialogFooter>
+            <AlertDialogCancel data-testid="button-cancel-provision">Cancel</AlertDialogCancel>
+            {provisionPlan && provisionPlan.plan.length > 0 && (
+              <AlertDialogAction
+                onClick={(event) => { event.preventDefault(); provisionMutation.mutate(false); }}
+                disabled={provisionMutation.isPending}
+                data-testid="button-confirm-provision"
+              >
+                {provisionMutation.isPending ? (
+                  <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Creating…</>
+                ) : (
+                  "Yes, create the accounts"
+                )}
+              </AlertDialogAction>
+            )}
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }
