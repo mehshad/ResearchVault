@@ -84,17 +84,17 @@ const SERVER_ENFORCED_RULES = [
   },
   {
     category: "Investigator eligibility",
-    title: "Only approved staff can be Principal Investigators",
+    title: "Only holders of the Investigator access role can be Principal Investigators",
     appliesTo: "Project leads, program leadership, research activity PI/budget holders, IRB/IBC PIs, and PI team roles",
     enforcement:
-      "A staff member must have the Investigator or Staff Scientist title, or an additional Investigator designation. The system rejects ineligible assignments even if a request bypasses the screen.",
+      "Eligibility is the Investigator access role on the person's account, held as their primary role or alongside one. Nothing else confers it: not the job title, and not any flag on the staff profile. The server derives it on every read from the linked account, so what the interface shows and what was granted cannot drift apart, and it rejects ineligible assignments even if a request bypasses the screen.",
   },
   {
     category: "Investigator eligibility",
     title: "Staff cannot grant themselves Investigator authority",
-    appliesTo: "Staff profiles and first-time registration",
+    appliesTo: "User role assignment, and job titles at first-time registration",
     enforcement:
-      "Only Management, administrators, or superadministrators can set the additional Investigator designation or an eligibility-granting title. Ordinary profile updates remain available without those fields.",
+      "Investigator is granted only in User Management, which is administrator-only, so nobody can give it to themselves by editing their own profile. The Investigator and Staff Scientist job titles still cannot be self-assigned at registration — they are a claim about someone's position that a manager should make — but a job title no longer grants any access.",
   },
   {
     category: "Staff records",
@@ -109,6 +109,20 @@ const SERVER_ENFORCED_RULES = [
     appliesTo: "User access administration",
     enforcement:
       "Only administrators and superadministrators can update a user's role. The superadministrator role cannot be assigned from the interface.",
+  },
+  {
+    category: "System configuration",
+    title: "System configuration is administrator-only",
+    appliesTo: "Theme, institution labels, section visibility, colour mode and every other stored setting",
+    enforcement:
+      "Reading the whole configuration, and creating, changing or deleting any setting, requires an administrator. Four presentation keys — theme name, institution labels, section visibility and default colour mode — stay readable without a session, because they are applied while the sign-in page is still painting. The Sidra Score settings keep their own rule and remain with the Outcome Office.",
+  },
+  {
+    category: "Permission matrix",
+    title: "Forms and logs follow the area that owns them",
+    appliesTo: "RA200 and RA205A forms, feature requests, and the certificate import log",
+    enforcement:
+      "RA200 and RA205A are resolved against PMO Office, feature requests against Dashboard, and the certificate PDF import log — which carries OCR text and staff names — against Certifications. Each is refused unless the person holds the matching area, rather than being reachable by anyone signed in.",
   },
   {
     category: "Ownership access",

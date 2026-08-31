@@ -991,10 +991,14 @@
                 linked internal authors and their line manager. Published records are visible to all.</td>
           </tr>
           <tr>
-            <td class="k">Investigator designation</td>
-            <td>The <span class="mono">isInvestigator</span> flag</td>
-            <td>Only Management or an administrator may grant it. Restricted users are refused
-                explicitly rather than silently ignored.</td>
+            <td class="k">Investigator eligibility</td>
+            <td>Principal-investigator roles: project leads, programme leadership, research
+                activity PI and budget holder, IRB/IBC PIs</td>
+            <td>The <span class="mono">Investigator</span> access role is the whole answer, held
+                as a primary role or alongside one. A job title confers nothing, and the profile
+                stores no flag: <span class="mono">isInvestigator</span> is derived on every read
+                from the account linked to the profile, so the two cannot disagree. Granting it
+                means assigning the role in User Management, which is administrator-only.</td>
           </tr>
           <tr>
             <td class="k">Sealed publications</td>
@@ -1052,18 +1056,36 @@
 
     <div class="stats">
       <div class="stat"><div class="v">295</div><div class="l">API routes</div></div>
-      <div class="stat"><div class="v">280</div><div class="l">Reach a guard</div></div>
-      <div class="stat"><div class="v">94%</div><div class="l">Covered</div></div>
-      <div class="stat"><div class="v warn">15</div><div class="l">Have no area</div></div>
+      <div class="stat"><div class="v">287</div><div class="l">Reach a guard</div></div>
+      <div class="stat"><div class="v">97%</div><div class="l">Covered</div></div>
+      <div class="stat"><div class="v">8</div><div class="l">Open before sign-in</div></div>
     </div>
 
     <p>
-      The 15 that remain are not an oversight; they are listed in
-      <span class="mono">UNMAPPED_API_PREFIXES</span> beside the reason each is excluded. Eight of
-      them must be reachable without a resolved role at all &mdash; sign-in, registration, the
-      liveness probe, object storage. The other seven have no matrix area that describes them, and
-      that is <strong>AC-11</strong>.
+      The eight that reach no guard are the ones that cannot: sign-in itself, registration, the
+      liveness probe and object storage are all reached before a role exists, and guarding them
+      would lock everyone out. They are listed in
+      <span class="mono">UNMAPPED_API_PREFIXES</span> beside the reason each is excluded.
     </p>
+    <p>
+      Five more sit in that list while still being guarded:
+      <span class="mono">/api/system-configurations</span> has no matrix area but is
+      administrator-only through <span class="mono">requireAdmin</span>, in the same way as
+      <span class="mono">/api/admin</span> and <span class="mono">/api/bulk-data</span>. Four
+      presentation keys under it &mdash; theme name, institution labels, section visibility and
+      default colour mode &mdash; are readable without a session, because the sign-in page applies
+      them before anyone has said who they are.
+    </p>
+    <div class="note">
+      <p>
+        <strong>Nothing else answers without an account.</strong> Verified by requesting all 127
+        GET routes against a running server in <span class="mono">local</span> mode with no cookie
+        of any kind: the only JSON that came back was the liveness probe. A bare prefix such as
+        <span class="mono">/api/admin</span> returns 200, but the body is
+        <span class="mono">text/html</span> &mdash; the single-page-app catch-all, not an endpoint.
+        Check the content type before reading such a result as an exposure.
+      </p>
+    </div>
     <div class="note">
       <p>
         <strong>The guards are additive, not alternative.</strong> A route under
@@ -1086,57 +1108,6 @@
     </p>
 
     
-
-    <div class="finding high">
-      <div class="finding-head">
-        <span class="finding-id">AC-11</span>
-        <h4>Seven endpoints require no authentication at all</h4>
-        <span class="chip high">High</span>
-      </div>
-      <p>
-        Eight of the routes no guard covers must be reachable before a role is resolved at all
-        &mdash; sign-in, registration, the liveness probe, object storage. Seven more have no
-        matrix area that describes them:
-        <span class="mono">/api/system-configurations</span> (5) and
-        <span class="mono">/api/pdf-import-history</span> (2).
-      </p>
-      <p>
-        These seven carry <em>no route-level guard either</em>. Nothing global supplies one:
-        <span class="mono">restrictDefaultUserApiAccess</span> returns
-        <span class="mono">false</span> for a caller with no session, so an anonymous request
-        passes through it and reaches the handler. The consequence is not that any assigned role
-        can reach them &mdash; it is that <strong>no account is needed</strong>.
-      </p>
-      <p>
-        Confirmed against a running server in <span class="mono">local</span> mode with no cookie
-        of any kind. <span class="mono">/api/scientists</span> and
-        <span class="mono">/api/publications</span> answer 403 as they should; these answer in
-        full, and accept writes:
-      </p>
-      <div class="evidence">GET    /api/system-configurations        200   (guarded routes return 403)
-GET    /api/pdf-import-history           200
-POST   /api/system-configurations        201   {"key":"__probe_unauth_write", ...}
-GET    /api/system-configurations/__probe_unauth_write   200
-DELETE /api/system-configurations/__probe_unauth_write   200</div>
-      <p>
-        The row was created, read back and deleted by an unauthenticated caller. The only
-        authorisation anywhere on these handlers is a single special case for the Sidra Score
-        settings key; every other key is writable by anyone who can reach the port. Those keys
-        carry the theme, the institution labels, section visibility and the default colour mode
-        &mdash; so this is defacement and configuration tampering, not disclosure. System
-        configuration is also absent from every section of the bulk-data archive, so a full
-        restore silently loses it.
-      </p>
-      <p>
-        <span class="label">Recommendation</span>
-        Put <span class="mono">/api/system-configurations</span> behind
-        <span class="mono">requireAdmin</span> immediately &mdash; it is administrator-only in
-        substance, and the read paths the client needs before sign-in should be narrowed to the
-        specific keys rather than left open on the whole prefix. Import history is a read-only log
-        and can follow whichever area owns bulk import. Whatever is chosen, both prefixes should
-        leave <span class="mono">UNMAPPED_API_PREFIXES</span>.
-      </p>
-    </div>
 
     <div class="finding high">
       <div class="finding-head">
@@ -1271,7 +1242,7 @@ ORDER BY u.username;</div>
       <strong>Resolved findings are deleted, not archived.</strong> This document is a list of work
       outstanding, so a finding disappears from section&nbsp;08 once it is fixed rather than being
       marked closed. Identifiers are never reused, so an absent number means resolved — the gaps in
-      the sequence are AC-01, AC-02, AC-06 to AC-09, and AC-10.
+      the sequence are AC-01, AC-02, AC-06 to AC-11.
     </p>
     <p>
       Counts reflect the stated commit and will drift as the code changes; re-run section&nbsp;09

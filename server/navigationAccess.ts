@@ -88,6 +88,9 @@ export const NAVIGATION_ROUTE_RULES: NavigationRouteRule[] = [
   { prefix: "/api/certification-modules", navigationItem: "certifications", label: "Certifications" },
   { prefix: "/api/certification-config", navigationItem: "certifications", label: "Certifications" },
   { prefix: "/api/certificates", navigationItem: "certifications", label: "Certifications" },
+  // The certificate PDF import log: read from the Certifications page, and it
+  // carries OCR text and the uploader's and assigned scientist's names.
+  { prefix: "/api/pdf-import-history", navigationItem: "certifications", label: "Certifications" },
 
   // ── Overview ─────────────────────────────────────────────────────────────
   { prefix: "/api/dashboard", navigationItem: "dashboard", label: "Dashboard" },
@@ -110,7 +113,6 @@ export const UNMAPPED_API_PREFIXES: ReadonlyArray<{ prefix: string; reason: stri
   { prefix: "/api/management", reason: "Guarded by requireManagement, which now reads the matrix." },
   { prefix: "/api/office-dashboards", reason: "Guarded by the office guards, which now read the matrix." },
   { prefix: "/api/system-configurations", reason: "Administrator-only via requireAdmin; the theme, branding and section-visibility keys stay readable so the sign-in page can render." },
-  { prefix: "/api/pdf-import-history", reason: "No matrix area covers import history." },
   { prefix: "/objects", reason: "Object storage, served outside the /api surface." },
 ];
 
