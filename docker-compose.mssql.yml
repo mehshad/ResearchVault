@@ -1,0 +1,102 @@
+# docker-compose.mssql.yml — SQL Server overlay
+#
+# Two usage patterns:
+#
+# A) Use a BUNDLED SQL Server container (development / air-gapped):
+#
+#   docker compose -f docker-compose.yml -f docker-compose.mssql.yml up -d
+#
+#   The overlay starts a SQL Server 2022 container alongside the app.
+#   Set SA_PASSWORD in .env (min 8 chars, upper+lower+digit+symbol).
+#
+# B) Connect to an EXISTING SQL Server farm (production):
+#
+#   Set DATABASE_URL to point at your SQL farm, and disable the bundled
+#   sqlserver service by running with:
+#     MSSQL_BUNDLED=false docker compose -f docker-compose.yml -f docker-compose.mssql.yml up -d
+#   Or simply omit the sqlserver service via profiles — see below.
+#
+# Variables (add to .env):
+#   SA_PASSWORD          SQL Server SA password (bundled container only)
+#   MSSQL_DATABASE       Database name to create (default: researchvault)
+#   DATABASE_URL         Full mssql:// URL pointing at your SQL Server instance
+#                        If omitted, defaults to the bundled sqlserver container.
+
+services:
+  # ── Bundled SQL Server container ─────────────────────────────────────────────
+  # Uses the official Microsoft SQL Server 2022 Developer image.
+  # For production, connect to your SQL farm via DATABASE_URL instead.
+  sqlserver:
+    image: mcr.microsoft.com/mssql/server:2022-latest
+    restart: unless-stopped
+    profiles: ["mssql-bundled"]
+    environment:
+      ACCEPT_EULA: "Y"
+      MSSQL_SA_PASSWORD: "${SA_PASSWORD:?SA_PASSWORD must be set in .env}"
+      MSSQL_PID: Developer
+    ports:
+      - "1433:1433"
+    volumes:
+      - mssql-data:/var/opt/mssql
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - /opt/mssql-tools18/bin/sqlcmd -S localhost -U SA -P "$$MSSQL_SA_PASSWORD"
+            -C -Q "SELECT 1" > /dev/null 2>&1
+      interval: 10s
+      timeout: 5s
+      retries: 12
+    networks:
+      - rv-net
+
+  sqlserver-demo:
+    image: mcr.microsoft.com/mssql/server:2022-latest
+    restart: unless-stopped
+    profiles: ["mssql-bundled"]
+    environment:
+      ACCEPT_EULA: "Y"
+      MSSQL_SA_PASSWORD: "${SA_PASSWORD:?SA_PASSWORD must be set in .env}"
+      MSSQL_PID: Developer
+    volumes:
+      - mssql-demo-data:/var/opt/mssql
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - /opt/mssql-tools18/bin/sqlcmd -S localhost -U SA -P "$$MSSQL_SA_PASSWORD"
+            -C -Q "SELECT 1" > /dev/null 2>&1
+      interval: 10s
+      timeout: 5s
+      retries: 12
+    networks:
+      - rv-net
+
+  # ── Disable PostgreSQL services ───────────────────────────────────────────────
+  postgres:
+    profiles: ["disabled"]
+
+  postgres-demo:
+    profiles: ["disabled"]
+
+  # ── Production app (SQL Server) ───────────────────────────────────────────────
+  app:
+    environment:
+      DB_TYPE: mssql
+      DATABASE_URL: "${DATABASE_URL:-mssql://SA:${SA_PASSWORD}@sqlserver:1433/${MSSQL_DATABASE:-researchvault}?trustServerCertificate=true}"
+    depends_on:
+      sqlserver:
+        condition: service_healthy
+        required: false   # not required when using an external SQL farm
+
+  # ── Demo app (SQL Server) ─────────────────────────────────────────────────────
+  app-demo:
+    environment:
+      DB_TYPE: mssql
+      DATABASE_URL: "${DEMO_DATABASE_URL:-mssql://SA:${SA_PASSWORD}@sqlserver-demo:1433/${MSSQL_DATABASE:-researchvault}_demo?trustServerCertificate=true}"
+    depends_on:
+      sqlserver-demo:
+        condition: service_healthy
+        required: false
+
+volumes:
+  mssql-data:
+  mssql-demo-data:

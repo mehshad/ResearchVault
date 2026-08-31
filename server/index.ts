@@ -12,6 +12,8 @@ import { serveStatic } from "./static";
 import { log, logError, logRequest } from "./logger";
 import session from "express-session";
 import connectPgSimple from "connect-pg-simple";
+import MemoryStore from "memorystore";
+import MssqlStoreFactory from "connect-mssql-v2";
 import { createHash } from "crypto";
 import { restrictDefaultUserApiAccess } from "./restrictedUserPolicy";
 import { startBulkDataArchiveScheduler } from "./bulkDataArchives";
@@ -19,7 +21,18 @@ import { db } from "./db";
 import { sql } from "drizzle-orm";
 
 const PgSession = connectPgSimple(session);
+const MemSession = MemoryStore(session);
 const APP_START = Date.now();
+
+// Detect database type from environment
+const isSQLiteMode =
+  process.env.DB_TYPE === "sqlite" ||
+  (process.env.DATABASE_URL?.startsWith("sqlite:") ?? false);
+
+const isMSSQLMode =
+  process.env.DB_TYPE === "mssql" ||
+  (process.env.DATABASE_URL?.startsWith("mssql://") ?? false) ||
+  /^Server\s*=/i.test(process.env.DATABASE_URL ?? "");
 
 // Global error handlers to prevent crashes from worker processes
 process.on('uncaughtException', (error) => {
@@ -69,15 +82,26 @@ if (appBasePath) {
 // send the cookie back and every request appears unauthenticated.
 const isHttps = process.env.APP_URL?.startsWith('https://') ?? false;
 
-// Session configuration — use PostgreSQL store in production to avoid
-// MemoryStore leak warnings and to survive container restarts.
-const sessionStore = process.env.DATABASE_URL
-  ? new PgSession({
-      conString: process.env.DATABASE_URL,
-      tableName: 'session',
-      createTableIfMissing: true,
-    })
-  : undefined;
+// Session configuration
+// • PostgreSQL / Neon → connect-pg-simple  (persisted, survives restarts)
+// • SQL Server        → connect-mssql-v2   (persisted, survives restarts)
+// • SQLite            → memorystore        (in-process; sessions lost on restart)
+let sessionStore: session.Store | undefined;
+
+if (isMSSQLMode) {
+  const { parseMssqlUrl } = await import("./db-mssql");
+  const mssqlCfg = parseMssqlUrl(process.env.DATABASE_URL!);
+  // connect-mssql-v2 extends session.Store directly — pass config as first arg.
+  sessionStore = new (MssqlStoreFactory as any)(mssqlCfg) as session.Store;
+} else if (isSQLiteMode) {
+  sessionStore = new MemSession({ checkPeriod: 86_400_000 });
+} else if (process.env.DATABASE_URL) {
+  sessionStore = new PgSession({
+    conString: process.env.DATABASE_URL,
+    tableName: 'session',
+    createTableIfMissing: true,
+  });
+}
 
 // Distinct cookie name per auth mode so production and demo sessions never clash.
 const cookieName = getAuthMode() === 'demo' ? 'rv-demo.sid' : 'rv.sid';

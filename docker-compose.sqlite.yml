@@ -1,0 +1,36 @@
+# docker-compose.sqlite.yml — SQLite overlay
+# Use with:  docker compose -f docker-compose.yml -f docker-compose.sqlite.yml up -d
+# Or set DB_TYPE=sqlite in .env and let setup.sh pick this up automatically.
+#
+# When running in SQLite mode:
+#  • The postgres and postgres-demo services are disabled.
+#  • DATABASE_URL and DEMO_DATABASE_URL are set to file:// paths inside the
+#    container, backed by a bind-mounted host directory so data persists across restarts.
+#  • Migrations are applied by the Node.js app on startup (no psql required),
+#    so the image does not need postgresql-client.
+#
+# Good for:  local development, air-gapped servers, low-resource edge deployments.
+# Not recommended for: high-concurrency production workloads (use PostgreSQL instead).
+
+services:
+  postgres:
+    profiles: ["disabled"]
+
+  postgres-demo:
+    profiles: ["disabled"]
+
+  app:
+    environment:
+      DATABASE_URL: "sqlite:${SQLITE_DATA_DIR:-/data/sqlite}/researchvault.db"
+      DB_TYPE: sqlite
+    volumes:
+      - "${SQLITE_DATA_DIR:-./data/sqlite}:/data/sqlite"
+    depends_on: []   # no DB container to wait for
+
+  app-demo:
+    environment:
+      DATABASE_URL: "sqlite:${SQLITE_DATA_DIR:-/data/sqlite}/researchvault_demo.db"
+      DB_TYPE: sqlite
+    volumes:
+      - "${SQLITE_DATA_DIR:-./data/sqlite}:/data/sqlite"
+    depends_on: []
