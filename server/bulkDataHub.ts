@@ -101,6 +101,7 @@ import {
   GrantLifecycleError,
 } from "@shared/grantLifecycle";
 import { ACCESS_LEVELS, RESTRICTED_USER_ROLE } from "@shared/constants";
+import { inferPlacementFromLineManagers } from "@shared/sectionInference";
 import {
   isRoomManagerEligible,
   isRoomSupervisorEligible,
@@ -2007,6 +2008,64 @@ export async function inspectWorkbookStructure(
 // Per-sheet row previewing
 // ---------------------------------------------------------------------------
 
+/**
+ * Fill blank Org Section cells from each person's line manager.
+ *
+ * A roster commonly names everyone's manager but places only the section leads,
+ * so where people sit is present implicitly. This reads it out before the rows
+ * are validated, which means an inferred placement is indistinguishable from a
+ * stated one everywhere downstream -- the change comparison and the apply step
+ * both see an ordinary Org Section value.
+ *
+ * The department comes with the section, since a section belongs to one.
+ *
+ * The rule itself is shared with the staff import so the two cannot disagree.
+ * Placement is a name pair here, because this sheet resolves the hierarchy by
+ * name -- the department may not exist in the database yet when the same
+ * workbook is restoring it.
+ */
+function inferScientistSectionsFromManagers(
+  rows: Record<string, string>[],
+  ctx: DbContext,
+): number {
+  type Placement = { section: string; department: string };
+
+  // Everyone already on file who has a section, as the names this sheet uses.
+  const seeded = new Map<string, Placement>();
+  for (const person of ctx.scientists) {
+    if (person.sectionId == null) continue;
+    const section = ctx.sectionById?.get(person.sectionId);
+    if (!section) continue;
+    const department = person.departmentId
+      ? ctx.departmentById?.get(person.departmentId)?.name ?? ""
+      : ctx.departmentById?.get(section.departmentId)?.name ?? "";
+    seeded.set(person.email.toLowerCase(), {
+      section: section.name,
+      department,
+    });
+  }
+
+  return inferPlacementFromLineManagers<Record<string, string>, Placement>(
+    rows,
+    {
+      email: (row) => (row.email ?? "").trim().toLowerCase(),
+      manager: (row) => (row.supervisorEmail ?? "").trim().toLowerCase() || null,
+      placement: (row) => {
+        const section = (row.orgSection ?? "").trim();
+        // "CLEAR" is a deliberate instruction to empty the field, not a blank
+        // waiting to be filled.
+        if (!section || isClear(section)) return null;
+        return { section, department: (row.orgDepartment ?? "").trim() };
+      },
+      assign: (row, placement) => {
+        row.orgSection = placement.section;
+        if (!(row.orgDepartment ?? "").trim()) row.orgDepartment = placement.department;
+      },
+    },
+    seeded,
+  );
+}
+
 function previewScientistRows(
   rows: Record<string, string>[],
   ctx: DbContext,
@@ -2015,6 +2074,10 @@ function previewScientistRows(
   inFileDepartmentNames: Set<string> = new Set(),
   inFileSectionKeys: Set<string> = new Set(),
 ): RowEntry[] {
+  // Before anything else reads a placement, so an inferred section is treated
+  // exactly like one the file stated.
+  inferScientistSectionsFromManagers(rows, ctx);
+
   const entries: RowEntry[] = [];
   const seenEmails = new Set<string>();
   const seenStaffIds = new Set<string>();

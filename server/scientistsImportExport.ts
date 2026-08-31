@@ -5,6 +5,7 @@ import { z } from "zod";
 import { sql } from "drizzle-orm";
 import type { PgDatabase } from "drizzle-orm/pg-core";
 import { Scientist, InsertScientist, Branch, Department, Section } from "@shared/schema";
+import { inferPlacementFromLineManagers } from "@shared/sectionInference";
 
 type StaffFileKey = keyof Scientist | "supervisorEmail";
 
@@ -333,6 +334,41 @@ function fillBlanksOnly(existingRecord: Scientist, row: FileRow, existingSupervi
   };
 }
 
+/**
+ * Fill blank section placements from each person's line manager.
+ *
+ * The rule lives in shared/sectionInference so the staff import and the
+ * whole-database import cannot disagree about it. Here a placement is a
+ * section id; the bulk hub resolves sections by name instead, which is why the
+ * shared function is written against accessors rather than a fixed shape.
+ *
+ * The department follows the section, since a section belongs to exactly one.
+ */
+function inferSectionsFromLineManagers(
+  rows: Array<{ row: FileRow }>,
+  existing: Scientist[],
+  sectionsById: Map<number, { id: number; departmentId: number }>,
+): number {
+  const seeded = new Map<string, number>();
+  for (const person of existing) {
+    if (person.sectionId != null) seeded.set(person.email.toLowerCase(), person.sectionId);
+  }
+
+  return inferPlacementFromLineManagers<{ row: FileRow }, number>(
+    rows,
+    {
+      email: ({ row }) => row.email,
+      manager: ({ row }) => row.supervisorEmail,
+      placement: ({ row }) => row.sectionId ?? null,
+      assign: ({ row }, sectionId) => {
+        row.sectionId = sectionId;
+        row.departmentId = sectionsById.get(sectionId)?.departmentId ?? row.departmentId;
+      },
+    },
+    seeded,
+  );
+}
+
 export function buildImportPreview(
   fileRows: Record<string, any>[],
   existing: Scientist[],
@@ -433,6 +469,13 @@ export function buildImportPreview(
     }
     matched.push({ row, rowNumber, matchedId: matchedRecord ? matchedRecord.id : null });
   });
+
+  // Fill blank sections from line managers before anything downstream reads a
+  // placement, so an inferred section is indistinguishable from a stated one
+  // for the change comparison and the apply step.
+  if (org) {
+    inferSectionsFromLineManagers(matched, existing, sectionsById);
+  }
 
   // Supervisor emails resolve against the final intended set: every row that
   // will exist after the import. That is the file's rows plus everyone already
