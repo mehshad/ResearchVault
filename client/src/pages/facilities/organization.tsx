@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useLocation } from "wouter";
 import { Button } from "@/components/ui/button";
@@ -16,15 +16,17 @@ import {
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Branch, Department, Section, SECTION_TYPES } from "@shared/schema";
+import { Branch, Department, Scientist, Section, SECTION_TYPES } from "@shared/schema";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { useCurrentUser } from "@/hooks/useCurrentUser";
 import {
   ArrowLeft, Plus, Pencil, Trash2, ChevronDown, ChevronRight,
   Network, Building2, FlaskConical, Briefcase, Boxes, Loader2, Stethoscope,
+  Microscope,
 } from "lucide-react";
 import { isAdministrator, hasAnyRole } from "@shared/effectiveRoles";
+import { groupInvestigatorsBySection } from "@/lib/organizationInvestigators";
 
 type Level = "branch" | "department" | "section";
 
@@ -91,6 +93,24 @@ export default function OrganizationStructure() {
   const [editor, setEditor] = useState<EditorState>({ open: false, level: "branch", record: null });
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
+  // Investigators are shown beside the section they are placed in. Reading
+  // staff needs access to the Scientists area, which someone managing the
+  // organisation chart may not hold, so a refusal here leaves the chart intact
+  // and simply shows no names rather than failing the page.
+  const { data: staff } = useQuery<Scientist[]>({
+    queryKey: ["/api/scientists", "organization"],
+    queryFn: async () => {
+      const response = await fetch("/api/scientists");
+      if (!response.ok) return [];
+      return response.json();
+    },
+  });
+
+  const investigatorsBySection = useMemo(
+    () => groupInvestigatorsBySection(staff),
+    [staff],
+  );
+
   const [sectionType, setSectionType] = useState<string>("Laboratory");
 
   const [deleter, setDeleter] = useState<DeleteState>({ open: false, level: "branch", record: null });
@@ -322,12 +342,15 @@ export default function OrganizationStructure() {
                               {!deptSections.length && (
                                 <p className="text-sm text-muted-foreground pl-6">No sections in this department.</p>
                               )}
-                              {deptSections.map((section) => (
+                              {deptSections.map((section) => {
+                                const sectionInvestigators = investigatorsBySection.get(section.id) ?? [];
+                                return (
                                 <div
                                   key={section.id}
-                                  className="ml-6 flex items-center justify-between gap-2 rounded-md bg-muted/40 px-3 py-2"
+                                  className="ml-6 rounded-md bg-muted/40 px-3 py-2"
                                   data-testid={`row-section-${section.id}`}
                                 >
+                                  <div className="flex items-center justify-between gap-2">
                                   <div className="flex items-center gap-2 min-w-0">
                                     <Badge variant="secondary" className="flex items-center gap-1 shrink-0">
                                       {sectionTypeIcon(section.type)}
@@ -352,8 +375,40 @@ export default function OrganizationStructure() {
                                       </Button>
                                     </div>
                                   )}
+                                  </div>
+
+                                  {/* Investigators placed in this section. Absent
+                                      rather than empty when there are none: a
+                                      chart of mostly "no investigators" says
+                                      less than a chart that stays quiet. */}
+                                  {sectionInvestigators.length > 0 && (
+                                    <div
+                                      className="mt-2 flex flex-wrap items-center gap-1.5 pl-1"
+                                      data-testid={`investigators-section-${section.id}`}
+                                    >
+                                      <Microscope className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+                                      <span className="text-xs text-muted-foreground mr-1">
+                                        {sectionInvestigators.length === 1
+                                          ? "Investigator"
+                                          : `${sectionInvestigators.length} investigators`}
+                                      </span>
+                                      {sectionInvestigators.map((person) => (
+                                        <button
+                                          key={person.id}
+                                          type="button"
+                                          onClick={() => navigate(`/scientists/${person.id}`)}
+                                          className="rounded-full border border-border bg-background px-2 py-0.5 text-xs hover:bg-accent hover:text-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                                          title={person.jobTitle ? `${person.jobTitle} — open profile` : "Open profile"}
+                                          data-testid={`investigator-${person.id}`}
+                                        >
+                                          {person.honorificTitle} {person.firstName} {person.lastName}
+                                        </button>
+                                      ))}
+                                    </div>
+                                  )}
                                 </div>
-                              ))}
+                                );
+                              })}
                             </div>
                           )}
                         </div>
