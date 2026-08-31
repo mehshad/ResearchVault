@@ -32,5 +32,17 @@ jobs:
           DATABASE_URL: postgresql://ci:ci@localhost:5432/ci_test
         run: node --import tsx --test $(find server -name '*.test.ts' ! -name '*.integration.test.ts')
 
+      - name: Unit test coverage
+        env:
+          DATABASE_URL: postgresql://ci:ci@localhost:5432/ci_test
+        run: |
+          node --import tsx \
+            --experimental-test-coverage \
+            --test-reporter=spec \
+            --test $(find server -name '*.test.ts' ! -name '*.integration.test.ts') \
+          2>&1 | tee coverage-report.txt
+          echo "## Test Coverage" >> $GITHUB_STEP_SUMMARY
+          grep -A 9999 "^-" coverage-report.txt | head -60 >> $GITHUB_STEP_SUMMARY || true
+
       - name: Build
         run: NODE_ENV=development npm run build
