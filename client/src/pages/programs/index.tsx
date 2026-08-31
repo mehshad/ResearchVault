@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
+import { formatFullName, getInitials } from "@/utils/nameUtils";
 import { Link, useLocation } from "wouter";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -40,7 +41,9 @@ interface Program {
 
 interface Scientist {
   id: number;
-  name: string;
+  honorificTitle?: string | null;
+  firstName: string;
+  lastName: string;
   profileImageInitials?: string;
 }
 
@@ -165,9 +168,9 @@ export default function ProgramsList() {
                       {program.programDirector ? (
                         <div className="flex items-center">
                           <span className="text-xs font-medium text-gray-700 mr-2 dark:text-gray-300">
-                            {program.programDirector.profileImageInitials || program.programDirector.name.substring(0, 2)}
+                            {program.programDirector.profileImageInitials || getInitials(program.programDirector)}
                           </span>
-                          <span className="text-sm">{program.programDirector.name}</span>
+                          <span className="text-sm">{formatFullName(program.programDirector)}</span>
                         </div>
                       ) : (
                         <span className="text-gray-600 text-sm dark:text-gray-300">Unassigned</span>
@@ -178,25 +181,25 @@ export default function ProgramsList() {
                         {program.researchCoLead && (
                           <div className="flex items-center">
                             <span className="text-xs font-medium text-gray-700 mr-2 dark:text-gray-300">
-                              {program.researchCoLead.profileImageInitials || program.researchCoLead.name.substring(0, 2)}
+                              {program.researchCoLead.profileImageInitials || getInitials(program.researchCoLead)}
                             </span>
-                            <span className="text-xs text-gray-700 dark:text-gray-300">Research: {program.researchCoLead.name}</span>
+                            <span className="text-xs text-gray-700 dark:text-gray-300">Research: {formatFullName(program.researchCoLead)}</span>
                           </div>
                         )}
                         {program.clinicalCoLead1 && (
                           <div className="flex items-center">
                             <span className="text-xs font-medium text-gray-700 mr-2 dark:text-gray-300">
-                              {program.clinicalCoLead1.profileImageInitials || program.clinicalCoLead1.name.substring(0, 2)}
+                              {program.clinicalCoLead1.profileImageInitials || getInitials(program.clinicalCoLead1)}
                             </span>
-                            <span className="text-xs text-gray-700 dark:text-gray-300">Clinical 1: {program.clinicalCoLead1.name}</span>
+                            <span className="text-xs text-gray-700 dark:text-gray-300">Clinical 1: {formatFullName(program.clinicalCoLead1)}</span>
                           </div>
                         )}
                         {program.clinicalCoLead2 && (
                           <div className="flex items-center">
                             <span className="text-xs font-medium text-gray-700 mr-2 dark:text-gray-300">
-                              {program.clinicalCoLead2.profileImageInitials || program.clinicalCoLead2.name.substring(0, 2)}
+                              {program.clinicalCoLead2.profileImageInitials || getInitials(program.clinicalCoLead2)}
                             </span>
-                            <span className="text-xs text-gray-700 dark:text-gray-300">Clinical 2: {program.clinicalCoLead2.name}</span>
+                            <span className="text-xs text-gray-700 dark:text-gray-300">Clinical 2: {formatFullName(program.clinicalCoLead2)}</span>
                           </div>
                         )}
                         {!program.researchCoLead && !program.clinicalCoLead1 && !program.clinicalCoLead2 && (
