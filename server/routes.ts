@@ -73,7 +73,7 @@ import {
   insertSectionSchema
 } from "@shared/schema";
 import { requireAuth, requireAdmin, requirePublicationOfficer, getAuthMode } from "./auth";
-import { isAdministrator } from "@shared/effectiveRoles";
+import { hasAnyRole, isAdministrator } from "@shared/effectiveRoles";
 import { buildAssignableRoles } from "./assignableRoles";
 import { ACCESS_ROLES, JOB_TITLE_TAB_ALIASES, matchesJobTitle } from "@shared/constants";
 import { resolveOwnershipAccess, maxAccess, type AccessLevel as OwnershipAccessLevel } from "./ownershipResolver";
@@ -8508,8 +8508,12 @@ function writeFailureDetail(error: unknown): string {
 
   // ── Organizational structure (Branch → Department → Section) ──────────────
   const requireOrgManager = (req: Request, res: Response): boolean => {
-    const role = (req.session as any)?.user?.role;
-    if (role !== 'Management' && role !== 'admin' && role !== 'superadmin') {
+    // Every slot, not the primary alone. Administrator rights are normally
+    // held as a secondary role, so reading users.role by itself refused
+    // administrators the organisation editor -- adding a department came back
+    // "only management or administrators can modify the organization
+    // structure" to someone who was one.
+    if (!hasAnyRole(req.session?.user, ['Management', 'admin', 'superadmin'])) {
       res.status(403).json({ message: 'Only management or administrators can modify the organization structure' });
       return false;
     }
@@ -11180,13 +11184,15 @@ function writeFailureDetail(error: unknown): string {
 
     const { role } = req.body as { role: string };
     // superadmin can only be set via SUPER_ADMIN_EMAIL — never by this API.
+    // role-name-ok: validates the value being assigned, not the caller.
     if (!role || role === 'superadmin') {
       return res.status(400).json({ message: 'Invalid role' });
     }
 
     try {
       await ensureDefaultRoleGroups();
-      const isBuiltInRole = role === 'user' || role === 'admin';
+      // role-name-ok: classifies the submitted role name, not the caller.
+    const isBuiltInRole = role === 'user' || role === 'admin';
       const [matrixRole] = isBuiltInRole
         ? [undefined]
         : await db
