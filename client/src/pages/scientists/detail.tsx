@@ -396,18 +396,6 @@ export default function ScientistDetail() {
           Back
         </Button>
         <h1 className="text-2xl font-semibold text-foreground">{formatFullName(scientist)}</h1>
-        {canDelete && (
-          <Button
-            variant="outline"
-            size="sm"
-            className="ml-auto text-destructive hover:text-destructive"
-            onClick={() => { setDeleteBlockers(null); setConfirmDeleteOpen(true); }}
-            data-testid="button-delete-scientist"
-          >
-            <Trash2 className="h-4 w-4 mr-1" />
-            Delete
-          </Button>
-        )}
       </div>
 
       <AlertDialog open={confirmDeleteOpen} onOpenChange={setConfirmDeleteOpen}>
@@ -463,17 +451,36 @@ export default function ScientistDetail() {
                 <CardTitle>Profile</CardTitle>
                 <CardDescription>Personal and contact information</CardDescription>
               </div>
-            {(isOwner || canManageProfile) && (
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => navigate(`/scientists/${id}/edit`)}
-                className="ml-auto"
-              >
-                <Pencil className="h-4 w-4 mr-2" />
-                Edit
-              </Button>
-            )}
+            {/*
+              * Both actions on this record live together. Delete used to sit in
+              * the page header, two levels up and nowhere near Edit -- so the
+              * irreversible action was the prominent one and the safe one was
+              * somewhere else entirely.
+              */}
+            <div className="ml-auto flex items-center gap-2">
+              {(isOwner || canManageProfile) && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => navigate(`/scientists/${id}/edit`)}
+                >
+                  <Pencil className="h-4 w-4 mr-2" />
+                  Edit
+                </Button>
+              )}
+              {canDelete && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="text-destructive hover:text-destructive"
+                  onClick={() => { setDeleteBlockers(null); setConfirmDeleteOpen(true); }}
+                  data-testid="button-delete-scientist"
+                >
+                  <Trash2 className="h-4 w-4 mr-2" />
+                  Delete
+                </Button>
+              )}
+            </div>
           </CardHeader>
           <CardContent>
                 <div className="flex items-start gap-6">
