@@ -446,7 +446,7 @@ export default function ScientistDetail() {
         {/* Left Column - Profile and Publications */}
         <div className="lg:col-span-2 space-y-6">
           <Card>
-            <CardHeader className="flex flex-row items-center justify-between pb-2">
+            <CardHeader className="flex flex-row items-start justify-between pb-2">
               <div>
                 <CardTitle>Profile</CardTitle>
                 <CardDescription>Personal and contact information</CardDescription>
@@ -456,8 +456,13 @@ export default function ScientistDetail() {
               * the page header, two levels up and nowhere near Edit -- so the
               * irreversible action was the prominent one and the safe one was
               * somewhere else entirely.
+              *
+              * Stacked rather than side by side so Edit keeps the same position
+              * whether or not Delete renders: side by side, Edit shifted left
+              * for administrators and sat somewhere else for everyone who only
+              * ever sees the one button.
               */}
-            <div className="ml-auto flex items-center gap-2">
+            <div className="ml-auto flex flex-col items-end gap-2">
               {(isOwner || canManageProfile) && (
                 <Button
                   variant="outline"
