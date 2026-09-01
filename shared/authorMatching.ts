@@ -262,3 +262,72 @@ export function isLinkedAuthorInAuthorsText(
   if (!firstName || !lastName) return true; // Skip if missing names
   return matchesAuthorName(authorsText, firstName, lastName);
 }
+
+/** One entry of a publication's free-text author list, and what it turned out to be. */
+export interface ClassifiedAuthorEntry {
+  /** The name as written, trimmed. */
+  text: string;
+  /** 1-based position in the author list. */
+  position: number;
+  /**
+   * linked   — an internal scientist who is already linked to the publication
+   * missed   — matches an internal scientist who is NOT linked
+   * external — matches nobody on staff, so presumed a collaborator elsewhere
+   */
+  status: "linked" | "missed" | "external";
+  /** The scientist behind a linked or missed entry. */
+  scientistId?: number;
+}
+
+/**
+ * Classify every name in a publication's author list against the staff list.
+ *
+ * The Outcome Office reviews records whose internal authors were linked by
+ * import, by the researcher, or not at all, and a name that matches somebody on
+ * staff but carries no link is invisible until someone reads the two lists side
+ * by side. This is what lets the interface show which is which.
+ *
+ * Deliberately shares the splitting and the matcher with suggestInternalAuthors,
+ * so what is highlighted as missed is exactly what "Auto-connect authors" would
+ * link. A highlight that disagreed with the button would be worse than none.
+ *
+ * Each scientist is claimed once, by the first entry that matches them, for the
+ * same reason: two authors who share a surname must not both resolve to the
+ * same person.
+ */
+export function classifyAuthorEntries(
+  authorsText: string | null | undefined,
+  scientists: MatchableScientist[],
+  linkedScientistIds: Iterable<number> = [],
+): ClassifiedAuthorEntry[] {
+  if (!authorsText || !authorsText.trim()) return [];
+
+  const entries = authorsText
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean);
+
+  const linked = new Set<number>(linkedScientistIds);
+  const claimed = new Set<number>();
+
+  return entries.map((text, index) => {
+    // Linked scientists get first refusal on an entry, so an author who is
+    // already linked never reads as missed because a namesake came first.
+    const match =
+      scientists.find(
+        (s) => linked.has(s.id) && !claimed.has(s.id) && matchesAuthorName(text, s.firstName, s.lastName),
+      ) ??
+      scientists.find(
+        (s) => !claimed.has(s.id) && matchesAuthorName(text, s.firstName, s.lastName),
+      );
+
+    if (!match) return { text, position: index + 1, status: "external" as const };
+    claimed.add(match.id);
+    return {
+      text,
+      position: index + 1,
+      status: linked.has(match.id) ? ("linked" as const) : ("missed" as const),
+      scientistId: match.id,
+    };
+  });
+}

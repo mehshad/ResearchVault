@@ -46,6 +46,7 @@ import {
 } from "@shared/publicationWorkflow";
 import { PublicationWorkflowFilter, ALL_STATES } from "@/components/PublicationWorkflowFilter";
 import { SidraScoreDetails } from "@/components/SidraScoreDetails";
+import { classifyAuthorEntries, type ClassifiedAuthorEntry } from "@shared/authorMatching";
 
 interface SavedSearch {
   id?: string;
@@ -710,6 +711,39 @@ export default function PublicationOffice({ embeddedTab }: PublicationOfficeProp
     enabled: activeTab === "new-publications"
   });
 
+  const { data: allScientistsList = [] } = useQuery<Array<{ id: number; firstName?: string | null; lastName?: string | null; honorificTitle?: string | null }>>({
+    queryKey: ['/api/scientists'],
+    enabled: activeTab === "find-papers" || activeTab === "new-publications",
+  });
+  /**
+   * Which names in each publication's author list are on staff, and which of
+   * those are not linked as internal authors.
+   *
+   * Run on every load of this tab rather than on demand: a record can arrive
+   * with its authors already linked, partly linked, or not at all, and a name
+   * that matches somebody on staff without a link is invisible unless the
+   * officer reads both lists side by side.
+   *
+   * This never blocks review. A missed author is a prompt, not a fault -- unlike
+   * a record with no authors or no SDR, which is what getPubIssues is for.
+   */
+  const matchableScientists = useMemo(
+    () =>
+      allScientistsList
+        .filter((s) => s.firstName && s.lastName)
+        .map((s) => ({ id: s.id, firstName: s.firstName as string, lastName: s.lastName as string })),
+    [allScientistsList],
+  );
+  const authorEntriesByPub = useMemo(() => {
+    const byPub: Record<number, ClassifiedAuthorEntry[]> = {};
+    if (matchableScientists.length === 0) return byPub;
+    for (const pub of newPublications) {
+      const linkedIds = (authorMap[pub.id] || []).map((a) => a.id);
+      byPub[pub.id] = classifyAuthorEntries(pub.authors, matchableScientists, linkedIds);
+    }
+    return byPub;
+  }, [newPublications, authorMap, matchableScientists]);
+
   // Suggested internal-author links for the publication whose auto-connect
   // dialog is currently open. The backend infers role + position from the
   // free-text author list and excludes already-linked scientists.
@@ -765,11 +799,9 @@ export default function PublicationOffice({ embeddedTab }: PublicationOfficeProp
     },
   });
 
-  // Scientists list, used by the Find Papers "by scientist" mode selector.
-  const { data: allScientistsList = [] } = useQuery<Array<{ id: number; firstName?: string | null; lastName?: string | null; honorificTitle?: string | null }>>({
-    queryKey: ['/api/scientists'],
-    enabled: activeTab === "find-papers",
-  });
+  // Scientists list. Used by the Find Papers "by scientist" selector, and by
+  // the review tab to tell an author who is on staff from one who is not.
+
   const fpScientistOptions = useMemo(
     () =>
       allScientistsList
@@ -1759,7 +1791,56 @@ export default function PublicationOffice({ embeddedTab }: PublicationOfficeProp
                               {pub.title}
                             </h3>
                           </Link>
-                          <p className="text-sm text-gray-600 mt-1 dark:text-gray-300">{pub.authors || <span className="italic text-gray-400">No authors listed</span>}</p>
+                          {(() => {
+                            const entries = authorEntriesByPub[pub.id] ?? [];
+                            const missed = entries.filter((e) => e.status === "missed");
+                            if (entries.length === 0) {
+                              return (
+                                <p className="text-sm text-gray-600 mt-1 dark:text-gray-300">
+                                  {pub.authors || <span className="italic text-gray-400">No authors listed</span>}
+                                </p>
+                              );
+                            }
+                            return (
+                              <div className="mt-1 space-y-1">
+                                <p className="text-sm text-gray-600 dark:text-gray-300" data-testid={`authors-${pub.id}`}>
+                                  {entries.map((entry, i) => (
+                                    <span key={`${entry.text}-${i}`}>
+                                      <span
+                                        className={
+                                          entry.status === "linked"
+                                            ? "rounded bg-green-100 px-1 text-green-800 dark:bg-green-950 dark:text-green-300"
+                                            : entry.status === "missed"
+                                            ? "rounded bg-red-100 px-1 font-medium text-red-800 dark:bg-red-950 dark:text-red-300"
+                                            : ""
+                                        }
+                                        title={
+                                          entry.status === "linked"
+                                            ? "Linked as an internal author"
+                                            : entry.status === "missed"
+                                            ? "On staff, but not linked to this publication"
+                                            : "Not on staff"
+                                        }
+                                      >
+                                        {entry.text}
+                                      </span>
+                                      {i < entries.length - 1 ? ", " : ""}
+                                    </span>
+                                  ))}
+                                </p>
+                                {missed.length > 0 && (
+                                  <p
+                                    className="text-xs text-red-700 dark:text-red-300"
+                                    data-testid={`missed-authors-${pub.id}`}
+                                  >
+                                    {missed.length} internal author{missed.length === 1 ? "" : "s"} may be
+                                    missing — {missed.map((e) => e.text).join(", ")}. Review does not
+                                    depend on it.
+                                  </p>
+                                )}
+                              </div>
+                            );
+                          })()}
                           <p className="text-sm text-gray-500 dark:text-gray-400">
                             {pub.journal || 'No journal'} • {pub.publicationDate ? format(new Date(pub.publicationDate), 'yyyy') : 'No date'}
                           </p>
