@@ -43,6 +43,7 @@ import {
   departments,
   sections,
   grants,
+  grantCollaboratingInstitutions,
   programs,
   projects,
   researchActivities,
@@ -4789,6 +4790,13 @@ export async function applySection(
         }
       }
 
+      if (sheetName === "Grants") {
+        await seedGrantCollaboratingInstitutions(
+          tx,
+          parsedSheets.find((sheet) => sheet.name === "Grants")?.rows ?? [],
+        );
+      }
+
       if (sheetName === "Scientists") {
         for (const entry of appliedEntries) {
           if (!skipInvalidRows) {
@@ -5004,6 +5012,49 @@ async function applyGrantRow(
       .where(caseInsensitiveKey(grants.projectNumber, projectNumber))
       .returning({ id: grants.id });
     requireUpdatedRow(row, "Grant", projectNumber);
+  }
+}
+
+/**
+ * Seed collaborating institutions from the Grants sheet's Collaborators column.
+ *
+ * Runs over every row in the sheet, not only the ones the preview marked create
+ * or update. A grant whose columns already match is marked "No changes" and
+ * never reaches applyGrantRow -- but the institutions are a different table, so
+ * an unchanged row can still be carrying partners that were never recorded.
+ * Seeding from applyGrantRow alone silently backfilled nothing on a re-import
+ * of data already present, which is exactly when a backfill is wanted.
+ *
+ * Added, never removed. The import merges rather than replaces everywhere else,
+ * and a partner entered by hand must not disappear because an older sheet was
+ * applied. onConflictDoNothing makes a repeat a no-op rather than a duplicate.
+ */
+async function seedGrantCollaboratingInstitutions(
+  tx: TxDb,
+  rows: Array<Record<string, any>>,
+): Promise<void> {
+  for (const row of rows) {
+    const projectNumber = String(row.projectNumber ?? "").trim();
+    if (!projectNumber) continue;
+    const names = [
+      ...new Set(
+        splitSemicolon(String(row.collaborators ?? ""))
+          .map((name) => name.trim())
+          .filter((name) => name !== "" && name !== "-"),
+      ),
+    ];
+    if (names.length === 0) continue;
+
+    const [grant] = await tx
+      .select({ id: grants.id })
+      .from(grants)
+      .where(caseInsensitiveKey(grants.projectNumber, projectNumber));
+    if (!grant) continue;
+
+    await tx
+      .insert(grantCollaboratingInstitutions)
+      .values(names.map((name) => ({ grantId: grant.id, name })))
+      .onConflictDoNothing();
   }
 }
 

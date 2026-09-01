@@ -9811,7 +9811,10 @@ function writeFailureDetail(error: unknown): string {
 
   app.post('/api/grants', async (req: Request, res: Response) => {
     try {
-      const parsedData = insertGrantSchema.parse(nullifyEmptyStrings(req.body));
+      // Pulled out before validation: the collaboration tree is its own tables,
+      // not columns on grants, so insertGrantSchema would reject it.
+      const { collaboratingInstitutions, ...grantBody } = req.body ?? {};
+      const parsedData = insertGrantSchema.parse(nullifyEmptyStrings(grantBody));
       const lifecycle = reconcileGrantLifecycle(parsedData);
       const validatedData = insertGrantSchema.parse({
         ...parsedData,
@@ -9820,6 +9823,9 @@ function writeFailureDetail(error: unknown): string {
       // Recorded for audit: the office both imports grants and enters them by
       // hand, and nothing used to say which, or who.
       const grant = await storage.createGrant(validatedData, req.session?.user?.id);
+      if (Array.isArray(collaboratingInstitutions)) {
+        await storage.replaceGrantCollaborations(grant.id, collaboratingInstitutions);
+      }
       res.status(201).json(grant);
     } catch (error) {
       if (error instanceof GrantLifecycleError) {
@@ -9850,6 +9856,7 @@ function writeFailureDetail(error: unknown): string {
 
       const {
         researchActivityIds: rawResearchActivityIds,
+        collaboratingInstitutions,
         ...rawGrantData
       } = req.body ?? {};
       const desiredResearchActivityIds = rawResearchActivityIds === undefined
@@ -9882,6 +9889,11 @@ function writeFailureDetail(error: unknown): string {
         desiredResearchActivityIds,
         req.session?.user?.id,
       );
+      // Only when the editor sent a tree. An update that does not mention
+      // collaborations leaves them alone rather than deleting them.
+      if (Array.isArray(collaboratingInstitutions)) {
+        await storage.replaceGrantCollaborations(id, collaboratingInstitutions);
+      }
       res.json(grant);
     } catch (error) {
       if (error instanceof GrantSdrLifecycleStorageError) {

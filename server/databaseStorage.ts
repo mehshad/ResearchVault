@@ -46,6 +46,8 @@ import {
   journalImpactFactorMetrics, JournalImpactFactorMetric, InsertJournalImpactFactorMetric,
   JournalImpactFactor, InsertJournalImpactFactor,
   grants, Grant, InsertGrant,
+  grantCollaboratingInstitutions, grantInstitutionCollaborators,
+  type GrantCollaborationTree,
   grantResearchActivities, GrantResearchActivity, InsertGrantResearchActivity,
   grantProgressReports, GrantProgressReport, InsertGrantProgressReport,
   certificationModules, CertificationModule, InsertCertificationModule,
@@ -2690,10 +2692,15 @@ export class DatabaseStorage implements IStorage {
     // Resolve the audit ids to names here rather than making the client ask
     // /api/admin/users, which is administrator-only -- the people who need to
     // see who added a grant are not all administrators.
+    const collaboratingInstitutions = await this.getGrantCollaborations(id);
     const ids = [grant.createdByUserId, grant.updatedByUserId].filter(
       (v): v is number => typeof v === "number",
     );
-    if (ids.length === 0) return grant;
+    if (ids.length === 0) {
+      return { ...grant, collaboratingInstitutions } as Grant & {
+        collaboratingInstitutions: GrantCollaborationTree;
+      };
+    }
     const rows = await db
       .select({ id: users.id, name: users.name })
       .from(users)
@@ -2701,9 +2708,91 @@ export class DatabaseStorage implements IStorage {
     const nameById = new Map(rows.map((r) => [r.id, r.name]));
     return {
       ...grant,
+      collaboratingInstitutions,
       createdByName: grant.createdByUserId ? nameById.get(grant.createdByUserId) ?? null : null,
       updatedByName: grant.updatedByUserId ? nameById.get(grant.updatedByUserId) ?? null : null,
-    } as Grant & { createdByName: string | null; updatedByName: string | null };
+    } as Grant & {
+      collaboratingInstitutions: GrantCollaborationTree;
+      createdByName: string | null;
+      updatedByName: string | null;
+    };
+  }
+
+  /**
+   * A grant's collaborating institutions with the people at each, nested the
+   * way the interface works with them.
+   */
+  async getGrantCollaborations(grantId: number): Promise<GrantCollaborationTree> {
+    const institutions = await db
+      .select()
+      .from(grantCollaboratingInstitutions)
+      .where(eq(grantCollaboratingInstitutions.grantId, grantId))
+      .orderBy(asc(grantCollaboratingInstitutions.name));
+    if (institutions.length === 0) return [];
+
+    const people = await db
+      .select()
+      .from(grantInstitutionCollaborators)
+      .where(inArray(grantInstitutionCollaborators.institutionId, institutions.map((i) => i.id)))
+      .orderBy(asc(grantInstitutionCollaborators.name));
+
+    const byInstitution = new Map<number, typeof people>();
+    for (const person of people) {
+      const list = byInstitution.get(person.institutionId) ?? [];
+      list.push(person);
+      byInstitution.set(person.institutionId, list);
+    }
+
+    return institutions.map((institution) => ({
+      id: institution.id,
+      name: institution.name,
+      collaborators: (byInstitution.get(institution.id) ?? []).map((person) => ({
+        id: person.id,
+        name: person.name,
+        role: person.role,
+      })),
+    }));
+  }
+
+  /**
+   * Replace a grant's collaborations wholesale.
+   *
+   * The editor holds the whole tree and saves it in one go, so this mirrors
+   * that: whatever is not in the submitted tree is gone. Deleting an
+   * institution cascades to its people, which is why removing a partner does
+   * not leave their staff orphaned.
+   *
+   * Runs inside the caller's transaction when given one, so a failed grant
+   * update does not leave the collaborations half-rewritten.
+   */
+  async replaceGrantCollaborations(
+    grantId: number,
+    tree: GrantCollaborationTree,
+    tx: typeof db = db,
+  ): Promise<void> {
+    await tx
+      .delete(grantCollaboratingInstitutions)
+      .where(eq(grantCollaboratingInstitutions.grantId, grantId));
+
+    for (const institution of tree) {
+      const name = institution.name?.trim();
+      // A blank row is someone who clicked Add and changed their mind.
+      if (!name) continue;
+      const [created] = await tx
+        .insert(grantCollaboratingInstitutions)
+        .values({ grantId, name })
+        .returning({ id: grantCollaboratingInstitutions.id });
+      const people = (institution.collaborators ?? [])
+        .map((person) => ({
+          institutionId: created.id,
+          name: person.name?.trim() ?? "",
+          role: person.role?.trim() || null,
+        }))
+        .filter((person) => person.name !== "");
+      if (people.length > 0) {
+        await tx.insert(grantInstitutionCollaborators).values(people);
+      }
+    }
   }
 
   async getGrantByProjectNumber(projectNumber: string): Promise<Grant | undefined> {

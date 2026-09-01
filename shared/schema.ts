@@ -1392,6 +1392,67 @@ export type InsertGrant = z.infer<typeof insertGrantSchema>;
 export type Grant = typeof grants.$inferSelect;
 
 // Grant Progress Reports schema
+/**
+ * Institutions a grant is run with, and the people at each of them.
+ *
+ * Replaces grants.collaborators, a text array that held whatever someone typed
+ * into a free-text box. In practice every value was an institution name --
+ * "Osaka University", "Hamad Medical Corporation" -- with no way to record who
+ * at that institution was involved, and no way to query either.
+ *
+ * The old column is left in place and untouched by this: the data it holds was
+ * copied here by the backfill, and dropping a column is not reversible if the
+ * copy turns out to have missed something.
+ */
+export const grantCollaboratingInstitutions = pgTable("grant_collaborating_institutions", {
+  id: serial("id").primaryKey(),
+  grantId: integer("grant_id")
+    .notNull()
+    .references(() => grants.id, { onDelete: "cascade" }),
+  name: text("name").notNull(),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => ({
+  // One row per institution per grant. Naming the same partner twice is a
+  // mistake rather than a second collaboration.
+  uniquePerGrant: unique().on(table.grantId, table.name),
+}));
+
+export const grantInstitutionCollaborators = pgTable("grant_institution_collaborators", {
+  id: serial("id").primaryKey(),
+  institutionId: integer("institution_id")
+    .notNull()
+    .references(() => grantCollaboratingInstitutions.id, { onDelete: "cascade" }),
+  name: text("name").notNull(),
+  /** Their part in the work, free text: "Co-Investigator", "Statistician". */
+  role: text("role"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+export const insertGrantCollaboratingInstitutionSchema =
+  createInsertSchema(grantCollaboratingInstitutions).omit({
+    id: true,
+    createdAt: true,
+    updatedAt: true,
+  });
+export const insertGrantInstitutionCollaboratorSchema =
+  createInsertSchema(grantInstitutionCollaborators).omit({
+    id: true,
+    createdAt: true,
+    updatedAt: true,
+  });
+
+export type GrantCollaboratingInstitution = typeof grantCollaboratingInstitutions.$inferSelect;
+export type GrantInstitutionCollaborator = typeof grantInstitutionCollaborators.$inferSelect;
+
+/** A grant's collaborators as the interface works with them: nested. */
+export type GrantCollaborationTree = Array<{
+  id?: number;
+  name: string;
+  collaborators: Array<{ id?: number; name: string; role?: string | null }>;
+}>;
+
 export const grantProgressReports = pgTable("grant_progress_reports", {
   id: serial("id").primaryKey(),
   grantId: integer("grant_id").notNull(), // references grants.id

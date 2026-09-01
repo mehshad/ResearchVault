@@ -29,7 +29,8 @@ import {
   systemConfigurations, SystemConfiguration, InsertSystemConfiguration,
   pdfImportHistory, PdfImportHistory, InsertPdfImportHistory,
   featureRequests, FeatureRequest, InsertFeatureRequest,
-  teamMembers, TeamMember, InsertTeamMember
+  teamMembers, TeamMember, InsertTeamMember,
+  type GrantCollaborationTree,
 } from "@shared/schema";
 import { isInvestigatorEligible } from "@shared/investigatorEligibility";
 import {
@@ -300,6 +301,12 @@ export interface IStorage {
     desiredResearchActivityIds?: number[],
     actorUserId?: number | null,
   ): Promise<Grant | undefined>;
+  getGrantCollaborations(grantId: number): Promise<GrantCollaborationTree>;
+  replaceGrantCollaborations(
+    grantId: number,
+    tree: GrantCollaborationTree,
+    tx?: any,
+  ): Promise<void>;
   deleteGrant(id: number): Promise<boolean>;
 
   // System Configuration operations

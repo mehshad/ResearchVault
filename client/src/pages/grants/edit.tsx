@@ -8,6 +8,8 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
+import { GrantCollaborations } from "@/components/GrantCollaborations";
+import type { GrantCollaborationTree } from "@shared/schema";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { useToast } from "@/hooks/use-toast";
 import {
@@ -61,6 +63,11 @@ export default function EditGrant() {
   const grantId = params?.id ? parseInt(params.id) : null;
 
   // Simple form state
+  // Held apart from formData: these are their own tables, not columns on the
+  // grant, and they are sent alongside the grant rather than inside it.
+  const [collaboratingInstitutions, setCollaboratingInstitutions] =
+    useState<GrantCollaborationTree>([]);
+
   const [formData, setFormData] = useState({
     projectNumber: "",
     title: "",
@@ -172,6 +179,12 @@ export default function EditGrant() {
         durationMonths: grant.durationMonths?.toString() || "",
         currency: grant.currency || "QAR",
       });
+    }
+  }, [grant]);
+
+  useEffect(() => {
+    if (grant?.collaboratingInstitutions) {
+      setCollaboratingInstitutions(grant.collaboratingInstitutions);
     }
   }, [grant]);
 
@@ -329,6 +342,9 @@ export default function EditGrant() {
       durationMonths: toIntOrNull(formData.durationMonths),
       currency: formData.currency || null,
       collaborators,
+      // Sent alongside the grant, replaced wholesale by the server. The editor
+      // holds the entire tree, so what is not here is meant to be gone.
+      collaboratingInstitutions,
     };
 
     updateGrantMutation.mutate(payload);
@@ -1018,13 +1034,20 @@ export default function EditGrant() {
               </div>
             </div>
 
+            <div className="space-y-2">
+              <label className="text-sm font-medium text-gray-700 block dark:text-gray-300">
+                Collaborating institutions
+              </label>
+              <p className="text-xs text-muted-foreground">
+                The organisations this grant is run with, and the people at each of them.
+              </p>
+              <GrantCollaborations
+                value={collaboratingInstitutions}
+                onChange={setCollaboratingInstitutions}
+              />
+            </div>
+
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div>
-                <label className="text-sm font-medium text-gray-700 mb-2 block dark:text-gray-300">
-                  Collaborators (one per line)
-                </label>
-                <Textarea value={formData.collaborators} onChange={(e) => setFormData({...formData, collaborators: e.target.value})} placeholder="Dr. John Smith, University of Example&#10;Dr. Jane Doe, Research Institute&#10;..." rows={3} />
-              </div>
               <div>
                 <label className="text-sm font-medium text-gray-700 mb-2 block dark:text-gray-300">
                   Co-Investigators (one per line)
