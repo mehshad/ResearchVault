@@ -1356,7 +1356,7 @@ export const grants = pgTable("grants", {
   return {
     grantsStatusValid: check(
       "grants_status_valid",
-      sql`${table.status} IN ('submitted', 'pending', 'in_review', 'awarded', 'active', 'completed', 'rejected', 'cancelled')`,
+      sql`${table.status} IN ('submitted', 'pending', 'in_review', 'awarded', 'active', 'completed', 'not_awarded', 'rejected', 'cancelled')`,
     ),
     grantsAwardStatusConsistent: check(
       "grants_award_status_consistent",

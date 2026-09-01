@@ -5,6 +5,10 @@ export const GRANT_STATUS_OPTIONS = [
   { value: "awarded", label: "Awarded" },
   { value: "active", label: "Active" },
   { value: "completed", label: "Completed" },
+  // The funder decided against it. Distinct from Rejected, which this
+  // organisation uses for an application refused before it reached a funding
+  // decision; both are terminal and neither implies an award.
+  { value: "not_awarded", label: "Not Awarded" },
   { value: "rejected", label: "Rejected" },
   { value: "cancelled", label: "Cancelled" },
 ] as const;
@@ -18,6 +22,7 @@ export const GRANT_STATUS_VALUES = GRANT_STATUS_OPTIONS.map(
   "awarded",
   "active",
   "completed",
+  "not_awarded",
   "rejected",
   "cancelled",
 ];
@@ -28,6 +33,21 @@ const AWARD_IMPLYING_STATUSES = new Set<GrantStatus>([
   "awarded",
   "active",
   "completed",
+]);
+
+/**
+ * Statuses that only make sense once money was granted.
+ *
+ * Cancelled is here but deliberately NOT in AWARD_IMPLYING_STATUSES: moving a
+ * grant to Cancelled must not silently flip the award on. It means an awarded
+ * project that will not proceed. An application that never won funding is
+ * Not Awarded or Rejected, which is the distinction Not Awarded exists to make.
+ */
+const REQUIRES_AWARD_STATUSES = new Set<GrantStatus>([
+  "awarded",
+  "active",
+  "completed",
+  "cancelled",
 ]);
 
 const PRE_AWARD_STATUSES = new Set<GrantStatus>([
@@ -64,6 +84,13 @@ export function grantStatusImpliesAward(
   status: string | null | undefined,
 ): boolean {
   return AWARD_IMPLYING_STATUSES.has(status as GrantStatus);
+}
+
+/** Whether a status is only valid on a grant that was actually awarded. */
+export function grantStatusRequiresAward(
+  status: string | null | undefined,
+): boolean {
+  return REQUIRES_AWARD_STATUSES.has(status as GrantStatus);
 }
 
 export function grantStatusRequiresStartDate(
@@ -122,9 +149,17 @@ export function reconcileGrantLifecycle(
 
   if (grantStatusImpliesAward(status)) {
     awarded = true;
-  } else if (status === "rejected" && awarded) {
+  } else if (status === "cancelled" && !awarded) {
     throw new GrantLifecycleError(
-      "An awarded grant cannot be marked Rejected. Use Cancelled if an awarded project will not proceed.",
+      "Cancelled is for an awarded project that will not proceed. Use Not Awarded if the funder declined, or Rejected if the application was refused.",
+    );
+  } else if ((status === "rejected" || status === "not_awarded") && awarded) {
+    // Same reasoning as Rejected: an award already made cannot be undone by
+    // relabelling the outcome, or the awarded flag and the status would
+    // disagree about whether money was granted.
+    const label = status === "rejected" ? "Rejected" : "Not Awarded";
+    throw new GrantLifecycleError(
+      `An awarded grant cannot be marked ${label}. Use Cancelled if an awarded project will not proceed.`,
     );
   } else if (PRE_AWARD_STATUSES.has(status) && awarded) {
     const isNewAward =
