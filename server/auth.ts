@@ -8,6 +8,7 @@ import {
 import {
   allRolesOf,
   hasAnyRole,
+  holdsAdministratorRole,
   isAdministrator,
   isRestrictedOnly,
   effectiveAccessLevel,
@@ -48,11 +49,19 @@ export interface SessionUser {
   secondaryRoles: string[];
   scientistId: number | null;
   needsRegistration: boolean; // true if user has no linked scientist profile yet
+  /** True while this administrator is previewing without their rights. */
+  adminPreviewOff?: boolean;
 }
 
 declare module "express-session" {
   interface SessionData {
     user?: SessionUser;
+    /**
+     * Held on the session rather than the user object: the authorization
+     * refresh rebuilds `user` from the database on every request, which would
+     * drop the flag on the very next call.
+     */
+    adminPreviewOff?: boolean;
     oidcState?: string;
     oidcNonce?: string;
   }
@@ -366,8 +375,10 @@ async function findOrCreateExternalUser(
 function toSessionUser(
   user: typeof users.$inferSelect,
   secondaryRoles: string[] = [],
+  adminPreviewOff = false,
 ): SessionUser {
   return {
+    ...(adminPreviewOff ? { adminPreviewOff: true } : {}),
     id: user.id,
     username: user.username,
     name: user.name,
@@ -429,7 +440,11 @@ async function refreshSessionUserFromDatabase(
       return null;
     }
 
-    const refreshedUser = toSessionUser(currentUser, await loadSecondaryRoles(currentUser.id));
+    const refreshedUser = toSessionUser(
+      currentUser,
+      await loadSecondaryRoles(currentUser.id),
+      req.session.adminPreviewOff === true,
+    );
     if (
       refreshedUser.role !== sessionUser.role ||
       refreshedUser.scientistId !== sessionUser.scientistId ||
@@ -482,7 +497,11 @@ export function createRefreshSessionAuthorizationMiddleware(
 
       // Reload secondaries too, so revoking one takes effect on the next
       // request rather than at next sign-in.
-      req.session.user = toSessionUser(currentUser, await loadSecondaryRoles(currentUser.id));
+      req.session.user = toSessionUser(
+        currentUser,
+        await loadSecondaryRoles(currentUser.id),
+        req.session.adminPreviewOff === true,
+      );
       return next();
     } catch (error) {
       authError(`failed authorization refresh for user id=${sessionUser.id}`, error);
@@ -520,6 +539,63 @@ export function registerAuthRoutes(app: any) {
       res.status(401).json({ message: "Not authenticated" });
     } catch {
       res.status(503).json({ message: "Access could not be verified. Please try again." });
+    }
+  });
+
+  /**
+   * POST /api/auth/admin-preview — drop or restore your own administrator rights.
+   *
+   * An administrator whose rights come from a secondary role has no way to see
+   * the application without them, because admin short-circuits every matrix
+   * lookup to edit. This suppresses that short-circuit for their session.
+   *
+   * It moves the session, not just the browser. A preview that only dimmed the
+   * menu while the API kept answering would be worse than none -- the interface
+   * and the server would disagree about who you are, which is exactly the fault
+   * the demo role selector had before it was made to post to the server too.
+   *
+   * Deliberately NOT behind requireAdmin. While previewing, the caller is not
+   * an administrator as far as every guard is concerned, so that gate would
+   * strand them outside their own rights with no way back. Authority comes from
+   * the roles the database says they hold.
+   */
+  app.post("/api/auth/admin-preview", requireAuth, async (req: Request, res: Response) => {
+    const off = (req.body as { off?: boolean } | undefined)?.off === true;
+
+    if (getAuthMode() === "demo") {
+      // Demo has the role selector already, and requireAdmin admits the demo
+      // Management session regardless -- the preview could not be honest here.
+      return res.status(400).json({
+        message: "Use the demo role selector to preview another role.",
+      });
+    }
+
+    const sessionUser = req.session?.user;
+    if (!sessionUser) return res.status(401).json({ message: "Not authenticated" });
+
+    try {
+      const [row] = await db.select().from(users).where(eq(users.id, sessionUser.id));
+      if (!row) return res.status(401).json({ message: "Your account is no longer available." });
+
+      // Asked of the database, not the session: a session already previewing
+      // reports no administrator rights and would refuse to give them back.
+      const holdsAdmin = holdsAdministratorRole({
+        role: row.role,
+        secondaryRoles: await loadSecondaryRoles(row.id),
+      });
+      if (!holdsAdmin) {
+        return res.status(403).json({ message: "You hold no administrator rights to preview without." });
+      }
+
+      req.session.adminPreviewOff = off;
+      req.session.user = off
+        ? { ...sessionUser, adminPreviewOff: true }
+        : { ...sessionUser, adminPreviewOff: undefined };
+      authLog(`admin preview ${off ? "enabled" : "cleared"} for user id=${row.id} username=${row.username}`);
+      res.json({ adminPreviewOff: off });
+    } catch (error) {
+      authError(`failed to change admin preview for user id=${sessionUser.id}`, error);
+      res.status(500).json({ message: "Could not change administrator preview." });
     }
   });
 

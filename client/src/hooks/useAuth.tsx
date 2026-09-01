@@ -12,6 +12,8 @@ interface User {
   role: string;
   /** Roles held alongside the primary one; access is the union of all of them. */
   secondaryRoles?: string[];
+  /** True while this administrator is previewing without their rights. */
+  adminPreviewOff?: boolean;
   scientistId: number | null;
   needsRegistration: boolean;
 }

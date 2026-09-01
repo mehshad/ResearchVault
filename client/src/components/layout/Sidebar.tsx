@@ -27,7 +27,11 @@ interface SidebarProps {
 
 export default function Sidebar({ mobile = false, onClose, onCollapsedChange }: SidebarProps) {
   const [location, navigate] = useLocation();
-  const { isHidden, isReadOnly } = usePermissions();
+  // Resolved for the whole person, not the primary role alone. Access is the
+  // union of every role held, and admin is normally a secondary -- reading
+  // currentUser.role by itself hid menu items from people the server was
+  // letting straight through to the same screens.
+  const { getEffectiveAccessLevel } = usePermissions();
   const { themeName, currentLabels, isSectionVisible, isPageVisible } = useTheme();
   const { authConfig, logout, user: authUser } = useAuth();
   const { currentUser, setCurrentUser } = useCurrentUser();
@@ -441,7 +445,7 @@ export default function Sidebar({ mobile = false, onClose, onCollapsedChange }: 
             {navigationSections.map((section, sectionIndex) => {
               const visibleItems = section.items.filter((item) => {
                 const navItemId = getNavigationItemId(item.href);
-                return !isHidden(currentUser.role, navItemId) && isPageVisible(item.href);
+                return getEffectiveAccessLevel(currentUser, navItemId) !== "hide" && isPageVisible(item.href);
               });
 
               if (!isSectionVisible(section.title) || visibleItems.length === 0) {
@@ -463,7 +467,7 @@ export default function Sidebar({ mobile = false, onClose, onCollapsedChange }: 
                   <div className={sectionIndex === 0 ? "space-y-1" : "space-y-1 mt-1"}>
                     {visibleItems.map((item) => {
                       const navItemId = getNavigationItemId(item.href);
-                      const itemIsReadOnly = isReadOnly(currentUser.role, navItemId);
+                      const itemIsReadOnly = getEffectiveAccessLevel(currentUser, navItemId) === "view";
                       const IconComponent = item.icon;
 
                       return (
