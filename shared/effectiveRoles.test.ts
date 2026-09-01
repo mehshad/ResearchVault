@@ -5,6 +5,7 @@ import {
   allRolesOf,
   hasRole,
   hasAnyRole,
+  holdsAdministratorRole,
   isAdministrator,
   isRestrictedOnly,
   maxAccessLevel,
@@ -236,4 +237,65 @@ test("a missing or unknown title matches no tab", async () => {
     assert.equal(matchesJobTitle("", JOB_TITLE_TAB_ALIASES[tab]), false);
     assert.equal(matchesJobTitle("Other", JOB_TITLE_TAB_ALIASES[tab]), false);
   }
+});
+
+test("dropping administrator rights actually drops them", () => {
+  // The outcome-office row as stored: Investigator is hidden, and there is no
+  // row for admin at all, because admin is not a matrix role.
+  const outcomeOffice = (role: string) =>
+    role === "Management" || role === "Outcome Officer" ? "edit" : "hide";
+
+  const holding = { role: "Investigator", secondaryRoles: ["admin"] };
+  const previewing = { ...holding, adminPreviewOff: true };
+
+  assert.equal(effectiveAccessLevel(holding, outcomeOffice), "edit");
+  assert.equal(effectiveAccessLevel(previewing, outcomeOffice), "hide");
+
+  // The leak that made the toggle do nothing: isAdministrator was suppressed,
+  // but "admin" stayed in the role list, so callers asking for it directly --
+  // and the per-role loop, whose lookup short-circuits on the name -- still
+  // resolved to full access.
+  assert.equal(allRolesOf(previewing).includes("admin"), false);
+  assert.equal(hasAnyRole(previewing, ["admin", "superadmin"]), false);
+  assert.equal(isAdministrator(previewing), false);
+
+  // But the rights are still held, or the control to restore them would be
+  // gated behind the very thing it restores.
+  assert.equal(holdsAdministratorRole(previewing), true);
+
+  // A superadmin previewing is equally ordinary while it lasts.
+  const superadmin = { role: "superadmin", adminPreviewOff: true };
+  assert.equal(isAdministrator(superadmin), false);
+  assert.equal(holdsAdministratorRole(superadmin), true);
+  assert.equal(effectiveAccessLevel(superadmin, outcomeOffice), "hide");
+});
+
+test("a non-standard job title is recognised rather than discarded", async () => {
+  const { canonicalJobTitle, isCanonicalJobTitle } = await import("./constants.js");
+
+  // The spellings actually in the data. None is a canonical entry, and every
+  // one of them means the same post.
+  for (const stored of [
+    "Post Doctoral Fellow",
+    "Post-doctoral Fellow",
+    "Postdoctoral Fellow",
+    "postdoc",
+  ]) {
+    assert.equal(isCanonicalJobTitle(stored), false, stored);
+    assert.equal(canonicalJobTitle(stored), "Postdoctoral Researcher", stored);
+  }
+
+  // Spacing, hyphens and case never change the answer.
+  assert.equal(canonicalJobTitle("staff  scientist"), "Staff Scientist");
+  assert.equal(canonicalJobTitle("IRB-Officer"), "IRB Officer");
+
+  // A canonical title is left exactly as it is.
+  assert.equal(isCanonicalJobTitle("Postdoctoral Researcher"), true);
+  assert.equal(canonicalJobTitle("Postdoctoral Researcher"), "Postdoctoral Researcher");
+
+  // Something genuinely unrecognisable offers no correction, so the editor
+  // keeps it and says so rather than guessing.
+  assert.equal(canonicalJobTitle("Other"), null);
+  assert.equal(canonicalJobTitle(""), null);
+  assert.equal(canonicalJobTitle(null), null);
 });

@@ -56,10 +56,16 @@ export function satisfiesAccessLevel(
   return (ACCESS_RANK[held ?? "hide"] ?? 0) >= (ACCESS_RANK[required] ?? 0);
 }
 
-/**
- * Every role the person holds, primary first, de-duplicated and free of blanks.
- */
-export function allRolesOf(user: RoleBearer | null | undefined): string[] {
+/** The roles that bypass the matrix entirely. */
+const ADMINISTRATOR_ROLES = ["admin", "superadmin"];
+
+const isAdministratorRoleName = (role: string) =>
+  ADMINISTRATOR_ROLES.includes(role.trim().toLowerCase());
+
+function rolesHeld(
+  user: RoleBearer | null | undefined,
+  includeAdministrator: boolean,
+): string[] {
   if (!user) return [];
   const roles: string[] = [];
   const push = (value: unknown) => {
@@ -69,7 +75,22 @@ export function allRolesOf(user: RoleBearer | null | undefined): string[] {
   };
   push(user.role);
   for (const secondary of user.secondaryRoles ?? []) push(secondary);
-  return roles;
+  return includeAdministrator ? roles : roles.filter((role) => !isAdministratorRoleName(role));
+}
+
+/**
+ * Every role the person holds, primary first, de-duplicated and free of blanks.
+ *
+ * While previewing without administrator rights, admin and superadmin are left
+ * out — for the purposes of resolving access, they are simply not held. The
+ * suppression belongs here rather than in isAdministrator alone: callers also
+ * ask `hasAnyRole(user, ["admin", ...])` directly, and the per-role loop below
+ * feeds each name to a matrix lookup that short-circuits on "admin". Guarding
+ * only the one function left both of those routes open, so the preview changed
+ * nothing an administrator could see.
+ */
+export function allRolesOf(user: RoleBearer | null | undefined): string[] {
+  return rolesHeld(user, !user?.adminPreviewOff);
 }
 
 /** True when the person holds `role` in any slot. */
@@ -91,8 +112,7 @@ export function hasAnyRole(
  * role; `superadmin` is granted by environment configuration only.
  */
 export function isAdministrator(user: RoleBearer | null | undefined): boolean {
-  if (user?.adminPreviewOff) return false;
-  return holdsAdministratorRole(user);
+  return allRolesOf(user).some(isAdministratorRoleName);
 }
 
 /**
@@ -104,7 +124,7 @@ export function isAdministrator(user: RoleBearer | null | undefined): boolean {
  * Every other decision belongs to isAdministrator.
  */
 export function holdsAdministratorRole(user: RoleBearer | null | undefined): boolean {
-  return hasAnyRole(user, ["admin", "superadmin"]);
+  return rolesHeld(user, true).some(isAdministratorRoleName);
 }
 
 /**
