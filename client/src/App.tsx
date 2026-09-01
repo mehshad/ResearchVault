@@ -204,12 +204,14 @@ function AppRouter() {
         <Route path="/scientists" component={ScientistsList} />
         <Route path="/scientists/create" component={CreateScientist} />
         <Route path="/scientists/role-access-config">{() => { window.location.replace('/settings#access-control'); return null; }}</Route>
+        {/* Above /scientists/:id, or the switch matches this first and reads
+            "organization" as a staff id -- which rendered Scientist Not Found. */}
+        <Route path="/scientists/organization" component={OrganizationStructure} />
         <Route path="/scientists/:id/edit" component={EditScientist} />
         <Route path="/scientists/:id" component={ScientistDetail} />
 
         {/* Facilities */}
         <Route path="/facilities" component={FacilitiesList} />
-        <Route path="/scientists/organization" component={OrganizationStructure} />
         {/* The chart used to live under Facilities. Kept so existing links and
             bookmarks reach it rather than falling through to Not Found. */}
         <Route path="/facilities/organization" component={OrganizationStructure} />
