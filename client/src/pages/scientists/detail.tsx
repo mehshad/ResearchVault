@@ -12,7 +12,7 @@ import {
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { useToast } from "@/hooks/use-toast";
-import { isAdministrator } from "@shared/effectiveRoles";
+import { hasAnyRole, isAdministrator, isRestrictedOnly } from "@shared/effectiveRoles";
 import { SiOrcid, SiGooglescholar } from "react-icons/si";
 import { FaLinkedin } from "react-icons/fa";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -203,18 +203,24 @@ export default function ScientistDetail() {
   const { currentUser } = useCurrentUser();
   const ownerId = authConfig.mode === "demo" ? currentUser.id : user?.scientistId;
   const effectiveRole = authConfig.mode === "demo" ? currentUser.role : (user?.role ?? "user");
+  /**
+   * The person, not one role string. Access is the union of the primary role
+   * and any secondaries, and administrator rights are normally a secondary --
+   * so testing `effectiveRole` against a list answered for the primary alone.
+   * That is why this page offered Delete, which asks the person, but hid Edit,
+   * which asked the string.
+   */
+  const effectiveUser = authConfig.mode === "demo" ? currentUser : user;
   const isOwner = ownerId === id;
-  const isRestrictedRealUser = authConfig.mode !== "demo" && effectiveRole === "user";
-  const canManageProfile = ["Management", "admin", "superadmin"].includes(effectiveRole);
+  const isRestrictedRealUser = authConfig.mode !== "demo" && isRestrictedOnly(effectiveUser);
+  const canManageProfile = hasAnyRole(effectiveUser, ["Management", "admin", "superadmin"]);
   const canImport = !isRestrictedRealUser && (
-    isOwner || ["Outcome Officer", "Management", "admin", "superadmin"].includes(effectiveRole)
+    isOwner || hasAnyRole(effectiveUser, ["Outcome Officer", "Management", "admin", "superadmin"])
   );
   // Deleting a staff profile is irreversible and cannot be undone in bulk
   // anywhere else, so it is administrator-only -- matching the server, which
   // refuses anyone else.
-  const canDelete = authConfig.mode === "demo"
-    ? isAdministrator({ role: currentUser.role })
-    : isAdministrator(user);
+  const canDelete = isAdministrator(effectiveUser);
   const { toast } = useToast();
   const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
   const [deleteBlockers, setDeleteBlockers] = useState<string | null>(null);
@@ -390,18 +396,6 @@ export default function ScientistDetail() {
           Back
         </Button>
         <h1 className="text-2xl font-semibold text-foreground">{formatFullName(scientist)}</h1>
-        {canDelete && (
-          <Button
-            variant="outline"
-            size="sm"
-            className="ml-auto text-destructive hover:text-destructive"
-            onClick={() => { setDeleteBlockers(null); setConfirmDeleteOpen(true); }}
-            data-testid="button-delete-scientist"
-          >
-            <Trash2 className="h-4 w-4 mr-1" />
-            Delete
-          </Button>
-        )}
       </div>
 
       <AlertDialog open={confirmDeleteOpen} onOpenChange={setConfirmDeleteOpen}>
@@ -452,22 +446,46 @@ export default function ScientistDetail() {
         {/* Left Column - Profile and Publications */}
         <div className="lg:col-span-2 space-y-6">
           <Card>
-            <CardHeader className="flex flex-row items-center justify-between pb-2">
+            <CardHeader className="flex flex-row items-start justify-between pb-2">
               <div>
                 <CardTitle>Profile</CardTitle>
                 <CardDescription>Personal and contact information</CardDescription>
               </div>
-            {(isOwner || canManageProfile) && (
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => navigate(`/scientists/${id}/edit`)}
-                className="ml-auto"
-              >
-                <Pencil className="h-4 w-4 mr-2" />
-                Edit
-              </Button>
-            )}
+            {/*
+              * Both actions on this record live together. Delete used to sit in
+              * the page header, two levels up and nowhere near Edit -- so the
+              * irreversible action was the prominent one and the safe one was
+              * somewhere else entirely.
+              *
+              * Stacked rather than side by side so Edit keeps the same position
+              * whether or not Delete renders: side by side, Edit shifted left
+              * for administrators and sat somewhere else for everyone who only
+              * ever sees the one button.
+              */}
+            <div className="ml-auto flex flex-col items-end gap-2">
+              {(isOwner || canManageProfile) && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => navigate(`/scientists/${id}/edit`)}
+                >
+                  <Pencil className="h-4 w-4 mr-2" />
+                  Edit
+                </Button>
+              )}
+              {canDelete && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="text-destructive hover:text-destructive"
+                  onClick={() => { setDeleteBlockers(null); setConfirmDeleteOpen(true); }}
+                  data-testid="button-delete-scientist"
+                >
+                  <Trash2 className="h-4 w-4 mr-2" />
+                  Delete
+                </Button>
+              )}
+            </div>
           </CardHeader>
           <CardContent>
                 <div className="flex items-start gap-6">
@@ -687,7 +705,7 @@ export default function ScientistDetail() {
             demoViewerRole={authConfig.mode === "demo" ? currentUser.role : undefined}
             demoViewerScientistId={authConfig.mode === "demo" ? currentUser.id : undefined}
             showAuthorFixes={!isRestrictedRealUser}
-            showInvalidIssues={isOwner || ["Outcome Officer", "Management", "admin", "superadmin"].includes(effectiveRole)}
+            showInvalidIssues={isOwner || hasAnyRole(effectiveUser, ["Outcome Officer", "Management", "admin", "superadmin"])}
             canActOnInvalid={isOwner}
           />
         )}

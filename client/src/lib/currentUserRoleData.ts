@@ -16,6 +16,12 @@ export interface DummyUser {
    * interface while the server was granting them.
    */
   secondaryRoles?: string[];
+  /**
+   * Set while an administrator is previewing the application without their
+   * administrator rights. Carried here because every client authorisation
+   * check resolves against this object.
+   */
+  adminPreviewOff?: boolean;
 }
 
 /**

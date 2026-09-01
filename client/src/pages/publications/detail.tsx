@@ -35,6 +35,7 @@ import { formatFullName } from "@/utils/nameUtils";
 import { isLinkedAuthorInAuthorsText, isUnambiguousAuthorMatch, matchesAuthorName } from "@shared/authorMatching";
 import { useAuth } from "@/hooks/useAuth";
 import { useCurrentUser } from "@/hooks/useCurrentUser";
+import { hasAnyRole } from "@shared/effectiveRoles";
 
 // Linear forward order of the publication workflow. Used to tell whether a
 // status change moves the publication forward, sideways, or back. Keep in
@@ -92,12 +93,12 @@ export default function PublicationDetail() {
   const effectiveScientistId = authConfig.mode === "demo"
     ? currentUser.id
     : user?.scientistId;
-  const canManageAllPublications = [
-    "Outcome Officer",
-    "Management",
-    "admin",
-    "superadmin",
-  ].includes(effectiveRole);
+  // The person, not one role string. Someone can sit in the Outcome Office
+  // alongside a bench role, and admin is normally held as a secondary.
+  const canManageAllPublications = hasAnyRole(
+    authConfig.mode === "demo" ? currentUser : user,
+    ["Outcome Officer", "Management", "admin", "superadmin"],
+  );
 
   // Return to wherever the user came from. A `from` query param (set by e.g.
   // the Outcome Office tabs) takes priority — it survives detours through the

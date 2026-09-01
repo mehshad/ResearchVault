@@ -40,6 +40,7 @@ export function CurrentUserProvider({ children }: CurrentUserProviderProps) {
           // shown a stripped-down interface over an API that allowed them
           // everything.
           secondaryRoles: authUser.secondaryRoles ?? [],
+          adminPreviewOff: authUser.adminPreviewOff === true,
         };
       }
       return { id: 0, name: "Loading…", email: "", role: "user" };

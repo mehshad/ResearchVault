@@ -2,6 +2,7 @@ import { useEffect, useState, type ReactNode } from "react";
 import { Link, useLocation } from "wouter";
 import { ShieldAlert } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
+import { isRestrictedOnly } from "@shared/effectiveRoles";
 import { isRestrictedUserRouteAllowed } from "@/lib/restrictedUserPolicy";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -21,8 +22,10 @@ export function RestrictedUserGate({ children }: { children: ReactNode }) {
   const { user, authConfig } = useAuth();
   const [location] = useLocation();
   const [noticeOpen, setNoticeOpen] = useState(false);
+  // The onboarding lockout lifts on any assignment, so it is "user and nothing
+  // else", not "primary role is user". Granting a secondary counts.
   const isRestricted =
-    authConfig.mode !== "demo" && user?.role === "user";
+    authConfig.mode !== "demo" && isRestrictedOnly(user);
 
   useEffect(() => {
     if (!isRestricted || !user || user.needsRegistration) {

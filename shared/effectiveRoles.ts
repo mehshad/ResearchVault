@@ -20,6 +20,17 @@ export interface RoleBearer {
   role?: string | null;
   /** Additional roles held alongside the primary one. */
   secondaryRoles?: string[] | null;
+  /**
+   * Set while an administrator is deliberately previewing the application
+   * without their administrator rights.
+   *
+   * Suppressed here rather than by editing the roles they hold, so the session
+   * keeps telling the truth about who they are. Because every authorisation
+   * decision goes through this module, the suppression reaches the server
+   * guards too -- a preview that only dimmed the menu would be a lie, and the
+   * API would still answer.
+   */
+  adminPreviewOff?: boolean | null;
 }
 
 export type { AccessLevel };
@@ -80,6 +91,19 @@ export function hasAnyRole(
  * role; `superadmin` is granted by environment configuration only.
  */
 export function isAdministrator(user: RoleBearer | null | undefined): boolean {
+  if (user?.adminPreviewOff) return false;
+  return holdsAdministratorRole(user);
+}
+
+/**
+ * Whether the person actually holds administrator rights, ignoring any preview
+ * suppression.
+ *
+ * Use this only to decide whether to offer the preview toggle -- turning it
+ * back off has to stay reachable to someone currently previewing without it.
+ * Every other decision belongs to isAdministrator.
+ */
+export function holdsAdministratorRole(user: RoleBearer | null | undefined): boolean {
   return hasAnyRole(user, ["admin", "superadmin"]);
 }
 

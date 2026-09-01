@@ -35,6 +35,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from 
 import { PermissionWrapper } from "@/components/PermissionWrapper";
 import { usePermissions } from "@/hooks/usePermissions";
 import { useCurrentUser } from "@/hooks/useCurrentUser";
+import { isRestrictedOnly } from "@shared/effectiveRoles";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ImpactFactorsReadOnly } from "@/components/ImpactFactorsReadOnly";
 import PublicationImport from "./import";
@@ -178,7 +179,8 @@ export default function PublicationsList() {
   // Scientists list for author search suggestions
   const { data: scientists } = useQuery<any[]>({
     queryKey: ['/api/scientists'],
-    enabled: currentUser.role !== 'user',
+    // Restricted means "user and nothing else": a secondary role lifts it.
+    enabled: !isRestrictedOnly(currentUser),
   });
 
   const scientistNameSuggestions = (() => {
@@ -195,7 +197,7 @@ export default function PublicationsList() {
   // Get research activity details if we're filtering by one
   const { data: researchActivity } = useQuery({
     queryKey: ['/api/research-activities', filterResearchActivityId],
-    enabled: currentUser.role !== 'user' && !!filterResearchActivityId,
+    enabled: !isRestrictedOnly(currentUser) && !!filterResearchActivityId,
   });
 
   const formatDate = (date: string | Date | null | undefined) => {
