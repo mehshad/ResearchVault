@@ -40,6 +40,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import React, { useEffect, useState } from "react";
 import { useAuth } from "@/hooks/useAuth";
 import { useCurrentUser } from "@/hooks/useCurrentUser";
+import { hasAnyRole, isRestrictedOnly } from "@shared/effectiveRoles";
 import { sanitizeScientistUpdatePayload } from "@/lib/restrictedUserProfilePolicy";
 
 // Extend the insert schema with additional validations
@@ -64,9 +65,11 @@ export default function EditScientist() {
   const { currentUser } = useCurrentUser();
   const targetId = parseInt(id || "0");
   const isOwner = (authConfig.mode === "demo" ? currentUser.id : user?.scientistId) === targetId;
-  const effectiveRole = authConfig.mode === "demo" ? currentUser.role : (user?.role ?? "user");
-  const isRestrictedUser = authConfig.mode !== "demo" && effectiveRole === "user";
-  const canManage = ["Management", "admin", "superadmin"].includes(effectiveRole);
+  // The person, not one role string: administrator rights are normally a
+  // secondary role, and a list test against the primary alone misses them.
+  const effectiveUser = authConfig.mode === "demo" ? currentUser : user;
+  const isRestrictedUser = authConfig.mode !== "demo" && isRestrictedOnly(effectiveUser);
+  const canManage = hasAnyRole(effectiveUser, ["Management", "admin", "superadmin"]);
   const canEdit = isOwner || canManage;
 
   // Fetch the scientist data

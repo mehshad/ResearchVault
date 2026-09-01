@@ -29,6 +29,7 @@ import { Scientist, Department, Section } from "@shared/schema";
 import { ArrowLeft } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
 import { useCurrentUser } from "@/hooks/useCurrentUser";
+import { hasAnyRole } from "@shared/effectiveRoles";
 import { MANAGER_ASSIGNED_JOB_TITLES } from "@shared/investigatorEligibility";
 
 // Extend the insert schema with additional validations
@@ -50,9 +51,10 @@ export default function CreateScientist() {
   const { toast } = useToast();
   const { user, authConfig } = useAuth();
   const { currentUser } = useCurrentUser();
-  const effectiveRole =
-    authConfig.mode === "demo" ? currentUser.role : (user?.role ?? "user");
-  const canManage = ["Management", "admin", "superadmin"].includes(effectiveRole);
+  // The person, not one role string: administrator rights are normally a
+  // secondary role, and a list test against the primary alone misses them.
+  const effectiveUser = authConfig.mode === "demo" ? currentUser : user;
+  const canManage = hasAnyRole(effectiveUser, ["Management", "admin", "superadmin"]);
   
   // Fetch all scientists for line manager selection
   const { data: allScientists = [] } = useQuery<Scientist[]>({

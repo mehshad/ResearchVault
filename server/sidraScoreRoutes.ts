@@ -79,8 +79,10 @@ export function hasPublicationOfficerRole(req: Request): boolean {
  * (privileged for scientist profile edits and deletes).
  */
 export function hasManagementRole(req: Request): boolean {
-  const role = req.session?.user?.role;
-  return role === "Management" || role === "admin" || role === "superadmin";
+  // Every slot, not the primary alone. Administrator rights are normally held
+  // as a secondary role, and this gates staff profile edits and deletes -- so
+  // reading users.role by itself refused administrators their own tools.
+  return hasAnyRole(req.session?.user, ["Management", "admin", "superadmin"]);
 }
 
 /**

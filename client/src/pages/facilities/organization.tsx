@@ -69,10 +69,10 @@ export default function OrganizationStructure() {
   const { toast } = useToast();
   const { currentUser } = useCurrentUser();
 
+  // Every slot, not the primary alone. isAdministrator already covers admin
+  // and superadmin wherever they are held.
   const canManage =
-    currentUser.role === "Management" ||
-    isAdministrator(currentUser) ||
-    currentUser.role === "superadmin";
+    hasAnyRole(currentUser, ["Management"]) || isAdministrator(currentUser);
 
   const { data: branches, isLoading: branchesLoading } = useQuery<Branch[]>({
     queryKey: ["/api/branches"],

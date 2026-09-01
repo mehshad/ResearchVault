@@ -73,6 +73,7 @@ import {
   insertSectionSchema
 } from "@shared/schema";
 import { requireAuth, requireAdmin, requirePublicationOfficer, getAuthMode } from "./auth";
+import { isAdministrator } from "@shared/effectiveRoles";
 import { buildAssignableRoles } from "./assignableRoles";
 import { ACCESS_ROLES, JOB_TITLE_TAB_ALIASES, matchesJobTitle } from "@shared/constants";
 import { resolveOwnershipAccess, maxAccess, type AccessLevel as OwnershipAccessLevel } from "./ownershipResolver";
@@ -11415,8 +11416,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
         // role_permissions lookup failed — leave roleAccess at default
       }
 
-      // If user is admin/superadmin give edit by default for role
-      if (!roleAccess && (sessionUser.role === 'admin' || sessionUser.role === 'superadmin')) {
+      // Administrators get edit by default, wherever they hold it -- admin is
+      // normally a secondary role, so reading users.role alone left an
+      // administrator on 'hide' here while every other guard admitted them.
+      if (!roleAccess && isAdministrator(sessionUser)) {
         roleAccess = 'edit';
       }
       if (!roleAccess) roleAccess = 'hide';

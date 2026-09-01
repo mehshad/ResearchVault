@@ -78,9 +78,11 @@ export default function Settings() {
   const mode = resolvedTheme === 'dark' ? 'dark' : 'light';
   const { authConfig } = useAuth();
   const { currentUser } = useCurrentUser();
+  // isAdministrator already covers admin and superadmin in any slot. The demo
+  // clause mirrors requireAdmin on the server, which treats the fixed demo
+  // Management session as an administrator so protected screens are previewable.
   const userIsAdmin =
     isAdministrator(currentUser) ||
-    currentUser.role === 'superadmin' ||
     (authConfig.mode === 'demo' && currentUser.role === 'Management');
   const { toast } = useToast();
 

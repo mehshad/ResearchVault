@@ -12,7 +12,7 @@ import {
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { useToast } from "@/hooks/use-toast";
-import { isAdministrator } from "@shared/effectiveRoles";
+import { hasAnyRole, isAdministrator, isRestrictedOnly } from "@shared/effectiveRoles";
 import { SiOrcid, SiGooglescholar } from "react-icons/si";
 import { FaLinkedin } from "react-icons/fa";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -203,18 +203,24 @@ export default function ScientistDetail() {
   const { currentUser } = useCurrentUser();
   const ownerId = authConfig.mode === "demo" ? currentUser.id : user?.scientistId;
   const effectiveRole = authConfig.mode === "demo" ? currentUser.role : (user?.role ?? "user");
+  /**
+   * The person, not one role string. Access is the union of the primary role
+   * and any secondaries, and administrator rights are normally a secondary --
+   * so testing `effectiveRole` against a list answered for the primary alone.
+   * That is why this page offered Delete, which asks the person, but hid Edit,
+   * which asked the string.
+   */
+  const effectiveUser = authConfig.mode === "demo" ? currentUser : user;
   const isOwner = ownerId === id;
-  const isRestrictedRealUser = authConfig.mode !== "demo" && effectiveRole === "user";
-  const canManageProfile = ["Management", "admin", "superadmin"].includes(effectiveRole);
+  const isRestrictedRealUser = authConfig.mode !== "demo" && isRestrictedOnly(effectiveUser);
+  const canManageProfile = hasAnyRole(effectiveUser, ["Management", "admin", "superadmin"]);
   const canImport = !isRestrictedRealUser && (
-    isOwner || ["Outcome Officer", "Management", "admin", "superadmin"].includes(effectiveRole)
+    isOwner || hasAnyRole(effectiveUser, ["Outcome Officer", "Management", "admin", "superadmin"])
   );
   // Deleting a staff profile is irreversible and cannot be undone in bulk
   // anywhere else, so it is administrator-only -- matching the server, which
   // refuses anyone else.
-  const canDelete = authConfig.mode === "demo"
-    ? isAdministrator({ role: currentUser.role })
-    : isAdministrator(user);
+  const canDelete = isAdministrator(effectiveUser);
   const { toast } = useToast();
   const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
   const [deleteBlockers, setDeleteBlockers] = useState<string | null>(null);
@@ -687,7 +693,7 @@ export default function ScientistDetail() {
             demoViewerRole={authConfig.mode === "demo" ? currentUser.role : undefined}
             demoViewerScientistId={authConfig.mode === "demo" ? currentUser.id : undefined}
             showAuthorFixes={!isRestrictedRealUser}
-            showInvalidIssues={isOwner || ["Outcome Officer", "Management", "admin", "superadmin"].includes(effectiveRole)}
+            showInvalidIssues={isOwner || hasAnyRole(effectiveUser, ["Outcome Officer", "Management", "admin", "superadmin"])}
             canActOnInvalid={isOwner}
           />
         )}

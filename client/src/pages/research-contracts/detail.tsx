@@ -90,9 +90,10 @@ export default function ResearchContractDetail() {
 
   // Check if current user can edit this contract
   const canEditContract = contract && (
-    currentUser.role === 'Research Officer' || 
-    isAdministrator(currentUser) || 
-    currentUser.role === 'Management' ||
+    // Every slot, not the primary alone: someone can sit in the Research
+    // Office alongside a bench role.
+    hasAnyRole(currentUser, ['Research Officer', 'Management']) ||
+    isAdministrator(currentUser) ||
     contract.requestedByUserId === currentUser.id
   );
 
