@@ -77,7 +77,7 @@ import { hasAnyRole, isAdministrator } from "@shared/effectiveRoles";
 import { buildAssignableRoles } from "./assignableRoles";
 import { ACCESS_ROLES, JOB_TITLE_TAB_ALIASES, matchesJobTitle } from "@shared/constants";
 import { resolveOwnershipAccess, maxAccess, type AccessLevel as OwnershipAccessLevel } from "./ownershipResolver";
-import { matchesAuthorName, isLinkedAuthorInAuthorsText, isUnambiguousAuthorMatch, suggestInternalAuthors } from "@shared/authorMatching";
+import { matchesAuthorName, isLinkedAuthorInAuthorsText, isUnambiguousAuthorMatch, suggestInternalAuthors, classifyAuthorEntries } from "@shared/authorMatching";
 import { detectDuplicateGroups, pickDefaultSurvivorId, normalizeDoi as canonicalDoi, isPreprintRecord, classifyResolvedPublication, preprintRepairEvidence } from "@shared/publicationDeduplication";
 import { getObjectAclPolicy, ObjectPermission } from "./objectAcl";
 import { buildLinkImportTemplate, previewLinkImport } from "./publicationLinksImport";
@@ -4625,10 +4625,18 @@ function writeFailureDetail(error: unknown): string {
         return res.json([]);
       }
 
-      const [allPublications, allAuthors] = await Promise.all([
+      const [allPublications, allAuthors, allScientists] = await Promise.all([
         storage.getPublications(),
         storage.getAllPublicationAuthors(),
+        // Needed to spot a name in the author text belonging to somebody on
+        // staff who is not linked. The check used to answer only "is anyone
+        // linked" and "does each linked author appear in the text", so a record
+        // with one author linked and three colleagues unlinked passed clean.
+        storage.getScientists(),
       ]);
+      const matchableScientists = allScientists
+        .filter((s) => s.firstName && s.lastName)
+        .map((s) => ({ id: s.id, firstName: s.firstName as string, lastName: s.lastName as string }));
 
       let includeUnpublished = false;
       if (typeof req.query.scientistId === "string") {
@@ -4658,9 +4666,21 @@ function writeFailureDetail(error: unknown): string {
         .filter(pub => matchesAuthorName(pub.authors, firstName, lastName))
         .map(pub => {
           const linkedAuthors = authorsByPublication.get(pub.id) || [];
+          // Every name in the free-text list, told apart: already linked, on
+          // staff but unlinked, or not on staff. Shared with the Outcome Office
+          // view and with "Auto-connect authors", so all three agree about who
+          // is missing.
+          const authorEntries = classifyAuthorEntries(
+            pub.authors,
+            matchableScientists,
+            linkedAuthors.map(a => a.scientistId),
+          );
+          const missedAuthors = authorEntries
+            .filter(e => e.status === "missed")
+            .map(e => ({ scientistId: e.scientistId as number, name: e.text }));
 
           if (linkedAuthors.length === 0) {
-            return { publication: pub, reason: "no_internal_authors" as const };
+            return { publication: pub, reason: "no_internal_authors" as const, authorEntries, missedAuthors };
           }
 
           const mismatched = linkedAuthors.filter(
@@ -4671,12 +4691,20 @@ function writeFailureDetail(error: unknown): string {
             return {
               publication: pub,
               reason: "author_mismatch" as const,
+              authorEntries,
+              missedAuthors,
               mismatchedAuthors: mismatched.map(a => ({
                 scientistId: a.scientistId,
                 firstName: a.scientist.firstName,
                 lastName: a.scientist.lastName,
               })),
             };
+          }
+
+          // Everything linked checks out, but colleagues in the author list are
+          // not linked. This returned null before, so the record never appeared.
+          if (missedAuthors.length > 0) {
+            return { publication: pub, reason: "missing_internal_links" as const, authorEntries, missedAuthors };
           }
 
           return null;
