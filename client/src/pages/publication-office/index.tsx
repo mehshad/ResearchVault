@@ -1784,7 +1784,10 @@ export default function PublicationOffice({ embeddedTab }: PublicationOfficeProp
                     </div>
                     <div className="space-y-1">
                       <Label className="text-xs">Published</Label>
-                      <div className="flex items-center gap-1 rounded-md border p-0.5">
+                      {/* h-10 to match Input/Select in this row: the row is
+                          items-end, so a shorter control pushes its own label
+                          up and out of line with the rest. */}
+                      <div className="flex h-10 items-center gap-1 rounded-md border px-1">
                         {NP_YEAR_RANGE_OPTIONS.map(([value, label]) => (
                           <button
                             key={value}
