@@ -3406,6 +3406,26 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+
+/**
+ * The reason a write failed, for the response body of an administrator-only
+ * endpoint.
+ *
+ * These handlers returned a fixed sentence and put the cause in the server log
+ * only. That is the right default, but it left three production 500s
+ * undiagnosable from the interface -- a staff update, a staff delete and a role
+ * change, each of which wrote its row and then failed, none of which reproduces
+ * against a development database. An administrator is already entitled to see
+ * this data; withholding why the write failed only slows down fixing it.
+ */
+function writeFailureDetail(error: unknown): string {
+  const message = error instanceof Error ? error.message : String(error);
+  // Postgres puts the useful part in these; drizzle wraps them.
+  const cause = (error as { cause?: { message?: string; detail?: string } } | null)?.cause;
+  const extra = [cause?.message, cause?.detail].filter(Boolean).join(" — ");
+  return [message, extra].filter(Boolean).join(" — ").slice(0, 500);
+}
+
   app.patch(
     '/api/scientists/:id',
     requireAuth,
@@ -3449,7 +3469,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(409).json({ message: conflict });
       }
       console.error("Failed to update scientist:", error);
-      res.status(500).json({ message: "Failed to update scientist" });
+      res.status(500).json({
+        message: `Failed to update scientist: ${writeFailureDetail(error)}`,
+      });
     }
   });
 
@@ -3517,7 +3539,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.status(204).send();
     } catch (error) {
       console.error("Error deleting scientist:", error);
-      res.status(500).json({ message: "Failed to delete scientist" });
+      res.status(500).json({
+        message: `Failed to delete scientist: ${writeFailureDetail(error)}`,
+      });
     }
   });
 
@@ -11179,7 +11203,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.json(updated);
     } catch (err) {
       console.error('Error updating user role:', err);
-      res.status(500).json({ message: 'Failed to update role' });
+      res.status(500).json({
+        message: `Failed to update role: ${writeFailureDetail(err)}`,
+      });
     }
   });
 
