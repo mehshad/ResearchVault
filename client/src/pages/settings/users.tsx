@@ -18,7 +18,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { isAdministrator, hasAnyRole } from "@shared/effectiveRoles";
+import { isAdministrator, hasAnyRole, isRestrictedOnly } from "@shared/effectiveRoles";
 import { isRoleTitleMismatch, accessRoleForJobTitle } from "@shared/constants";
 
 interface AppUser {
@@ -64,11 +64,27 @@ export default function AdminUsersPage() {
       return res.json();
     },
   });
-  // Several job titles share one access role — a "Postdoctoral Researcher" holds
-  // "Researcher" — so a plain string comparison would flag every one of them.
+  /**
+   * Two different things need an administrator's attention, and both are
+   * highlighted.
+   *
+   * A mismatch: the access role does not correspond to the profile job title.
+   * Several titles share one role -- a Postdoctoral Researcher holds Researcher
+   * -- so this compares the resolved role, not the strings.
+   *
+   * Unassigned: the account holds the restricted `user` role and nothing else,
+   * so it reaches almost nothing. That is the state every account starts in,
+   * including the Investigator accounts created from this page, so it is a
+   * queue of work rather than a fault. A secondary role counts as an
+   * assignment, which is what isRestrictedOnly means.
+   */
+  const isUnassigned = (user: AppUser) =>
+    isRestrictedOnly({ role: user.role, secondaryRoles: user.secondaryRoles });
+  const unassignedCount = users.filter(isUnassigned).length;
   const mismatchCount = users.filter(
-    (user) => isRoleTitleMismatch(user.role, user.profileJobTitle)
+    (user) => !isUnassigned(user) && isRoleTitleMismatch(user.role, user.profileJobTitle)
   ).length;
+  const attentionCount = unassignedCount + mismatchCount;
 
   // Secondary roles are additive — a person's access is the union of their
   // primary role and these. Saved as a whole set so removing one is the same
@@ -186,6 +202,9 @@ export default function AdminUsersPage() {
           <CardTitle>All Users</CardTitle>
           <CardDescription>
             {users.length} registered account{users.length !== 1 ? "s" : ""}
+            {unassignedCount > 0 && (
+              <> · {unassignedCount} with no access role</>
+            )}
             {mismatchCount > 0 && (
               <> · {mismatchCount} access/profile mismatch{mismatchCount !== 1 ? "es" : ""}</>
             )}
@@ -196,14 +215,26 @@ export default function AdminUsersPage() {
             <p className="text-muted-foreground">Loading…</p>
           ) : (
             <div>
-              {mismatchCount > 0 && (
+              {attentionCount > 0 && (
                 <div className="mb-4 flex items-start gap-2 rounded-md border border-amber-500/40 bg-amber-500/10 p-3 text-sm">
                   <AlertTriangle className="mt-0.5 h-4 w-4 flex-shrink-0 text-amber-600 dark:text-amber-400" />
                   <p>
-                    Highlighted users hold an access role that does not correspond to their profile
-                    job title. Several titles share one role — a Postdoctoral Researcher holds
-                    Researcher — and those are not flagged. This may still be intentional;
-                    permissions always follow the access role.
+                    {unassignedCount > 0 && (
+                      <>
+                        <strong>{unassignedCount}</strong> account
+                        {unassignedCount === 1 ? " holds" : "s hold"} no access role — only the
+                        restricted user default, which reaches almost nothing. Assign a primary or
+                        secondary role to each.{" "}
+                      </>
+                    )}
+                    {mismatchCount > 0 && (
+                      <>
+                        <strong>{mismatchCount}</strong> hold an access role that does not
+                        correspond to their profile job title. Several titles share one role — a
+                        Postdoctoral Researcher holds Researcher — and those are not flagged. That
+                        may still be intentional; permissions always follow the access role.
+                      </>
+                    )}
                   </p>
                 </div>
               )}
@@ -232,12 +263,14 @@ export default function AdminUsersPage() {
                     role !== "superadmin" &&
                     !currentSecondary.includes(role),
                 );
-                const hasRoleTitleMismatch = isRoleTitleMismatch(u.role, u.profileJobTitle);
+                const unassigned = isUnassigned(u);
+                const hasRoleTitleMismatch = !unassigned && isRoleTitleMismatch(u.role, u.profileJobTitle);
+                const flagged = unassigned || hasRoleTitleMismatch;
                 return (
                   <div
                     key={u.id}
                     className={`grid gap-3 py-4 md:grid-cols-[minmax(0,1fr)_9rem_11rem_13rem_15rem] md:items-start md:gap-4 ${
-                      hasRoleTitleMismatch
+                      flagged
                         ? "border-l-4 border-l-amber-500 bg-amber-500/5 pl-3 pr-2"
                         : ""
                     }`}
@@ -249,13 +282,13 @@ export default function AdminUsersPage() {
                       <div className="min-w-0">
                         <div className="flex flex-wrap items-center gap-2">
                           <span className="font-medium truncate">{u.name || u.username}</span>
-                          {hasRoleTitleMismatch && (
+                          {flagged && (
                             <Badge
                               variant="outline"
                               className="border-amber-500/60 bg-amber-500/10 text-amber-700 dark:text-amber-300"
                             >
                               <AlertTriangle className="mr-1 h-3 w-3" />
-                              Role/title differ
+                              {unassigned ? "No access role" : "Role/title differ"}
                             </Badge>
                           )}
                         </div>
