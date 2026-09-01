@@ -48,6 +48,25 @@ import { PublicationWorkflowFilter, ALL_STATES } from "@/components/PublicationW
 import { SidraScoreDetails } from "@/components/SidraScoreDetails";
 import { classifyAuthorEntries, type ClassifiedAuthorEntry } from "@shared/authorMatching";
 
+/**
+ * Quick year ranges on the New Publications queue, counted in calendar years
+ * including the current one -- "3 years" is this year and the two before it,
+ * which is what someone reading the label expects rather than a rolling window
+ * ending on today's date in 2023.
+ */
+type NpYearRange = "this-year" | "3" | "5" | "all";
+const NP_YEAR_RANGE_SPAN: Record<Exclude<NpYearRange, "all">, number> = {
+  "this-year": 1,
+  "3": 3,
+  "5": 5,
+};
+const NP_YEAR_RANGE_OPTIONS: Array<[NpYearRange, string]> = [
+  ["this-year", "This year"],
+  ["3", "3 years"],
+  ["5", "5 years"],
+  ["all", "All"],
+];
+
 interface SavedSearch {
   id?: string;
   name: string;
@@ -148,6 +167,14 @@ export default function PublicationOffice({ embeddedTab }: PublicationOfficeProp
   const [npScientistId, setNpScientistId] = useState<string>("all");
   const [npDateFrom, setNpDateFrom] = useState<string>("");
   const [npDateTo, setNpDateTo] = useState<string>("");
+  /**
+   * Quick year range, alongside the explicit From/To dates rather than instead
+   * of them: both apply, so a narrower hand-typed range still narrows.
+   *
+   * Defaults to this year -- the queue an officer works is the current year's
+   * output, and the full history was in the way of it.
+   */
+  const [npYearRange, setNpYearRange] = useState<NpYearRange>("this-year");
 
   // IP Vetting defaults to the actual workflow stage. The wider unvetted
   // backlog is available for review by publication year when needed.
@@ -962,6 +989,17 @@ export default function PublicationOffice({ embeddedTab }: PublicationOfficeProp
         if (!ids.includes(Number(npScientistId))) return false;
       }
 
+      if (npYearRange !== "all") {
+        // A record with no publication date is never excluded by a date range:
+        // it has no date to judge, and an unpublished record awaiting review is
+        // exactly what this page exists to show. Filtering it out by default
+        // would empty the queue of the work.
+        if (pub.publicationDate) {
+          const minYear = new Date().getFullYear() - (NP_YEAR_RANGE_SPAN[npYearRange] - 1);
+          if (new Date(pub.publicationDate).getFullYear() < minYear) return false;
+        }
+      }
+
       if (npDateFrom || npDateTo) {
         if (!pub.publicationDate) return false;
         const d = new Date(pub.publicationDate);
@@ -976,7 +1014,7 @@ export default function PublicationOffice({ embeddedTab }: PublicationOfficeProp
       return true;
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [newPublications, authorCounts, authorMap, npStatusFilter, npTagFilter, npScientistId, npDateFrom, npDateTo]);
+  }, [newPublications, authorCounts, authorMap, npStatusFilter, npTagFilter, npScientistId, npDateFrom, npDateTo, npYearRange]);
 
   // Export functionality
   const searchExportMutation = useMutation({
@@ -1744,8 +1782,28 @@ export default function PublicationOffice({ embeddedTab }: PublicationOfficeProp
                         data-testid="input-np-date-to"
                       />
                     </div>
+                    <div className="space-y-1">
+                      <Label className="text-xs">Published</Label>
+                      <div className="flex items-center gap-1 rounded-md border p-0.5">
+                        {NP_YEAR_RANGE_OPTIONS.map(([value, label]) => (
+                          <button
+                            key={value}
+                            type="button"
+                            onClick={() => setNpYearRange(value)}
+                            className={`rounded px-2 py-1 text-xs transition-colors ${
+                              npYearRange === value
+                                ? "bg-primary text-primary-foreground"
+                                : "text-muted-foreground hover:bg-muted"
+                            }`}
+                            data-testid={`button-np-year-${value}`}
+                          >
+                            {label}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
                     {(npTagFilter !== "no-issues" || npScientistId !== "all" || npDateFrom || npDateTo
-                      || npStatusFilter !== PUBLISHED_STATUS) && (
+                      || npStatusFilter !== PUBLISHED_STATUS || npYearRange !== "this-year") && (
                       <Button
                         variant="ghost"
                         size="sm"
@@ -1754,6 +1812,7 @@ export default function PublicationOffice({ embeddedTab }: PublicationOfficeProp
                           setNpScientistId("all");
                           setNpDateFrom("");
                           setNpDateTo("");
+                          setNpYearRange("this-year");
                           // Back to the office default rather than "all": Published
                           // is the state awaiting a decision.
                           setNpStatusFilter(PUBLISHED_STATUS);
