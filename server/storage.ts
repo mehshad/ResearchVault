@@ -285,12 +285,20 @@ export interface IStorage {
   getGrants(): Promise<Grant[]>;
   getGrant(id: number): Promise<Grant | undefined>;
   getGrantByProjectNumber(projectNumber: string): Promise<Grant | undefined>;
-  createGrant(grant: InsertGrant): Promise<Grant>;
-  updateGrant(id: number, grant: Partial<InsertGrant>): Promise<Grant | undefined>;
+  // actorUserId is the account making the change, recorded for audit. Passed
+  // separately because insertGrantSchema deliberately omits the audit fields:
+  // one a caller could set would not be an audit field.
+  createGrant(grant: InsertGrant, actorUserId?: number | null): Promise<Grant>;
+  updateGrant(
+    id: number,
+    grant: Partial<InsertGrant>,
+    actorUserId?: number | null,
+  ): Promise<Grant | undefined>;
   updateGrantWithResearchActivities(
     id: number,
     grant: Partial<InsertGrant>,
     desiredResearchActivityIds?: number[],
+    actorUserId?: number | null,
   ): Promise<Grant | undefined>;
   deleteGrant(id: number): Promise<boolean>;
 

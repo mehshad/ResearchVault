@@ -555,6 +555,25 @@ export default function EditGrant() {
         </Button>
         <h1 className="text-3xl font-bold">Edit Grant</h1>
         <p className="text-muted-foreground">Update grant information and details</p>
+        {/*
+          * Provenance. The office both imports grants and enters them by hand,
+          * and until these columns existed the only way to tell which was to
+          * look for rows sharing a created_at -- a bulk apply runs in one
+          * transaction, so every row it writes carries the same timestamp.
+          * Grants that predate the columns, or came from an archive taken
+          * before them, say so rather than naming somebody who did not do it.
+          */}
+        {grant && (
+          <p className="mt-1 text-xs text-muted-foreground" data-testid="text-grant-provenance">
+            {`Added${grant.createdAt ? ` on ${new Date(grant.createdAt).toLocaleDateString()}` : ""}`}
+            {grant.createdByName
+              ? ` by ${grant.createdByName}`
+              : " · added before this was recorded, so by whom is unknown"}
+            {grant.updatedByName && grant.updatedByName !== grant.createdByName
+              ? ` · last changed by ${grant.updatedByName}`
+              : ""}
+          </p>
+        )}
       </div>
 
       <form onSubmit={handleSubmit} className="space-y-6">

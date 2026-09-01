@@ -1335,6 +1335,21 @@ export const grants = pgTable("grants", {
   collaborators: text("collaborators").array(), // Array of collaborator names/institutions
   description: text("description"), // Grant description/abstract
   fundingAgency: text("funding_agency"), // Funding source/agency
+  /**
+   * Who added this grant, and who last changed it.
+   *
+   * The office both imports grants in bulk and enters them by hand, and
+   * nothing recorded which -- after the fact "who put this here" was
+   * unanswerable, so the only way to tell an import from manual entry was to
+   * look for rows sharing a created_at, since a bulk apply runs in one
+   * transaction. Publications already record their creator; grants now do too.
+   *
+   * Nullable: rows that predate this, and rows restored from an archive taken
+   * before it, have no creator to name, and inventing one would be worse than
+   * admitting it is unknown.
+   */
+  createdByUserId: integer("created_by_user_id").references(() => users.id),
+  updatedByUserId: integer("updated_by_user_id").references(() => users.id),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 }, (table) => {
@@ -1362,6 +1377,10 @@ export const GRANT_CURRENCY_VALUES = ["EUR", "USD", "QAR"] as const;
 
 export const insertGrantSchema = createInsertSchema(grants).omit({
   id: true,
+  // Set by the server from the session, never accepted from the client:
+  // an audit field a caller can choose is not an audit field.
+  createdByUserId: true,
+  updatedByUserId: true,
   createdAt: true,
   updatedAt: true,
 }).extend({

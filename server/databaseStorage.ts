@@ -2686,7 +2686,24 @@ export class DatabaseStorage implements IStorage {
 
   async getGrant(id: number): Promise<Grant | undefined> {
     const [grant] = await db.select().from(grants).where(eq(grants.id, id));
-    return grant;
+    if (!grant) return grant;
+    // Resolve the audit ids to names here rather than making the client ask
+    // /api/admin/users, which is administrator-only -- the people who need to
+    // see who added a grant are not all administrators.
+    const ids = [grant.createdByUserId, grant.updatedByUserId].filter(
+      (v): v is number => typeof v === "number",
+    );
+    if (ids.length === 0) return grant;
+    const rows = await db
+      .select({ id: users.id, name: users.name })
+      .from(users)
+      .where(inArray(users.id, [...new Set(ids)]));
+    const nameById = new Map(rows.map((r) => [r.id, r.name]));
+    return {
+      ...grant,
+      createdByName: grant.createdByUserId ? nameById.get(grant.createdByUserId) ?? null : null,
+      updatedByName: grant.updatedByUserId ? nameById.get(grant.updatedByUserId) ?? null : null,
+    } as Grant & { createdByName: string | null; updatedByName: string | null };
   }
 
   async getGrantByProjectNumber(projectNumber: string): Promise<Grant | undefined> {
@@ -2694,15 +2711,35 @@ export class DatabaseStorage implements IStorage {
     return grant;
   }
 
-  async createGrant(grant: InsertGrant): Promise<Grant> {
-    const [newGrant] = await db.insert(grants).values(grant).returning();
+  async createGrant(grant: InsertGrant, actorUserId?: number | null): Promise<Grant> {
+    const [newGrant] = await db
+      .insert(grants)
+      // `|| null` rather than `??`: the demo session is user id 0, which is not
+      // a real users row, and the foreign key rejects it. Recording nobody is
+      // right there -- there is nobody to record.
+      .values({
+        ...grant,
+        createdByUserId: actorUserId || null,
+        updatedByUserId: actorUserId || null,
+      })
+      .returning();
     return newGrant;
   }
 
-  async updateGrant(id: number, grant: Partial<InsertGrant>): Promise<Grant | undefined> {
+  async updateGrant(
+    id: number,
+    grant: Partial<InsertGrant>,
+    actorUserId?: number | null,
+  ): Promise<Grant | undefined> {
     const [updatedGrant] = await db
       .update(grants)
-      .set({ ...grant, updatedAt: sql`now()` })
+      // Only overwritten when the actor is known, so an anonymous or automated
+      // write cannot erase who last touched the record by hand.
+      .set({
+        ...grant,
+        ...(actorUserId ? { updatedByUserId: actorUserId } : {}),
+        updatedAt: sql`now()`,
+      })
       .where(eq(grants.id, id))
       .returning();
     return updatedGrant;
@@ -2712,6 +2749,7 @@ export class DatabaseStorage implements IStorage {
     id: number,
     grant: Partial<InsertGrant>,
     desiredResearchActivityIds?: number[],
+    actorUserId?: number | null,
   ): Promise<Grant | undefined> {
     return await db.transaction(async (tx) => {
       await tx.execute(
@@ -2818,7 +2856,11 @@ export class DatabaseStorage implements IStorage {
 
       const [updatedGrant] = await tx
         .update(grants)
-        .set({ ...grant, updatedAt: sql`now()` })
+        .set({
+          ...grant,
+          ...(actorUserId ? { updatedByUserId: actorUserId } : {}),
+          updatedAt: sql`now()`,
+        })
         .where(eq(grants.id, id))
         .returning();
 

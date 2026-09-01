@@ -9789,7 +9789,9 @@ function writeFailureDetail(error: unknown): string {
         ...parsedData,
         ...lifecycle,
       });
-      const grant = await storage.createGrant(validatedData);
+      // Recorded for audit: the office both imports grants and enters them by
+      // hand, and nothing used to say which, or who.
+      const grant = await storage.createGrant(validatedData, req.session?.user?.id);
       res.status(201).json(grant);
     } catch (error) {
       if (error instanceof GrantLifecycleError) {
@@ -9850,6 +9852,7 @@ function writeFailureDetail(error: unknown): string {
         id,
         validatedData,
         desiredResearchActivityIds,
+        req.session?.user?.id,
       );
       res.json(grant);
     } catch (error) {

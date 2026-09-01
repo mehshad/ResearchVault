@@ -4639,7 +4639,7 @@ export async function applySection(
           if (entry.action === "create") sheetCounts.created++;
           else sheetCounts.updated++;
         } else if (sheetName === "Grants") {
-          await applyGrantRow(tx, entry, rowData);
+          await applyGrantRow(tx, entry, rowData, applyingUserId);
           if (entry.action === "create") sheetCounts.created++;
           else sheetCounts.updated++;
         } else if (sheetName === "Programs") {
@@ -4964,7 +4964,12 @@ async function applyScientistSupervisor(
     .where(eq(scientists.id, scientistId));
 }
 
-async function applyGrantRow(tx: TxDb, entry: RowEntry, data: Record<string, unknown>): Promise<void> {
+async function applyGrantRow(
+  tx: TxDb,
+  entry: RowEntry,
+  data: Record<string, unknown>,
+  applyingUserId?: number,
+): Promise<void> {
   const { projectNumber, _lpiEmailKey, ...rest } = data;
   if (_lpiEmailKey) {
     const rows = await tx
@@ -4979,11 +4984,23 @@ async function applyGrantRow(tx: TxDb, entry: RowEntry, data: Record<string, unk
   }
 
   if (entry.action === "create") {
-    await tx.insert(grants).values({ projectNumber: String(projectNumber), title: String(rest.title ?? ""), ...rest });
+    await tx.insert(grants).values({
+      projectNumber: String(projectNumber),
+      title: String(rest.title ?? ""),
+      ...rest,
+      // Stamped so a bulk-loaded grant is distinguishable from one entered by
+      // hand without inferring it from rows sharing a created_at.
+      createdByUserId: applyingUserId || null,
+      updatedByUserId: applyingUserId || null,
+    });
   } else {
     const [row] = await tx
       .update(grants)
-      .set({ ...rest, updatedAt: new Date() })
+      .set({
+        ...rest,
+        ...(applyingUserId ? { updatedByUserId: applyingUserId } : {}),
+        updatedAt: new Date(),
+      })
       .where(caseInsensitiveKey(grants.projectNumber, projectNumber))
       .returning({ id: grants.id });
     requireUpdatedRow(row, "Grant", projectNumber);
