@@ -9,7 +9,7 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
-import { INVESTIGATOR_ELIGIBLE_JOB_TITLES } from "@shared/investigatorEligibility";
+import { MANAGER_ASSIGNED_JOB_TITLES } from "@shared/investigatorEligibility";
 
 const JOB_TITLES = [
   "Investigator",
@@ -31,8 +31,8 @@ const JOB_TITLES = [
 ];
 const SELF_REGISTRATION_JOB_TITLES = JOB_TITLES.filter(
   (title) =>
-    !INVESTIGATOR_ELIGIBLE_JOB_TITLES.includes(
-      title as (typeof INVESTIGATOR_ELIGIBLE_JOB_TITLES)[number]
+    !MANAGER_ASSIGNED_JOB_TITLES.includes(
+      title as (typeof MANAGER_ASSIGNED_JOB_TITLES)[number]
     )
 );
 

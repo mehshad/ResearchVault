@@ -101,6 +101,7 @@ import {
   GrantLifecycleError,
 } from "@shared/grantLifecycle";
 import { ACCESS_LEVELS, RESTRICTED_USER_ROLE } from "@shared/constants";
+import { inferPlacementFromLineManagers } from "@shared/sectionInference";
 import {
   isRoomManagerEligible,
   isRoomSupervisorEligible,
@@ -2007,6 +2008,64 @@ export async function inspectWorkbookStructure(
 // Per-sheet row previewing
 // ---------------------------------------------------------------------------
 
+/**
+ * Fill blank Org Section cells from each person's line manager.
+ *
+ * A roster commonly names everyone's manager but places only the section leads,
+ * so where people sit is present implicitly. This reads it out before the rows
+ * are validated, which means an inferred placement is indistinguishable from a
+ * stated one everywhere downstream -- the change comparison and the apply step
+ * both see an ordinary Org Section value.
+ *
+ * The department comes with the section, since a section belongs to one.
+ *
+ * The rule itself is shared with the staff import so the two cannot disagree.
+ * Placement is a name pair here, because this sheet resolves the hierarchy by
+ * name -- the department may not exist in the database yet when the same
+ * workbook is restoring it.
+ */
+function inferScientistSectionsFromManagers(
+  rows: Record<string, string>[],
+  ctx: DbContext,
+): number {
+  type Placement = { section: string; department: string };
+
+  // Everyone already on file who has a section, as the names this sheet uses.
+  const seeded = new Map<string, Placement>();
+  for (const person of ctx.scientists) {
+    if (person.sectionId == null) continue;
+    const section = ctx.sectionById?.get(person.sectionId);
+    if (!section) continue;
+    const department = person.departmentId
+      ? ctx.departmentById?.get(person.departmentId)?.name ?? ""
+      : ctx.departmentById?.get(section.departmentId)?.name ?? "";
+    seeded.set(person.email.toLowerCase(), {
+      section: section.name,
+      department,
+    });
+  }
+
+  return inferPlacementFromLineManagers<Record<string, string>, Placement>(
+    rows,
+    {
+      email: (row) => (row.email ?? "").trim().toLowerCase(),
+      manager: (row) => (row.supervisorEmail ?? "").trim().toLowerCase() || null,
+      placement: (row) => {
+        const section = (row.orgSection ?? "").trim();
+        // "CLEAR" is a deliberate instruction to empty the field, not a blank
+        // waiting to be filled.
+        if (!section || isClear(section)) return null;
+        return { section, department: (row.orgDepartment ?? "").trim() };
+      },
+      assign: (row, placement) => {
+        row.orgSection = placement.section;
+        if (!(row.orgDepartment ?? "").trim()) row.orgDepartment = placement.department;
+      },
+    },
+    seeded,
+  );
+}
+
 function previewScientistRows(
   rows: Record<string, string>[],
   ctx: DbContext,
@@ -2015,6 +2074,10 @@ function previewScientistRows(
   inFileDepartmentNames: Set<string> = new Set(),
   inFileSectionKeys: Set<string> = new Set(),
 ): RowEntry[] {
+  // Before anything else reads a placement, so an inferred section is treated
+  // exactly like one the file stated.
+  inferScientistSectionsFromManagers(rows, ctx);
+
   const entries: RowEntry[] = [];
   const seenEmails = new Set<string>();
   const seenStaffIds = new Set<string>();
@@ -4532,6 +4595,10 @@ export async function applySection(
       const errCount = preview.rows.filter((r) => r.action === "error").length;
       throw new Error(`Cannot apply: ${errCount} row error(s) must be resolved first.`);
     }
+    // The callback owns the list. Should the transaction ever be retried, a
+    // list left over from the abandoned attempt would report every rejected
+    // row twice.
+    rejected.length = 0;
     if (skipInvalidRows) {
       for (const row of preview.rows.filter((r) => r.action === "error")) {
         rejected.push({
@@ -4543,36 +4610,49 @@ export async function applySection(
       }
     }
 
-    let applyingScientistId: number | undefined;
     const applyingUserId = actor?.userId ?? undefined;
-    const createsAuditedRecord = preview.rows.some(
-      (row) => (row.sheetName === "Certifications" || row.sheetName === "Publications")
-        && row.action === "create",
-    );
-    if (createsAuditedRecord) {
-      if (actor?.scientistId != null) {
-        const [linked] = await tx
-          .select({ id: scientists.id })
-          .from(scientists)
-          .where(eq(scientists.id, actor.scientistId));
-        applyingScientistId = linked?.id;
-      }
-      if (!applyingScientistId && actor?.email) {
-        const matches = await tx
-          .select({ id: scientists.id })
-          .from(scientists)
-          .where(caseInsensitiveKey(scientists.email, actor.email));
-        if (matches.length > 1) {
-          throw new Error(`Certification apply actor email "${actor.email}" is ambiguous`);
+
+    /**
+     * The staff profile to attribute created certifications and publications
+     * to, resolved the first time one is actually written.
+     *
+     * Deliberately lazy. Resolving it up front made a restore into an empty
+     * database impossible: the applying administrator's own staff profile is
+     * itself in the archive, created by the Scientists sheet earlier in this
+     * same transaction, so looking for it before the sheets ran could only
+     * ever fail. Anyone restoring a fresh environment hit an error telling
+     * them to link a user to a scientist that the restore was about to create.
+     */
+    let applyingScientistId: number | undefined;
+    let applyingScientistResolved = false;
+    const resolveApplyingScientistId = async (): Promise<number> => {
+      if (!applyingScientistResolved) {
+        applyingScientistResolved = true;
+        if (actor?.scientistId != null) {
+          const [linked] = await tx
+            .select({ id: scientists.id })
+            .from(scientists)
+            .where(eq(scientists.id, actor.scientistId));
+          applyingScientistId = linked?.id;
         }
-        applyingScientistId = matches[0]?.id;
+        if (!applyingScientistId && actor?.email) {
+          const matches = await tx
+            .select({ id: scientists.id })
+            .from(scientists)
+            .where(caseInsensitiveKey(scientists.email, actor.email));
+          if (matches.length > 1) {
+            throw new Error(`Certification apply actor email "${actor.email}" is ambiguous`);
+          }
+          applyingScientistId = matches[0]?.id;
+        }
       }
       if (!applyingScientistId) {
         throw new Error(
           "Certification and Publication imports that create records require an auditable applying user linked to a scientist",
         );
       }
-    }
+      return applyingScientistId;
+    };
     const createsPublication = preview.rows.some(
       (row) => row.sheetName === "Publications" && row.action === "create",
     );
@@ -4604,8 +4684,16 @@ export async function applySection(
       const sheetCounts: ApplyCounts = { created: 0, updated: 0, skipped: 0 };
       transactionCounts[sheetName] = sheetCounts;
 
-      // Count skips
-      sheetCounts.skipped = preview.rows.filter((r) => r.sheetName === sheetName && r.action === "skip").length;
+      // Count skips. "Skipped" means present in the workbook and not written,
+      // so with skipping on it has to cover the rows that failed validation
+      // too -- otherwise the summary reports nothing skipped while the list of
+      // rejected rows below it names several, and created + updated + skipped
+      // no longer accounts for every row in the sheet.
+      sheetCounts.skipped = preview.rows.filter(
+        (r) =>
+          r.sheetName === sheetName &&
+          (r.action === "skip" || (skipInvalidRows && r.action === "error")),
+      ).length;
 
       // Rows that actually reached the database. Second-pass work (supervisor
       // links, organisation placement) must only run for these; a rejected row
@@ -4664,7 +4752,7 @@ export async function applySection(
             tx,
             entry,
             rowData,
-            applyingScientistId,
+            entry.action === "create" ? await resolveApplyingScientistId() : applyingScientistId,
             applyingUserId,
           );
           if (result.id != null) {
@@ -4728,7 +4816,10 @@ export async function applySection(
           if (entry.action === "create") sheetCounts.created++;
           else sheetCounts.updated++;
         } else if (sheetName === "Certifications") {
-          await applyCertificationRow(tx, entry, rowData, newModuleByKey, applyingScientistId);
+          await applyCertificationRow(
+            tx, entry, rowData, newModuleByKey,
+            entry.action === "create" ? await resolveApplyingScientistId() : undefined,
+          );
           if (entry.action === "create") sheetCounts.created++;
           else sheetCounts.updated++;
         } else if (sheetName === "Access Roles") {

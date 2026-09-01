@@ -6,7 +6,9 @@ import {
 } from "@shared/roomRoleEligibility";
 
 test("room supervisors use shared investigator eligibility", () => {
-  assert.equal(isRoomSupervisorEligible({ jobTitle: "Investigator", isInvestigator: false }), true);
+  // Job title no longer confers it: an "Investigator" without the access role
+  // is not eligible, and any title with it is.
+  assert.equal(isRoomSupervisorEligible({ jobTitle: "Investigator", isInvestigator: false }), false);
   assert.equal(isRoomSupervisorEligible({ jobTitle: "Administrator", isInvestigator: true }), true);
   assert.equal(isRoomSupervisorEligible({ jobTitle: "Research Coordinator", isInvestigator: false }), false);
 });

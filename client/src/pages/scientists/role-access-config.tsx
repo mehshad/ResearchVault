@@ -19,6 +19,7 @@ import {
   Plus,
   ShieldCheck,
   LockKeyhole,
+  AlertTriangle,
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import {
@@ -83,17 +84,17 @@ const SERVER_ENFORCED_RULES = [
   },
   {
     category: "Investigator eligibility",
-    title: "Only approved staff can be Principal Investigators",
+    title: "Only holders of the Investigator access role can be Principal Investigators",
     appliesTo: "Project leads, program leadership, research activity PI/budget holders, IRB/IBC PIs, and PI team roles",
     enforcement:
-      "A staff member must have the Investigator or Staff Scientist title, or an additional Investigator designation. The system rejects ineligible assignments even if a request bypasses the screen.",
+      "Eligibility is the Investigator access role on the person's account, held as their primary role or alongside one. Nothing else confers it: not the job title, and not any flag on the staff profile. The server derives it on every read from the linked account, so what the interface shows and what was granted cannot drift apart, and it rejects ineligible assignments even if a request bypasses the screen.",
   },
   {
     category: "Investigator eligibility",
     title: "Staff cannot grant themselves Investigator authority",
-    appliesTo: "Staff profiles and first-time registration",
+    appliesTo: "User role assignment, and job titles at first-time registration",
     enforcement:
-      "Only Management, administrators, or superadministrators can set the additional Investigator designation or an eligibility-granting title. Ordinary profile updates remain available without those fields.",
+      "Investigator is granted only in User Management, which is administrator-only, so nobody can give it to themselves by editing their own profile. The Investigator and Staff Scientist job titles still cannot be self-assigned at registration — they are a claim about someone's position that a manager should make — but a job title no longer grants any access.",
   },
   {
     category: "Staff records",
@@ -108,6 +109,20 @@ const SERVER_ENFORCED_RULES = [
     appliesTo: "User access administration",
     enforcement:
       "Only administrators and superadministrators can update a user's role. The superadministrator role cannot be assigned from the interface.",
+  },
+  {
+    category: "System configuration",
+    title: "System configuration is administrator-only",
+    appliesTo: "Theme, institution labels, section visibility, colour mode and every other stored setting",
+    enforcement:
+      "Reading the whole configuration, and creating, changing or deleting any setting, requires an administrator. Four presentation keys — theme name, institution labels, section visibility and default colour mode — stay readable without a session, because they are applied while the sign-in page is still painting. The Sidra Score settings keep their own rule and remain with the Outcome Office.",
+  },
+  {
+    category: "Permission matrix",
+    title: "Forms and logs follow the area that owns them",
+    appliesTo: "RA200 and RA205A forms, feature requests, and the certificate import log",
+    enforcement:
+      "RA200 and RA205A are resolved against PMO Office, feature requests against Dashboard, and the certificate PDF import log — which carries OCR text and staff names — against Certifications. Each is refused unless the person holds the matching area, rather than being reachable by anyone signed in.",
   },
   {
     category: "Ownership access",
@@ -156,7 +171,7 @@ interface OwnershipOverride {
 
 export default function RoleAccessConfig({ embedded = false }: { embedded?: boolean }) {
   const { toast } = useToast();
-  const { permissions, setPermissions, getAccessLevel } = usePermissions();
+  const { permissions, setPermissions, getAccessLevel, isUnconfigured, applyDefaultPermissions } = usePermissions();
 
   // ── Ownership overrides state ──────────────────────────────────────────────
   const [ownershipOverrides, setOwnershipOverrides] = useState<OwnershipOverride[]>([]);
@@ -271,8 +286,50 @@ export default function RoleAccessConfig({ embedded = false }: { embedded?: bool
     return permissions.find(p => p.jobTitle === jobTitle && p.navigationItem === navItemId);
   };
 
+  const applyStartingPoint = async () => {
+    try {
+      await applyDefaultPermissions();
+      toast({
+        title: "Starting point applied",
+        description:
+          "The generated matrix is now stored, recorded against your account. Review it before relying on it — it grants edit widely.",
+      });
+    } catch (error) {
+      toast({
+        title: "Could not apply the starting point",
+        description: error instanceof Error ? error.message : "Try again.",
+        variant: "destructive",
+      });
+    }
+  };
+
   return (
     <div className="space-y-6">
+      {isUnconfigured && (
+        <div
+          className="rounded-md border border-amber-300 bg-amber-50 p-4 dark:border-amber-800 dark:bg-amber-950/30"
+          data-testid="banner-matrix-unconfigured"
+        >
+          <div className="flex items-start gap-2">
+            <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-700 dark:text-amber-400" />
+            <div className="space-y-2">
+              <p className="font-medium text-amber-900 dark:text-amber-200">
+                This matrix has not been configured
+              </p>
+              <p className="text-sm text-amber-900/90 dark:text-amber-200/90">
+                Nothing is stored for this environment. What you see below is a generated
+                starting point that grants <strong>edit</strong> to most roles in most areas,
+                and it is not in force until it is applied or you save your own choices.
+                Applying it records your account against every cell, so an auditor can tell a
+                decision from a default.
+              </p>
+              <Button size="sm" onClick={applyStartingPoint} data-testid="button-apply-starting-point">
+                Apply this starting point
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
       {!embedded && (
         <div className="flex items-center justify-between flex-wrap gap-4">
           <div className="flex items-center gap-3">

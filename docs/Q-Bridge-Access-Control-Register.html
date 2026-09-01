@@ -1,0 +1,1290 @@
+<title>Access Control Register</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,500;0,6..72,600;1,6..72,400&family=Public+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap">
+
+<style>
+  :root {
+    --paper:      #f6f8f9;
+    --surface:    #ffffff;
+    --surface-2:  #eef3f4;
+    --ink:        #0b1f2a;
+    --ink-2:      #294049;
+    --muted:      #5b6f78;
+    --rule:       #d5dfe2;
+    --rule-soft:  #e6edee;
+    --accent:     #0f766e;
+    --accent-ink: #0b5a54;
+    --accent-wash:#dcefec;
+
+    --critical:   #a4231c;
+    --critical-wash: #f8e3e1;
+    --high:       #8a5300;
+    --high-wash:  #fbeedb;
+    --info:       #2c6e8f;
+    --info-wash:  #e0eef4;
+    --ok:         #1c6b4a;
+    --ok-wash:    #ddeee6;
+
+    --shadow: 0 1px 2px rgba(11,31,42,.06), 0 8px 24px -16px rgba(11,31,42,.28);
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --paper:      #0a1418;
+      --surface:    #0f1f26;
+      --surface-2:  #14282f;
+      --ink:        #e7eff1;
+      --ink-2:      #bccbd0;
+      --muted:      #8ba3ab;
+      --rule:       #233a43;
+      --rule-soft:  #1a2e36;
+      --accent:     #4ecdc0;
+      --accent-ink: #7fdcd2;
+      --accent-wash:#12332f;
+
+      --critical:   #f08a80;
+      --critical-wash: #3a1c19;
+      --high:       #e3a758;
+      --high-wash:  #35270f;
+      --info:       #7cc0dc;
+      --info-wash:  #122c38;
+      --ok:         #6cc79b;
+      --ok-wash:    #102e22;
+
+      --shadow: 0 1px 2px rgba(0,0,0,.4), 0 10px 30px -18px rgba(0,0,0,.8);
+    }
+  }
+
+  :root[data-theme="dark"] {
+    --paper:      #0a1418;
+    --surface:    #0f1f26;
+    --surface-2:  #14282f;
+    --ink:        #e7eff1;
+    --ink-2:      #bccbd0;
+    --muted:      #8ba3ab;
+    --rule:       #233a43;
+    --rule-soft:  #1a2e36;
+    --accent:     #4ecdc0;
+    --accent-ink: #7fdcd2;
+    --accent-wash:#12332f;
+
+    --critical:   #f08a80;
+    --critical-wash: #3a1c19;
+    --high:       #e3a758;
+    --high-wash:  #35270f;
+    --info:       #7cc0dc;
+    --info-wash:  #122c38;
+    --ok:         #6cc79b;
+    --ok-wash:    #102e22;
+
+    --shadow: 0 1px 2px rgba(0,0,0,.4), 0 10px 30px -18px rgba(0,0,0,.8);
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    background: var(--paper);
+    color: var(--ink);
+    font-family: "Public Sans", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+    font-size: 16px;
+    line-height: 1.6;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .wrap {
+    max-width: 1080px;
+    margin: 0 auto;
+    padding: 0 28px 96px;
+  }
+
+  /* ── Masthead ─────────────────────────────────────────────── */
+  .masthead {
+    border-bottom: 2px solid var(--ink);
+    padding: 56px 0 22px;
+    margin-bottom: 12px;
+  }
+  .eyebrow {
+    font-size: 11px;
+    letter-spacing: .16em;
+    text-transform: uppercase;
+    font-weight: 600;
+    color: var(--accent-ink);
+    margin: 0 0 14px;
+  }
+  h1 {
+    font-family: Newsreader, Georgia, "Times New Roman", serif;
+    font-weight: 500;
+    font-size: clamp(38px, 6vw, 62px);
+    line-height: 1.02;
+    letter-spacing: -.015em;
+    margin: 0 0 14px;
+    text-wrap: balance;
+  }
+  .standfirst {
+    font-family: Newsreader, Georgia, serif;
+    font-size: 20px;
+    line-height: 1.5;
+    color: var(--ink-2);
+    max-width: 62ch;
+    margin: 0 0 26px;
+  }
+
+  .provenance {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(148px, 1fr));
+    gap: 1px;
+    background: var(--rule);
+    border: 1px solid var(--rule);
+    border-radius: 3px;
+    overflow: hidden;
+  }
+  .provenance div { background: var(--surface); padding: 11px 14px; }
+  .provenance dt {
+    font-size: 10px; letter-spacing: .12em; text-transform: uppercase;
+    color: var(--muted); font-weight: 600; margin: 0 0 3px;
+  }
+  .provenance dd {
+    margin: 0; font-family: "IBM Plex Mono", ui-monospace, monospace;
+    font-size: 13px; color: var(--ink); font-variant-numeric: tabular-nums;
+  }
+
+  /* ── Sections ─────────────────────────────────────────────── */
+  section { margin-top: 60px; scroll-margin-top: 20px; }
+  h2 {
+    font-family: Newsreader, Georgia, serif;
+    font-weight: 500;
+    font-size: 31px;
+    line-height: 1.15;
+    letter-spacing: -.01em;
+    margin: 0 0 6px;
+    display: flex;
+    align-items: baseline;
+    gap: 14px;
+    text-wrap: balance;
+  }
+  h2 .num {
+    font-family: "IBM Plex Mono", monospace;
+    font-size: 13px;
+    color: var(--accent);
+    font-weight: 500;
+    letter-spacing: .04em;
+    flex: none;
+    padding-top: 4px;
+  }
+  h3 {
+    font-family: "Public Sans", sans-serif;
+    font-size: 13px;
+    letter-spacing: .1em;
+    text-transform: uppercase;
+    font-weight: 700;
+    color: var(--muted);
+    margin: 34px 0 12px;
+  }
+  .lede { color: var(--ink-2); max-width: 68ch; margin: 0 0 22px; }
+  p { max-width: 68ch; }
+  a { color: var(--accent-ink); text-decoration-thickness: 1px; text-underline-offset: 2px; }
+  a:focus-visible, button:focus-visible {
+    outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 2px;
+  }
+
+  code, .mono {
+    font-family: "IBM Plex Mono", ui-monospace, monospace;
+    font-size: .88em;
+    background: var(--surface-2);
+    padding: 1px 5px;
+    border-radius: 3px;
+    color: var(--ink);
+  }
+
+  /* ── Tables ───────────────────────────────────────────────── */
+  .scroller {
+    overflow-x: auto;
+    border: 1px solid var(--rule);
+    border-radius: 4px;
+    background: var(--surface);
+    box-shadow: var(--shadow);
+  }
+  table { border-collapse: collapse; width: 100%; font-size: 14px; }
+  th {
+    text-align: left;
+    font-size: 10.5px;
+    letter-spacing: .11em;
+    text-transform: uppercase;
+    font-weight: 700;
+    color: var(--muted);
+    padding: 11px 14px;
+    border-bottom: 1px solid var(--rule);
+    background: var(--surface-2);
+    white-space: nowrap;
+  }
+  td {
+    padding: 12px 14px;
+    border-bottom: 1px solid var(--rule-soft);
+    vertical-align: top;
+    color: var(--ink-2);
+  }
+  tbody tr:last-child td { border-bottom: 0; }
+  td.k { color: var(--ink); font-weight: 600; white-space: nowrap; }
+  td .mono, th .mono { background: none; padding: 0; }
+  .num-col { font-variant-numeric: tabular-nums; text-align: right; white-space: nowrap; }
+
+  /* ── Chips ────────────────────────────────────────────────── */
+  .chip {
+    display: inline-block;
+    font-size: 10.5px;
+    letter-spacing: .08em;
+    text-transform: uppercase;
+    font-weight: 700;
+    padding: 2px 8px;
+    border-radius: 2px;
+    white-space: nowrap;
+  }
+  .chip.critical { background: var(--critical-wash); color: var(--critical); }
+  .chip.high     { background: var(--high-wash);     color: var(--high); }
+  .chip.info     { background: var(--info-wash);     color: var(--info); }
+  .chip.ok       { background: var(--ok-wash);       color: var(--ok); }
+  .chip.neutral  { background: var(--surface-2);     color: var(--muted); }
+
+  /* ── Screen illustrations ─────────────────────────────────── */
+  .screen {
+    border: 1px solid var(--rule);
+    border-radius: 6px;
+    background: var(--surface);
+    box-shadow: var(--shadow);
+    overflow: hidden;
+    margin: 18px 0 8px;
+  }
+  .screen-bar {
+    display: flex;
+    align-items: baseline;
+    gap: 10px;
+    flex-wrap: wrap;
+    padding: 12px 16px;
+    border-bottom: 1px solid var(--rule);
+    background: var(--surface-2);
+  }
+  .screen-bar b { font-size: 14px; color: var(--ink); font-weight: 600; }
+  .screen-bar span { font-size: 12px; color: var(--muted); }
+  .screen-body { padding: 4px 16px 14px; overflow-x: auto; }
+
+  .urow {
+    display: grid;
+    grid-template-columns: minmax(150px, 1.2fr) 8rem minmax(120px, 1fr) 9.5rem minmax(190px, 1.4fr);
+    gap: 14px;
+    align-items: center;
+    padding: 12px 0;
+    border-bottom: 1px solid var(--rule-soft);
+    font-size: 13.5px;
+    min-width: 720px;
+  }
+  .urow:last-child { border-bottom: 0; }
+  .urow.head {
+    font-size: 10px; letter-spacing: .11em; text-transform: uppercase;
+    font-weight: 700; color: var(--muted); padding: 10px 0 8px;
+  }
+  .uname { color: var(--ink); font-weight: 600; }
+  .uname small { display: block; font-weight: 400; color: var(--muted); font-size: 11.5px; }
+  .pill {
+    display: inline-block; font-size: 11.5px; padding: 3px 9px; border-radius: 999px;
+    border: 1px solid var(--rule); background: var(--surface-2); color: var(--ink-2);
+    white-space: nowrap;
+  }
+  .pill.primary { background: var(--accent-wash); border-color: transparent; color: var(--accent-ink); font-weight: 600; }
+  .pill.add { border-style: dashed; color: var(--muted); }
+  .pill-row { display: flex; gap: 6px; flex-wrap: wrap; }
+
+  .mrow {
+    display: grid;
+    grid-template-columns: minmax(150px, 1fr) minmax(300px, 1.4fr) 8.5rem;
+    gap: 14px;
+    align-items: center;
+    padding: 9px 0;
+    border-bottom: 1px solid var(--rule-soft);
+    font-size: 13.5px;
+    min-width: 640px;
+  }
+  .mrow:last-child { border-bottom: 0; }
+  .mrow.head {
+    font-size: 10px; letter-spacing: .11em; text-transform: uppercase;
+    font-weight: 700; color: var(--muted); padding: 10px 0 8px;
+  }
+  .mrow .role { color: var(--ink); font-weight: 600; }
+  .radios { display: flex; gap: 14px; flex-wrap: wrap; }
+  .radio { display: inline-flex; align-items: center; gap: 5px; font-size: 12px; color: var(--ink-2); }
+  .dot {
+    width: 12px; height: 12px; border-radius: 50%;
+    border: 1.5px solid var(--muted); flex: none; display: inline-block;
+  }
+  .radio.on .dot { border-color: var(--accent); box-shadow: inset 0 0 0 2.5px var(--accent); }
+  .radio.on { color: var(--ink); font-weight: 600; }
+  .lvl { font-size: 11px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase;
+         padding: 3px 9px; border-radius: 3px; white-space: nowrap; }
+  .lvl.hide   { background: var(--critical-wash); color: var(--critical); }
+  .lvl.view   { background: var(--info-wash);     color: var(--info); }
+  .lvl.create { background: var(--high-wash);     color: var(--high); }
+  .lvl.edit   { background: var(--ok-wash);       color: var(--ok); }
+
+  .caption { font-size: 13px; color: var(--muted); margin: 6px 0 0; max-width: 68ch; }
+
+  /* ── Stat band ────────────────────────────────────────────── */
+  .stats {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+    gap: 1px;
+    background: var(--rule);
+    border: 1px solid var(--rule);
+    border-radius: 4px;
+    overflow: hidden;
+    margin: 26px 0;
+  }
+  .stat { background: var(--surface); padding: 18px 16px; }
+  .stat .v {
+    font-family: Newsreader, Georgia, serif;
+    font-size: 40px;
+    line-height: 1;
+    font-variant-numeric: tabular-nums;
+    color: var(--ink);
+  }
+  .stat .v.warn { color: var(--critical); }
+  .stat .l {
+    font-size: 11px; letter-spacing: .09em; text-transform: uppercase;
+    color: var(--muted); font-weight: 600; margin-top: 8px;
+  }
+
+  /* ── Findings ─────────────────────────────────────────────── */
+  .finding {
+    border: 1px solid var(--rule);
+    border-left: 3px solid var(--muted);
+    border-radius: 4px;
+    background: var(--surface);
+    padding: 20px 22px;
+    margin-bottom: 16px;
+  }
+  .finding.critical { border-left-color: var(--critical); }
+  .finding.high     { border-left-color: var(--high); }
+  .finding.info     { border-left-color: var(--info); }
+  .finding.ok       { border-left-color: var(--ok); }
+  .finding-head {
+    display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin-bottom: 10px;
+  }
+  .finding-id {
+    font-family: "IBM Plex Mono", monospace; font-size: 12px;
+    font-weight: 500; color: var(--muted); letter-spacing: .04em;
+  }
+  .finding h4 {
+    font-family: "Public Sans", sans-serif;
+    font-size: 17px; font-weight: 700; margin: 0; color: var(--ink);
+    flex: 1 1 260px; line-height: 1.35;
+  }
+  .finding p { margin: 0 0 10px; font-size: 14.5px; }
+  .finding p:last-child { margin-bottom: 0; }
+  .finding .label {
+    font-size: 10.5px; letter-spacing: .1em; text-transform: uppercase;
+    font-weight: 700; color: var(--muted); display: block; margin-bottom: 3px;
+  }
+  .evidence {
+    background: var(--surface-2);
+    border-radius: 3px;
+    padding: 10px 13px;
+    margin: 12px 0;
+    font-family: "IBM Plex Mono", monospace;
+    font-size: 12.5px;
+    line-height: 1.65;
+    color: var(--ink-2);
+    overflow-x: auto;
+  }
+
+  .note {
+    border-left: 3px solid var(--accent);
+    background: var(--accent-wash);
+    padding: 14px 18px;
+    border-radius: 0 4px 4px 0;
+    margin: 22px 0;
+  }
+  .note p { margin: 0; font-size: 14.5px; color: var(--ink-2); max-width: none; }
+  .note strong { color: var(--ink); }
+
+  ul.tight { max-width: 68ch; padding-left: 20px; }
+  ul.tight li { margin-bottom: 7px; color: var(--ink-2); }
+
+  footer {
+    margin-top: 72px; padding-top: 20px;
+    border-top: 1px solid var(--rule);
+    font-size: 13px; color: var(--muted);
+  }
+  footer p { max-width: 72ch; }
+</style>
+
+<div class="wrap">
+
+  <header class="masthead">
+    <p class="eyebrow">Q-Bridge / ResearchVault &middot; Governance Audit Pack</p>
+    <h1>Access Control Register</h1>
+    <p class="standfirst">
+      Every rule that decides who may see or change a record — the fixed ones written into
+      the code, and the configurable ones held in the database — established by reading the
+      implementation rather than the documentation. Section&nbsp;08 is the outstanding work:
+      findings are removed once fixed, so what remains there is what is left to do.
+    </p>
+    <dl class="provenance">
+      <div><dt>Repository</dt><dd>mehshad/ResearchVault</dd></div>
+      <div><dt>Branch</dt><dd>WH_changes</dd></div>
+      <div><dt>Commit</dt><dd>3f468cf</dd></div>
+      <div><dt>Reviewed</dt><dd>2026-08-30</dd></div>
+      <div><dt>Revision</dt><dd>6 &mdash; open items</dd></div>
+      <div><dt>Method</dt><dd>Source review</dd></div>
+    </dl>
+  </header>
+
+  <!-- 1 ───────────────────────────────────────────────────── -->
+  <section id="scope">
+    <h2><span class="num">01</span> Scope and method</h2>
+    <p class="lede">
+      This register covers authorisation only: the decision, once a request arrives, about
+      whether the caller may proceed. Authentication mechanics, transport security, and data
+      retention are out of scope.
+    </p>
+    <p>
+      Findings were established by reading the server and client source at the commit above and
+      by querying a database restored from a production export. Where a number appears in this
+      document it was counted from the code, not estimated; section&nbsp;09 lists the commands so
+      any statement here can be re-derived independently.
+    </p>
+    <p>
+      Authorisation in this system is decided in four distinct places. They are documented in
+      turn, and they do <em>not</em> agree with one another — which is the substance of
+      section&nbsp;07.
+    </p>
+    <div class="scroller">
+      <table>
+        <thead>
+          <tr><th>Layer</th><th>Decides</th><th>Held in</th><th>Changeable by</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td class="k">Authentication mode</td>
+            <td>Whether anyone is identified at all</td>
+            <td>Environment (<span class="mono">AUTH_MODE</span>)</td>
+            <td>Deployment</td>
+          </tr>
+          <tr>
+            <td class="k">Route guards</td>
+            <td>Which roles may call an endpoint</td>
+            <td>Code (<span class="mono">server/auth.ts</span>)</td>
+            <td>Developers</td>
+          </tr>
+          <tr>
+            <td class="k">Permission matrix</td>
+            <td>What each role sees in the interface</td>
+            <td>Database (<span class="mono">role_permissions</span>)</td>
+            <td>Administrators</td>
+          </tr>
+          <tr>
+            <td class="k">Record policies</td>
+            <td>Which individual records a person may see or change</td>
+            <td>Code (policy modules)</td>
+            <td>Developers</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- 2 ───────────────────────────────────────────────────── -->
+  <section id="identity">
+    <h2><span class="num">02</span> Identity and authentication modes</h2>
+    <p class="lede">
+      A single environment variable, <span class="mono">AUTH_MODE</span>, selects how users are
+      identified. One of the four values disables authorisation across the entire application.
+    </p>
+    <div class="scroller">
+      <table>
+        <thead>
+          <tr><th>Mode</th><th>Identity source</th><th>Effect on authorisation</th><th>Fit for production</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td class="k">demo</td>
+            <td>None — a guest user is injected into every session</td>
+            <td><strong>All guards bypassed.</strong> Auth passes unconditionally, the restricted-role
+                policy short-circuits, and the session refresh is skipped</td>
+            <td><span class="chip critical">Never</span></td>
+          </tr>
+          <tr>
+            <td class="k">local</td>
+            <td>Username and password in <span class="mono">users</span>, SHA-256 hashed</td>
+            <td>Full enforcement</td>
+            <td><span class="chip high">Weak hashing</span></td>
+          </tr>
+          <tr>
+            <td class="k">ldap</td>
+            <td>Directory bind; local record created on first login</td>
+            <td>Full enforcement</td>
+            <td><span class="chip ok">Yes</span></td>
+          </tr>
+          <tr>
+            <td class="k">oidc</td>
+            <td>Identity provider; local record created on first login</td>
+            <td>Full enforcement</td>
+            <td><span class="chip ok">Yes</span></td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h3>Session integrity</h3>
+    <p>
+      Every request to <span class="mono">/api</span> re-reads the signed-in user from the database
+      before the route runs. A deleted account is rejected with 401 on its next request, and a role
+      change takes effect immediately rather than at next sign-in. If that lookup fails the request
+      is refused with 503 — the control fails closed, which is the correct behaviour.
+    </p>
+    <p>
+      Sessions are stored in PostgreSQL when <span class="mono">DATABASE_URL</span> is set and in
+      process memory otherwise. Cookies are marked <span class="mono">secure</span> only when
+      <span class="mono">APP_URL</span> begins with <span class="mono">https://</span>, so a
+      deployment behind TLS-terminating infrastructure that advertises an
+      <span class="mono">http://</span> URL will issue non-secure session cookies.
+    </p>
+
+    <h3>Privileged bootstrap</h3>
+    <p>
+      The address in <span class="mono">SUPER_ADMIN_EMAIL</span> is promoted to
+      <span class="mono">superadmin</span> <em>on every login</em>, not only at first sign-in.
+      Whoever controls that environment variable controls the highest privilege in the system, and
+      a demotion performed in the interface is silently reversed the next time that person signs in.
+    </p>
+  </section>
+
+  <!-- 3 ───────────────────────────────────────────────────── -->
+  <section id="roles">
+    <h2><span class="num">03</span> The role model</h2>
+    <p class="lede">
+      Two families of role coexist. Three built-in roles are defined in code and sit outside the
+      configurable matrix; the <strong>access roles</strong> are rows in the database and are what
+      the matrix configures. A person holds one <strong>primary</strong> access role plus any
+      number of <strong>secondary</strong> roles, and their access is the union of all of them.
+    </p>
+    <p class="lede">
+      An access role is <em>not</em> the same thing as a job title. There are eighteen job titles
+      on people's profiles and thirteen access roles, because six bench and support titles share
+      the single <span class="mono">Researcher</span> role.
+    </p>
+    <div class="scroller">
+      <table>
+        <thead>
+          <tr><th>Role</th><th>Family</th><th>Origin</th><th>Assignable in the UI</th><th>Matrix applies</th></tr>
+        </thead>
+        <tbody>
+          <tr><td class="k">superadmin</td><td>Built-in</td><td>Environment variable only</td><td><span class="chip critical">No</span></td><td>Bypassed — always full access</td></tr>
+          <tr><td class="k">admin</td><td>Built-in</td><td>Normally granted as a <em>secondary</em> role</td><td><span class="chip ok">Yes</span></td><td>Bypassed — always full access</td></tr>
+          <tr><td class="k">user</td><td>Built-in</td><td>Default for every new account</td><td><span class="chip ok">Yes</span></td><td>Overridden — see below</td></tr>
+          <tr><td class="k">13 access roles</td><td>Configurable</td><td>Rows in <span class="mono">role_groups</span></td><td><span class="chip ok">Yes</span></td><td>Yes</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="note">
+      <p>
+        <strong>Every account starts restricted.</strong> New LDAP and OIDC users are provisioned
+        as <span class="mono">user</span>, which is denied by default: a global policy blocks all
+        API access except an explicit allowlist — their own profile, ordinary publication reads,
+        impact-factor reads, certification modules, and registration. This is a genuine
+        fail-closed default and it works as intended.
+      </p>
+    </div>
+    <p>
+      The thirteen configurable access roles are: IBC Board Member, IBC Officer, IRB Board Member,
+      IRB Officer, IT Officer, Investigator, Lab Manager, Management, Outcome Officer, PMO
+      Officer, Physician, Research Officer, and Researcher.
+    </p>
+
+    <h3>Access roles are not job titles</h3>
+    <p>
+      A person's job title is what they do; their access role is what they may reach. Keeping them
+      as one list would make every distinction of seniority a distinct set of permissions to
+      configure and keep in step, so six titles &mdash; Staff Scientist, Postdoctoral Researcher,
+      PhD Student, Research Specialist, Research Associate and Research Assistant &mdash; resolve
+      to the one <span class="mono">Researcher</span> access role. The titles themselves stand
+      unchanged on profiles.
+    </p>
+    <p>
+      <strong>Investigator is deliberately not folded in.</strong> It carries responsibilities the
+      others do not, and it is named directly by record-level policies (&sect;06), so merging it
+      would widen access rather than tidy it.
+    </p>
+    <div class="note">
+      <p>
+        <strong>Consolidation fails closed.</strong> Holders of a retired role are not auto-mapped
+        onto its replacement. They hold <span class="mono">user</span> &mdash; restricted by
+        default &mdash; with their job title intact, so an administrator can see what each person
+        actually does and make a deliberate assignment. Nobody keeps access through a role that
+        does not exist.
+      </p>
+      <p>
+        A retired role's matrix rows merge into <span class="mono">Researcher</span> at the
+        <em>most permissive</em> level any of them holds, so no remaining holder loses access.
+        That has a consequence worth stating: against a database whose matrix was generated rather
+        than configured, the merge propagates generated values, not decisions.
+      </p>
+    </div>
+
+    <h3>Primary and secondary roles</h3>
+    <p>
+      People hold more than one position: a Physician who is also an Investigator, a bench
+      scientist who also sits on the IBC board. Consolidation (above) does not address this &mdash;
+      it reduces how many roles exist, not how many one person needs. A single role string cannot
+      express it, so <span class="mono">users.role</span> carries the <em>primary</em> access role
+      and <span class="mono">user_role_assignments</span> carries the secondaries.
+    </p>
+    <ul class="tight">
+      <li><strong>Access is the union.</strong> The most permissive level any held role grants
+          wins. A secondary can only widen access, never narrow it — there is a test asserting
+          exactly that.</li>
+      <li><strong>Administrator rights are normally secondary.</strong> <span class="mono">admin</span>
+          is layered onto a job title rather than replacing it, so administrators keep their real
+          role in the record.</li>
+      <li><strong>The onboarding lockout lifts on assignment.</strong> The restricted
+          <span class="mono">user</span> role confines its holder only while it is the
+          <em>only</em> role held; granting any secondary counts as an assignment.</li>
+      <li><strong><span class="mono">superadmin</span> is unassignable</strong> — the
+          endpoint refuses it explicitly, and it comes from
+          <span class="mono">SUPER_ADMIN_EMAIL</span> alone.</li>
+    </ul>
+    <p>
+      One resolution module, <span class="mono">shared/effectiveRoles.ts</span>, answers both
+      "what does this person hold" and "what does that add up to", so the guards, the matrix and
+      the client cannot drift apart.
+    </p>
+
+    <h3>Where roles are assigned</h3>
+    <p>
+      Settings &rarr; Users. One primary role per person and any number of secondary ones. The
+      illustration below is representative, not a capture of live data.
+    </p>
+    <div class="screen">
+      <div class="screen-bar">
+        <b>User Management</b>
+        <span>Settings &rarr; Users &middot; administrators only</span>
+      </div>
+      <div class="screen-body">
+        <div class="urow head">
+          <div>User</div><div>Last login</div><div>Profile job title</div>
+          <div>Primary access role</div><div>Secondary roles</div>
+        </div>
+        <div class="urow">
+          <div class="uname">A. Rahman<small>a.rahman</small></div>
+          <div>2 Aug, 09:14</div>
+          <div>Physician</div>
+          <div><span class="pill primary">Physician</span></div>
+          <div class="pill-row">
+            <span class="pill">Investigator &times;</span>
+            <span class="pill add">+ Add</span>
+          </div>
+        </div>
+        <div class="urow">
+          <div class="uname">L. Okonkwo<small>l.okonkwo</small></div>
+          <div>2 Aug, 08:02</div>
+          <div>Postdoctoral Researcher</div>
+          <div><span class="pill primary">Researcher</span></div>
+          <div class="pill-row">
+            <span class="pill">IBC Board Member &times;</span>
+            <span class="pill add">+ Add</span>
+          </div>
+        </div>
+        <div class="urow">
+          <div class="uname">M. Haddad<small>m.haddad</small></div>
+          <div>1 Aug, 16:41</div>
+          <div>PMO Officer</div>
+          <div><span class="pill primary">PMO Officer</span></div>
+          <div class="pill-row">
+            <span class="pill">admin &times;</span>
+            <span class="pill add">+ Add</span>
+          </div>
+        </div>
+      </div>
+    </div>
+    <p class="caption">
+      Three things an auditor should read off this screen. <strong>Profile job title and primary
+      access role are different columns</strong> &mdash; L. Okonkwo is titled Postdoctoral
+      Researcher and holds the consolidated <span class="mono">Researcher</span> role, which is
+      consistent, not a mismatch. <strong>Access is the union</strong>: Okonkwo gets the IBC
+      board's access on top of the Researcher role, never less than either.
+      <strong>Administrator rights sit in the secondary column</strong> &mdash; M. Haddad is an
+      administrator while remaining a PMO Officer in the record, so the account still says what
+      the person actually does.
+    </p>
+  </section>
+
+  <!-- 4 ───────────────────────────────────────────────────── -->
+  <section id="fixed">
+    <h2><span class="num">04</span> Fixed rules — the guard inventory</h2>
+    <p class="lede">
+      Guards are defined in code and cannot be changed without a deployment. Every one evaluates
+      <em>all</em> roles a person holds, not the primary alone.
+    </p>
+    <p>
+      Only two of them decide anything from a role name. The rest resolve the permission matrix,
+      which means an administrator changing a cell changes what the server admits &mdash; the thing
+      a configurable matrix is supposed to mean. Every area they resolve is one the settings screen
+      shows.
+    </p>
+    <div class="scroller">
+      <table>
+        <thead>
+          <tr><th>Guard</th><th>Admits</th><th>Endpoints</th><th>Notes</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td class="k">requireAuth</td>
+            <td>Any signed-in user</td>
+            <td class="num-col">54</td>
+            <td>Returns immediately in demo mode</td>
+          </tr>
+          <tr>
+            <td class="k">requireAdmin</td>
+            <td><span class="mono">admin</span>, <span class="mono">superadmin</span>, and in demo mode <span class="mono">Management</span></td>
+            <td class="num-col">25</td>
+            <td>Guards user administration and the Bulk Data Hub</td>
+          </tr>
+          <tr>
+            <td class="k">requirePublicationOfficer</td>
+            <td>Admins, plus whatever the matrix grants for <span class="mono">outcome-office</span></td>
+            <td class="num-col">22</td>
+            <td>Publication office actions</td>
+          </tr>
+          <tr>
+            <td class="k">requireManagement</td>
+            <td>Admins, plus whatever the matrix grants for <span class="mono">management</span></td>
+            <td class="num-col">3</td>
+            <td>Management reporting</td>
+          </tr>
+          <tr>
+            <td class="k">requirePmoOfficer</td>
+            <td>Admins, plus whatever the matrix grants for <span class="mono">pmo-office</span></td>
+            <td class="num-col">1</td>
+            <td>PMO dashboard</td>
+          </tr>
+          <tr>
+            <td class="k">requireResearchOfficer</td>
+            <td>Admins, plus whatever the matrix grants for <span class="mono">research-office</span></td>
+            <td class="num-col">1</td>
+            <td>Grants and contracts are one office under one role</td>
+          </tr>
+          <tr>
+            <td class="k">Per-area prefix guards</td>
+            <td>Admins, plus whatever the matrix grants for the area that owns the path</td>
+            <td class="num-col">33</td>
+            <td>Mounted on API path prefixes covering 18 areas, so a route added under one is covered by being written</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+    <p style="margin-top:16px">
+      Two further middlewares run globally on every <span class="mono">/api</span> request: the
+      session refresh described in section&nbsp;02, and the restricted-role policy that confines
+      the <span class="mono">user</span> role to its allowlist. Both are bypassed in demo mode.
+      The session refresh also reloads secondary roles, so revoking one takes effect on that
+      session's very next request rather than at next sign-in.
+    </p>
+    <h3>What each method has to hold</h3>
+    <p>
+      Every matrix-resolving guard asks the same question of the method, so the four stored levels
+      mean the same thing everywhere:
+    </p>
+    <div class="scroller">
+      <table>
+        <thead><tr><th>Level</th><th>GET / HEAD</th><th>POST</th><th>PUT / PATCH / DELETE</th></tr></thead>
+        <tbody>
+          <tr><td class="k">hide</td><td>&mdash;</td><td>&mdash;</td><td>&mdash;</td></tr>
+          <tr><td class="k">view</td><td><span class="chip ok">Yes</span></td><td>&mdash;</td><td>&mdash;</td></tr>
+          <tr><td class="k">create</td><td><span class="chip ok">Yes</span></td><td><span class="chip ok">Yes</span></td><td>&mdash;</td></tr>
+          <tr><td class="k">edit</td><td><span class="chip ok">Yes</span></td><td><span class="chip ok">Yes</span></td><td><span class="chip ok">Yes</span></td></tr>
+        </tbody>
+      </table>
+    </div>
+    <h3>What the settings screen shows</h3>
+    <p>
+      Settings &rarr; Access Control opens with a read-only card, <em>Server-Enforced Access
+      Rules</em>, above the editable matrix. It exists so an administrator can see the rules the
+      matrix cannot change without reading the code. It is reproduced here in full, so this
+      register and that screen can be checked against each other &mdash; if they disagree, one of
+      them is out of date.
+    </p>
+    <div class="scroller">
+      <table>
+        <thead><tr><th>Rule</th><th>Area</th><th>Applies to</th><th>What the server does</th></tr></thead>
+        <tbody>
+          <tr><td class="k">The matrix is enforced on every API request</td><td>Permission matrix</td><td>All navigation areas, on the server as well as in the interface</td><td>Each area is resolved against the roles a person holds before their request reaches the data. GET needs view, POST needs create, and edit or delete needs edit. Someone holding several roles gets the most permissive of them. Hiding an area does not only hide the menu item &mdash; the endpoints behind it refuse the request.</td></tr>
+          <tr><td class="k">Administrators are not subject to the matrix</td><td>Permission matrix</td><td>Anyone holding <span class="mono">admin</span> in any role slot, and <span class="mono">superadmin</span></td><td>Administrators are admitted before the matrix is consulted, so no cell can lock out the people who would have to correct it. A matrix lookup that fails is treated as a refusal, never as permission.</td></tr>
+          <tr><td class="k">Forms and logs follow the area that owns them</td><td>Permission matrix</td><td>RA200 and RA205A forms, feature requests, the certificate import log</td><td>RA200 and RA205A resolve against <span class="mono">pmo-office</span>, feature requests against <span class="mono">dashboard</span>, and the certificate PDF import log against <span class="mono">certifications</span>. Each is refused unless the person holds the matching area.</td></tr>
+          <tr><td class="k">A new account can reach almost nothing until a role is assigned</td><td>Account onboarding</td><td>Accounts still holding only the default <span class="mono">user</span> role</td><td>Every API call is refused except a short allowlist: their own profile, ordinary publication and impact-factor reads, certification modules, and registration. Granting any role, primary or secondary, lifts the restriction.</td></tr>
+          <tr><td class="k">Only administrators can change user roles</td><td>Account administration</td><td>User access administration</td><td>Only administrators and superadministrators can update a user's role. The superadministrator role cannot be assigned from the interface.</td></tr>
+          <tr><td class="k">System configuration is administrator-only</td><td>System configuration</td><td>Theme, institution labels, section visibility, colour mode and every other stored setting</td><td>Reading the whole configuration, and creating, changing or deleting any setting, requires an administrator. Four presentation keys stay readable without a session because the sign-in page applies them. The Sidra Score settings remain with the Outcome Office.</td></tr>
+          <tr><td class="k">Only holders of the Investigator access role can be Principal Investigators</td><td>Investigator eligibility</td><td>Project leads, programme leadership, research activity PI and budget holder, IRB/IBC PIs, PI team roles</td><td>Eligibility is the Investigator access role, held as a primary role or alongside one. Neither the job title nor any profile flag confers it; the server derives it on every read from the linked account.</td></tr>
+          <tr><td class="k">Staff cannot grant themselves Investigator authority</td><td>Investigator eligibility</td><td>User role assignment, and job titles at first-time registration</td><td>Investigator is granted only in User Management, which is administrator-only. The Investigator and Staff Scientist job titles still cannot be self-assigned at registration, though a job title now grants no access.</td></tr>
+          <tr><td class="k">Profile changes are limited to the owner or Management</td><td>Staff records</td><td>Staff profile edits and deletion</td><td>Staff can update their own profile; Management and administrators can manage all of them. Deletion is limited to Management and administrators, and is blocked while a profile is referenced by other records.</td></tr>
+          <tr><td class="k">Bulk staff imports are restricted</td><td>Staff data</td><td>Staff import preview and apply</td><td>Only administrators can preview or apply staff imports. Organisation assignments are validated before staff records are saved.</td></tr>
+          <tr><td class="k">Record relationships can elevate access</td><td>Ownership access</td><td>Configured ownership rules, such as being an author, PI or requester</td><td>The effective level is the higher of the role-based access and a configured ownership override. Ownership rules are managed separately by administrators.</td></tr>
+          <tr><td class="k">IP vetting and sealed publications have extra safeguards</td><td>Publication workflow</td><td>Publication status changes and corrections</td><td>Only an Outcome Officer or higher can move a Complete Draft through IP vetting. Published records are sealed from ordinary changes; researcher corrections are limited to linked records.</td></tr>
+          <tr><td class="k">Unpublished publications are relationship-restricted</td><td>Publication visibility</td><td>Publication lists, direct details, staff profiles, charts, counts, filters, author-link checks</td><td>Published and <span class="mono">Published *</span> records remain generally visible. An unpublished record is visible only to its creator, a linked internal author, that author's direct line manager, or Management and administrators.</td></tr>
+          <tr><td class="k">Outcome Office access is limited to the authorised office view</td><td>Publication visibility</td><td>Outcome Office publication queues and the ordinary Publications page</td><td>Outcome Officers review all workflow records inside the server-authorised office view. That authority does not expose unrelated unpublished records on the ordinary Publications list or through a direct-detail request.</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="note">
+      <p>
+        <strong>Read-only by design.</strong> None of these is configurable from that screen, and
+        several could not safely be: they are the safeguards that keep a misconfigured matrix from
+        becoming a breach. Whenever a role restriction, ownership requirement, workflow guard or
+        eligibility rule changes in code, its plain-language entry there and its row here change
+        with it.
+      </p>
+    </div>
+    <div class="note">
+      <p>
+        <strong>Administrators short-circuit before the matrix is read.</strong> No cell can lock
+        out the people who would have to correct it. A failed matrix lookup, by contrast, is a
+        refusal: a database that cannot answer is not a yes.
+      </p>
+    </div>
+  </section>
+
+  <!-- 5 ───────────────────────────────────────────────────── -->
+  <section id="dynamic">
+    <h2><span class="num">05</span> Dynamic rules — the permission matrix</h2>
+    <p class="lede">
+      The matrix is a grid of roles against areas of the application, stored in
+      <span class="mono">role_permissions</span> and editable through Settings. It is the control
+      most people would point to if asked how access is governed here &mdash; and because it is
+      enforced server-side, it is the control that actually answers.
+    </p>
+
+    <div class="screen">
+      <div class="screen-bar">
+        <b>Navigation Permission Matrix</b>
+        <span>Settings &rarr; Role &amp; Access Configuration &middot; area: <span class="mono">Grants</span></span>
+      </div>
+      <div class="screen-body">
+        <div class="mrow head"><div>Role</div><div>Access level</div><div>Effect</div></div>
+        <div class="mrow">
+          <div class="role">Research Officer</div>
+          <div class="radios">
+            <span class="radio"><i class="dot"></i>Hide</span>
+            <span class="radio"><i class="dot"></i>View</span>
+            <span class="radio"><i class="dot"></i>Add</span>
+            <span class="radio on"><i class="dot"></i>Edit</span>
+          </div>
+          <div><span class="lvl edit">Full access</span></div>
+        </div>
+        <div class="mrow">
+          <div class="role">Investigator</div>
+          <div class="radios">
+            <span class="radio"><i class="dot"></i>Hide</span>
+            <span class="radio"><i class="dot"></i>View</span>
+            <span class="radio on"><i class="dot"></i>Add</span>
+            <span class="radio"><i class="dot"></i>Edit</span>
+          </div>
+          <div><span class="lvl create">Add only</span></div>
+        </div>
+        <div class="mrow">
+          <div class="role">Researcher</div>
+          <div class="radios">
+            <span class="radio"><i class="dot"></i>Hide</span>
+            <span class="radio on"><i class="dot"></i>View</span>
+            <span class="radio"><i class="dot"></i>Add</span>
+            <span class="radio"><i class="dot"></i>Edit</span>
+          </div>
+          <div><span class="lvl view">View only</span></div>
+        </div>
+        <div class="mrow">
+          <div class="role">Physician</div>
+          <div class="radios">
+            <span class="radio on"><i class="dot"></i>Hide</span>
+            <span class="radio"><i class="dot"></i>View</span>
+            <span class="radio"><i class="dot"></i>Add</span>
+            <span class="radio"><i class="dot"></i>Edit</span>
+          </div>
+          <div><span class="lvl hide">Hidden</span></div>
+        </div>
+      </div>
+    </div>
+    <p class="caption">
+      One area of the grid; the real screen repeats these rows for every area. Read against the
+      method table in section&nbsp;04, this says: the Research Officer may delete a grant, the
+      Investigator may create one but not change it, the Researcher may only read, and the
+      Physician receives a 403 from <span class="mono">/api/grants</span> whatever the menu shows.
+      The illustration is representative rather than a capture of live data &mdash; and in any
+      environment whose matrix predates the change described below, the stored values may be
+      generated defaults rather than anyone's decision.
+    </p>
+
+    <div class="stats">
+      <div class="stat"><div class="v">13</div><div class="l">Roles</div></div>
+      <div class="stat"><div class="v">18</div><div class="l">Areas</div></div>
+      <div class="stat"><div class="v">234</div><div class="l">Cells</div></div>
+      <div class="stat"><div class="v">18</div><div class="l">Enforced server-side</div></div>
+    </div>
+
+    <h3>How a cell resolves</h3>
+    <ul class="tight">
+      <li><span class="mono">superadmin</span> and <span class="mono">admin</span> short-circuit to <em>edit</em> before any lookup — in any role slot, primary or secondary.</li>
+      <li>A person holding several roles takes the most permissive level among them.</li>
+      <li>Outside demo mode, the <span class="mono">user</span> role resolves to <em>view</em> for publications and <em>hide</em> everywhere else, whatever the stored row says.</li>
+      <li>Otherwise the stored access level applies: <em>hide</em>, <em>view</em>, <em>create</em>, or <em>edit</em>.</li>
+      <li><strong>A missing row resolves to <em>hide</em></strong> — the default is closed, which is correct.</li>
+    </ul>
+
+    <div class="note">
+      <p>
+        <strong>The matrix governs the API, not only the interface.</strong> All 18 areas are
+        resolved by server-side guards covering 94% of routes, so a caller reaching the API
+        directly meets the same cells the interface does; see section&nbsp;07.
+      </p>
+    </div>
+
+    <div class="note">
+      <p>
+        <strong>An unconfigured matrix stays unconfigured.</strong> Where nothing is stored, the
+        settings screen renders a generated starting point, says plainly that it is not in force,
+        and writes nothing until an administrator applies it &mdash; which stamps their account on
+        every cell. Nothing seeds the matrix on its own.
+      </p>
+      <p>
+        This does not vouch for matrices already in a database. Anything stored before that
+        behaviour changed may still be generated defaults that were written back silently, and it
+        travels: an export carries the matrix, so a generated one survives a backup and restore
+        intact. Any statement about <em>what</em> a particular role may reach must be read from the
+        production database, not from a development copy, and a matrix that has never been reviewed
+        should be treated as unreviewed however populated it looks.
+      </p>
+    </div>
+
+    <h3>The consolidated area set</h3>
+    <p>
+      The matrix configures <strong>18 areas</strong> for 13 roles &mdash; 234 cells, complete,
+      with no gaps. One definition governs: the client list is derived from the shared constants,
+      so the set the matrix is seeded from and the set the settings grid renders cannot disagree,
+      and no area can exist where an administrator is unable to see it.
+    </p>
+    <div class="scroller">
+      <table>
+        <thead><tr><th>Folded away</th><th>Into</th><th>Why</th></tr></thead>
+        <tbody>
+          <tr>
+            <td><span class="mono">programs</span>, <span class="mono">projects</span>, <span class="mono">research-activities</span></td>
+            <td class="k">pmo-office</td>
+            <td>One office's work, never configured apart</td>
+          </tr>
+          <tr>
+            <td><span class="mono">grants</span>, <span class="mono">contracts</span></td>
+            <td class="k">research-office</td>
+            <td>One office's work, never configured apart</td>
+          </tr>
+          <tr>
+            <td>&mdash;</td>
+            <td class="k">certifications</td>
+            <td>Nothing folds in; an area in its own right, enforced and shown in the grid</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="note">
+      <p>
+        <strong>A consolidated cell holds the most permissive level of its group.</strong> The
+        merge widens rather than narrows, so nobody loses access they hold. Widening is visible in
+        the grid and can be corrected there; silently narrowing would shut people out of screens
+        they use with no trace of why. <strong>Review the consolidated
+        <span class="mono">pmo-office</span> and <span class="mono">research-office</span>
+        columns</strong> &mdash; a role with <em>edit</em> on any one of the folded areas holds it
+        on the whole office.
+      </p>
+    </div>
+    <p>
+      Retired ids remain in use across the interface, so every lookup resolves through
+      <span class="mono">NAVIGATION_AREA_ALIASES</span> on both the client and the server rather
+      than each call site being rewritten &mdash; a missed one would fall through to
+      <em>hide</em>.
+    </p>
+  </section>
+
+  <!-- 6 ───────────────────────────────────────────────────── -->
+  <section id="record">
+    <h2><span class="num">06</span> Record-level rules</h2>
+    <p class="lede">
+      Below role level, several policies decide access to individual records. These are enforced
+      server-side and are among the stronger controls in the system.
+    </p>
+    <div class="scroller">
+      <table>
+        <thead>
+          <tr><th>Rule</th><th>Applies to</th><th>Effect</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td class="k">Publication visibility</td>
+            <td>Unpublished publications</td>
+            <td>Visible to Outcome Officer, Management and admins; to the record's creator; and to
+                linked internal authors and their line manager. Published records are visible to all.</td>
+          </tr>
+          <tr>
+            <td class="k">Investigator eligibility</td>
+            <td>Principal-investigator roles: project leads, programme leadership, research
+                activity PI and budget holder, IRB/IBC PIs</td>
+            <td>The <span class="mono">Investigator</span> access role is the whole answer, held
+                as a primary role or alongside one. A job title confers nothing, and the profile
+                stores no flag: <span class="mono">isInvestigator</span> is derived on every read
+                from the account linked to the profile, so the two cannot disagree. Granting it
+                means assigning the role in User Management, which is administrator-only.</td>
+          </tr>
+          <tr>
+            <td class="k">Sealed publications</td>
+            <td>Status <span class="mono">Published *</span></td>
+            <td>Immutable. Edits and bulk imports skip the record; only an Outcome Office revert
+                can leave the state.</td>
+          </tr>
+          <tr>
+            <td class="k">Auditable actor</td>
+            <td>Creating certifications and publications by import</td>
+            <td>Requires a real user account linked to a scientist record, so every created record
+                traces to a person.</td>
+          </tr>
+          <tr>
+            <td class="k">Restricted-user allowlist</td>
+            <td>The <span class="mono">user</span> role</td>
+            <td>Own profile and own certifications only, plus ordinary publication and
+                impact-factor reads.</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h3>The SDR exception</h3>
+    <p>
+      A publication is expected to link to a Scientific Data Record. A scientist may instead
+      record why none applies &mdash; the case being work done for a collaborator at another
+      institution, where no research activity exists here to link. The explanation
+      replaces the link: it is required, bounded, and clears the missing-SDR flag as soon as it is
+      given rather than when it is accepted.
+    </p>
+    <div class="note">
+      <p>
+        <strong>The control is a reading, not a gate.</strong> There is no approval state. The
+        Outcome Office reads the explanation on the publication card before finalising the record,
+        and where it disagrees it sends the record back through the existing invalid/correction
+        loop. An auditor should therefore treat the presence of an exception as a claim that was
+        <em>available</em> to the office, not as one it endorsed &mdash; the endorsement is the
+        finalisation itself. Each claim is written to the manuscript history with the account that
+        made it, so who claimed what and when is recoverable.
+      </p>
+    </div>
+    <div class="evidence">publications.sdr_exemption_reason, _requested_by, _requested_at
+-- mutually exclusive with research_activity_id; linking an SDR clears all three</div>
+  </section>
+
+  <!-- 7 ───────────────────────────────────────────────────── -->
+  <section id="coverage">
+    <h2><span class="num">07</span> Enforcement coverage</h2>
+    <p class="lede">
+      Every route is checked by a guard on the route itself, by the area guard mounted on its
+      path prefix, or by both.
+    </p>
+
+    <div class="stats">
+      <div class="stat"><div class="v">295</div><div class="l">API routes</div></div>
+      <div class="stat"><div class="v">287</div><div class="l">Reach a guard</div></div>
+      <div class="stat"><div class="v">97%</div><div class="l">Covered</div></div>
+      <div class="stat"><div class="v">8</div><div class="l">Open before sign-in</div></div>
+    </div>
+
+    <p>
+      The eight that reach no guard are the ones that cannot: sign-in itself, registration, the
+      liveness probe and object storage are all reached before a role exists, and guarding them
+      would lock everyone out. They are listed in
+      <span class="mono">UNMAPPED_API_PREFIXES</span> beside the reason each is excluded.
+    </p>
+    <p>
+      Five more sit in that list while still being guarded:
+      <span class="mono">/api/system-configurations</span> has no matrix area but is
+      administrator-only through <span class="mono">requireAdmin</span>, in the same way as
+      <span class="mono">/api/admin</span> and <span class="mono">/api/bulk-data</span>. Four
+      presentation keys under it &mdash; theme name, institution labels, section visibility and
+      default colour mode &mdash; are readable without a session, because the sign-in page applies
+      them before anyone has said who they are.
+    </p>
+    <div class="note">
+      <p>
+        <strong>Nothing else answers without an account.</strong> Verified by requesting all 127
+        GET routes against a running server in <span class="mono">local</span> mode with no cookie
+        of any kind: the only JSON that came back was the liveness probe. A bare prefix such as
+        <span class="mono">/api/admin</span> returns 200, but the body is
+        <span class="mono">text/html</span> &mdash; the single-page-app catch-all, not an endpoint.
+        Check the content type before reading such a result as an exposure.
+      </p>
+    </div>
+    <div class="note">
+      <p>
+        <strong>The guards are additive, not alternative.</strong> A route under
+        <span class="mono">/api/publications</span> carrying
+        <span class="mono">requirePublicationOfficer</span> needs the
+        <span class="mono">publications</span> area <em>and</em> the
+        <span class="mono">outcome-office</span> area. That is what having two separately
+        configurable areas is supposed to mean.
+      </p>
+    </div>
+  </section>
+
+  <!-- 8 ───────────────────────────────────────────────────── -->
+  <section id="findings">
+    <h2><span class="num">08</span> Findings</h2>
+    <p class="lede">
+      What is still open, most severe first. Findings are removed once they are fixed rather than
+      marked closed &mdash; this is a list of work outstanding, not a record of work done.
+      Identifiers stay stable so they can be carried across audits, and numbers are never reused.
+    </p>
+
+    
+
+    <div class="finding high">
+      <div class="finding-head">
+        <span class="finding-id">AC-03</span>
+        <h4>Demo mode disables authorisation entirely</h4>
+        <span class="chip high">High</span>
+      </div>
+      <p>
+        With <span class="mono">AUTH_MODE=demo</span> there is no login, a guest user with the
+        Management role is injected into every session, authentication passes unconditionally, the
+        restricted-role policy short-circuits, and the session refresh is skipped. The guard
+        <span class="mono">requireAdmin</span> additionally treats that demo Management session as an
+        administrator.
+      </p>
+      <div class="note">
+        <p>
+          <strong>Role emulation moves the session, not just the browser.</strong> The demo role
+          selector posts to an endpoint that changes the session role, and accepts only a role
+          that really exists, so the interface and the API agree about who you are. The endpoint
+          is registered only when the mode is demo, so outside demo the path does not exist rather
+          than existing and refusing &mdash; but it is one more thing that turns on with that
+          single environment variable, which is the point of this finding.
+        </p>
+      </div>
+      <p>
+        This is deliberate and appropriate for a public demonstration instance. The risk is
+        configuration, not code: a single environment variable separates a fully governed
+        deployment from an ungoverned one, and nothing in the application prevents the combination
+        of demo mode with a production database.
+      </p>
+      <p>
+        <span class="label">Recommendation</span>
+        Refuse to start in demo mode when the configuration looks like production, and surface the
+        active mode in the interface where an auditor can see it.
+      </p>
+    </div>
+
+    <div class="finding high">
+      <div class="finding-head">
+        <span class="finding-id">AC-04</span>
+        <h4>Local passwords are stored as unsalted SHA-256</h4>
+        <span class="chip high">High</span>
+      </div>
+      <p>
+        In <span class="mono">local</span> mode, passwords are hashed with a single unsalted SHA-256
+        pass. That is fast to compute and therefore fast to attack offline, and identical passwords
+        produce identical hashes across accounts.
+      </p>
+      <p>
+        <span class="label">Recommendation</span>
+        Move to a slow, salted algorithm — bcrypt, scrypt or Argon2 — rehashing on next successful
+        login. Where LDAP or OIDC is available, prefer it and disable local accounts.
+      </p>
+    </div>
+
+    <div class="finding info">
+      <div class="finding-head">
+        <span class="finding-id">AC-05</span>
+        <h4>Highest privilege is granted by environment variable, on every login</h4>
+        <span class="chip info">Medium</span>
+      </div>
+      <p>
+        The address in <span class="mono">SUPER_ADMIN_EMAIL</span> is re-promoted to
+        <span class="mono">superadmin</span> at each sign-in. Removing that privilege through the
+        interface does not persist, and the grant lives in deployment configuration rather than in
+        any record an auditor would examine.
+      </p>
+      <p>
+        <span class="label">Recommendation</span>
+        Treat it as a bootstrap: promote only when no superadmin exists, and log the promotion as
+        an auditable event.
+      </p>
+    </div>
+
+
+    
+  </section>
+
+  <!-- 9 ───────────────────────────────────────────────────── -->
+  <section id="verification">
+    <h2><span class="num">09</span> Re-deriving these figures</h2>
+    <p class="lede">
+      Every count above can be reproduced from the repository and database. An auditor should not
+      have to take this document's word for any of it.
+    </p>
+
+    <h3>Route coverage — the split in section&nbsp;07</h3>
+    <div class="evidence">grep -oE "app\.(get|post|patch|put|delete)\('/api/[^']+'" server/routes.ts | wc -l
+grep -E "requireAuth|requireAdmin|requirePublicationOfficer|requireManagement" server/routes.ts | wc -l</div>
+
+    <h3>Endpoints with no authorisation</h3>
+    <div class="evidence">grep -nE "app\.(post|patch|delete)\('/api/role-permissions" server/routes.ts</div>
+
+    <h3>Matrix contents, including the unreviewable areas</h3>
+    <div class="evidence">SELECT navigation_item, count(*) AS roles
+FROM role_permissions
+GROUP BY navigation_item
+ORDER BY navigation_item;   -- 23 rows; three absent from NAVIGATION_ITEMS</div>
+
+    <h3>Which areas the server enforces, and on which paths</h3>
+    <div class="evidence">grep -c "prefix:" server/navigationAccess.ts
+grep -oE 'navigationItem: "[^"]+"' server/navigationAccess.ts | sort -u</div>
+
+    <h3>Which routes still reach no guard</h3>
+    <div class="evidence"># every app.get/post/put/patch/delete, against NAVIGATION_ROUTE_RULES
+# and the route-level guards; expect 17, all in UNMAPPED_API_PREFIXES</div>
+
+    <h3>That every configured area is reviewable, and the matrix is complete</h3>
+    <div class="evidence">SELECT DISTINCT navigation_item FROM role_permissions ORDER BY 1;
+-- expect 18, each one present in NAVIGATION_ITEMS
+
+SELECT (SELECT count(*) FROM role_groups) AS roles,
+       (SELECT count(DISTINCT navigation_item) FROM role_permissions) AS areas,
+       (SELECT count(*) FROM role_permissions) AS cells;   -- 13 x 18 = 234, no gaps</div>
+
+    <h3>Effective roles for one person</h3>
+    <div class="evidence">SELECT u.username, u.role AS primary_role,
+       coalesce(string_agg(rg.name, ', ' ORDER BY rg.name), '(none)') AS secondary_roles
+FROM users u
+LEFT JOIN user_role_assignments ura ON ura.user_id = u.id
+LEFT JOIN role_groups rg ON rg.id = ura.role_group_id
+GROUP BY u.id, u.username, u.role
+ORDER BY u.username;</div>
+  </section>
+
+  <footer>
+    <p>
+      Prepared from source at commit <span class="mono">3f468cf</span> on branch
+      <span class="mono">WH_changes</span>, 30 August 2026.
+    </p>
+    <p>
+      <strong>Resolved findings are deleted, not archived.</strong> This document is a list of work
+      outstanding, so a finding disappears from section&nbsp;08 once it is fixed rather than being
+      marked closed. Identifiers are never reused, so an absent number means resolved — the gaps in
+      the sequence are AC-01, AC-02, AC-06 to AC-11.
+    </p>
+    <p>
+      Counts reflect the stated commit and will drift as the code changes; re-run section&nbsp;09
+      before relying on them in a subsequent review period.
+    </p>
+  </footer>
+
+</div>

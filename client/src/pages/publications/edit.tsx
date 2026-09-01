@@ -29,6 +29,16 @@ export default function PublicationEdit() {
   // after saving instead of stranding them on the detail page.
   const fromParam = new URLSearchParams(window.location.search).get("from");
   const safeFrom = fromParam && fromParam.startsWith("/") ? fromParam : null;
+  // The detail page needs the same `from` back, or its own Back button forgets
+  // the profile the user started on and falls through to the publications list.
+  const detailHref = `/publications/${id}${safeFrom ? `?from=${encodeURIComponent(safeFrom)}` : ''}`;
+  /**
+   * Leaving the editor REPLACES the editor's history entry rather than pushing
+   * a new one. Pushing left the editor sitting in the middle of the stack, so
+   * Back out of the record the user had just closed walked straight into the
+   * editor again instead of returning to where they came from.
+   */
+  const leaveEditor = (to: string) => navigate(to, { replace: true });
   const { toast } = useToast();
   const queryClient = useQueryClient();
 
@@ -119,7 +129,7 @@ export default function PublicationEdit() {
       queryClient.invalidateQueries({ queryKey: ['/api/publications'] });
       queryClient.invalidateQueries({ queryKey: [`/api/publications/${id}`] });
       queryClient.invalidateQueries({ queryKey: [`/api/publications/${id}/authors`] });
-      navigate(safeFrom || `/publications/${id}`);
+      leaveEditor(safeFrom || detailHref);
     },
     onError: (error: any) => {
       toast({
@@ -199,7 +209,7 @@ export default function PublicationEdit() {
   return (
     <div className="space-y-6">
       <div className="flex items-center gap-2">
-        <Button variant="ghost" size="sm" onClick={() => navigate(`/publications/${id}${safeFrom ? `?from=${encodeURIComponent(safeFrom)}` : ''}`)}>
+        <Button variant="ghost" size="sm" onClick={() => leaveEditor(detailHref)}>
           <ArrowLeft className="h-4 w-4 mr-1" />
           Back
         </Button>
@@ -564,7 +574,7 @@ export default function PublicationEdit() {
                 <Button 
                   type="button" 
                   variant="outline" 
-                  onClick={() => navigate(`/publications/${id}`)}
+                  onClick={() => leaveEditor(detailHref)}
                 >
                   Cancel
                 </Button>

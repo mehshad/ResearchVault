@@ -13,6 +13,7 @@
  * routes.ts (Express matches in registration order).
  */
 import type { Express, Request, Response } from "express";
+import { hasAnyRole } from "@shared/effectiveRoles";
 import { storage } from "./databaseStorage";
 import { db } from "./db";
 import { grants } from "@shared/schema";
@@ -62,13 +63,15 @@ export function isDemo(): boolean {
  * publication-officer group (Outcome Officer, Management, admin, superadmin).
  */
 export function hasPublicationOfficerRole(req: Request): boolean {
-  const role = req.session?.user?.role;
-  return (
-    role === "Outcome Officer" ||
-    role === "admin" ||
-    role === "superadmin" ||
-    role === "Management"
-  );
+  // Every slot, not the primary alone. Administrator rights are normally held
+  // as a secondary role, and someone can sit in the Outcome Office alongside a
+  // bench role -- reading users.role by itself refused both of them.
+  return hasAnyRole(req.session?.user, [
+    "Outcome Officer",
+    "admin",
+    "superadmin",
+    "Management",
+  ]);
 }
 
 /**

@@ -34,6 +34,12 @@ export function CurrentUserProvider({ children }: CurrentUserProviderProps) {
           name: authUser.name,
           email: authUser.email,
           role: authUser.role,
+          // The session carries these and every permission check reads them
+          // from here. Dropping them made the client resolve the primary role
+          // alone, so an administrator whose admin is a secondary role was
+          // shown a stripped-down interface over an API that allowed them
+          // everything.
+          secondaryRoles: authUser.secondaryRoles ?? [],
         };
       }
       return { id: 0, name: "Loading…", email: "", role: "user" };

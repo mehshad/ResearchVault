@@ -221,6 +221,11 @@ export interface PublicationLike {
   authors?: string | null;
   journal?: string | null;
   researchActivityId?: number | null;
+  /**
+   * Why no SDR applies. Mutually exclusive with researchActivityId: a record
+   * either links a research activity or explains why there is none to link.
+   */
+  sdrExemptionReason?: string | null;
   /** Accepts both a Date object (from Drizzle ORM) or an ISO string. */
   publicationDate?: Date | string | null;
   status?: string | null;
@@ -262,7 +267,9 @@ export function findPublicationIssues(
 
     const issues: SidraPublicationIssueDetail[] = [];
 
-    if (publication.researchActivityId == null) {
+    // A recorded exception answers the question -- collaborator work with no
+    // local research activity to link -- so it is not a missing link.
+    if (publication.researchActivityId == null && !publication.sdrExemptionReason) {
       issues.push({
         code: "missing_sdr_link",
         reason: "No SDR is linked to this publication.",

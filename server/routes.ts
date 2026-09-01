@@ -74,7 +74,7 @@ import {
 } from "@shared/schema";
 import { requireAuth, requireAdmin, requirePublicationOfficer, getAuthMode } from "./auth";
 import { buildAssignableRoles } from "./assignableRoles";
-import { ACCESS_ROLES } from "@shared/constants";
+import { ACCESS_ROLES, JOB_TITLE_TAB_ALIASES, matchesJobTitle } from "@shared/constants";
 import { resolveOwnershipAccess, maxAccess, type AccessLevel as OwnershipAccessLevel } from "./ownershipResolver";
 import { matchesAuthorName, isLinkedAuthorInAuthorsText, isUnambiguousAuthorMatch, suggestInternalAuthors } from "@shared/authorMatching";
 import { detectDuplicateGroups, pickDefaultSurvivorId, normalizeDoi as canonicalDoi, isPreprintRecord, classifyResolvedPublication, preprintRepairEvidence } from "@shared/publicationDeduplication";
@@ -3463,19 +3463,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.delete('/api/scientists/:id', requireAuth, async (req: Request, res: Response) => {
+  // Administrator-only. Deleting a staff profile is irreversible and cannot be
+  // done in bulk anywhere else -- the import deliberately never deletes -- so
+  // it is held to the narrowest role rather than the management tier.
+  app.delete('/api/scientists/:id', requireAuth, requireAdmin, async (req: Request, res: Response) => {
     try {
       const id = parseInt(req.params.id);
       if (isNaN(id)) {
         return res.status(400).json({ message: "Invalid scientist ID" });
-      }
-
-      // Only Management/admin/superadmin may delete scientist profiles.
-      // Demo mode uses DEMO_ROLE=Management so this passes in dev.
-      if (!hasManagementRole(req)) {
-        return res.status(403).json({
-          message: "Forbidden. Management/admin access is required to delete a scientist profile.",
-        });
       }
 
       // Make sure the scientist exists before we go FK-hunting so the
@@ -10517,7 +10512,37 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // System Configuration endpoints
-  app.get('/api/system-configurations', async (req, res) => {
+  /**
+   * The only system-configuration keys readable without an administrator.
+   *
+   * These are applied while the page is still painting -- on the sign-in
+   * screen, before anyone has said who they are -- so requiring a session to
+   * read them would leave an unbranded, unthemed shell for every visitor.
+   * Everything else about system configuration is administrative.
+   */
+  const PUBLIC_SYSTEM_CONFIG_KEYS = new Set([
+    'app_theme_name',
+    'app_institution_labels',
+    'app_section_visibility',
+    'color_mode_default',
+  ]);
+
+  const requireSystemConfigRead = (req: Request, res: Response, next: NextFunction) => {
+    if (PUBLIC_SYSTEM_CONFIG_KEYS.has(req.params.key)) return next();
+    return requireAdmin(req, res, next);
+  };
+
+  /**
+   * Writes are administrator-only, with one standing exception: the Sidra Score
+   * settings belong to the Outcome Office, who are not all administrators.
+   */
+  const requireSystemConfigWrite = (req: Request, res: Response, next: NextFunction) => {
+    const key = req.params.key ?? (req.body as { key?: string } | undefined)?.key;
+    if (key === SIDRA_SCORE_SETTINGS_KEY && hasPublicationOfficerRole(req)) return next();
+    return requireAdmin(req, res, next);
+  };
+
+  app.get('/api/system-configurations', requireAdmin, async (req, res) => {
     try {
       const configs = await storage.getSystemConfigurations();
       res.json(configs);
@@ -10527,7 +10552,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.get('/api/system-configurations/:key', async (req, res) => {
+  app.get('/api/system-configurations/:key', requireSystemConfigRead, async (req, res) => {
     try {
       const config = await storage.getSystemConfiguration(req.params.key);
       if (!config) {
@@ -10540,7 +10565,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post('/api/system-configurations', async (req, res) => {
+  app.post('/api/system-configurations', requireSystemConfigWrite, async (req, res) => {
     try {
       if (req.body?.key === SIDRA_SCORE_SETTINGS_KEY && !hasPublicationOfficerRole(req)) {
         return res.status(403).json({ error: 'Outcome Office access is required to change Sidra Score settings' });
@@ -10553,7 +10578,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.put('/api/system-configurations/:key', async (req, res) => {
+  app.put('/api/system-configurations/:key', requireSystemConfigWrite, async (req, res) => {
     try {
       if (req.params.key === SIDRA_SCORE_SETTINGS_KEY && !hasPublicationOfficerRole(req)) {
         return res.status(403).json({ error: 'Outcome Office access is required to change Sidra Score settings' });
@@ -10569,7 +10594,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.delete('/api/system-configurations/:key', async (req, res) => {
+  app.delete('/api/system-configurations/:key', requireSystemConfigWrite, async (req, res) => {
     try {
       if (req.params.key === SIDRA_SCORE_SETTINGS_KEY && !hasPublicationOfficerRole(req)) {
         return res.status(403).json({ error: 'Outcome Office access is required to change Sidra Score settings' });
@@ -11172,8 +11197,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
         groups.splice(0, groups.length, ...refreshed);
       }
 
-      // A role held as primary would be redundant as a secondary.
-      const keep = groups.filter((group) => group.name !== target.role);
+      // Deliberately NOT filtered against the current primary role. Dropping a
+      // secondary that duplicates the primary reads as tidy but is a trap: grant
+      // `admin` as a secondary while `admin` is still the primary and it is
+      // silently stored as nothing, so moving the primary to another role
+      // afterwards leaves the person with no administrator rights and no sign
+      // that anything was discarded. Access is the union of every slot, so
+      // holding one role in both costs nothing.
+      void target.role;
+      const keep = groups;
 
       // Snapshot current secondary roles before replacing them.
       const prevAssignments = await db
@@ -11190,7 +11222,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
             keep.map((group) => ({
               userId: id,
               roleGroupId: group.id,
-              assignedBy: req.session?.user?.id ?? null,
+              // The demo session uses id 0, which is not a real user row, so
+              // `??` wrote 0 and the users foreign key rejected the insert:
+              // granting any secondary role in demo mode failed outright,
+              // while clearing them all succeeded because that deletes only.
+              // `||` records nobody instead.
+              assignedBy: req.session?.user?.id || null,
             })),
           );
         }
@@ -11251,6 +11288,117 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (err) {
       console.error('Error updating user role:', err);
       res.status(500).json({ message: 'Failed to update role' });
+    }
+  });
+
+  /**
+   * POST /api/admin/users/provision-investigators
+   *
+   * Creates an account for every staff member titled Investigator who has none.
+   *
+   * Investigator eligibility is the Investigator *access role*, which lives on
+   * an account -- so a person holding the job title but no account cannot be
+   * made a PI, and an import that assigns them one is refused. This closes that
+   * gap by giving them an account to hold the role.
+   *
+   * The accounts are created with the restricted `user` role, not Investigator.
+   * Seeding a privilege from a job title is exactly the coupling that was
+   * removed when eligibility moved to the access role; an administrator grants
+   * Investigator deliberately in User Management afterwards. Every account
+   * therefore starts fail-closed, like any other new account.
+   *
+   * Pass `dryRun` to see the plan without writing anything.
+   */
+  app.post('/api/admin/users/provision-investigators', requireAuth, requireAdmin, async (req: Request, res: Response) => {
+    const dryRun = (req.body as { dryRun?: boolean } | undefined)?.dryRun === true;
+    try {
+      const allScientists = await storage.getScientists();
+      const existingUsers = await db
+        .select({
+          id: users.id,
+          username: users.username,
+          email: users.email,
+          scientistId: users.scientistId,
+        })
+        .from(users);
+
+      const takenUsernames = new Set(existingUsers.map((u) => u.username.toLowerCase()));
+      const linkedScientistIds = new Set(
+        existingUsers.map((u) => u.scientistId).filter((v): v is number => v != null),
+      );
+      const takenEmails = new Set(
+        existingUsers.map((u) => (u.email ?? '').trim().toLowerCase()).filter(Boolean),
+      );
+
+      const candidates = allScientists.filter((scientist: any) =>
+        matchesJobTitle(scientist.jobTitle, JOB_TITLE_TAB_ALIASES.investigator ?? []),
+      );
+
+      const toCreate: Array<{ scientistId: number; username: string; name: string; email: string }> = [];
+      const skipped: Array<{ name: string; reason: string }> = [];
+
+      for (const scientist of candidates as any[]) {
+        const name = [scientist.firstName, scientist.lastName].filter(Boolean).join(' ').trim()
+          || scientist.email
+          || `Scientist ${scientist.id}`;
+        if (linkedScientistIds.has(scientist.id)) {
+          skipped.push({ name, reason: 'Already has an account' });
+          continue;
+        }
+        const email = (scientist.email ?? '').trim();
+        if (!email) {
+          // The username an external provider would send is derived from the
+          // address, so without one there is nothing to match a future sign-in.
+          skipped.push({ name, reason: 'No email on the staff profile' });
+          continue;
+        }
+        if (takenEmails.has(email.toLowerCase())) {
+          skipped.push({ name, reason: 'Another account already uses this email' });
+          continue;
+        }
+
+        const base = email.split('@')[0].toLowerCase().replace(/[^a-z0-9._-]/g, '');
+        if (!base) {
+          skipped.push({ name, reason: 'Email does not yield a usable username' });
+          continue;
+        }
+        let username = base;
+        let suffix = 2;
+        while (takenUsernames.has(username)) username = `${base}${suffix++}`;
+
+        takenUsernames.add(username);
+        takenEmails.add(email.toLowerCase());
+        toCreate.push({ scientistId: scientist.id, username, name, email });
+      }
+
+      if (dryRun || toCreate.length === 0) {
+        return res.json({ dryRun: true, created: [], plan: toCreate, skipped });
+      }
+
+      const created = await db.transaction(async (tx: any) =>
+        tx
+          .insert(users)
+          .values(
+            toCreate.map((entry) => ({
+              username: entry.username,
+              name: entry.name,
+              email: entry.email,
+              // NOT NULL with no default. Empty means no local password is set,
+              // so the account cannot be signed into with one -- the same state
+              // every account restored from an archive is in. An external
+              // provider matches on username and adopts the row on first login.
+              password: '',
+              role: 'user',
+              scientistId: entry.scientistId,
+            })),
+          )
+          .returning({ id: users.id, username: users.username, name: users.name }),
+      );
+
+      res.json({ dryRun: false, created, plan: toCreate, skipped });
+    } catch (err) {
+      console.error('Error provisioning investigator accounts:', err);
+      res.status(500).json({ message: 'Failed to create investigator accounts' });
     }
   });
 

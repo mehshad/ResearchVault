@@ -138,6 +138,54 @@ test("several job titles resolve to the one Researcher access role", async () =>
   assert.ok(ACCESS_ROLES.includes("Investigator"));
 });
 
+test("a job title written differently is not a mismatch", async () => {
+  const { isRoleTitleMismatch, accessRoleForJobTitle, RESEARCHER_ROLE } =
+    await import("./constants.js");
+
+  // The stored title is whatever the organisation calls the post, and it
+  // arrives through staff imports. Sixteen people held "Post Doctoral Fellow"
+  // or "Post-doctoral Fellow" against the canonical "Postdoctoral Researcher"
+  // and every one was flagged -- a warning about nothing.
+  for (const spelling of [
+    "Post Doctoral Fellow",
+    "Post-doctoral Fellow",
+    "Postdoctoral Fellow",
+    "postdoc",
+    "POSTDOCTORAL RESEARCHER",
+  ]) {
+    assert.equal(
+      accessRoleForJobTitle(spelling),
+      RESEARCHER_ROLE,
+      `"${spelling}" should resolve to Researcher`,
+    );
+    assert.equal(isRoleTitleMismatch(RESEARCHER_ROLE, spelling), false);
+  }
+
+  // Punctuation and case cannot turn a correct assignment into a mismatch.
+  assert.equal(isRoleTitleMismatch("Research Officer", "research  officer"), false);
+  assert.equal(isRoleTitleMismatch("IRB Officer", "irb-officer"), false);
+});
+
+test("an unrecognised title implies no role, so it is not a mismatch", async () => {
+  const { isRoleTitleMismatch, accessRoleForJobTitle } = await import("./constants.js");
+  // "Other" says nothing about what someone should reach, so there is nothing
+  // for a role to disagree with. It used to resolve to itself and therefore
+  // flagged against every possible role.
+  for (const title of ["Other", "Visiting Scholar", "Consultant (external)"]) {
+    assert.equal(accessRoleForJobTitle(title), null);
+    assert.equal(isRoleTitleMismatch("Researcher", title), false);
+    assert.equal(isRoleTitleMismatch("Management", title), false);
+  }
+});
+
+test("a genuine mismatch is still reported", async () => {
+  const { isRoleTitleMismatch } = await import("./constants.js");
+  // The tolerance above must not swallow the case the warning exists for.
+  assert.equal(isRoleTitleMismatch("IRB Officer", "Staff Scientist"), true);
+  assert.equal(isRoleTitleMismatch("Researcher", "Investigator"), true);
+  assert.equal(isRoleTitleMismatch("Physician", "Post Doctoral Fellow"), true);
+});
+
 test("built-in roles are never reported as a title mismatch", async () => {
   const { isRoleTitleMismatch } = await import("./constants.js");
   // These are granted deliberately and say nothing about the person's job, so
@@ -149,4 +197,43 @@ test("built-in roles are never reported as a title mismatch", async () => {
   assert.equal(isRoleTitleMismatch("Researcher", null), false);
   // A genuine mismatch is still reported.
   assert.equal(isRoleTitleMismatch("IRB Officer", "Staff Scientist"), true);
+});
+
+// ── Job title tabs on the staff directory ──────────────────────────────────
+
+test("a job title tab matches every spelling of that post", async () => {
+  const { matchesJobTitle, JOB_TITLE_TAB_ALIASES } = await import("./constants.js");
+  // The failure this prevents: the post-doc tab compared with === against
+  // "Post-doctoral Fellow" and showed two of sixteen people, because the other
+  // fourteen were stored as "Post Doctoral Fellow".
+  for (const spelling of [
+    "Post Doctoral Fellow",
+    "Post-doctoral Fellow",
+    "Postdoctoral Fellow",
+    "Postdoctoral Researcher",
+    "postdoc",
+  ]) {
+    assert.equal(
+      matchesJobTitle(spelling, JOB_TITLE_TAB_ALIASES["post-doc"]),
+      true,
+      `"${spelling}" belongs in the post-doc tab`,
+    );
+  }
+});
+
+test("a tab does not sweep in a different post", async () => {
+  const { matchesJobTitle, JOB_TITLE_TAB_ALIASES } = await import("./constants.js");
+  assert.equal(matchesJobTitle("Staff Scientist", JOB_TITLE_TAB_ALIASES["post-doc"]), false);
+  assert.equal(matchesJobTitle("Investigator", JOB_TITLE_TAB_ALIASES["staff-scientist"]), false);
+  assert.equal(matchesJobTitle("Research Officer", JOB_TITLE_TAB_ALIASES["officers"]), true);
+  assert.equal(matchesJobTitle("Physician", JOB_TITLE_TAB_ALIASES["officers"]), false);
+});
+
+test("a missing or unknown title matches no tab", async () => {
+  const { matchesJobTitle, JOB_TITLE_TAB_ALIASES } = await import("./constants.js");
+  for (const tab of Object.keys(JOB_TITLE_TAB_ALIASES)) {
+    assert.equal(matchesJobTitle(null, JOB_TITLE_TAB_ALIASES[tab]), false);
+    assert.equal(matchesJobTitle("", JOB_TITLE_TAB_ALIASES[tab]), false);
+    assert.equal(matchesJobTitle("Other", JOB_TITLE_TAB_ALIASES[tab]), false);
+  }
 });
