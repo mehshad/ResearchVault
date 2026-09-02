@@ -27,6 +27,7 @@ import {
 import { Grant } from "@shared/schema";
 import { Plus, Search, MoreHorizontal, Download, Filter, DollarSign, Calendar, ArrowUpDown, Link as LinkIcon, Upload, FileSpreadsheet, Loader2, AlertTriangle, Trash2 } from "lucide-react";
 import { GRANT_STATUS_OPTIONS } from "@shared/grantLifecycle";
+import type { GrantSubmissionSummary } from "@shared/grantSubmission";
 import {
   GRANT_ISSUE_DEFINITIONS,
   grantMatchesListFilters,
@@ -59,6 +60,8 @@ type EnhancedGrant = Grant & {
   } | null;
   linkedSdrsCount?: number;
   issues?: GrantIssue[];
+  collaboratingInstitutions?: string[];
+  submission?: GrantSubmissionSummary;
 };
 
 export default function GrantsList() {
@@ -448,7 +451,7 @@ export default function GrantsList() {
           </div>
 
           <div className="overflow-x-auto rounded-md border">
-            <Table className="min-w-[1400px]">
+            <Table className="min-w-[1750px]">
               <TableHeader>
                 <TableRow>
                   <TableHead className="w-32">
@@ -467,6 +470,12 @@ export default function GrantsList() {
                       FUNDING INSTITUTION <ArrowUpDown className="ml-1 h-3 w-3" />
                     </Button>
                   </TableHead>
+                  <TableHead className="w-44">
+                    <Button variant="ghost" onClick={() => handleSort("submittingInstitution")} className="h-8 p-0 font-semibold">
+                      SUBMITTED BY <ArrowUpDown className="ml-1 h-3 w-3" />
+                    </Button>
+                  </TableHead>
+                  <TableHead className="w-52">COLLABORATING INSTITUTIONS</TableHead>
                   <TableHead className="w-40">
                     <Button variant="ghost" onClick={() => handleSort("projectNumber")} className="h-8 p-0 font-semibold">
                       PROJECT NO. <ArrowUpDown className="ml-1 h-3 w-3" />
@@ -493,7 +502,7 @@ export default function GrantsList() {
               <TableBody>
                 {filteredAndSortedGrants?.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={9} className="text-center py-8 text-gray-500 dark:text-gray-400">
+                    <TableCell colSpan={11} className="text-center py-8 text-gray-500 dark:text-gray-400">
                       {searchQuery || statusFilter !== "all" || yearFilter !== "all" || issueFilter !== "all"
                         ? "No grants match your filters." 
                         : "No grants found. Create your first grant to get started."}
@@ -567,6 +576,46 @@ export default function GrantsList() {
                       </TableCell>
                       <TableCell className="text-sm">
                         {grant.fundingAgency || "—"}
+                      </TableCell>
+                      <TableCell className="text-sm">
+                        {grant.submission?.role === "subawardee" ? (
+                          <div>
+                            <Badge variant="outline" className="border-blue-400 text-blue-700 dark:border-blue-700 dark:text-blue-300">
+                              Subawardee
+                            </Badge>
+                            <div
+                              className="mt-1 text-xs text-gray-600 line-clamp-2 dark:text-gray-400"
+                              title={grant.submission.submittedBy ?? undefined}
+                            >
+                              via {grant.submission.submittedBy}
+                            </div>
+                          </div>
+                        ) : grant.submission?.role === "lead" ? (
+                          <span className="text-sm">{grant.submission.label}</span>
+                        ) : (
+                          <span className="text-gray-400 dark:text-gray-500">—</span>
+                        )}
+                      </TableCell>
+                      <TableCell className="text-sm">
+                        {(grant.collaboratingInstitutions?.length ?? 0) > 0 ? (
+                          <div
+                            className="flex max-w-52 flex-wrap gap-1"
+                            title={grant.collaboratingInstitutions!.join(", ")}
+                          >
+                            {grant.collaboratingInstitutions!.slice(0, 2).map((name) => (
+                              <Badge key={name} variant="secondary" className="max-w-full truncate text-xs font-normal">
+                                {name}
+                              </Badge>
+                            ))}
+                            {grant.collaboratingInstitutions!.length > 2 && (
+                              <Badge variant="secondary" className="text-xs font-normal">
+                                +{grant.collaboratingInstitutions!.length - 2} more
+                              </Badge>
+                            )}
+                          </div>
+                        ) : (
+                          <span className="text-gray-400 dark:text-gray-500">—</span>
+                        )}
                       </TableCell>
                       <TableCell className="font-mono text-sm">
                         {grant.projectNumber}
