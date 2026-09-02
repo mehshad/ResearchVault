@@ -476,11 +476,6 @@ export default function GrantsList() {
                       SIDRA LEAD PI <ArrowUpDown className="ml-1 h-3 w-3" />
                     </Button>
                   </TableHead>
-                  <TableHead className="w-48">
-                    <Button variant="ghost" onClick={() => handleSort("grantLpiName")} className="h-8 p-0 font-semibold">
-                      GRANT LPI <ArrowUpDown className="ml-1 h-3 w-3" />
-                    </Button>
-                  </TableHead>
                   <TableHead className="w-40">
                     <Button variant="ghost" onClick={() => handleSort("fundingAgency")} className="h-8 p-0 font-semibold">
                       FUNDING INSTITUTION <ArrowUpDown className="ml-1 h-3 w-3" />
@@ -489,6 +484,11 @@ export default function GrantsList() {
                   <TableHead className="w-44">
                     <Button variant="ghost" onClick={() => handleSort("submittingInstitution")} className="h-8 p-0 font-semibold">
                       SUBMITTED BY <ArrowUpDown className="ml-1 h-3 w-3" />
+                    </Button>
+                  </TableHead>
+                  <TableHead className="w-48">
+                    <Button variant="ghost" onClick={() => handleSort("grantLpiName")} className="h-8 p-0 font-semibold">
+                      GRANT LPI <ArrowUpDown className="ml-1 h-3 w-3" />
                     </Button>
                   </TableHead>
                   <TableHead className="w-52">COLLABORATING INSTITUTIONS</TableHead>
@@ -591,18 +591,6 @@ export default function GrantsList() {
                         )}
                       </TableCell>
                       <TableCell className="text-sm">
-                        {/* On our own grants this is the same person as the
-                            Sidra Lead PI; on a subaward it is the lead at the
-                            submitting institution. */}
-                        {grant.resolvedGrantLpiName ? (
-                          <span className={grant.submission?.role === "subawardee" ? "text-blue-700 dark:text-blue-300" : ""}>
-                            {grant.resolvedGrantLpiName}
-                          </span>
-                        ) : (
-                          <span className="text-gray-400 dark:text-gray-500">—</span>
-                        )}
-                      </TableCell>
-                      <TableCell className="text-sm">
                         {grant.fundingAgency || "—"}
                       </TableCell>
                       <TableCell className="text-sm">
@@ -620,6 +608,16 @@ export default function GrantsList() {
                           </div>
                         ) : grant.submission?.role === "lead" ? (
                           <span className="text-sm">{grant.submission.label}</span>
+                        ) : (
+                          <span className="text-gray-400 dark:text-gray-500">—</span>
+                        )}
+                      </TableCell>
+                      <TableCell className="text-sm">
+                        {/* Only on a subaward. On our own grants the lead is
+                            our own person, already named two columns to the
+                            left, and repeating them just made the row wider. */}
+                        {grant.submission?.role === "subawardee" && grant.resolvedGrantLpiName ? (
+                          <span className="text-blue-700 dark:text-blue-300">{grant.resolvedGrantLpiName}</span>
                         ) : (
                           <span className="text-gray-400 dark:text-gray-500">—</span>
                         )}
