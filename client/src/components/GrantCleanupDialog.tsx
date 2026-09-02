@@ -164,7 +164,9 @@ export function GrantCleanupDialog({ open, onOpenChange }: GrantCleanupDialogPro
 
             <div className="max-h-[45vh] overflow-y-auto rounded-md border">
               <Table>
-                <TableHeader>
+                {/* Sticky, so the select-all box and the column names stay
+                    reachable while scrolling a long list of candidates. */}
+                <TableHeader className="sticky top-0 z-20 [&_tr]:bg-background [&_th]:bg-background">
                   <TableRow>
                     <TableHead className="w-10">
                       <Checkbox

@@ -450,9 +450,16 @@ export default function GrantsList() {
             </div>
           </div>
 
-          <div className="overflow-x-auto rounded-md border">
+          {/* Scrolls in both directions inside a bounded box, so the header can
+              stick to the top of it. A page-level scroll would not work: the
+              horizontal overflow already makes this div the scroll container,
+              and sticky positions against the nearest scrolling ancestor. */}
+          <div className="max-h-[70vh] overflow-auto rounded-md border">
             <Table className="min-w-[1750px]">
-              <TableHeader>
+              {/* Eleven columns and a hundred rows: without this you lose track
+                  of which column you are reading a few rows in. Opaque
+                  background, or the rows show through as they pass under. */}
+              <TableHeader className="sticky top-0 z-20 [&_tr]:bg-background [&_th]:bg-background [&_tr]:hover:bg-background">
                 <TableRow>
                   <TableHead className="w-32">
                     <Button variant="ghost" onClick={() => handleSort("grantType")} className="h-8 p-0 font-semibold">
