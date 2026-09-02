@@ -7,6 +7,8 @@ import {
   GrantLifecycleError,
   grantStatusAllowsProgressTracking,
   grantStatusImpliesAward,
+  GRANT_STATUS_OPTIONS,
+  GRANT_STATUS_VALUES,
   reconcileGrantLifecycle,
 } from "./grantLifecycle";
 
@@ -143,4 +145,40 @@ test("schedule dates can be entered once a grant is awarded", () => {
   assert.equal(canGrantSetSchedule({ status: "awarded", awarded: true }), true);
   assert.equal(canGrantSetSchedule({ status: "active", awarded: false }), true);
   assert.equal(canGrantSetSchedule({ status: "pending", awarded: false }), false);
+});
+test("the awarded flag and the status cannot disagree", () => {
+  // Award-implying statuses turn the flag on, in either direction. Active and
+  // Completed additionally require a start date, which is a separate rule.
+  for (const status of ["awarded", "active", "completed"]) {
+    const dates = status === "awarded" ? {} : { startDate: "2026-01-01" };
+    assert.equal(reconcileGrantLifecycle({ status, awarded: false, ...dates }).awarded, true, status);
+    assert.equal(reconcileGrantLifecycle({ status, ...dates }).awarded, true, status);
+  }
+
+  // The flag off is what these statuses mean; setting it on is a contradiction.
+  for (const status of ["rejected", "not_awarded"]) {
+    assert.equal(reconcileGrantLifecycle({ status, awarded: false }).status, status);
+    assert.throws(
+      () => reconcileGrantLifecycle({ status, awarded: true }, { awarded: true, status: "awarded" }),
+      /cannot be marked/,
+      status,
+    );
+  }
+
+  // Cancelled means an awarded project that will not proceed, so it is the one
+  // terminal state that requires the flag on. An application that never won
+  // funding is Not Awarded, which is why that status exists.
+  assert.equal(
+    reconcileGrantLifecycle({ status: "cancelled", awarded: true }, { awarded: true, status: "awarded" }).awarded,
+    true,
+  );
+  assert.throws(
+    () => reconcileGrantLifecycle({ status: "cancelled", awarded: false }),
+    /Use Not Awarded/,
+  );
+
+  // Not Awarded is a status in its own right, accepted by the schema.
+  assert.equal(reconcileGrantLifecycle({ status: "not_awarded" }).status, "not_awarded");
+  assert.ok(GRANT_STATUS_VALUES.includes("not_awarded"));
+  assert.ok(GRANT_STATUS_OPTIONS.some((o) => o.value === "not_awarded" && o.label === "Not Awarded"));
 });

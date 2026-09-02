@@ -3,6 +3,7 @@ import test from "node:test";
 import ExcelJS from "exceljs";
 
 import type { Grant, Scientist } from "@shared/schema";
+import { buildStaffNameIndex } from "@shared/staffNameMatching";
 import {
   buildMissingGrantStaffWorkbookBuffer,
   collectMissingGrantStaff,
@@ -11,7 +12,7 @@ import {
 
 const noExistingGrants = new Map<string, Grant>();
 const noScientistsByEmail = new Map<string, Scientist>();
-const noScientistsByName = new Map<string, Scientist>();
+const noScientistsByName = buildStaffNameIndex([]);
 
 test("grant import rejects Active rows without a start date", () => {
   const [preview] = previewGrantRows(
@@ -305,4 +306,79 @@ test("missing grant staff workbook contains forwardable staff and grant details"
   assert.equal(sheet.getCell("C2").value, 1);
   assert.equal(sheet.getCell("D2").value, "MISSING-STAFF-XLSX");
   assert.equal(sheet.getCell("E2").value, "Workbook affected grant");
+});
+
+// ── Grants somebody else submitted ──────────────────────────────────────────
+// On a subaward the grant's Lead PI works at the prime institution and will
+// never be in our directory, so that name goes to the Grant LPI field and the
+// Sidra Lead PI is taken from the Co-Investigators column instead. lpi_id must
+// never end up null: it is what portfolios, issue flags and the clean-up rule
+// all count.
+
+const subawardStaff = buildStaffNameIndex([
+  { id: 27, firstName: "Ammira", lastName: "Akil" },
+  { id: 35, firstName: "Khalid", lastName: "Fakhro" },
+]);
+
+const subawardRow = (overrides: Record<string, string> = {}) => ({
+  "Project Number": "SUB-1",
+  "Title": "A grant led elsewhere",
+  "LPI Name": "Prof. Ilham Al-Qaradawi",
+  "Submitting Institution": "Qatar University",
+  "Co-Investigators": "Dr Ammira Akil",
+  "Status": "submitted",
+  ...overrides,
+});
+
+test("a subaward takes its Sidra Lead PI from the one co-investigator who is ours", () => {
+  const [preview] = previewGrantRows([subawardRow()], noExistingGrants, noScientistsByEmail, subawardStaff);
+  assert.equal(preview.action, "create");
+  assert.equal(preview.data?.grantLpiName, "Prof. Ilham Al-Qaradawi");
+  assert.equal(preview.data?.lpiId, 27);
+});
+
+test("two Sidra co-investigators on a subaward is left for a person", () => {
+  // Picking one would be a guess about which of them leads our part.
+  const [preview] = previewGrantRows(
+    [subawardRow({ "Project Number": "SUB-2", "Co-Investigators": "Dr Ammira Akil; Dr Khalid Fakhro" })],
+    noExistingGrants, noScientistsByEmail, subawardStaff,
+  );
+  assert.equal(preview.action, "skip");
+  assert.match(preview.reason ?? "", /2 Sidra staff/);
+});
+
+test("a subaward naming nobody of ours is left for a person, not imported without an LPI", () => {
+  const [preview] = previewGrantRows(
+    [subawardRow({ "Project Number": "SUB-3", "Co-Investigators": "Dr Paul Ogburn" })],
+    noExistingGrants, noScientistsByEmail, subawardStaff,
+  );
+  assert.equal(preview.action, "skip");
+  assert.match(preview.reason ?? "", /nobody to record as Sidra Lead PI/);
+});
+
+test("our own grants are untouched by any of this", () => {
+  const [preview] = previewGrantRows(
+    [subawardRow({
+      "Project Number": "OURS-1",
+      "Submitting Institution": "Sidra Medicine",
+      "LPI Name": "Dr Khalid Fakhro",
+    })],
+    noExistingGrants, noScientistsByEmail, subawardStaff,
+  );
+  assert.equal(preview.action, "create");
+  assert.equal(preview.data?.lpiId, 35);
+  assert.equal(preview.data?.grantLpiName, undefined, "no external Lead PI on a grant we submitted");
+});
+
+test("an LPI email still wins over the co-investigator fallback", () => {
+  // An explicit email is the office saying who it is. The fallback exists
+  // because the file has none, not because it should override one.
+  const [preview] = previewGrantRows(
+    [subawardRow({ "Project Number": "SUB-4", "LPI Email": "kfakhro@sidra.org" })],
+    noExistingGrants,
+    new Map([["kfakhro@sidra.org", { id: 35 } as Scientist]]),
+    subawardStaff,
+  );
+  assert.equal(preview.action, "create");
+  assert.equal(preview.data?.lpiId, 35);
 });

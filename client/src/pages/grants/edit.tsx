@@ -8,6 +8,10 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
+import { GrantCollaborations } from "@/components/GrantCollaborations";
+import { GrantCoInvestigators } from "@/components/GrantCoInvestigators";
+import type { GrantCollaborationTree, GrantCoInvestigatorList } from "@shared/schema";
+import { isHomeInstitution } from "@shared/grantSubmission";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { useToast } from "@/hooks/use-toast";
 import {
@@ -61,6 +65,13 @@ export default function EditGrant() {
   const grantId = params?.id ? parseInt(params.id) : null;
 
   // Simple form state
+  // Held apart from formData: these are their own tables, not columns on the
+  // grant, and they are sent alongside the grant rather than inside it.
+  const [collaboratingInstitutions, setCollaboratingInstitutions] =
+    useState<GrantCollaborationTree>([]);
+  const [coInvestigatorLinks, setCoInvestigatorLinks] =
+    useState<GrantCoInvestigatorList>([]);
+
   const [formData, setFormData] = useState({
     projectNumber: "",
     title: "",
@@ -72,6 +83,7 @@ export default function EditGrant() {
     sourceCategory: "",
     sourceRecordKey: "",
     submittingInstitution: "",
+    grantLpiName: "",
     coInvestigators: "",
     investigatorType: "Researcher",
     lpiId: "",
@@ -111,6 +123,9 @@ export default function EditGrant() {
     enabled: !!grantId,
   });
   const canManageProgressReports = grantStatusAllowsProgressTracking(grant?.status);
+
+  // Only for the Grant LPI suggestions: names already recorded elsewhere.
+  const { data: allGrants = [] } = useQuery<any[]>({ queryKey: ["/api/grants"] });
 
   const { data: scientists = [] } = useQuery({
     queryKey: ['/api/scientists']
@@ -152,6 +167,7 @@ export default function EditGrant() {
         sourceCategory: grant.sourceCategory || "",
         sourceRecordKey: grant.sourceRecordKey || "",
         submittingInstitution: grant.submittingInstitution || "",
+        grantLpiName: grant.grantLpiName || "",
         coInvestigators: Array.isArray(grant.coInvestigators) ? grant.coInvestigators.join('\n') : "",
         investigatorType: grant.investigatorType || "Researcher",
         lpiId: grant.lpiId?.toString() || "",
@@ -172,6 +188,15 @@ export default function EditGrant() {
         durationMonths: grant.durationMonths?.toString() || "",
         currency: grant.currency || "QAR",
       });
+    }
+  }, [grant]);
+
+  useEffect(() => {
+    if (grant?.collaboratingInstitutions) {
+      setCollaboratingInstitutions(grant.collaboratingInstitutions);
+    }
+    if (grant?.coInvestigatorLinks) {
+      setCoInvestigatorLinks(grant.coInvestigatorLinks);
     }
   }, [grant]);
 
@@ -310,6 +335,7 @@ export default function EditGrant() {
       sourceCategory: formData.sourceCategory || null,
       sourceRecordKey: formData.sourceRecordKey || null,
       submittingInstitution: formData.submittingInstitution || null,
+      grantLpiName: formData.grantLpiName?.trim() || null,
       coInvestigators,
       investigatorType: formData.investigatorType || null,
       lpiId: formData.lpiId && formData.lpiId.trim() ? parseInt(formData.lpiId) : null,
@@ -329,6 +355,10 @@ export default function EditGrant() {
       durationMonths: toIntOrNull(formData.durationMonths),
       currency: formData.currency || null,
       collaborators,
+      // Sent alongside the grant, replaced wholesale by the server. The editor
+      // holds the entire tree, so what is not here is meant to be gone.
+      collaboratingInstitutions,
+      coInvestigatorLinks,
     };
 
     updateGrantMutation.mutate(payload);
@@ -516,6 +546,24 @@ export default function EditGrant() {
   // SDR section is visible when awarded is true (includes Active and Completed)
   const canLinkSdrs = canGrantLinkSdrs({ awarded: formData.awarded });
   const selectedLpiId = formData.lpiId ? Number(formData.lpiId) : null;
+  // Another institution submitted this grant, so it has a Lead PI of its own.
+  const isSubaward = Boolean(
+    formData.submittingInstitution?.trim() && !isHomeInstitution(formData.submittingInstitution),
+  );
+  // Shown as the placeholder on our own grants, where the lead is our own
+  // person. Left as a placeholder rather than written into the field: storing
+  // a copy would mean two places to correct when the Sidra Lead PI changes.
+  const sidraLpiName = (() => {
+    const lpi = (scientists as any[]).find((s) => s.id === selectedLpiId);
+    return lpi ? formatFullName(lpi) : null;
+  })();
+  const knownGrantLpiNames = Array.from(
+    new Set(
+      (allGrants ?? [])
+        .map((g: any) => g?.grantLpiName?.trim())
+        .filter((name: string | undefined): name is string => Boolean(name)),
+    ),
+  ).sort();
   const lpiResearchActivities = getGrantSdrCandidates(
     researchActivities,
     selectedLpiId,
@@ -555,6 +603,25 @@ export default function EditGrant() {
         </Button>
         <h1 className="text-3xl font-bold">Edit Grant</h1>
         <p className="text-muted-foreground">Update grant information and details</p>
+        {/*
+          * Provenance. The office both imports grants and enters them by hand,
+          * and until these columns existed the only way to tell which was to
+          * look for rows sharing a created_at -- a bulk apply runs in one
+          * transaction, so every row it writes carries the same timestamp.
+          * Grants that predate the columns, or came from an archive taken
+          * before them, say so rather than naming somebody who did not do it.
+          */}
+        {grant && (
+          <p className="mt-1 text-xs text-muted-foreground" data-testid="text-grant-provenance">
+            {`Added${grant.createdAt ? ` on ${new Date(grant.createdAt).toLocaleDateString()}` : ""}`}
+            {grant.createdByName
+              ? ` by ${grant.createdByName}`
+              : " · added before this was recorded, so by whom is unknown"}
+            {grant.updatedByName && grant.updatedByName !== grant.createdByName
+              ? ` · last changed by ${grant.updatedByName}`
+              : ""}
+          </p>
+        )}
       </div>
 
       <form onSubmit={handleSubmit} className="space-y-6">
@@ -672,6 +739,24 @@ export default function EditGrant() {
                 <label className="text-sm font-medium text-gray-700 mb-2 block dark:text-gray-300">Submitting Institution</label>
                 <Input value={formData.submittingInstitution} onChange={(e) => setFormData({...formData, submittingInstitution: e.target.value})} placeholder="Institution name" />
               </div>
+              {/* Free text on purpose: on a subaward this person works at the
+                  prime institution and has no staff record here. Sits beside
+                  the submitting institution because the two are read together. */}
+              <div>
+                <label className="text-sm font-medium text-gray-700 mb-2 block dark:text-gray-300">Grant LPI</label>
+                <Input
+                  value={formData.grantLpiName}
+                  onChange={(e) => setFormData({...formData, grantLpiName: e.target.value})}
+                  placeholder={isSubaward ? "Lead PI at the submitting institution" : sidraLpiName ?? "Lead PI on the grant as a whole"}
+                  list="grant-lpi-suggestions"
+                  data-testid="input-grant-lpi"
+                />
+                {/* Suggests names already recorded, so one person does not
+                    become three spellings the way the institution field did. */}
+                <datalist id="grant-lpi-suggestions">
+                  {knownGrantLpiNames.map((name) => <option key={name} value={name} />)}
+                </datalist>
+              </div>
             </div>
 
             {/* Project Title - Full Width */}
@@ -691,7 +776,12 @@ export default function EditGrant() {
             <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mt-4">
               <div id="grant-field-lpi" className={issueFieldClass("missing_lpi")}>
                 <label className="text-sm font-medium text-gray-700 mb-2 block dark:text-gray-300">
-                  Lead Investigator
+                  Sidra Lead PI
+                  {isSubaward && (
+                    <span className="ml-1 font-normal text-xs text-muted-foreground">
+                      (who owns our part)
+                    </span>
+                  )}
                 </label>
                 <Select
                   value={formData.lpiId}
@@ -999,19 +1089,31 @@ export default function EditGrant() {
               </div>
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div>
-                <label className="text-sm font-medium text-gray-700 mb-2 block dark:text-gray-300">
-                  Collaborators (one per line)
-                </label>
-                <Textarea value={formData.collaborators} onChange={(e) => setFormData({...formData, collaborators: e.target.value})} placeholder="Dr. John Smith, University of Example&#10;Dr. Jane Doe, Research Institute&#10;..." rows={3} />
-              </div>
-              <div>
-                <label className="text-sm font-medium text-gray-700 mb-2 block dark:text-gray-300">
-                  Co-Investigators (one per line)
-                </label>
-                <Textarea value={formData.coInvestigators} onChange={(e) => setFormData({...formData, coInvestigators: e.target.value})} placeholder="Dr. John Smith&#10;Dr. Jane Doe" rows={3} />
-              </div>
+            <div className="space-y-2">
+              <label className="text-sm font-medium text-gray-700 block dark:text-gray-300">
+                Collaborating institutions
+              </label>
+              <p className="text-xs text-muted-foreground">
+                The organisations this grant is run with, and the people at each of them.
+              </p>
+              <GrantCollaborations
+                value={collaboratingInstitutions}
+                onChange={setCollaboratingInstitutions}
+              />
+            </div>
+
+            <div className="space-y-2">
+              <label className="text-sm font-medium text-gray-700 block dark:text-gray-300">
+                Sidra Medicine co-investigators
+              </label>
+              <p className="text-xs text-muted-foreground">
+                Our own staff on this grant, chosen from the directory. People at other
+                institutions belong to the institution above.
+              </p>
+              <GrantCoInvestigators
+                value={coInvestigatorLinks}
+                onChange={setCoInvestigatorLinks}
+              />
             </div>
           </CardContent>
         </Card>

@@ -73,15 +73,16 @@ import {
   insertSectionSchema
 } from "@shared/schema";
 import { requireAuth, requireAdmin, requirePublicationOfficer, getAuthMode } from "./auth";
-import { isAdministrator } from "@shared/effectiveRoles";
+import { hasAnyRole, isAdministrator } from "@shared/effectiveRoles";
 import { buildAssignableRoles } from "./assignableRoles";
 import { ACCESS_ROLES, JOB_TITLE_TAB_ALIASES, matchesJobTitle } from "@shared/constants";
 import { resolveOwnershipAccess, maxAccess, type AccessLevel as OwnershipAccessLevel } from "./ownershipResolver";
-import { matchesAuthorName, isLinkedAuthorInAuthorsText, isUnambiguousAuthorMatch, suggestInternalAuthors } from "@shared/authorMatching";
+import { matchesAuthorName, isLinkedAuthorInAuthorsText, isUnambiguousAuthorMatch, suggestInternalAuthors, classifyAuthorEntries } from "@shared/authorMatching";
 import { detectDuplicateGroups, pickDefaultSurvivorId, normalizeDoi as canonicalDoi, isPreprintRecord, classifyResolvedPublication, preprintRepairEvidence } from "@shared/publicationDeduplication";
 import { getObjectAclPolicy, ObjectPermission } from "./objectAcl";
 import { buildLinkImportTemplate, previewLinkImport } from "./publicationLinksImport";
 import { GRANT_COLUMNS, grantsToRows, buildGrantsWorkbookBuffer, buildGrantsTemplateBuffer, buildMissingGrantStaffWorkbookBuffer, collectMissingGrantStaff, previewGrantRows } from "./grantsImportExport";
+import { buildStaffNameIndex, matchStaffByName } from "@shared/staffNameMatching";
 import {
   registerSidraScoreRoutes,
   isOwnScientistProfile,
@@ -3408,6 +3409,26 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+
+/**
+ * The reason a write failed, for the response body of an administrator-only
+ * endpoint.
+ *
+ * These handlers returned a fixed sentence and put the cause in the server log
+ * only. That is the right default, but it left three production 500s
+ * undiagnosable from the interface -- a staff update, a staff delete and a role
+ * change, each of which wrote its row and then failed, none of which reproduces
+ * against a development database. An administrator is already entitled to see
+ * this data; withholding why the write failed only slows down fixing it.
+ */
+function writeFailureDetail(error: unknown): string {
+  const message = error instanceof Error ? error.message : String(error);
+  // Postgres puts the useful part in these; drizzle wraps them.
+  const cause = (error as { cause?: { message?: string; detail?: string } } | null)?.cause;
+  const extra = [cause?.message, cause?.detail].filter(Boolean).join(" — ");
+  return [message, extra].filter(Boolean).join(" — ").slice(0, 500);
+}
+
   app.patch(
     '/api/scientists/:id',
     requireAuth,
@@ -3460,7 +3481,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(409).json({ message: conflict });
       }
       console.error("Failed to update scientist:", error);
-      res.status(500).json({ message: "Failed to update scientist" });
+      res.status(500).json({
+        message: `Failed to update scientist: ${writeFailureDetail(error)}`,
+      });
     }
   });
 
@@ -3529,7 +3552,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.status(204).send();
     } catch (error) {
       console.error("Error deleting scientist:", error);
-      res.status(500).json({ message: "Failed to delete scientist" });
+      res.status(500).json({
+        message: `Failed to delete scientist: ${writeFailureDetail(error)}`,
+      });
     }
   });
 
@@ -4613,10 +4638,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.json([]);
       }
 
-      const [allPublications, allAuthors] = await Promise.all([
+      const [allPublications, allAuthors, allScientists] = await Promise.all([
         storage.getPublications(),
         storage.getAllPublicationAuthors(),
+        // Needed to spot a name in the author text belonging to somebody on
+        // staff who is not linked. The check used to answer only "is anyone
+        // linked" and "does each linked author appear in the text", so a record
+        // with one author linked and three colleagues unlinked passed clean.
+        storage.getScientists(),
       ]);
+      const matchableScientists = allScientists
+        .filter((s) => s.firstName && s.lastName)
+        .map((s) => ({ id: s.id, firstName: s.firstName as string, lastName: s.lastName as string }));
 
       let includeUnpublished = false;
       if (typeof req.query.scientistId === "string") {
@@ -4646,9 +4679,21 @@ export async function registerRoutes(app: Express): Promise<Server> {
         .filter(pub => matchesAuthorName(pub.authors, firstName, lastName))
         .map(pub => {
           const linkedAuthors = authorsByPublication.get(pub.id) || [];
+          // Every name in the free-text list, told apart: already linked, on
+          // staff but unlinked, or not on staff. Shared with the Outcome Office
+          // view and with "Auto-connect authors", so all three agree about who
+          // is missing.
+          const authorEntries = classifyAuthorEntries(
+            pub.authors,
+            matchableScientists,
+            linkedAuthors.map(a => a.scientistId),
+          );
+          const missedAuthors = authorEntries
+            .filter(e => e.status === "missed")
+            .map(e => ({ scientistId: e.scientistId as number, name: e.text }));
 
           if (linkedAuthors.length === 0) {
-            return { publication: pub, reason: "no_internal_authors" as const };
+            return { publication: pub, reason: "no_internal_authors" as const, authorEntries, missedAuthors };
           }
 
           const mismatched = linkedAuthors.filter(
@@ -4659,12 +4704,20 @@ export async function registerRoutes(app: Express): Promise<Server> {
             return {
               publication: pub,
               reason: "author_mismatch" as const,
+              authorEntries,
+              missedAuthors,
               mismatchedAuthors: mismatched.map(a => ({
                 scientistId: a.scientistId,
                 firstName: a.scientist.firstName,
                 lastName: a.scientist.lastName,
               })),
             };
+          }
+
+          // Everything linked checks out, but colleagues in the author list are
+          // not linked. This returned null before, so the record never appeared.
+          if (missedAuthors.length > 0) {
+            return { publication: pub, reason: "missing_internal_links" as const, authorEntries, missedAuthors };
           }
 
           return null;
@@ -8557,8 +8610,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   // ── Organizational structure (Branch → Department → Section) ──────────────
   const requireOrgManager = (req: Request, res: Response): boolean => {
-    const role = (req.session as any)?.user?.role;
-    if (role !== 'Management' && role !== 'admin' && role !== 'superadmin') {
+    // Every slot, not the primary alone. Administrator rights are normally
+    // held as a secondary role, so reading users.role by itself refused
+    // administrators the organisation editor -- adding a department came back
+    // "only management or administrators can modify the organization
+    // structure" to someone who was one.
+    if (!hasAnyRole(req.session?.user, ['Management', 'admin', 'superadmin'])) {
       res.status(403).json({ message: 'Only management or administrators can modify the organization structure' });
       return false;
     }
@@ -9828,13 +9885,24 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.post('/api/grants', async (req: Request, res: Response) => {
     try {
-      const parsedData = insertGrantSchema.parse(nullifyEmptyStrings(req.body));
+      // Pulled out before validation: the collaboration tree is its own tables,
+      // not columns on grants, so insertGrantSchema would reject it.
+      const { collaboratingInstitutions, coInvestigatorLinks, ...grantBody } = req.body ?? {};
+      const parsedData = insertGrantSchema.parse(nullifyEmptyStrings(grantBody));
       const lifecycle = reconcileGrantLifecycle(parsedData);
       const validatedData = insertGrantSchema.parse({
         ...parsedData,
         ...lifecycle,
       });
-      const grant = await storage.createGrant(validatedData);
+      // Recorded for audit: the office both imports grants and enters them by
+      // hand, and nothing used to say which, or who.
+      const grant = await storage.createGrant(validatedData, req.session?.user?.id);
+      if (Array.isArray(collaboratingInstitutions)) {
+        await storage.replaceGrantCollaborations(grant.id, collaboratingInstitutions);
+      }
+      if (Array.isArray(coInvestigatorLinks)) {
+        await storage.replaceGrantCoInvestigators(grant.id, coInvestigatorLinks);
+      }
       await req.audit.logInsert("grants", grant.id, grant as Record<string, unknown>);
       res.status(201).json(grant);
     } catch (error) {
@@ -9866,6 +9934,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       const {
         researchActivityIds: rawResearchActivityIds,
+        collaboratingInstitutions,
+        coInvestigatorLinks,
         ...rawGrantData
       } = req.body ?? {};
       const desiredResearchActivityIds = rawResearchActivityIds === undefined
@@ -9896,7 +9966,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
         id,
         validatedData,
         desiredResearchActivityIds,
+        req.session?.user?.id,
       );
+      // Only when the editor sent a tree. An update that does not mention
+      // collaborations leaves them alone rather than deleting them.
+      if (Array.isArray(collaboratingInstitutions)) {
+        await storage.replaceGrantCollaborations(id, collaboratingInstitutions);
+      }
+      if (Array.isArray(coInvestigatorLinks)) {
+        await storage.replaceGrantCoInvestigators(id, coInvestigatorLinks);
+      }
       await req.audit.logUpdate(
         "grants", id,
         existingGrant as Record<string, unknown>,
@@ -10005,9 +10084,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
     const [grants, scientists] = await Promise.all([storage.getGrants(), storage.getScientists()]);
     const existingByProjectNumber = new Map(grants.map((g: any) => [String(g.projectNumber).toLowerCase(), g]));
     const scientistByEmail = new Map(scientists.filter((s: any) => s.email).map((s: any) => [s.email.toLowerCase(), s]));
-    const scientistByName = new Map(scientists.map((s: any) => [
-      `${s.firstName} ${s.lastName}`.toLowerCase().replace(/\s+/g, ' '), s,
-    ]));
+    // Indexed rather than keyed on an exact "first last" string: the office's
+    // files write the title into the name field and sometimes a middle name,
+    // so "Dr. Khalid Fakhro" never matched the record "Khalid Fakhro".
+    const scientistByName = buildStaffNameIndex(scientists as any);
     return previewGrantRows(rawRows, existingByProjectNumber, scientistByEmail, scientistByName);
   }
 
@@ -10066,16 +10146,53 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const previews = await computeGrantImportPreview(fileBase64, fileName);
       let created = 0, updated = 0;
       const failed: { rowNumber: number; projectNumber: string; reason: string }[] = [];
+
+      // The Collaborators and Co-Investigators columns used to land only in
+      // the text arrays those fields were refactored away from, so an import
+      // filled columns nothing displays any more while the editor and the
+      // list showed the grant as having neither. Mirrored into the relational
+      // tables here.
+      //
+      // Additive, matching what the import does to the text itself: it merges
+      // and dedupes rather than overwriting, so a re-run adds nothing and
+      // never removes a partner someone recorded by hand.
+      const staffIndex = buildStaffNameIndex(await storage.getScientists() as any);
+      const seedGrantLinks = async (grantId: number, data: any): Promise<number> => {
+        let added = 0;
+
+        const institutions: string[] = Array.isArray(data.collaborators) ? data.collaborators : [];
+        if (institutions.length > 0) {
+          added += await storage.addGrantCollaboratingInstitutions(grantId, institutions);
+        }
+
+        const names: string[] = Array.isArray(data.coInvestigators) ? data.coInvestigators : [];
+        if (names.length > 0) {
+          // Same rule as the Lead PI: a name matching nobody, or matching two
+          // people, is left unlinked rather than guessed at. These are our own
+          // staff, so an unmatched one means no record exists yet.
+          const ids = names
+            .map((name) => matchStaffByName(staffIndex, name))
+            .filter((match) => match.status === "matched")
+            .map((match) => (match as { scientist: { id: number } }).scientist.id);
+          if (ids.length > 0) added += await storage.addGrantCoInvestigators(grantId, ids);
+        }
+
+        return added;
+      };
       for (const p of previews) {
         if (p.action === 'skip' || !p.data) continue;
         try {
           if (p.action === 'create') {
             const parsedData = insertGrantSchema.parse(p.data);
             const lifecycle = reconcileGrantLifecycle(parsedData);
-            await storage.createGrant(insertGrantSchema.parse({
+            // Same audit trail as a hand-entered grant. Without this the
+            // provenance columns stayed empty on exactly the path they were
+            // added for: a bulk import is where "who put this here" is
+            // hardest to answer afterwards.
+            const createdGrant = await storage.createGrant(insertGrantSchema.parse({
               ...parsedData,
               ...lifecycle,
-            }));
+            }), req.session?.user?.id);
             created++;
           } else {
             const existing = await storage.getGrants().then((gs: any[]) =>
@@ -10097,6 +10214,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
                 ...parsedData,
                 ...lifecycle,
               }),
+              undefined,
+              req.session?.user?.id,
             );
             updated++;
           }
@@ -10108,11 +10227,96 @@ export async function registerRoutes(app: Express): Promise<Server> {
           });
         }
       }
+      // Second pass, over every parsed row rather than only the ones that were
+      // written. A row whose fields all match the database is marked "No
+      // changes" and never reaches the loop above -- and that is precisely the
+      // row most likely to be missing its collaborator and co-investigator
+      // links, having been imported before those tables existed. Re-running
+      // the import is what backfills them.
+      const grantIdByProjectNumber = new Map(
+        (await storage.getGrants()).map((g: any) => [String(g.projectNumber).toLowerCase(), g.id]),
+      );
+      let linked = 0;
+      for (const p of previews) {
+        if (!p.data) continue;
+        const grantId = grantIdByProjectNumber.get(p.projectNumber.toLowerCase());
+        if (grantId == null) continue;
+        try {
+          linked += await seedGrantLinks(grantId, p.data);
+        } catch (err) {
+          // A link that will not seed must not fail the grant it belongs to.
+          console.error(`Failed to seed links for grant ${p.projectNumber}:`, err);
+        }
+      }
+
       const skipped = previews.filter((p) => p.action === 'skip').map((p) => ({ rowNumber: p.rowNumber, projectNumber: p.projectNumber, reason: p.reason }));
-      res.json({ created, updated, skipped, failed });
+      res.json({ created, updated, skipped, failed, linked });
     } catch (error) {
       console.error('Error applying grants import:', error);
       res.status(400).json({ message: error instanceof Error ? error.message : "Failed to import grants" });
+    }
+  });
+
+  // ── Clean-up: grants too incomplete to act on ───────────────────────────
+  // Registered before the /api/grants/:id/... routes. Nothing below matches
+  // these paths today -- the third segment is a literal in every one of them
+  // -- but a later /api/grants/:id/:section would swallow "cleanup" as an id,
+  // and the ordering costs nothing now.
+  //
+  // Both inherit the research-office matrix guard mounted on the /api/grants
+  // prefix: GET needs view, DELETE needs edit.
+
+  app.get('/api/grants/cleanup/incomplete', requireAuth, async (_req: Request, res: Response) => {
+    try {
+      const grants = await storage.findIncompleteGrants();
+      res.json({
+        grants,
+        // Counted here so the page does not have to agree with the server
+        // about what it is looking at.
+        total: grants.length,
+        deletable: grants.filter((grant) => grant.deletable).length,
+        blocked: grants.filter((grant) => !grant.deletable).length,
+        withOtherContent: grants.filter((grant) => grant.hasOtherContent).length,
+      });
+    } catch (error) {
+      console.error('Error listing incomplete grants:', error);
+      res.status(500).json({ message: "Failed to list incomplete grants" });
+    }
+  });
+
+  app.delete('/api/grants/cleanup/incomplete', requireAuth, async (req: Request, res: Response) => {
+    try {
+      // Explicit ids only. A body-less "delete everything invalid" would act
+      // on whatever the table holds at that instant rather than on the list
+      // someone actually read and approved.
+      const rawIds = Array.isArray(req.body?.ids) ? req.body.ids : null;
+      if (!rawIds) {
+        return res.status(400).json({
+          message: "Send the ids to delete, as chosen from the clean-up preview.",
+        });
+      }
+
+      const ids = Array.from(
+        new Set(
+          rawIds
+            .map((value: unknown) => Number(value))
+            .filter((value: number) => Number.isInteger(value) && value > 0),
+        ),
+      ) as number[];
+
+      if (ids.length === 0) {
+        return res.status(400).json({ message: "No valid grant ids were sent." });
+      }
+
+      const result = await storage.deleteIncompleteGrants(ids);
+      res.json({
+        ...result,
+        deletedCount: result.deleted.length,
+        skippedCount: result.skipped.length,
+      });
+    } catch (error) {
+      console.error('Error deleting incomplete grants:', error);
+      res.status(500).json({ message: "Failed to delete incomplete grants" });
     }
   });
 
@@ -11256,13 +11460,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
     const { role } = req.body as { role: string };
     // superadmin can only be set via SUPER_ADMIN_EMAIL — never by this API.
+    // role-name-ok: validates the value being assigned, not the caller.
     if (!role || role === 'superadmin') {
       return res.status(400).json({ message: 'Invalid role' });
     }
 
     try {
       await ensureDefaultRoleGroups();
-      const isBuiltInRole = role === 'user' || role === 'admin';
+      // role-name-ok: classifies the submitted role name, not the caller.
+    const isBuiltInRole = role === 'user' || role === 'admin';
       const [matrixRole] = isBuiltInRole
         ? [undefined]
         : await db
@@ -11288,7 +11494,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.json(updated);
     } catch (err) {
       console.error('Error updating user role:', err);
-      res.status(500).json({ message: 'Failed to update role' });
+      res.status(500).json({
+        message: `Failed to update role: ${writeFailureDetail(err)}`,
+      });
     }
   });
 

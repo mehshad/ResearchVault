@@ -25,8 +25,10 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Grant } from "@shared/schema";
-import { Plus, Search, MoreHorizontal, Download, Filter, DollarSign, Calendar, ArrowUpDown, Link as LinkIcon, Upload, FileSpreadsheet, Loader2, AlertTriangle } from "lucide-react";
+import { Plus, Search, MoreHorizontal, Download, Filter, DollarSign, Calendar, ArrowUpDown, Link as LinkIcon, Upload, FileSpreadsheet, Loader2, AlertTriangle, Trash2, HelpCircle } from "lucide-react";
 import { GRANT_STATUS_OPTIONS } from "@shared/grantLifecycle";
+import { summariseGrantSkips } from "@shared/grantImportReasons";
+import type { GrantSubmissionSummary } from "@shared/grantSubmission";
 import {
   GRANT_ISSUE_DEFINITIONS,
   grantMatchesListFilters,
@@ -48,6 +50,8 @@ import { queryClient } from "@/lib/queryClient";
 import { useCurrentUser } from "@/hooks/useCurrentUser";
 import { usePermissions } from "@/hooks/usePermissions";
 import { PermissionWrapper, useElementPermissions } from "@/components/PermissionWrapper";
+import { GrantCleanupDialog } from "@/components/GrantCleanupDialog";
+import { GrantRulesDialog } from "@/components/GrantRulesDialog";
 
 type EnhancedGrant = Grant & {
   lpi?: {
@@ -58,6 +62,9 @@ type EnhancedGrant = Grant & {
   } | null;
   linkedSdrsCount?: number;
   issues?: GrantIssue[];
+  collaboratingInstitutions?: string[];
+  resolvedGrantLpiName?: string | null;
+  submission?: GrantSubmissionSummary;
 };
 
 export default function GrantsList() {
@@ -128,8 +135,13 @@ export default function GrantsList() {
     awarded: "bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300",
     active: "bg-green-100 text-green-700 dark:bg-green-950 dark:text-green-300",
     completed: "bg-blue-100 text-blue-700 dark:bg-blue-950 dark:text-blue-300",
+    not_awarded: "bg-orange-100 text-orange-700 dark:bg-orange-950 dark:text-orange-300",
     rejected: "bg-orange-100 text-orange-700 dark:bg-orange-950 dark:text-orange-300",
     cancelled: "bg-red-100 text-red-600 dark:bg-red-950 dark:text-red-400",
+    withdrawn: "bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300",
+    terminated: "bg-red-100 text-red-600 dark:bg-red-950 dark:text-red-400",
+    transferred: "bg-sky-100 text-sky-700 dark:bg-sky-950 dark:text-sky-300",
+    suspended: "bg-amber-100 text-amber-700 dark:bg-amber-950 dark:text-amber-300",
   };
 
   const getStatusColor = (status: string) => {
@@ -167,6 +179,9 @@ export default function GrantsList() {
     if (sortField === "grantType") {
       aValue = getGrantType(a);
       bValue = getGrantType(b);
+    } else if (sortField === "grantLpiName") {
+      aValue = a.resolvedGrantLpiName ?? "";
+      bValue = b.resolvedGrantLpiName ?? "";
     } else if (sortField === "investigatorName") {
       aValue = a.lpi ? `${a.lpi.firstName} ${a.lpi.lastName}` : "";
       bValue = b.lpi ? `${b.lpi.firstName} ${b.lpi.lastName}` : "";
@@ -193,9 +208,12 @@ export default function GrantsList() {
   };
 
   // ---- Excel import (template -> preview -> apply) ----
+  const [cleanupOpen, setCleanupOpen] = useState(false);
+  const [rulesOpen, setRulesOpen] = useState(false);
   const [importOpen, setImportOpen] = useState(false);
   const [importFile, setImportFile] = useState<{ base64: string; name: string } | null>(null);
   const [importPreview, setImportPreview] = useState<any | null>(null);
+  const skipSummary = summariseGrantSkips(importPreview?.rows ?? []);
   const [importResult, setImportResult] = useState<any | null>(null);
 
   const resetImport = () => {
@@ -317,6 +335,13 @@ export default function GrantsList() {
             <p className="text-gray-600 mt-1 dark:text-gray-300">Manage research grants and funding applications</p>
           </div>
           <div className="flex gap-2">
+            {/* Not behind a permission: the rules apply to everyone who can
+                see the page, and someone refused an import needs to know why
+                without asking. */}
+            <Button variant="outline" onClick={() => setRulesOpen(true)} data-testid="button-open-grant-rules">
+              <HelpCircle className="h-4 w-4 mr-2" />
+              Rules
+            </Button>
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <Button variant="outline">
@@ -343,6 +368,21 @@ export default function GrantsList() {
               <Button variant="outline" onClick={() => { resetImport(); setImportOpen(true); }}>
                 <Upload className="h-4 w-4 mr-2" />
                 Import
+              </Button>
+            </PermissionWrapper>
+            {/* Deleting records, so gated on canDelete rather than canAdd. */}
+            <PermissionWrapper
+              requiredPermissions={['canDelete']}
+              currentUserRole={currentUser.role}
+              navigationItem="grants"
+            >
+              <Button
+                variant="outline"
+                onClick={() => setCleanupOpen(true)}
+                data-testid="button-open-grant-cleanup"
+              >
+                <Trash2 className="h-4 w-4 mr-2" />
+                Clean up
               </Button>
             </PermissionWrapper>
             <PermissionWrapper 
@@ -425,9 +465,16 @@ export default function GrantsList() {
             </div>
           </div>
 
-          <div className="overflow-x-auto rounded-md border">
-            <Table className="min-w-[1400px]">
-              <TableHeader>
+          {/* Scrolls in both directions inside a bounded box, so the header can
+              stick to the top of it. A page-level scroll would not work: the
+              horizontal overflow already makes this div the scroll container,
+              and sticky positions against the nearest scrolling ancestor. */}
+          <div className="max-h-[70vh] overflow-auto rounded-md border">
+            <Table className="min-w-[1950px]">
+              {/* Eleven columns and a hundred rows: without this you lose track
+                  of which column you are reading a few rows in. Opaque
+                  background, or the rows show through as they pass under. */}
+              <TableHeader className="sticky top-0 z-20 [&_tr]:bg-background [&_th]:bg-background [&_tr]:hover:bg-background">
                 <TableRow>
                   <TableHead className="w-32">
                     <Button variant="ghost" onClick={() => handleSort("grantType")} className="h-8 p-0 font-semibold">
@@ -437,7 +484,7 @@ export default function GrantsList() {
                   <TableHead className="min-w-60">ISSUES</TableHead>
                   <TableHead className="w-48">
                     <Button variant="ghost" onClick={() => handleSort("investigatorName")} className="h-8 p-0 font-semibold">
-                      LEAD PRINCIPAL INVESTIGATOR <ArrowUpDown className="ml-1 h-3 w-3" />
+                      SIDRA LEAD PI <ArrowUpDown className="ml-1 h-3 w-3" />
                     </Button>
                   </TableHead>
                   <TableHead className="w-40">
@@ -445,6 +492,17 @@ export default function GrantsList() {
                       FUNDING INSTITUTION <ArrowUpDown className="ml-1 h-3 w-3" />
                     </Button>
                   </TableHead>
+                  <TableHead className="w-44">
+                    <Button variant="ghost" onClick={() => handleSort("submittingInstitution")} className="h-8 p-0 font-semibold">
+                      SUBMITTED BY <ArrowUpDown className="ml-1 h-3 w-3" />
+                    </Button>
+                  </TableHead>
+                  <TableHead className="w-48">
+                    <Button variant="ghost" onClick={() => handleSort("grantLpiName")} className="h-8 p-0 font-semibold">
+                      GRANT LPI <ArrowUpDown className="ml-1 h-3 w-3" />
+                    </Button>
+                  </TableHead>
+                  <TableHead className="w-52">COLLABORATING INSTITUTIONS</TableHead>
                   <TableHead className="w-40">
                     <Button variant="ghost" onClick={() => handleSort("projectNumber")} className="h-8 p-0 font-semibold">
                       PROJECT NO. <ArrowUpDown className="ml-1 h-3 w-3" />
@@ -471,7 +529,7 @@ export default function GrantsList() {
               <TableBody>
                 {filteredAndSortedGrants?.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={9} className="text-center py-8 text-gray-500 dark:text-gray-400">
+                    <TableCell colSpan={12} className="text-center py-8 text-gray-500 dark:text-gray-400">
                       {searchQuery || statusFilter !== "all" || yearFilter !== "all" || issueFilter !== "all"
                         ? "No grants match your filters." 
                         : "No grants found. Create your first grant to get started."}
@@ -545,6 +603,56 @@ export default function GrantsList() {
                       </TableCell>
                       <TableCell className="text-sm">
                         {grant.fundingAgency || "—"}
+                      </TableCell>
+                      <TableCell className="text-sm">
+                        {grant.submission?.role === "subawardee" ? (
+                          <div>
+                            <Badge variant="outline" className="border-blue-400 text-blue-700 dark:border-blue-700 dark:text-blue-300">
+                              Subawardee
+                            </Badge>
+                            <div
+                              className="mt-1 text-xs text-gray-600 line-clamp-2 dark:text-gray-400"
+                              title={grant.submission.submittedBy ?? undefined}
+                            >
+                              via {grant.submission.submittedBy}
+                            </div>
+                          </div>
+                        ) : grant.submission?.role === "lead" ? (
+                          <span className="text-sm">{grant.submission.label}</span>
+                        ) : (
+                          <span className="text-gray-400 dark:text-gray-500">—</span>
+                        )}
+                      </TableCell>
+                      <TableCell className="text-sm">
+                        {/* Only on a subaward. On our own grants the lead is
+                            our own person, already named two columns to the
+                            left, and repeating them just made the row wider. */}
+                        {grant.submission?.role === "subawardee" && grant.resolvedGrantLpiName ? (
+                          <span className="text-blue-700 dark:text-blue-300">{grant.resolvedGrantLpiName}</span>
+                        ) : (
+                          <span className="text-gray-400 dark:text-gray-500">—</span>
+                        )}
+                      </TableCell>
+                      <TableCell className="text-sm">
+                        {(grant.collaboratingInstitutions?.length ?? 0) > 0 ? (
+                          <div
+                            className="flex max-w-52 flex-wrap gap-1"
+                            title={grant.collaboratingInstitutions!.join(", ")}
+                          >
+                            {grant.collaboratingInstitutions!.slice(0, 2).map((name) => (
+                              <Badge key={name} variant="secondary" className="max-w-full truncate text-xs font-normal">
+                                {name}
+                              </Badge>
+                            ))}
+                            {grant.collaboratingInstitutions!.length > 2 && (
+                              <Badge variant="secondary" className="text-xs font-normal">
+                                +{grant.collaboratingInstitutions!.length - 2} more
+                              </Badge>
+                            )}
+                          </div>
+                        ) : (
+                          <span className="text-gray-400 dark:text-gray-500">—</span>
+                        )}
                       </TableCell>
                       <TableCell className="font-mono text-sm">
                         {grant.projectNumber}
@@ -669,6 +777,32 @@ export default function GrantsList() {
                     <Badge variant="outline">{importPreview.summary.missingStaff} missing staff</Badge>
                   )}
                 </div>
+
+                {/* Why the skipped rows were skipped, grouped. A file of 861
+                    rows is a wall of individually-correct sentences, and the
+                    question anybody has -- why did most of this not go in --
+                    should not need scrolling to answer. */}
+                {skipSummary.length > 0 && (
+                  <div className="rounded-md border bg-muted/40 p-3">
+                    <div className="text-sm font-medium mb-2">
+                      Why {importPreview.summary.skip} row{importPreview.summary.skip === 1 ? " was" : "s were"} skipped
+                    </div>
+                    <div className="space-y-1.5">
+                      {skipSummary.map((reason) => (
+                        <div key={reason.code} className="flex items-baseline gap-3 text-sm">
+                          <span className="w-12 shrink-0 text-right font-mono font-medium tabular-nums">
+                            {reason.count}
+                          </span>
+                          <span className="min-w-0">
+                            <span className="font-medium">{reason.label}</span>
+                            <span className="text-muted-foreground"> &mdash; {reason.hint}</span>
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
                 <div className="divide-y rounded-md border text-sm">
                   {importPreview.rows.map((row: any) => (
                     <div key={row.rowNumber} className="flex items-start gap-3 px-3 py-3">
@@ -729,6 +863,9 @@ export default function GrantsList() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <GrantCleanupDialog open={cleanupOpen} onOpenChange={setCleanupOpen} />
+      <GrantRulesDialog open={rulesOpen} onOpenChange={setRulesOpen} />
     </div>
     </PermissionWrapper>
   );

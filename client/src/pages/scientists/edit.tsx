@@ -42,6 +42,7 @@ import { useAuth } from "@/hooks/useAuth";
 import { useCurrentUser } from "@/hooks/useCurrentUser";
 import { hasAnyRole, isRestrictedOnly } from "@shared/effectiveRoles";
 import { sanitizeScientistUpdatePayload } from "@/lib/restrictedUserProfilePolicy";
+import { JOB_TITLES, canonicalJobTitle, isCanonicalJobTitle } from "@shared/constants";
 
 // Extend the insert schema with additional validations
 const editScientistSchema = insertScientistSchema.extend({
@@ -423,25 +424,60 @@ export default function EditScientist() {
                   control={form.control}
                   name="jobTitle"
                   render={({ field }) => {
-                    const jobTitles = [
-                      'Management', 'Investigator', 'Physician', 'Staff Scientist',
-                      'Research Specialist', 'Research Associate', 'Research Assistant',
-                      'PhD Student', 'Post-doctoral Fellow', 'Lab Manager',
-                      'PMO Officer', 'IRB Officer', 'IBC Officer', 'Outcome Officer', 'Research Officer', 'IT Officer',
+                    // The canonical list, not a copy of it. This field kept its
+                    // own array, which had drifted: it offered "Post-doctoral
+                    // Fellow", which is not a canonical title, and omitted the
+                    // IRB and IBC Board Member posts entirely.
+                    const stored = field.value || "";
+                    const nonCanonical = stored !== "" && !isCanonicalJobTitle(stored);
+                    const suggestion = nonCanonical ? canonicalJobTitle(stored) : null;
+                    // A title the list does not recognise stays selectable and
+                    // stays selected. Dropping it blanked the field on open, and
+                    // saving from there wrote the blank back -- so opening a
+                    // record to read it could quietly erase the person's title.
+                    const options = [
+                      ...(nonCanonical ? [{ value: stored, label: `${stored} — not a standard title` }] : []),
+                      ...JOB_TITLES.map((t) => ({ value: t, label: t })),
                     ];
                     return (
                       <FormItem>
                         <FormLabel>Job Title</FormLabel>
                         <FormControl>
                           <SearchableSelect
-                            options={jobTitles.map((t) => ({ value: t, label: t }))}
-                            value={field.value || ""}
+                            options={options}
+                            value={stored}
                             onChange={field.onChange}
                             placeholder="Select job title"
                             searchPlaceholder="Search job titles..."
                             data-testid="select-job-title"
                           />
                         </FormControl>
+                        {nonCanonical && (
+                          <div
+                            className="mt-2 rounded-md border border-amber-300 bg-amber-50 p-3 text-sm dark:border-amber-800 dark:bg-amber-950/30"
+                            data-testid="notice-non-standard-job-title"
+                          >
+                            <p className="font-medium text-amber-900 dark:text-amber-200">
+                              "{stored}" is not one of the standard titles
+                            </p>
+                            <p className="mt-1 text-amber-900/90 dark:text-amber-200/90">
+                              It has been kept so nothing is lost. Choose the right one from the
+                              list to correct it{suggestion ? "" : ", or leave it as it is"}.
+                            </p>
+                            {suggestion && (
+                              <Button
+                                type="button"
+                                variant="outline"
+                                size="sm"
+                                className="mt-2"
+                                onClick={() => field.onChange(suggestion)}
+                                data-testid="button-use-canonical-job-title"
+                              >
+                                Use "{suggestion}"
+                              </Button>
+                            )}
+                          </div>
+                        )}
                         <FormDescription>
                           Select the profile job title. Account access is assigned separately in User Management.
                         </FormDescription>

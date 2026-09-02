@@ -47,17 +47,48 @@ const ALLOWED = new Map<string, string>([
     "client/src/providers/CurrentUserProvider.tsx",
     "builds the session identity rather than deciding access from it",
   ],
+  [
+    "client/src/lib/navigationPermissions.ts",
+    "answers per role name by contract: seeds the default matrix, one role at a time",
+  ],
+  [
+    "server/assignableRoles.ts",
+    "filters a list of role names, with no person involved",
+  ],
+  [
+    "client/src/pages/settings/users.tsx",
+    "renders each listed account's own role, and disables editing the superadmin row",
+  ],
+  [
+    "client/src/pages/teams/detail.tsx",
+    "colours a badge by the team member's role name",
+  ],
 ]);
+
+/**
+ * A line carrying this marker is about a role *name* -- one being submitted,
+ * rendered or classified -- rather than about what someone may reach. Used
+ * where a file mixes both, so the file itself cannot simply be allowed.
+ */
+const LINE_OPT_OUT = "role-name-ok";
 
 /** Patterns that decide access from one role string. */
 const OFFENDERS: Array<{ label: string; re: RegExp }> = [
   {
     label: "role-list membership test",
-    re: /\][\s\r\n]*\.includes\(\s*(effectiveRole|[A-Za-z]*[Uu]ser\??\.role)\s*\)/,
+    // Any identifier ending in "role", however it was obtained. The first
+    // version named the variables it had already seen -- effectiveRole,
+    // currentUser.role -- and so missed
+    // `const role = (req.session as any)?.user?.role` in requireOrgManager,
+    // which is the same bug wearing a different name.
+    re: /\][\s\r\n]*\.includes\(\s*[\w$?.]*\b\w*[Rr]ole\s*\)/,
   },
   {
     label: "direct comparison against a role name",
-    re: /(effectiveRole|[A-Za-z]*[Uu]ser\??\.role)\s*(===|!==)\s*["'](admin|superadmin|Management|Outcome Officer|Research Officer|Investigator|user)["']/,
+    // \w* may be empty, so a bare `role` matches as well as `effectiveRole`
+    // and `sessionUser.role`. Requiring a prefix was the hole that let
+    // requireOrgManager through.
+    re: /\b\w*[Rr]ole\b\s*(===|!==)\s*["'](admin|superadmin|Management|Outcome Officer|Research Officer|Investigator|user)["']/,
   },
   {
     label: "isAdministrator given a hand-built object, dropping secondaries",
@@ -89,6 +120,8 @@ test("access is never decided from the primary role alone", () => {
       const lines = readFileSync(file, "utf8").split(/\r?\n/);
       lines.forEach((line, index) => {
         if (line.trimStart().startsWith("*") || line.trimStart().startsWith("//")) return;
+        // The marker sits on the line above the one it excuses.
+        if (lines[index - 1]?.includes(LINE_OPT_OUT)) return;
         for (const { label, re } of OFFENDERS) {
           if (re.test(line)) {
             offences.push(`${rel}:${index + 1} — ${label}\n    ${line.trim()}`);

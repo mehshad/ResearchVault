@@ -2,6 +2,12 @@
 // Most errors here stem from untyped `useQuery` results (data inferred as `unknown`), drifted shared/schema field renames, and form values typed as `unknown`. They are not known runtime bugs but should be fixed file-by-file as each is next touched: remove this directive, run `npx tsc --noEmit`, and resolve what surfaces.
 import { eq, and, desc, asc, or, sql, inArray, notInArray, gte, ilike } from "drizzle-orm";
 import { ACCESS_ROLES, BUILT_IN_ASSIGNABLE_ROLES } from "@shared/constants";
+import {
+  isGrantIncomplete,
+  missingMinimumGrantFields,
+  type IncompleteGrantSummary,
+} from "@shared/grantValidity";
+import { isMissingAmount } from "@shared/grantIssues";
 import { db } from "./db";
 import {
   resolveInvestigatorScientistIds,
@@ -46,6 +52,8 @@ import {
   journalImpactFactorMetrics, JournalImpactFactorMetric, InsertJournalImpactFactorMetric,
   JournalImpactFactor, InsertJournalImpactFactor,
   grants, Grant, InsertGrant,
+  grantCollaboratingInstitutions, grantInstitutionCollaborators, grantCoInvestigators,
+  type GrantCollaborationTree, type GrantCoInvestigatorList,
   grantResearchActivities, GrantResearchActivity, InsertGrantResearchActivity,
   grantProgressReports, GrantProgressReport, InsertGrantProgressReport,
   certificationModules, CertificationModule, InsertCertificationModule,
@@ -2686,7 +2694,213 @@ export class DatabaseStorage implements IStorage {
 
   async getGrant(id: number): Promise<Grant | undefined> {
     const [grant] = await db.select().from(grants).where(eq(grants.id, id));
-    return grant;
+    if (!grant) return grant;
+    // Resolve the audit ids to names here rather than making the client ask
+    // /api/admin/users, which is administrator-only -- the people who need to
+    // see who added a grant are not all administrators.
+    const collaboratingInstitutions = await this.getGrantCollaborations(id);
+    const coInvestigatorLinks = await this.getGrantCoInvestigators(id);
+    const ids = [grant.createdByUserId, grant.updatedByUserId].filter(
+      (v): v is number => typeof v === "number",
+    );
+    if (ids.length === 0) {
+      return { ...grant, collaboratingInstitutions, coInvestigatorLinks } as Grant & {
+        collaboratingInstitutions: GrantCollaborationTree;
+        coInvestigatorLinks: GrantCoInvestigatorList;
+      };
+    }
+    const rows = await db
+      .select({ id: users.id, name: users.name })
+      .from(users)
+      .where(inArray(users.id, [...new Set(ids)]));
+    const nameById = new Map(rows.map((r) => [r.id, r.name]));
+    return {
+      ...grant,
+      collaboratingInstitutions,
+      coInvestigatorLinks,
+      createdByName: grant.createdByUserId ? nameById.get(grant.createdByUserId) ?? null : null,
+      updatedByName: grant.updatedByUserId ? nameById.get(grant.updatedByUserId) ?? null : null,
+    } as Grant & {
+      collaboratingInstitutions: GrantCollaborationTree;
+      coInvestigatorLinks: GrantCoInvestigatorList;
+      createdByName: string | null;
+      updatedByName: string | null;
+    };
+  }
+
+  /**
+   * A grant's collaborating institutions with the people at each, nested the
+   * way the interface works with them.
+   */
+  async getGrantCollaborations(grantId: number): Promise<GrantCollaborationTree> {
+    const institutions = await db
+      .select()
+      .from(grantCollaboratingInstitutions)
+      .where(eq(grantCollaboratingInstitutions.grantId, grantId))
+      .orderBy(asc(grantCollaboratingInstitutions.name));
+    if (institutions.length === 0) return [];
+
+    const people = await db
+      .select()
+      .from(grantInstitutionCollaborators)
+      .where(inArray(grantInstitutionCollaborators.institutionId, institutions.map((i) => i.id)))
+      .orderBy(asc(grantInstitutionCollaborators.name));
+
+    const byInstitution = new Map<number, typeof people>();
+    for (const person of people) {
+      const list = byInstitution.get(person.institutionId) ?? [];
+      list.push(person);
+      byInstitution.set(person.institutionId, list);
+    }
+
+    return institutions.map((institution) => ({
+      id: institution.id,
+      name: institution.name,
+      collaborators: (byInstitution.get(institution.id) ?? []).map((person) => ({
+        id: person.id,
+        name: person.name,
+        role: person.role,
+      })),
+    }));
+  }
+
+  /**
+   * Replace a grant's collaborations wholesale.
+   *
+   * The editor holds the whole tree and saves it in one go, so this mirrors
+   * that: whatever is not in the submitted tree is gone. Deleting an
+   * institution cascades to its people, which is why removing a partner does
+   * not leave their staff orphaned.
+   *
+   * Runs inside the caller's transaction when given one, so a failed grant
+   * update does not leave the collaborations half-rewritten.
+   */
+  async replaceGrantCollaborations(
+    grantId: number,
+    tree: GrantCollaborationTree,
+    tx: typeof db = db,
+  ): Promise<void> {
+    await tx
+      .delete(grantCollaboratingInstitutions)
+      .where(eq(grantCollaboratingInstitutions.grantId, grantId));
+
+    for (const institution of tree) {
+      const name = institution.name?.trim();
+      // A blank row is someone who clicked Add and changed their mind.
+      if (!name) continue;
+      const [created] = await tx
+        .insert(grantCollaboratingInstitutions)
+        .values({ grantId, name })
+        .returning({ id: grantCollaboratingInstitutions.id });
+      const people = (institution.collaborators ?? [])
+        .map((person) => ({
+          institutionId: created.id,
+          name: person.name?.trim() ?? "",
+          role: person.role?.trim() || null,
+        }))
+        .filter((person) => person.name !== "");
+      if (people.length > 0) {
+        await tx.insert(grantInstitutionCollaborators).values(people);
+      }
+    }
+  }
+
+  /** A grant's Sidra co-investigators, with each person's display name. */
+  async getGrantCoInvestigators(grantId: number): Promise<GrantCoInvestigatorList> {
+    const rows = await db
+      .select({
+        id: grantCoInvestigators.id,
+        scientistId: grantCoInvestigators.scientistId,
+        role: grantCoInvestigators.role,
+        firstName: scientists.firstName,
+        lastName: scientists.lastName,
+        honorificTitle: scientists.honorificTitle,
+      })
+      .from(grantCoInvestigators)
+      .innerJoin(scientists, eq(scientists.id, grantCoInvestigators.scientistId))
+      .where(eq(grantCoInvestigators.grantId, grantId))
+      .orderBy(asc(scientists.lastName), asc(scientists.firstName));
+
+    return rows.map((row) => ({
+      id: row.id,
+      scientistId: row.scientistId,
+      name: [row.honorificTitle, row.firstName, row.lastName].filter(Boolean).join(" "),
+      role: row.role,
+    }));
+  }
+
+  /**
+   * Replace a grant's Sidra co-investigators wholesale, matching how the editor
+   * holds and submits the whole list. Same reasoning as the collaborations.
+   */
+  async replaceGrantCoInvestigators(
+    grantId: number,
+    list: GrantCoInvestigatorList,
+    tx: typeof db = db,
+  ): Promise<void> {
+    await tx.delete(grantCoInvestigators).where(eq(grantCoInvestigators.grantId, grantId));
+
+    const seen = new Set<number>();
+    const rows = list
+      .filter((entry) => {
+        const id = Number(entry.scientistId);
+        // A row where nobody was chosen yet, or the same colleague twice.
+        if (!Number.isInteger(id) || id <= 0 || seen.has(id)) return false;
+        seen.add(id);
+        return true;
+      })
+      .map((entry) => ({
+        grantId,
+        scientistId: Number(entry.scientistId),
+        role: entry.role?.trim() || null,
+      }));
+
+    if (rows.length > 0) await tx.insert(grantCoInvestigators).values(rows);
+  }
+
+  /**
+   * Add collaborating institutions to a grant without disturbing what is
+   * already there.
+   *
+   * Additive, not a replace, because it mirrors what the import does to the
+   * text column it came from: merge and dedupe rather than overwrite. A
+   * replace would also throw away the people someone had recorded under an
+   * institution, since those hang off the institution row.
+   */
+  async addGrantCollaboratingInstitutions(grantId: number, names: string[]): Promise<number> {
+    const seen = new Set<string>();
+    const rows = names
+      .map((name) => name.trim())
+      .filter((name) => {
+        if (!name) return false;
+        const key = name.toLowerCase();
+        if (seen.has(key)) return false;
+        seen.add(key);
+        return true;
+      })
+      .map((name) => ({ grantId, name }));
+
+    if (rows.length === 0) return 0;
+    // The unique constraint on (grant_id, name) makes re-running the same
+    // import a no-op rather than a pile of duplicates.
+    const inserted = await db
+      .insert(grantCollaboratingInstitutions)
+      .values(rows)
+      .onConflictDoNothing()
+      .returning({ id: grantCollaboratingInstitutions.id });
+    return inserted.length;
+  }
+
+  /** Same, for Sidra co-investigators already resolved to staff records. */
+  async addGrantCoInvestigators(grantId: number, scientistIds: number[]): Promise<number> {
+    const ids = [...new Set(scientistIds.filter((id) => Number.isInteger(id) && id > 0))];
+    if (ids.length === 0) return 0;
+    const inserted = await db
+      .insert(grantCoInvestigators)
+      .values(ids.map((scientistId) => ({ grantId, scientistId })))
+      .onConflictDoNothing()
+      .returning({ id: grantCoInvestigators.id });
+    return inserted.length;
   }
 
   async getGrantByProjectNumber(projectNumber: string): Promise<Grant | undefined> {
@@ -2694,15 +2908,35 @@ export class DatabaseStorage implements IStorage {
     return grant;
   }
 
-  async createGrant(grant: InsertGrant): Promise<Grant> {
-    const [newGrant] = await db.insert(grants).values(grant).returning();
+  async createGrant(grant: InsertGrant, actorUserId?: number | null): Promise<Grant> {
+    const [newGrant] = await db
+      .insert(grants)
+      // `|| null` rather than `??`: the demo session is user id 0, which is not
+      // a real users row, and the foreign key rejects it. Recording nobody is
+      // right there -- there is nobody to record.
+      .values({
+        ...grant,
+        createdByUserId: actorUserId || null,
+        updatedByUserId: actorUserId || null,
+      })
+      .returning();
     return newGrant;
   }
 
-  async updateGrant(id: number, grant: Partial<InsertGrant>): Promise<Grant | undefined> {
+  async updateGrant(
+    id: number,
+    grant: Partial<InsertGrant>,
+    actorUserId?: number | null,
+  ): Promise<Grant | undefined> {
     const [updatedGrant] = await db
       .update(grants)
-      .set({ ...grant, updatedAt: sql`now()` })
+      // Only overwritten when the actor is known, so an anonymous or automated
+      // write cannot erase who last touched the record by hand.
+      .set({
+        ...grant,
+        ...(actorUserId ? { updatedByUserId: actorUserId } : {}),
+        updatedAt: sql`now()`,
+      })
       .where(eq(grants.id, id))
       .returning();
     return updatedGrant;
@@ -2712,6 +2946,7 @@ export class DatabaseStorage implements IStorage {
     id: number,
     grant: Partial<InsertGrant>,
     desiredResearchActivityIds?: number[],
+    actorUserId?: number | null,
   ): Promise<Grant | undefined> {
     return await db.transaction(async (tx) => {
       await tx.execute(
@@ -2818,7 +3053,11 @@ export class DatabaseStorage implements IStorage {
 
       const [updatedGrant] = await tx
         .update(grants)
-        .set({ ...grant, updatedAt: sql`now()` })
+        .set({
+          ...grant,
+          ...(actorUserId ? { updatedByUserId: actorUserId } : {}),
+          updatedAt: sql`now()`,
+        })
         .where(eq(grants.id, id))
         .returning();
 
@@ -2851,6 +3090,149 @@ export class DatabaseStorage implements IStorage {
       const result = await tx.delete(grants).where(eq(grants.id, id));
       return (result.rowCount ?? 0) > 0;
     });
+  }
+
+  /**
+   * Grants too incomplete to act on, with what each one is missing and
+   * anything that would be orphaned by deleting it.
+   *
+   * Read-only on purpose: the office confirms a list before anything is
+   * removed. A "delete everything invalid" button with no preview would, on
+   * today's data, have taken out 95 of 113 grants -- real proposals whose Lead
+   * PI simply never matched a staff record on import.
+   */
+  async findIncompleteGrants(): Promise<IncompleteGrantSummary[]> {
+    const rows = await db.select().from(grants).orderBy(asc(grants.projectNumber));
+    const incomplete = rows.filter((grant) => isGrantIncomplete(grant));
+    if (incomplete.length === 0) return [];
+
+    const ids = incomplete.map((grant) => grant.id);
+
+    // Counted in two grouped queries rather than per grant: the office runs
+    // this on the whole table, and a query per row would be a hundred of them.
+    const [sdrCounts, reportCounts] = await Promise.all([
+      db
+        .select({ grantId: grantResearchActivities.grantId, count: sql<number>`count(*)::int` })
+        .from(grantResearchActivities)
+        .where(inArray(grantResearchActivities.grantId, ids))
+        .groupBy(grantResearchActivities.grantId),
+      db
+        .select({ grantId: grantProgressReports.grantId, count: sql<number>`count(*)::int` })
+        .from(grantProgressReports)
+        .where(inArray(grantProgressReports.grantId, ids))
+        .groupBy(grantProgressReports.grantId),
+    ]);
+
+    const sdrByGrant = new Map(sdrCounts.map((row) => [row.grantId, Number(row.count)]));
+    const reportsByGrant = new Map(reportCounts.map((row) => [row.grantId, Number(row.count)]));
+
+    return incomplete.map((grant) => {
+      const linkedSdrs = sdrByGrant.get(grant.id) ?? 0;
+      const progressReports = reportsByGrant.get(grant.id) ?? 0;
+      return {
+        id: grant.id,
+        projectNumber: grant.projectNumber,
+        title: grant.title,
+        status: grant.status,
+        createdAt: grant.createdAt ?? null,
+        missing: missingMinimumGrantFields(grant),
+        linkedSdrs,
+        progressReports,
+        deletable: linkedSdrs === 0 && progressReports === 0,
+        // Whether anything would actually be lost. A row holding only a
+        // project number and a title is a failed import; one carrying money,
+        // dates and an abstract is a real record that is merely unfinished,
+        // and the office should be looking at why rather than deleting it.
+        hasOtherContent: Boolean(
+          !isMissingAmount(grant.awardedAmount) ||
+            !isMissingAmount(grant.requestedAmount) ||
+            grant.fundingAgency ||
+            grant.startDate ||
+            grant.endDate ||
+            grant.description ||
+            grant.awarded,
+        ),
+      };
+    });
+  }
+
+  /**
+   * Deletes the named grants, and only those still incomplete and still
+   * unlinked at the moment of deletion.
+   *
+   * The caller passes explicit ids -- the ones it showed someone -- rather
+   * than "whatever is invalid now", so a grant fixed between the preview and
+   * the confirmation is not swept up by a stale list. Each is re-checked here
+   * anyway, because the preview is a separate request and the office is not
+   * the only writer.
+   *
+   * One transaction per grant, not one for the batch: a single blocked row
+   * should not roll back the ninety that were fine.
+   */
+  async deleteIncompleteGrants(ids: number[]): Promise<{
+    deleted: number[];
+    skipped: Array<{ id: number; projectNumber: string | null; reason: string }>;
+  }> {
+    const deleted: number[] = [];
+    const skipped: Array<{ id: number; projectNumber: string | null; reason: string }> = [];
+
+    for (const id of ids) {
+      const outcome = await db.transaction(async (tx) => {
+        await tx.execute(sql`SELECT "id" FROM "grants" WHERE "id" = ${id} FOR UPDATE`);
+
+        const [grant] = await tx.select().from(grants).where(eq(grants.id, id));
+        if (!grant) {
+          return { ok: false as const, projectNumber: null, reason: "Already gone." };
+        }
+        if (!isGrantIncomplete(grant)) {
+          return {
+            ok: false as const,
+            projectNumber: grant.projectNumber,
+            reason: "No longer incomplete -- it was completed after the preview was taken.",
+          };
+        }
+
+        const [linkedSdr] = await tx
+          .select({ id: grantResearchActivities.id })
+          .from(grantResearchActivities)
+          .where(eq(grantResearchActivities.grantId, id))
+          .limit(1);
+        if (linkedSdr) {
+          return {
+            ok: false as const,
+            projectNumber: grant.projectNumber,
+            reason: "Linked to an SDR. Unlink it first.",
+          };
+        }
+
+        // grant_progress_reports has a grant_id but no foreign key, so nothing
+        // in the database would stop this delete or clean up after it -- the
+        // reports would simply stop pointing anywhere. Refused here instead.
+        const [report] = await tx
+          .select({ id: grantProgressReports.id })
+          .from(grantProgressReports)
+          .where(eq(grantProgressReports.grantId, id))
+          .limit(1);
+        if (report) {
+          return {
+            ok: false as const,
+            projectNumber: grant.projectNumber,
+            reason: "Has progress reports, which would be orphaned. Delete those first.",
+          };
+        }
+
+        await tx.delete(grants).where(eq(grants.id, id));
+        return { ok: true as const, projectNumber: grant.projectNumber };
+      });
+
+      if (outcome.ok) {
+        deleted.push(id);
+      } else {
+        skipped.push({ id, projectNumber: outcome.projectNumber, reason: outcome.reason });
+      }
+    }
+
+    return { deleted, skipped };
   }
 
   // Grant-Research Activity relationship operations

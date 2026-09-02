@@ -29,8 +29,11 @@ import {
   systemConfigurations, SystemConfiguration, InsertSystemConfiguration,
   pdfImportHistory, PdfImportHistory, InsertPdfImportHistory,
   featureRequests, FeatureRequest, InsertFeatureRequest,
-  teamMembers, TeamMember, InsertTeamMember
+  teamMembers, TeamMember, InsertTeamMember,
+  type GrantCollaborationTree,
+  type GrantCoInvestigatorList,
 } from "@shared/schema";
+import type { IncompleteGrantSummary } from "@shared/grantValidity";
 import { isInvestigatorEligible } from "@shared/investigatorEligibility";
 import {
   classifyResolvedPublication,
@@ -285,14 +288,46 @@ export interface IStorage {
   getGrants(): Promise<Grant[]>;
   getGrant(id: number): Promise<Grant | undefined>;
   getGrantByProjectNumber(projectNumber: string): Promise<Grant | undefined>;
-  createGrant(grant: InsertGrant): Promise<Grant>;
-  updateGrant(id: number, grant: Partial<InsertGrant>): Promise<Grant | undefined>;
+  // actorUserId is the account making the change, recorded for audit. Passed
+  // separately because insertGrantSchema deliberately omits the audit fields:
+  // one a caller could set would not be an audit field.
+  createGrant(grant: InsertGrant, actorUserId?: number | null): Promise<Grant>;
+  updateGrant(
+    id: number,
+    grant: Partial<InsertGrant>,
+    actorUserId?: number | null,
+  ): Promise<Grant | undefined>;
   updateGrantWithResearchActivities(
     id: number,
     grant: Partial<InsertGrant>,
     desiredResearchActivityIds?: number[],
+    actorUserId?: number | null,
   ): Promise<Grant | undefined>;
+  getGrantCollaborations(grantId: number): Promise<GrantCollaborationTree>;
+  getGrantCoInvestigators(grantId: number): Promise<GrantCoInvestigatorList>;
+  replaceGrantCoInvestigators(
+    grantId: number,
+    list: GrantCoInvestigatorList,
+    tx?: any,
+  ): Promise<void>;
+  replaceGrantCollaborations(
+    grantId: number,
+    tree: GrantCollaborationTree,
+    tx?: any,
+  ): Promise<void>;
+  // Additive, for the import: it merges collaborator text rather than
+  // overwriting, and these mirror that into the relational tables.
+  addGrantCollaboratingInstitutions(grantId: number, names: string[]): Promise<number>;
+  addGrantCoInvestigators(grantId: number, scientistIds: number[]): Promise<number>;
   deleteGrant(id: number): Promise<boolean>;
+  // Clean-up tool for the Research Office. Preview and delete are separate
+  // calls, and the delete names the ids it was shown rather than re-deriving
+  // the list, so a grant completed in between is not swept up.
+  findIncompleteGrants(): Promise<IncompleteGrantSummary[]>;
+  deleteIncompleteGrants(ids: number[]): Promise<{
+    deleted: number[];
+    skipped: Array<{ id: number; projectNumber: string | null; reason: string }>;
+  }>;
 
   // System Configuration operations
   getSystemConfigurations(): Promise<SystemConfiguration[]>;

@@ -1,0 +1,21 @@
+-- The Lead PI on a grant somebody else submitted.
+--
+-- When Sidra is a subawardee, the grant's Lead PI works at the prime
+-- institution and will never have a staff record here. Until now the import
+-- tried to resolve that name against our own directory and rejected the row
+-- when it could not: every one of the 186 subaward rows in the Research
+-- Office's file failed that way, and not one of them matched.
+--
+-- So the existing lpi_id keeps its meaning -- the Sidra person who owns our
+-- part -- and is relabelled "Sidra Lead PI" in the interface. This column
+-- holds the external one, as free text, because there is nothing to link it
+-- to and inventing a staff record for somebody at another institution would
+-- be worse than a name.
+--
+-- Nullable: most grants are ours, and have no external Lead PI to record.
+--
+-- Reaches production through docker-entrypoint.sh, which applies this list
+-- and never runs drizzle-kit push, so a column living only in
+-- shared/schema.ts would be present in development and absent in production.
+ALTER TABLE "grants"
+  ADD COLUMN IF NOT EXISTS "grant_lpi_name" text;

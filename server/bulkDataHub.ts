@@ -43,6 +43,8 @@ import {
   departments,
   sections,
   grants,
+  grantCollaboratingInstitutions,
+  grantCoInvestigators,
   programs,
   projects,
   researchActivities,
@@ -302,6 +304,7 @@ const GRANT_COLS: ColDef[] = [
   { header: "Grant Source", key: "sourceCategory", description: "QNRF Grant, Subaward Agreement, IRF Project, etc." },
   { header: "Source Record Key", key: "sourceRecordKey", description: "Stable identifier from the source dataset" },
   { header: "Submitting Institution", key: "submittingInstitution" },
+  { header: "Grant LPI", key: "grantLpiName", description: "Lead PI at the submitting institution, when it is not Sidra" },
   { header: "Co-Investigators", key: "coInvestigators", description: "Semicolon-separated; repeat imports append unique names" },
   { header: "Status", key: "status" },
   { header: "Funding Agency", key: "fundingAgency" },
@@ -992,6 +995,9 @@ function grantsToRows(
       sourceCategory: g.sourceCategory ?? "",
       sourceRecordKey: g.sourceRecordKey ?? "",
       submittingInstitution: g.submittingInstitution ?? "",
+      // Only the external name is stored, so only that round-trips. Our own
+      // grants derive it from the Sidra Lead PI and have nothing to carry.
+      grantLpiName: g.grantLpiName ?? "",
       coInvestigators: g.coInvestigators ? g.coInvestigators.join("; ") : "",
       status: g.status,
       fundingAgency: g.fundingAgency ?? "",
@@ -2378,6 +2384,12 @@ function previewGrantRows2(
     if (row.subawardCompletedYear && row.subawardCompletedYear !== "") {
       data.subawardCompletedYear = parseIntField(row.subawardCompletedYear, "Subaward Completed Year", errors);
     }
+    if (row.grantLpiName !== undefined && (row.grantLpiName !== "" || !isNew)) {
+      data.grantLpiName = isClear(row.grantLpiName) || row.grantLpiName === ""
+        ? null
+        : row.grantLpiName.trim();
+    }
+
     if (row.coInvestigators !== undefined && (row.coInvestigators !== "" || !isNew)) {
       if (row.coInvestigators !== "") {
         if (isClear(row.coInvestigators)) {
@@ -4713,7 +4725,7 @@ export async function applySection(
           if (entry.action === "create") sheetCounts.created++;
           else sheetCounts.updated++;
         } else if (sheetName === "Grants") {
-          await applyGrantRow(tx, entry, rowData);
+          await applyGrantRow(tx, entry, rowData, applyingUserId);
           if (entry.action === "create") sheetCounts.created++;
           else sheetCounts.updated++;
         } else if (sheetName === "Programs") {
@@ -4861,6 +4873,12 @@ export async function applySection(
             });
           }
         }
+      }
+
+      if (sheetName === "Grants") {
+        const grantRows = parsedSheets.find((sheet) => sheet.name === "Grants")?.rows ?? [];
+        await seedGrantCollaboratingInstitutions(tx, grantRows);
+        await seedGrantCoInvestigators(tx, grantRows);
       }
 
       if (sheetName === "Scientists") {
@@ -5038,7 +5056,12 @@ async function applyScientistSupervisor(
     .where(eq(scientists.id, scientistId));
 }
 
-async function applyGrantRow(tx: TxDb, entry: RowEntry, data: Record<string, unknown>): Promise<void> {
+async function applyGrantRow(
+  tx: TxDb,
+  entry: RowEntry,
+  data: Record<string, unknown>,
+  applyingUserId?: number,
+): Promise<void> {
   const { projectNumber, _lpiEmailKey, ...rest } = data;
   if (_lpiEmailKey) {
     const rows = await tx
@@ -5053,14 +5076,122 @@ async function applyGrantRow(tx: TxDb, entry: RowEntry, data: Record<string, unk
   }
 
   if (entry.action === "create") {
-    await tx.insert(grants).values({ projectNumber: String(projectNumber), title: String(rest.title ?? ""), ...rest });
+    await tx.insert(grants).values({
+      projectNumber: String(projectNumber),
+      title: String(rest.title ?? ""),
+      ...rest,
+      // Stamped so a bulk-loaded grant is distinguishable from one entered by
+      // hand without inferring it from rows sharing a created_at.
+      createdByUserId: applyingUserId || null,
+      updatedByUserId: applyingUserId || null,
+    });
   } else {
     const [row] = await tx
       .update(grants)
-      .set({ ...rest, updatedAt: new Date() })
+      .set({
+        ...rest,
+        ...(applyingUserId ? { updatedByUserId: applyingUserId } : {}),
+        updatedAt: new Date(),
+      })
       .where(caseInsensitiveKey(grants.projectNumber, projectNumber))
       .returning({ id: grants.id });
     requireUpdatedRow(row, "Grant", projectNumber);
+  }
+}
+
+/**
+ * Seed collaborating institutions from the Grants sheet's Collaborators column.
+ *
+ * Runs over every row in the sheet, not only the ones the preview marked create
+ * or update. A grant whose columns already match is marked "No changes" and
+ * never reaches applyGrantRow -- but the institutions are a different table, so
+ * an unchanged row can still be carrying partners that were never recorded.
+ * Seeding from applyGrantRow alone silently backfilled nothing on a re-import
+ * of data already present, which is exactly when a backfill is wanted.
+ *
+ * Added, never removed. The import merges rather than replaces everywhere else,
+ * and a partner entered by hand must not disappear because an older sheet was
+ * applied. onConflictDoNothing makes a repeat a no-op rather than a duplicate.
+ */
+async function seedGrantCollaboratingInstitutions(
+  tx: TxDb,
+  rows: Array<Record<string, any>>,
+): Promise<void> {
+  for (const row of rows) {
+    const projectNumber = String(row.projectNumber ?? "").trim();
+    if (!projectNumber) continue;
+    const names = [
+      ...new Set(
+        splitSemicolon(String(row.collaborators ?? ""))
+          .map((name) => name.trim())
+          .filter((name) => name !== "" && name !== "-"),
+      ),
+    ];
+    if (names.length === 0) continue;
+
+    const [grant] = await tx
+      .select({ id: grants.id })
+      .from(grants)
+      .where(caseInsensitiveKey(grants.projectNumber, projectNumber));
+    if (!grant) continue;
+
+    await tx
+      .insert(grantCollaboratingInstitutions)
+      .values(names.map((name) => ({ grantId: grant.id, name })))
+      .onConflictDoNothing();
+  }
+}
+
+/**
+ * Seed Sidra co-investigators from the Grants sheet's Co-Investigators column.
+ *
+ * The column holds typed names; co-investigators are links to staff records, so
+ * each name is matched against the directory by letters only -- spacing, case
+ * and punctuation differ between a spreadsheet and a profile. A name matching
+ * nobody is left out rather than guessed at: inventing a link to the wrong
+ * colleague is worse than recording none.
+ *
+ * Runs over every row for the same reason as the institutions: a grant whose
+ * columns already match is never reapplied, and that is exactly when a backfill
+ * is wanted.
+ */
+async function seedGrantCoInvestigators(
+  tx: TxDb,
+  rows: Array<Record<string, any>>,
+): Promise<void> {
+  const staff = await tx
+    .select({ id: scientists.id, firstName: scientists.firstName, lastName: scientists.lastName })
+    .from(scientists);
+  const key = (value: string) => value.toLowerCase().replace(/[^a-z0-9]/g, "");
+  const byName = new Map<string, number>();
+  for (const person of staff) {
+    const full = key(`${person.firstName ?? ""}${person.lastName ?? ""}`);
+    // First match wins; a duplicated name is ambiguous, so it is not resolved.
+    if (full && !byName.has(full)) byName.set(full, person.id);
+  }
+
+  for (const row of rows) {
+    const projectNumber = String(row.projectNumber ?? "").trim();
+    if (!projectNumber) continue;
+    const ids = [
+      ...new Set(
+        splitSemicolon(String(row.coInvestigators ?? ""))
+          .map((name) => byName.get(key(name)))
+          .filter((id): id is number => typeof id === "number"),
+      ),
+    ];
+    if (ids.length === 0) continue;
+
+    const [grant] = await tx
+      .select({ id: grants.id })
+      .from(grants)
+      .where(caseInsensitiveKey(grants.projectNumber, projectNumber));
+    if (!grant) continue;
+
+    await tx
+      .insert(grantCoInvestigators)
+      .values(ids.map((scientistId) => ({ grantId: grant.id, scientistId })))
+      .onConflictDoNothing();
   }
 }
 

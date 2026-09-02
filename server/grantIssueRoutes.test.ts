@@ -57,6 +57,7 @@ test("grant list requires authentication", async () => {
       async getGrants() { return [grant]; },
       async getScientists() { return []; },
       async getSdrCounts() { return []; },
+      async getCollaboratingInstitutions() { return []; },
     }, async (url) => {
       const response = await fetch(url);
       assert.equal(response.status, 401);
@@ -70,6 +71,7 @@ test("grant list requires authentication", async () => {
 test("grant list batches people and SDR counts and returns authoritative issues", async () => {
   let scientistCalls = 0;
   let countCalls = 0;
+  let institutionCalls = 0;
   await withServer(true, {
     async getGrants() { return [grant, { ...grant, id: 2, lpiId: 9 }]; },
     async getScientists(ids) {
@@ -80,6 +82,13 @@ test("grant list batches people and SDR counts and returns authoritative issues"
     async getSdrCounts() {
       countCalls += 1;
       return [{ grantId: 1, count: 1 }];
+    },
+    async getCollaboratingInstitutions() {
+      institutionCalls += 1;
+      return [
+        { grantId: 1, name: "Weill Cornell Medicine-Qatar" },
+        { grantId: 1, name: "Hamad Medical Corporation" },
+      ];
     },
   }, async (url) => {
     const response = await fetch(url);
@@ -95,7 +104,41 @@ test("grant list batches people and SDR counts and returns authoritative issues"
     });
     assert.equal(body[1].linkedSdrsCount, 0);
     assert.deepEqual(body[1].issues.map((issue) => issue.code), ["missing_sdr"]);
+    // Grouped per grant from one query, not fetched per row.
+    assert.deepEqual(body[0].collaboratingInstitutions, [
+      "Weill Cornell Medicine-Qatar",
+      "Hamad Medical Corporation",
+    ]);
+    assert.deepEqual(body[1].collaboratingInstitutions, []);
   });
   assert.equal(scientistCalls, 1);
   assert.equal(countCalls, 1);
+  assert.equal(institutionCalls, 1);
+});
+
+test("grant list says who submitted, and does not guess when nobody recorded it", async () => {
+  await withServer(true, {
+    async getGrants() {
+      return [
+        { ...grant, id: 1, submittingInstitution: "Sidra Medicine" },
+        { ...grant, id: 2, submittingInstitution: "Qatar University" },
+        { ...grant, id: 3, submittingInstitution: null },
+        // Spelt several ways across years of spreadsheets; all of them us.
+        { ...grant, id: 4, submittingInstitution: "  SIDRA  " },
+      ];
+    },
+    async getScientists() { return []; },
+    async getSdrCounts() { return []; },
+    async getCollaboratingInstitutions() { return []; },
+  }, async (url) => {
+    const body = await (await fetch(url)).json() as any[];
+    assert.deepEqual(body.map((row) => row.submission.role), [
+      "lead",
+      "subawardee",
+      "unknown",
+      "lead",
+    ]);
+    assert.equal(body[1].submission.label, "Subawardee of Qatar University");
+    assert.equal(body[2].submission.label, "Not recorded");
+  });
 });

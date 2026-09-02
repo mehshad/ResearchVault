@@ -1323,6 +1323,18 @@ export const grants = pgTable("grants", {
   sourceCategory: text("source_category"), // QNRF Grant, Subaward Agreement, IRF Project, etc.
   sourceRecordKey: text("source_record_key"), // Stable identifier from the source dataset
   submittingInstitution: text("submitting_institution"),
+  /**
+   * The Lead PI on a grant another institution submitted.
+   *
+   * lpiId stays the Sidra person who owns our part of the work -- it is shown
+   * as "Sidra Lead PI" and is what portfolios, issue flags and the clean-up
+   * rule all count. This is the external one, and it is free text on purpose:
+   * somebody at the prime institution has no staff record here, and creating
+   * one for them would put non-staff into the directory.
+   *
+   * Null on the ordinary case, where we are the submitting institution.
+   */
+  grantLpiName: text("grant_lpi_name"),
   coInvestigators: text("co_investigators").array(),
   subawardCompletedYear: integer("subaward_completed_year"),
   contributionType: text("contribution_type"), // In-kind, in-cash, or mixed
@@ -1335,13 +1347,28 @@ export const grants = pgTable("grants", {
   collaborators: text("collaborators").array(), // Array of collaborator names/institutions
   description: text("description"), // Grant description/abstract
   fundingAgency: text("funding_agency"), // Funding source/agency
+  /**
+   * Who added this grant, and who last changed it.
+   *
+   * The office both imports grants in bulk and enters them by hand, and
+   * nothing recorded which -- after the fact "who put this here" was
+   * unanswerable, so the only way to tell an import from manual entry was to
+   * look for rows sharing a created_at, since a bulk apply runs in one
+   * transaction. Publications already record their creator; grants now do too.
+   *
+   * Nullable: rows that predate this, and rows restored from an archive taken
+   * before it, have no creator to name, and inventing one would be worse than
+   * admitting it is unknown.
+   */
+  createdByUserId: integer("created_by_user_id").references(() => users.id),
+  updatedByUserId: integer("updated_by_user_id").references(() => users.id),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 }, (table) => {
   return {
     grantsStatusValid: check(
       "grants_status_valid",
-      sql`${table.status} IN ('submitted', 'pending', 'in_review', 'awarded', 'active', 'completed', 'rejected', 'cancelled')`,
+      sql`${table.status} IN ('submitted', 'pending', 'in_review', 'awarded', 'active', 'completed', 'not_awarded', 'rejected', 'cancelled', 'withdrawn', 'terminated', 'transferred', 'suspended')`,
     ),
     grantsAwardStatusConsistent: check(
       "grants_award_status_consistent",
@@ -1362,6 +1389,10 @@ export const GRANT_CURRENCY_VALUES = ["EUR", "USD", "QAR"] as const;
 
 export const insertGrantSchema = createInsertSchema(grants).omit({
   id: true,
+  // Set by the server from the session, never accepted from the client:
+  // an audit field a caller can choose is not an audit field.
+  createdByUserId: true,
+  updatedByUserId: true,
   createdAt: true,
   updatedAt: true,
 }).extend({
@@ -1373,6 +1404,112 @@ export type InsertGrant = z.infer<typeof insertGrantSchema>;
 export type Grant = typeof grants.$inferSelect;
 
 // Grant Progress Reports schema
+/**
+ * Institutions a grant is run with, and the people at each of them.
+ *
+ * Replaces grants.collaborators, a text array that held whatever someone typed
+ * into a free-text box. In practice every value was an institution name --
+ * "Osaka University", "Hamad Medical Corporation" -- with no way to record who
+ * at that institution was involved, and no way to query either.
+ *
+ * The old column is left in place and untouched by this: the data it holds was
+ * copied here by the backfill, and dropping a column is not reversible if the
+ * copy turns out to have missed something.
+ */
+export const grantCollaboratingInstitutions = pgTable("grant_collaborating_institutions", {
+  id: serial("id").primaryKey(),
+  grantId: integer("grant_id")
+    .notNull()
+    .references(() => grants.id, { onDelete: "cascade" }),
+  name: text("name").notNull(),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => ({
+  // One row per institution per grant. Naming the same partner twice is a
+  // mistake rather than a second collaboration.
+  uniquePerGrant: unique().on(table.grantId, table.name),
+}));
+
+/**
+ * Sidra Medicine co-investigators on a grant.
+ *
+ * Replaces grants.co_investigators, a text array of typed names. These are our
+ * own staff, and the system already knows who they are -- a name in a box could
+ * not be counted, filtered, or shown on the person's own profile, and spelling
+ * decided whether two rows meant the same colleague.
+ *
+ * Distinct from grantInstitutionCollaborators, which records people at *other*
+ * institutions, who by definition have no staff record here.
+ *
+ * The old column is left in place and untouched, as with collaborators.
+ */
+export const grantCoInvestigators = pgTable("grant_co_investigators", {
+  id: serial("id").primaryKey(),
+  grantId: integer("grant_id")
+    .notNull()
+    .references(() => grants.id, { onDelete: "cascade" }),
+  scientistId: integer("scientist_id")
+    .notNull()
+    .references(() => scientists.id, { onDelete: "cascade" }),
+  /** Their part in the work, free text: "Co-Investigator", "Statistician". */
+  role: text("role"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => ({
+  // Naming the same colleague twice on one grant is a mistake.
+  uniquePerGrant: unique().on(table.grantId, table.scientistId),
+}));
+
+export const insertGrantCoInvestigatorSchema = createInsertSchema(grantCoInvestigators).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+export type GrantCoInvestigator = typeof grantCoInvestigators.$inferSelect;
+
+/** A grant's Sidra co-investigators as the interface works with them. */
+export type GrantCoInvestigatorList = Array<{
+  id?: number;
+  scientistId: number;
+  name?: string;
+  role?: string | null;
+}>;
+
+export const grantInstitutionCollaborators = pgTable("grant_institution_collaborators", {
+  id: serial("id").primaryKey(),
+  institutionId: integer("institution_id")
+    .notNull()
+    .references(() => grantCollaboratingInstitutions.id, { onDelete: "cascade" }),
+  name: text("name").notNull(),
+  /** Their part in the work, free text: "Co-Investigator", "Statistician". */
+  role: text("role"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+export const insertGrantCollaboratingInstitutionSchema =
+  createInsertSchema(grantCollaboratingInstitutions).omit({
+    id: true,
+    createdAt: true,
+    updatedAt: true,
+  });
+export const insertGrantInstitutionCollaboratorSchema =
+  createInsertSchema(grantInstitutionCollaborators).omit({
+    id: true,
+    createdAt: true,
+    updatedAt: true,
+  });
+
+export type GrantCollaboratingInstitution = typeof grantCollaboratingInstitutions.$inferSelect;
+export type GrantInstitutionCollaborator = typeof grantInstitutionCollaborators.$inferSelect;
+
+/** A grant's collaborators as the interface works with them: nested. */
+export type GrantCollaborationTree = Array<{
+  id?: number;
+  name: string;
+  collaborators: Array<{ id?: number; name: string; role?: string | null }>;
+}>;
+
 export const grantProgressReports = pgTable("grant_progress_reports", {
   id: serial("id").primaryKey(),
   grantId: integer("grant_id").notNull(), // references grants.id

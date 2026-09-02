@@ -4,8 +4,22 @@ import { inArray, sql } from "drizzle-orm";
 import { db } from "./db";
 import { storage } from "./databaseStorage";
 import { requireAuth } from "./auth";
-import { grantResearchActivities, scientists, type Grant } from "@shared/schema";
+import {
+  grantCollaboratingInstitutions,
+  grantResearchActivities,
+  scientists,
+  type Grant,
+} from "@shared/schema";
 import { evaluateGrantIssues } from "@shared/grantIssues";
+import { classifyGrantSubmission, resolveGrantLpiName } from "@shared/grantSubmission";
+
+const formatScientistName = (scientist: ScientistSummary | null | undefined): string | null =>
+  scientist
+    ? [scientist.honorificTitle, scientist.firstName, scientist.lastName]
+        .filter(Boolean)
+        .join(" ")
+        .trim() || null
+    : null;
 
 type ScientistSummary = {
   id: number;
@@ -18,6 +32,9 @@ export type GrantListDependencies = {
   getGrants(): Promise<Array<Grant & { researcherId?: number | null }>>;
   getScientists(ids: number[]): Promise<ScientistSummary[]>;
   getSdrCounts(): Promise<Array<{ grantId: number; count: number }>>;
+  // Names only, and for every grant at once. The list shows who we work with
+  // on each row, and a query per row would be one per grant on every load.
+  getCollaboratingInstitutions(): Promise<Array<{ grantId: number; name: string }>>;
 };
 
 const defaultDependencies: GrantListDependencies = {
@@ -42,6 +59,14 @@ const defaultDependencies: GrantListDependencies = {
       })
       .from(grantResearchActivities)
       .groupBy(grantResearchActivities.grantId),
+  getCollaboratingInstitutions: async () =>
+    db
+      .select({
+        grantId: grantCollaboratingInstitutions.grantId,
+        name: grantCollaboratingInstitutions.name,
+      })
+      .from(grantCollaboratingInstitutions)
+      .orderBy(grantCollaboratingInstitutions.name),
 };
 
 export function createGrantListHandler(
@@ -59,20 +84,33 @@ export function createGrantListHandler(
           ),
         ),
       ];
-      const [scientistRows, countRows] = await Promise.all([
+      const [scientistRows, countRows, institutionRows] = await Promise.all([
         dependencies.getScientists(scientistIds),
         dependencies.getSdrCounts(),
+        dependencies.getCollaboratingInstitutions(),
       ]);
       const scientistMap = new Map(scientistRows.map((scientist) => [scientist.id, scientist]));
       const sdrCounts = new Map(countRows.map((row) => [row.grantId, Number(row.count)]));
+      const institutionsByGrant = new Map<number, string[]>();
+      for (const row of institutionRows) {
+        const names = institutionsByGrant.get(row.grantId);
+        if (names) names.push(row.name);
+        else institutionsByGrant.set(row.grantId, [row.name]);
+      }
 
       res.json(grants.map((grant) => {
         const linkedSdrsCount = sdrCounts.get(grant.id) ?? 0;
+        const lpi = grant.lpiId ? scientistMap.get(grant.lpiId) ?? null : null;
         return {
           ...grant,
           linkedSdrsCount,
           issues: evaluateGrantIssues(grant, linkedSdrsCount),
-          lpi: grant.lpiId ? scientistMap.get(grant.lpiId) ?? null : null,
+          collaboratingInstitutions: institutionsByGrant.get(grant.id) ?? [],
+          submission: classifyGrantSubmission(grant),
+          // Resolved, not stored: our own grants fall back to the Sidra Lead
+          // PI rather than showing an empty cell.
+          resolvedGrantLpiName: resolveGrantLpiName(grant, formatScientistName(lpi)),
+          lpi,
           researcher: grant.researcherId
             ? scientistMap.get(grant.researcherId) ?? null
             : null,

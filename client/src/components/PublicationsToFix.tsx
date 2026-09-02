@@ -7,6 +7,7 @@ import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Users, AlertTriangle, UserX, CheckCircle2, ExternalLink } from "lucide-react";
 import { apiRequest } from "@/lib/queryClient";
+import type { ClassifiedAuthorEntry } from "@shared/authorMatching";
 
 interface FlaggedPublication {
   publication: {
@@ -16,8 +17,12 @@ interface FlaggedPublication {
     journal: string | null;
     publicationDate: string | null;
   };
-  reason: "no_internal_authors" | "author_mismatch";
+  reason: "no_internal_authors" | "author_mismatch" | "missing_internal_links";
   mismatchedAuthors?: { scientistId: number; firstName: string; lastName: string }[];
+  /** Every name in the author list, told apart by the server. */
+  authorEntries?: ClassifiedAuthorEntry[];
+  /** Names on staff that carry no link to this publication. */
+  missedAuthors?: { scientistId: number; name: string }[];
 }
 
 interface PublicationsToFixProps {
@@ -98,7 +103,7 @@ export function PublicationsToFix({
             </div>
           ) : (
             <div className="space-y-3">
-              {flagged.map(({ publication, reason, mismatchedAuthors }) => (
+              {flagged.map(({ publication, reason, mismatchedAuthors, authorEntries, missedAuthors }) => (
                 <Link
                   key={publication.id}
                   href={`/publications/${publication.id}`}
@@ -110,11 +115,43 @@ export function PublicationsToFix({
                         <h4 className="font-medium text-gray-900 leading-tight dark:text-gray-100">
                           {publication.title}
                         </h4>
-                        {publication.authors && (
+                        {/* Same colours as the Outcome Office review: green
+                            for an author already linked, red for one who is on
+                            staff and is not. */}
+                        {authorEntries && authorEntries.length > 0 ? (
+                          <p
+                            className="text-sm text-gray-600 mt-1 dark:text-gray-300 line-clamp-2"
+                            data-testid={`authors-${publication.id}`}
+                          >
+                            {authorEntries.map((entry, i) => (
+                              <span key={`${entry.text}-${i}`}>
+                                <span
+                                  className={
+                                    entry.status === "linked"
+                                      ? "rounded bg-green-100 px-1 text-green-800 dark:bg-green-950 dark:text-green-300"
+                                      : entry.status === "missed"
+                                      ? "rounded bg-red-100 px-1 font-medium text-red-800 dark:bg-red-950 dark:text-red-300"
+                                      : ""
+                                  }
+                                  title={
+                                    entry.status === "linked"
+                                      ? "Linked as an internal author"
+                                      : entry.status === "missed"
+                                      ? "On staff, but not linked to this publication"
+                                      : "Not on staff"
+                                  }
+                                >
+                                  {entry.text}
+                                </span>
+                                {i < authorEntries.length - 1 ? ", " : ""}
+                              </span>
+                            ))}
+                          </p>
+                        ) : publication.authors ? (
                           <p className="text-sm text-gray-600 mt-1 dark:text-gray-300 line-clamp-2">
                             {publication.authors}
                           </p>
-                        )}
+                        ) : null}
                         <div className="flex flex-wrap items-center gap-2 text-sm text-gray-600 mt-1 dark:text-gray-300">
                           {publication.journal && <span>{publication.journal}</span>}
                           {publication.publicationDate && (
@@ -126,7 +163,22 @@ export function PublicationsToFix({
                     </div>
 
                     <div className="mt-2">
-                      {reason === "no_internal_authors" ? (
+                      {reason === "missing_internal_links" ? (
+                        <Badge
+                          variant="secondary"
+                          className="bg-red-100 text-red-800 dark:bg-red-950 dark:text-red-300"
+                          data-testid={`reason-missing-links-${publication.id}`}
+                        >
+                          <UserX className="h-3 w-3 mr-1" />
+                          {missedAuthors?.length ?? 0} internal author
+                          {(missedAuthors?.length ?? 0) === 1 ? "" : "s"} not linked
+                          {missedAuthors && missedAuthors.length > 0 && (
+                            <span className="ml-1 font-normal">
+                              ({missedAuthors.map((a) => a.name).join(", ")})
+                            </span>
+                          )}
+                        </Badge>
+                      ) : reason === "no_internal_authors" ? (
                         <Badge
                           variant="secondary"
                           className="bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300"

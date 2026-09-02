@@ -7,6 +7,9 @@
 // "First Last" name against the scientists table.
 import ExcelJS from "exceljs";
 import { GRANT_CURRENCY_VALUES } from "@shared/schema";
+import { matchStaffByName, type StaffNameIndex } from "@shared/staffNameMatching";
+import { isHomeInstitution, resolveGrantLpiName } from "@shared/grantSubmission";
+import type { GrantSkipCode } from "@shared/grantImportReasons";
 import type { Grant, InsertGrant, Scientist } from "@shared/schema";
 import {
   GrantLifecycleError,
@@ -24,6 +27,7 @@ export const GRANT_COLUMNS: Array<{ header: string; key: string }> = [
   { header: "Grant Source", key: "sourceCategory" },
   { header: "Source Record Key", key: "sourceRecordKey" },
   { header: "Submitting Institution", key: "submittingInstitution" },
+  { header: "Grant LPI", key: "grantLpiName" },
   { header: "Co-Investigators", key: "coInvestigators" },
   { header: "Status", key: "status" },
   { header: "Funding Agency", key: "fundingAgency" },
@@ -72,6 +76,9 @@ export function grantsToRows(
       sourceCategory: g.sourceCategory ?? "",
       sourceRecordKey: g.sourceRecordKey ?? "",
       submittingInstitution: g.submittingInstitution ?? "",
+      // Resolved so an export never shows a blank lead on a grant we
+      // submitted; re-importing it writes the same name back harmlessly.
+      grantLpiName: resolveGrantLpiName(g, lpi ? scientistDisplayName(lpi) : null) ?? "",
       coInvestigators: g.coInvestigators ? g.coInvestigators.join("; ") : "",
       status: g.status ?? "",
       fundingAgency: g.fundingAgency ?? "",
@@ -187,6 +194,9 @@ export interface GrantRowPreview {
   reason?: string; // for skips, or informational notes
   changes?: string[]; // for updates: which fields differ
   data?: Partial<InsertGrant>; // parsed values ready to persist
+  // Category for the preview's summary. Set where the skip happens so a
+  // reworded message cannot quietly fall into "Other".
+  reasonCode?: GrantSkipCode;
   unmatchedStaff?: {
     lpiName: string;
     lpiEmail: string;
@@ -331,15 +341,28 @@ function parseDateOrNull(raw: string, label: string, errors: string[]): string |
 }
 
 /**
+ * Split a multi-value cell. The office writes these separated by semicolons,
+ * and sometimes by newlines within one cell.
+ */
+function splitList(value: string): string[] {
+  return value
+    .split(";")
+    .flatMap((part) => part.split("\n"))
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
+
+/**
  * Turn raw parsed rows (header-keyed objects from parseUploadedFile) into a
  * preview of create/update/skip decisions. Pure function: all lookups are
  * passed in.
  */
+
 export function previewGrantRows(
   rawRows: Record<string, any>[],
   existingByProjectNumber: Map<string, Grant>,
   scientistByEmail: Map<string, Scientist>,
-  scientistByName: Map<string, Scientist>,
+  scientistByName: StaffNameIndex,
 ): GrantRowPreview[] {
   const previews: GrantRowPreview[] = [];
   const seenProjectNumbers = new Set<string>();
@@ -360,16 +383,16 @@ export function previewGrantRows(
     // Fully empty rows (common at the bottom of spreadsheets) are ignored.
     if (Object.values(row).every((v) => v === "")) return;
 
-    const skip = (reason: string) =>
-      previews.push({ rowNumber, action: "skip", projectNumber, title, reason });
+    const skip = (reason: string, reasonCode: GrantSkipCode) =>
+      previews.push({ rowNumber, action: "skip", projectNumber, title, reason, reasonCode });
 
-    if (!projectNumber) return skip("Project Number is required");
+    if (!projectNumber) return skip("Project Number is required", "no_project_number");
     if (seenProjectNumbers.has(projectNumber.toLowerCase()))
-      return skip(`Duplicate Project Number "${projectNumber}" earlier in this file`);
+      return skip(`Duplicate Project Number "${projectNumber}" earlier in this file`, "duplicate_project_number");
     seenProjectNumbers.add(projectNumber.toLowerCase());
 
     const existing = existingByProjectNumber.get(projectNumber.toLowerCase());
-    if (!existing && !title) return skip("Title is required for new grants");
+    if (!existing && !title) return skip("Title is required for new grants", "no_title");
 
     const errors: string[] = [];
 
@@ -392,29 +415,80 @@ export function previewGrantRows(
       return v;
     };
 
-    // Resolve LPI by email first, then exact name.
+    // Resolve LPI by email first, then name.
     let lpiId: number | null | undefined = undefined; // undefined = leave unchanged
     const lpiEmail = row.lpiEmail ?? "";
-    const lpiName = row.lpiName ?? "";
+    let lpiName = row.lpiName ?? "";
     let unmatchedStaff: GrantRowPreview["unmatchedStaff"];
-    if (isClear(lpiEmail) || isClear(lpiName)) {
+    // Categories for whatever lands in `errors`, in the order raised.
+    const errorCodes: GrantSkipCode[] = [];
+    // Held until `data` exists, further down.
+    let pendingGrantLpiName: string | null | undefined = undefined;
+
+    // A grant somebody else submitted. Its Lead PI works at the prime
+    // institution and will never be in our directory, so that name goes to the
+    // external field and the Sidra Lead PI is taken from the Co-Investigators
+    // column instead -- on a subaward, our person is listed there.
+    //
+    // Only when exactly one co-investigator resolves to staff. Two would be a
+    // guess about which of them leads our part, and none means the file never
+    // says who here owns it; both are left for a person, because the Sidra
+    // Lead PI is the one field on a grant that must not be empty.
+    const submitting = row.submittingInstitution ?? "";
+    const isSubaward = submitting !== "" && !isClear(submitting) && !isHomeInstitution(submitting);
+    if (isSubaward && lpiName && !lpiEmail) {
+      const sidraCandidates: number[] = [];
+      for (const candidate of splitList(row.coInvestigators ?? "")) {
+        const m = matchStaffByName(scientistByName, candidate);
+        if (m.status === "matched" && !sidraCandidates.includes(m.scientist.id)) {
+          sidraCandidates.push(m.scientist.id);
+        }
+      }
+
+      if (sidraCandidates.length === 1) {
+        pendingGrantLpiName = lpiName;
+        lpiId = sidraCandidates[0];
+        // Resolved. Fall past the directory lookup below, which would only
+        // fail on a name that was never ours.
+        lpiName = "";
+      } else {
+        const reason = sidraCandidates.length > 1
+          ? `"${submitting}" submitted this grant and its Co-Investigators name ${sidraCandidates.length} Sidra staff. Set the Sidra Lead PI by hand.`
+          : `"${submitting}" submitted this grant and no Co-Investigator matches a staff record, so there is nobody to record as Sidra Lead PI.`;
+        errorCodes.push(sidraCandidates.length > 1 ? "subaward_ambiguous_lead" : "subaward_no_sidra_lead");
+        errors.push(reason);
+        unmatchedStaff = { lpiName, lpiEmail, reason };
+        lpiName = "";
+      }
+    } else if (writes("grantLpiName")) {
+      pendingGrantLpiName = textVal("grantLpiName");
+    }
+
+    if (isClear(lpiEmail) || isClear(row.lpiName ?? "")) {
       lpiId = null;
     } else if (lpiEmail) {
       const s = scientistByEmail.get(lpiEmail.toLowerCase());
       if (!s) {
         const reason = `No staff member found with email "${lpiEmail}"`;
+        errorCodes.push("unmatched_staff");
         errors.push(reason);
         unmatchedStaff = { lpiName, lpiEmail, reason };
       }
       else lpiId = s.id;
     } else if (lpiName) {
-      const s = scientistByName.get(lpiName.toLowerCase().replace(/\s+/g, " "));
-      if (!s) {
-        const reason = `No staff member found named "${lpiName}" (use LPI Email for reliable matching)`;
+      // Tolerates the title and the middle name the office's files carry, and
+      // refuses to guess when a name fits two people.
+      const match = matchStaffByName(scientistByName, lpiName);
+      if (match.status === "matched") {
+        lpiId = match.scientist.id;
+      } else {
+        const reason = match.status === "ambiguous"
+          ? `"${lpiName}" matches ${match.candidates.length} staff members. Use LPI Email to say which.`
+          : `No staff member found named "${lpiName}" (use LPI Email for reliable matching)`;
+        errorCodes.push(match.status === "ambiguous" ? "ambiguous_staff" : "unmatched_staff");
         errors.push(reason);
         unmatchedStaff = { lpiName, lpiEmail, reason };
       }
-      else lpiId = s.id;
     }
 
     const awardedRaw = (row.awarded ?? "").toLowerCase();
@@ -494,12 +568,14 @@ export function previewGrantRows(
     appendUniqueList("collaborators", existing?.collaborators);
     if (writes("description")) data.description = textVal("description");
     if (lpiId !== undefined) data.lpiId = lpiId;
+    if (pendingGrantLpiName !== undefined) data.grantLpiName = pendingGrantLpiName;
 
     try {
       const lifecycle = reconcileGrantLifecycle(data, existing);
       data.status = lifecycle.status;
       data.awarded = lifecycle.awarded;
     } catch (error) {
+      errorCodes.push("lifecycle");
       errors.push(
         error instanceof GrantLifecycleError
           ? error.message
@@ -514,6 +590,9 @@ export function previewGrantRows(
         projectNumber,
         title,
         reason: errors.join("; "),
+        // The first category raised: it is the one the row died on, and the
+        // rest usually follow from it.
+        reasonCode: errorCodes[0] ?? "bad_value",
         unmatchedStaff,
       });
       return;
@@ -533,7 +612,12 @@ export function previewGrantRows(
       if (norm(current) !== norm(value)) changes.push(key);
     }
     if (changes.length === 0) {
-      previews.push({ rowNumber, action: "skip", projectNumber, title: title || existing.title, reason: "No changes" });
+      // Carries `data` even though nothing will be written from it. The apply
+      // step makes a second pass over every parsed row to mirror collaborators
+      // and co-investigators into their tables, and an unchanged row is
+      // exactly the one most likely to be missing those links -- it was
+      // imported before the tables existed.
+      previews.push({ rowNumber, action: "skip", projectNumber, title: title || existing.title, reason: "No changes", reasonCode: "unchanged", data });
     } else {
       previews.push({ rowNumber, action: "update", projectNumber, title: title || existing.title, changes, data });
     }

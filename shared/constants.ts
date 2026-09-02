@@ -138,6 +138,37 @@ const RESEARCHER_JOB_TITLE_KEYS = new Set<string>([
   ...RESEARCHER_JOB_TITLE_ALIASES.map(jobTitleKey),
 ]);
 
+/**
+ * The canonical JOB_TITLES entry a stored title means, or null when it is not
+ * recognisable as one of them.
+ *
+ * Titles are typed by HR and arrive through imports, so the stored value is
+ * whatever an organisation calls the post: "Post Doctoral Fellow" and
+ * "Post-doctoral Fellow" are both "Postdoctoral Researcher". Matching by
+ * letters alone settles spacing, hyphens and case; the alias list settles the
+ * rest.
+ *
+ * Used to offer a correction rather than silently dropping a title the editor
+ * does not recognise.
+ */
+export function canonicalJobTitle(jobTitle: string | null | undefined): string | null {
+  if (!jobTitle) return null;
+  const key = jobTitleKey(jobTitle);
+  if (!key) return null;
+  const exact = JOB_TITLES.find((title) => jobTitleKey(title) === key);
+  if (exact) return exact;
+  if (RESEARCHER_JOB_TITLE_KEYS.has(key)) {
+    // Every spelling of the postdoctoral post resolves to the canonical one.
+    return "Postdoctoral Researcher";
+  }
+  return null;
+}
+
+/** True when the stored title is exactly one of the canonical entries. */
+export function isCanonicalJobTitle(jobTitle: string | null | undefined): boolean {
+  return !!jobTitle && (JOB_TITLES as readonly string[]).includes(jobTitle);
+}
+
 export function accessRoleForJobTitle(jobTitle: string | null | undefined): string | null {
   if (!jobTitle) return null;
   const trimmed = jobTitle.trim();
