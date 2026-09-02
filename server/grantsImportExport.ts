@@ -9,6 +9,7 @@ import ExcelJS from "exceljs";
 import { GRANT_CURRENCY_VALUES } from "@shared/schema";
 import { matchStaffByName, type StaffNameIndex } from "@shared/staffNameMatching";
 import { isHomeInstitution, resolveGrantLpiName } from "@shared/grantSubmission";
+import type { GrantSkipCode } from "@shared/grantImportReasons";
 import type { Grant, InsertGrant, Scientist } from "@shared/schema";
 import {
   GrantLifecycleError,
@@ -193,6 +194,9 @@ export interface GrantRowPreview {
   reason?: string; // for skips, or informational notes
   changes?: string[]; // for updates: which fields differ
   data?: Partial<InsertGrant>; // parsed values ready to persist
+  // Category for the preview's summary. Set where the skip happens so a
+  // reworded message cannot quietly fall into "Other".
+  reasonCode?: GrantSkipCode;
   unmatchedStaff?: {
     lpiName: string;
     lpiEmail: string;
@@ -379,16 +383,16 @@ export function previewGrantRows(
     // Fully empty rows (common at the bottom of spreadsheets) are ignored.
     if (Object.values(row).every((v) => v === "")) return;
 
-    const skip = (reason: string) =>
-      previews.push({ rowNumber, action: "skip", projectNumber, title, reason });
+    const skip = (reason: string, reasonCode: GrantSkipCode) =>
+      previews.push({ rowNumber, action: "skip", projectNumber, title, reason, reasonCode });
 
-    if (!projectNumber) return skip("Project Number is required");
+    if (!projectNumber) return skip("Project Number is required", "no_project_number");
     if (seenProjectNumbers.has(projectNumber.toLowerCase()))
-      return skip(`Duplicate Project Number "${projectNumber}" earlier in this file`);
+      return skip(`Duplicate Project Number "${projectNumber}" earlier in this file`, "duplicate_project_number");
     seenProjectNumbers.add(projectNumber.toLowerCase());
 
     const existing = existingByProjectNumber.get(projectNumber.toLowerCase());
-    if (!existing && !title) return skip("Title is required for new grants");
+    if (!existing && !title) return skip("Title is required for new grants", "no_title");
 
     const errors: string[] = [];
 
@@ -416,6 +420,8 @@ export function previewGrantRows(
     const lpiEmail = row.lpiEmail ?? "";
     let lpiName = row.lpiName ?? "";
     let unmatchedStaff: GrantRowPreview["unmatchedStaff"];
+    // Categories for whatever lands in `errors`, in the order raised.
+    const errorCodes: GrantSkipCode[] = [];
     // Held until `data` exists, further down.
     let pendingGrantLpiName: string | null | undefined = undefined;
 
@@ -449,6 +455,7 @@ export function previewGrantRows(
         const reason = sidraCandidates.length > 1
           ? `"${submitting}" submitted this grant and its Co-Investigators name ${sidraCandidates.length} Sidra staff. Set the Sidra Lead PI by hand.`
           : `"${submitting}" submitted this grant and no Co-Investigator matches a staff record, so there is nobody to record as Sidra Lead PI.`;
+        errorCodes.push(sidraCandidates.length > 1 ? "subaward_ambiguous_lead" : "subaward_no_sidra_lead");
         errors.push(reason);
         unmatchedStaff = { lpiName, lpiEmail, reason };
         lpiName = "";
@@ -463,6 +470,7 @@ export function previewGrantRows(
       const s = scientistByEmail.get(lpiEmail.toLowerCase());
       if (!s) {
         const reason = `No staff member found with email "${lpiEmail}"`;
+        errorCodes.push("unmatched_staff");
         errors.push(reason);
         unmatchedStaff = { lpiName, lpiEmail, reason };
       }
@@ -477,6 +485,7 @@ export function previewGrantRows(
         const reason = match.status === "ambiguous"
           ? `"${lpiName}" matches ${match.candidates.length} staff members. Use LPI Email to say which.`
           : `No staff member found named "${lpiName}" (use LPI Email for reliable matching)`;
+        errorCodes.push(match.status === "ambiguous" ? "ambiguous_staff" : "unmatched_staff");
         errors.push(reason);
         unmatchedStaff = { lpiName, lpiEmail, reason };
       }
@@ -566,6 +575,7 @@ export function previewGrantRows(
       data.status = lifecycle.status;
       data.awarded = lifecycle.awarded;
     } catch (error) {
+      errorCodes.push("lifecycle");
       errors.push(
         error instanceof GrantLifecycleError
           ? error.message
@@ -580,6 +590,9 @@ export function previewGrantRows(
         projectNumber,
         title,
         reason: errors.join("; "),
+        // The first category raised: it is the one the row died on, and the
+        // rest usually follow from it.
+        reasonCode: errorCodes[0] ?? "bad_value",
         unmatchedStaff,
       });
       return;
@@ -604,7 +617,7 @@ export function previewGrantRows(
       // and co-investigators into their tables, and an unchanged row is
       // exactly the one most likely to be missing those links -- it was
       // imported before the tables existed.
-      previews.push({ rowNumber, action: "skip", projectNumber, title: title || existing.title, reason: "No changes", data });
+      previews.push({ rowNumber, action: "skip", projectNumber, title: title || existing.title, reason: "No changes", reasonCode: "unchanged", data });
     } else {
       previews.push({ rowNumber, action: "update", projectNumber, title: title || existing.title, changes, data });
     }
