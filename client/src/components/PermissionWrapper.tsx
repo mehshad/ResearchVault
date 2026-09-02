@@ -2,7 +2,8 @@ import { ReactNode } from "react";
 import { usePermissions } from "@/hooks/usePermissions";
 import { useCurrentUser } from "@/hooks/useCurrentUser";
 import { Badge } from "@/components/ui/badge";
-import { Eye } from "lucide-react";
+import { Eye, Lock } from "lucide-react";
+import { RESTRICTED_USER_ROLE } from "@shared/constants";
 
 interface PermissionWrapperProps {
   children: ReactNode;
@@ -14,6 +15,11 @@ interface PermissionWrapperProps {
   currentUserRole?: string;
   navigationItem?: string;
   requiredPermissions?: ('canEdit' | 'canCreate' | 'canAdd' | 'canView' | 'canDelete')[];
+  /**
+   * What to render instead of the children. Left unset on a whole page, the
+   * page explains that access is denied rather than rendering nothing -- see
+   * the hide branch below. Button-level checks keep rendering nothing.
+   */
   fallback?: ReactNode;
   showReadOnlyBanner?: boolean;
 }
@@ -58,9 +64,47 @@ export function PermissionWrapper({
 
   // Handle page-level permission checking with currentUserRole and navigationItem
   if (currentUserRole && navigationItem) {
-    // If the section is hidden, don't render anything
     if (accessLevel === 'hide') {
-      return <>{fallback}</>;
+      // A caller that supplied its own fallback gets it. Otherwise say so:
+      // rendering nothing gives a blank white page with no heading, no
+      // navigation cue and nothing to act on, which reads as the application
+      // being broken rather than as a permission being withheld. It is how an
+      // account whose role has no entries in the access matrix -- `user`, which
+      // is what the account-creation buttons assign -- experiences every screen.
+      if (fallback !== null && fallback !== undefined) {
+        return <>{fallback}</>;
+      }
+      // A restricted account is a different situation from a role that simply
+      // lacks this area, and it needs a different instruction: `user` is what
+      // new accounts are created as, it is hidden from everything but
+      // publications by rule rather than by the matrix, and editing the matrix
+      // would not change it. The fix is to give the person a real access role.
+      const isAwaitingRole = currentUser?.role === RESTRICTED_USER_ROLE;
+      return (
+        <div className="flex min-h-[50vh] items-center justify-center p-6">
+          <div className="max-w-md rounded-lg border bg-card p-6 text-center">
+            <Lock className="mx-auto mb-3 h-8 w-8 text-muted-foreground" />
+            <h2 className="text-lg font-semibold">
+              {isAwaitingRole
+                ? "Your account is waiting for an access role"
+                : "You do not have access to this section"}
+            </h2>
+            <p className="mt-2 text-sm text-muted-foreground">
+              {isAwaitingRole ? (
+                <>
+                  New accounts start without one and can only see publications until an
+                  administrator assigns a role in Settings → Users.
+                </>
+              ) : (
+                <>
+                  Your access role{currentUserRole ? ` (${currentUserRole})` : ""} does not include
+                  this area. An administrator can grant it in Settings → Access Control.
+                </>
+              )}
+            </p>
+          </div>
+        </div>
+      );
     }
 
     // If it's read-only, wrap with read-only styling and banner
