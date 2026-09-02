@@ -83,6 +83,8 @@ import { getObjectAclPolicy, ObjectPermission } from "./objectAcl";
 import { buildLinkImportTemplate, previewLinkImport } from "./publicationLinksImport";
 import { GRANT_COLUMNS, grantsToRows, buildGrantsWorkbookBuffer, buildGrantsTemplateBuffer, buildMissingGrantStaffWorkbookBuffer, collectMissingGrantStaff, previewGrantRows } from "./grantsImportExport";
 import { buildStaffNameIndex, matchStaffByName } from "@shared/staffNameMatching";
+import { buildSdrTemplateBuffer, previewSdrRows } from "./sdrImportExport";
+import { resolveInvestigatorScientistIds } from "./investigatorRoleResolver";
 import {
   registerSidraScoreRoutes,
   isOwnScientistProfile,
@@ -10317,6 +10319,157 @@ function writeFailureDetail(error: unknown): string {
     } catch (error) {
       console.error('Error deleting incomplete grants:', error);
       res.status(500).json({ message: "Failed to delete incomplete grants" });
+    }
+  });
+
+  // ── SDR import ──────────────────────────────────────────────────────────
+  // Registered before the /api/research-activities/:id routes so "import" is
+  // never read as an id.
+
+  app.get('/api/research-activities/import/template', requireAuth, async (_req: Request, res: Response) => {
+    try {
+      const buffer = await buildSdrTemplateBuffer();
+      res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+      res.setHeader('Content-Disposition', 'attachment; filename="sdr-import-template.xlsx"');
+      res.send(buffer);
+    } catch (error) {
+      console.error('Error building SDR template:', error);
+      res.status(500).json({ message: "Failed to build the template" });
+    }
+  });
+
+  // Shared by preview and apply, so what is applied is always what was shown:
+  // the file is re-parsed server-side against current data rather than trusting
+  // anything the browser sends back.
+  async function computeSdrImportPreview(fileBase64: string, fileName: string) {
+    if (fileBase64.length > 15_000_000) throw new Error("File too large (max ~10 MB)");
+    const rawRows = await parseUploadedFile(fileBase64, fileName);
+    if (rawRows.length > 2000) throw new Error("Too many rows in one import (max 2000)");
+
+    const [activities, projects, scientists, eligiblePiIds] = await Promise.all([
+      storage.getResearchActivities(),
+      storage.getProjects(),
+      storage.getScientists(),
+      resolveInvestigatorScientistIds(),
+    ]);
+
+    return previewSdrRows(rawRows, {
+      existingBySdrNumber: new Map(activities.map((a: any) => [String(a.sdrNumber).toLowerCase(), a])),
+      projectsByNumber: new Map(projects.map((p: any) => [String(p.projectId).toLowerCase(), p])),
+      scientistByEmail: new Map(
+        scientists.filter((s: any) => s.email).map((s: any) => [s.email.toLowerCase(), s]),
+      ),
+      staffNameIndex: buildStaffNameIndex(scientists as any),
+      eligiblePiIds,
+    });
+  }
+
+  app.post('/api/research-activities/import/preview', requireAuth, async (req: Request, res: Response) => {
+    try {
+      const { fileBase64, fileName } = req.body ?? {};
+      if (typeof fileBase64 !== 'string' || !fileBase64 || typeof fileName !== 'string') {
+        return res.status(400).json({ message: "Provide fileBase64 and fileName" });
+      }
+      const previews = await computeSdrImportPreview(fileBase64, fileName);
+      res.json({
+        rows: previews,
+        summary: {
+          create: previews.filter((p) => p.action === 'create').length,
+          update: previews.filter((p) => p.action === 'update').length,
+          skip: previews.filter((p) => p.action === 'skip').length,
+          newProjects: new Set(
+            previews.filter((p) => p.createsProject).map((p) => p.createsProject!.projectNumber.toLowerCase()),
+          ).size,
+        },
+      });
+    } catch (error) {
+      console.error('Error previewing SDR import:', error);
+      res.status(400).json({ message: error instanceof Error ? error.message : "Failed to preview" });
+    }
+  });
+
+  app.post('/api/research-activities/import/apply', requireAuth, async (req: Request, res: Response) => {
+    try {
+      const { fileBase64, fileName } = req.body ?? {};
+      if (typeof fileBase64 !== 'string' || !fileBase64 || typeof fileName !== 'string') {
+        return res.status(400).json({ message: "Provide fileBase64 and fileName" });
+      }
+
+      const previews = await computeSdrImportPreview(fileBase64, fileName);
+      let created = 0, updated = 0, projectsCreated = 0;
+      const failed: { rowNumber: number; sdrNumber: string; reason: string }[] = [];
+
+      // Projects created during this run, so two SDRs naming the same new
+      // project share one rather than colliding on its unique number.
+      const newProjectIds = new Map<string, number>();
+
+      for (const p of previews) {
+        if (p.action === 'skip' || !p.data) continue;
+        try {
+          let projectId = p.data.projectId;
+
+          if (p.createsProject) {
+            const key = p.createsProject.projectNumber.toLowerCase();
+            const already = newProjectIds.get(key);
+            if (already != null) {
+              projectId = already;
+            } else {
+              const project = await storage.createProject({
+                projectId: p.createsProject.projectNumber,
+                name: p.createsProject.projectName,
+              } as any);
+              newProjectIds.set(key, project.id);
+              projectId = project.id;
+              projectsCreated++;
+            }
+          }
+
+          const payload = { ...p.data, ...(projectId != null ? { projectId } : {}) };
+
+          if (p.action === 'create') {
+            const activity = await storage.createResearchActivity(payload as any);
+            // Same as creating one by hand: the SDR starts with its PI on the
+            // team, or the team screen shows an SDR nobody belongs to.
+            if (activity.budgetHolderId) {
+              try {
+                await storage.addProjectMember({
+                  researchActivityId: activity.id,
+                  scientistId: activity.budgetHolderId,
+                  role: "Principal Investigator",
+                });
+              } catch (memberError) {
+                console.error('Failed to add the PI to the team for', activity.sdrNumber, memberError);
+              }
+            }
+            created++;
+          } else {
+            const existing = (await storage.getResearchActivities()).find(
+              (a: any) => String(a.sdrNumber).toLowerCase() === p.sdrNumber.toLowerCase(),
+            );
+            if (!existing) {
+              failed.push({ rowNumber: p.rowNumber, sdrNumber: p.sdrNumber, reason: "SDR disappeared during import" });
+              continue;
+            }
+            await storage.updateResearchActivity(existing.id, payload as any);
+            updated++;
+          }
+        } catch (err) {
+          failed.push({
+            rowNumber: p.rowNumber,
+            sdrNumber: p.sdrNumber,
+            reason: err instanceof Error ? err.message : "Failed to save",
+          });
+        }
+      }
+
+      const skipped = previews
+        .filter((p) => p.action === 'skip')
+        .map((p) => ({ rowNumber: p.rowNumber, sdrNumber: p.sdrNumber, reason: p.reason }));
+
+      res.json({ created, updated, projectsCreated, skipped, failed });
+    } catch (error) {
+      console.error('Error applying SDR import:', error);
+      res.status(400).json({ message: error instanceof Error ? error.message : "Failed to import" });
     }
   });
 
