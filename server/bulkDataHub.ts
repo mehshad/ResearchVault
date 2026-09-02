@@ -4506,6 +4506,68 @@ async function lockBulkDataSection(tx: any, sectionId: SectionId): Promise<void>
   );
 }
 
+/**
+ * Count rows that are structurally unresolvable from parsed data alone —
+ * i.e. rows where every business-key column is blank. These are guaranteed
+ * errors regardless of DB state, so we can reject them before opening a
+ * transaction.
+ */
+function countParseOnlyErrors(sectionId: SectionId, parsedSheets: ParsedSheet[]): number {
+  let count = 0;
+  for (const sheet of parsedSheets) {
+    for (const row of sheet.rows) {
+      if (isStructurallyUnresolvableRow(sectionId, sheet.name, row)) count++;
+    }
+  }
+  return count;
+}
+
+/**
+ * Returns true when a row has no value in ANY of the columns that could
+ * serve as a business key, making it impossible to resolve without guessing.
+ * This check is intentionally conservative — it only flags rows where ALL
+ * identifying columns are blank, so it never produces false positives.
+ */
+function isStructurallyUnresolvableRow(
+  _sectionId: SectionId,
+  sheetName: string,
+  row: Record<string, string>,
+): boolean {
+  const blank = (v: string | undefined) => !v || v.trim() === "";
+  switch (sheetName) {
+    case "Publications":
+      // A publication row is unresolvable when there is no Publication ID and
+      // none of the alternative composite keys can be formed.
+      return (
+        blank(row.publicationId) &&
+        blank(row.doi) &&
+        blank(row.pmid) &&
+        (blank(row.publicationDate) || blank(row.journal)) &&
+        (blank(row.title) || blank(row.sdrNumber))
+      );
+    case "Scientists":
+      return blank(row.email) && blank(row.staffId);
+    case "Grants":
+      return blank(row.projectNumber);
+    case "Programs":
+      return blank(row.programId);
+    case "Projects":
+      return blank(row.projectId);
+    case "Research Activities":
+      return blank(row.sdrNumber);
+    case "IRB Applications":
+      return blank(row.irbNumber);
+    case "IBC Applications":
+      return blank(row.ibcNumber);
+    case "Research Contracts":
+      return blank(row.contractNumber);
+    case "Patents":
+      return blank(row.patentNumber);
+    default:
+      return false;
+  }
+}
+
 export async function applySection(
   sectionId: SectionId,
   fileBase64: string,
@@ -4517,6 +4579,18 @@ export async function applySection(
   const skipInvalidRows = options.skipInvalidRows === true;
   const rejected: RejectedRow[] = [];
   const parsedSheets = await parseSectionWorkbook(sectionId, fileBase64, fileName);
+
+  // Pre-flight: detect rows that are structurally unresolvable from the parsed
+  // data alone (no business key present at all), before opening a DB transaction.
+  // This avoids a spurious connection error when the DB is unreachable and the
+  // data is obviously bad, and gives callers an early, actionable error message.
+  if (!skipInvalidRows) {
+    const parseErrors = countParseOnlyErrors(sectionId, parsedSheets);
+    if (parseErrors > 0) {
+      throw new Error(`Cannot apply: ${parseErrors} row error(s) must be resolved first.`);
+    }
+  }
+
   const counts = await db.transaction(async (tx: any) => {
     // Hold all tables read by this section so the confirmed plan cannot change
     // between verification and the final write.

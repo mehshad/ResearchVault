@@ -1897,3 +1897,42 @@ export type InsertTeamMember = z.infer<typeof insertTeamMemberSchema>;
 export type TeamMember = typeof teamMembers.$inferSelect;
 export type TeamCategory = typeof TEAM_CATEGORY_VALUES[number];
 export type ElementType = typeof ELEMENT_TYPE_VALUES[number];
+
+// ---------------------------------------------------------------------------
+// Audit Log
+// ---------------------------------------------------------------------------
+// Single table that records every important write across all domains.
+// Written by the application (not DB triggers) so it works identically on
+// PostgreSQL, SQLite and SQL Server, and can capture HTTP session context
+// (user, IP, route) that DB triggers cannot reach.
+//
+// • tableName / recordId    — which row changed
+// • action                  — INSERT | UPDATE | DELETE
+// • oldValues / newValues   — full JSON snapshots; null on INSERT/DELETE resp.
+// • changedFields           — array of key names that differ (for fast filtering)
+// • changedBy               — FK to users; null for system/anonymous actions
+// • reason                  — free-text rationale captured from the UI
+// • ipAddress / userAgent   — request-level context for security review
+// • route                   — "PUT /api/grants/42" — helps trace the call path
+
+export const AUDIT_ACTIONS = ["INSERT", "UPDATE", "DELETE"] as const;
+export type AuditAction = typeof AUDIT_ACTIONS[number];
+
+export const auditLog = pgTable("audit_log", {
+  id:            serial("id").primaryKey(),
+  tableName:     text("table_name").notNull(),
+  recordId:      integer("record_id"),
+  action:        text("action").notNull(),              // AuditAction
+  oldValues:     json("old_values"),
+  newValues:     json("new_values"),
+  changedFields: json("changed_fields"),                // string[]
+  changedBy:     integer("changed_by").references(() => users.id, { onDelete: "set null" }),
+  changedAt:     timestamp("changed_at").defaultNow().notNull(),
+  ipAddress:     text("ip_address"),
+  userAgent:     text("user_agent"),
+  reason:        text("reason"),
+  route:         text("route"),
+});
+
+export type AuditLog    = typeof auditLog.$inferSelect;
+export type InsertAuditLog = typeof auditLog.$inferInsert;
