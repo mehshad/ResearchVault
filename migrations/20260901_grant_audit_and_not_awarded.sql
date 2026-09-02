@@ -41,7 +41,9 @@ BEGIN
 END $$;
 
 -- ── "Not Awarded" ───────────────────────────────────────────────────────────
--- A funding decision that came back negative, kept distinct from Rejected.
+-- A funding decision that came back negative, kept distinct from Rejected, plus
+-- the post-award endings the Research Office already records: a grant that was
+-- won and then withdrawn, terminated, transferred or suspended.
 --
 -- drizzle-kit push does NOT alter an existing CHECK constraint: it reported
 -- "changes applied" while leaving the old eight values in place, so a grant
@@ -53,5 +55,6 @@ ALTER TABLE "grants"
   CHECK ("status" IN (
     'submitted', 'pending', 'in_review',
     'awarded', 'active', 'completed',
-    'not_awarded', 'rejected', 'cancelled'
+    'not_awarded', 'rejected', 'cancelled',
+    'withdrawn', 'terminated', 'transferred', 'suspended'
   ));
