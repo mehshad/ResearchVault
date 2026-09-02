@@ -315,6 +315,10 @@ export interface IStorage {
     tree: GrantCollaborationTree,
     tx?: any,
   ): Promise<void>;
+  // Additive, for the import: it merges collaborator text rather than
+  // overwriting, and these mirror that into the relational tables.
+  addGrantCollaboratingInstitutions(grantId: number, names: string[]): Promise<number>;
+  addGrantCoInvestigators(grantId: number, scientistIds: number[]): Promise<number>;
   deleteGrant(id: number): Promise<boolean>;
   // Clean-up tool for the Research Office. Preview and delete are separate
   // calls, and the delete names the ids it was shown rather than re-deriving

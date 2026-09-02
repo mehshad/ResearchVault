@@ -82,7 +82,7 @@ import { detectDuplicateGroups, pickDefaultSurvivorId, normalizeDoi as canonical
 import { getObjectAclPolicy, ObjectPermission } from "./objectAcl";
 import { buildLinkImportTemplate, previewLinkImport } from "./publicationLinksImport";
 import { GRANT_COLUMNS, grantsToRows, buildGrantsWorkbookBuffer, buildGrantsTemplateBuffer, buildMissingGrantStaffWorkbookBuffer, collectMissingGrantStaff, previewGrantRows } from "./grantsImportExport";
-import { buildStaffNameIndex } from "@shared/staffNameMatching";
+import { buildStaffNameIndex, matchStaffByName } from "@shared/staffNameMatching";
 import {
   registerSidraScoreRoutes,
   isOwnScientistProfile,
@@ -10062,6 +10062,39 @@ function writeFailureDetail(error: unknown): string {
       const previews = await computeGrantImportPreview(fileBase64, fileName);
       let created = 0, updated = 0;
       const failed: { rowNumber: number; projectNumber: string; reason: string }[] = [];
+
+      // The Collaborators and Co-Investigators columns used to land only in
+      // the text arrays those fields were refactored away from, so an import
+      // filled columns nothing displays any more while the editor and the
+      // list showed the grant as having neither. Mirrored into the relational
+      // tables here.
+      //
+      // Additive, matching what the import does to the text itself: it merges
+      // and dedupes rather than overwriting, so a re-run adds nothing and
+      // never removes a partner someone recorded by hand.
+      const staffIndex = buildStaffNameIndex(await storage.getScientists() as any);
+      const seedGrantLinks = async (grantId: number, data: any): Promise<number> => {
+        let added = 0;
+
+        const institutions: string[] = Array.isArray(data.collaborators) ? data.collaborators : [];
+        if (institutions.length > 0) {
+          added += await storage.addGrantCollaboratingInstitutions(grantId, institutions);
+        }
+
+        const names: string[] = Array.isArray(data.coInvestigators) ? data.coInvestigators : [];
+        if (names.length > 0) {
+          // Same rule as the Lead PI: a name matching nobody, or matching two
+          // people, is left unlinked rather than guessed at. These are our own
+          // staff, so an unmatched one means no record exists yet.
+          const ids = names
+            .map((name) => matchStaffByName(staffIndex, name))
+            .filter((match) => match.status === "matched")
+            .map((match) => (match as { scientist: { id: number } }).scientist.id);
+          if (ids.length > 0) added += await storage.addGrantCoInvestigators(grantId, ids);
+        }
+
+        return added;
+      };
       for (const p of previews) {
         if (p.action === 'skip' || !p.data) continue;
         try {
@@ -10072,7 +10105,7 @@ function writeFailureDetail(error: unknown): string {
             // provenance columns stayed empty on exactly the path they were
             // added for: a bulk import is where "who put this here" is
             // hardest to answer afterwards.
-            await storage.createGrant(insertGrantSchema.parse({
+            const createdGrant = await storage.createGrant(insertGrantSchema.parse({
               ...parsedData,
               ...lifecycle,
             }), req.session?.user?.id);
@@ -10110,8 +10143,30 @@ function writeFailureDetail(error: unknown): string {
           });
         }
       }
+      // Second pass, over every parsed row rather than only the ones that were
+      // written. A row whose fields all match the database is marked "No
+      // changes" and never reaches the loop above -- and that is precisely the
+      // row most likely to be missing its collaborator and co-investigator
+      // links, having been imported before those tables existed. Re-running
+      // the import is what backfills them.
+      const grantIdByProjectNumber = new Map(
+        (await storage.getGrants()).map((g: any) => [String(g.projectNumber).toLowerCase(), g.id]),
+      );
+      let linked = 0;
+      for (const p of previews) {
+        if (!p.data) continue;
+        const grantId = grantIdByProjectNumber.get(p.projectNumber.toLowerCase());
+        if (grantId == null) continue;
+        try {
+          linked += await seedGrantLinks(grantId, p.data);
+        } catch (err) {
+          // A link that will not seed must not fail the grant it belongs to.
+          console.error(`Failed to seed links for grant ${p.projectNumber}:`, err);
+        }
+      }
+
       const skipped = previews.filter((p) => p.action === 'skip').map((p) => ({ rowNumber: p.rowNumber, projectNumber: p.projectNumber, reason: p.reason }));
-      res.json({ created, updated, skipped, failed });
+      res.json({ created, updated, skipped, failed, linked });
     } catch (error) {
       console.error('Error applying grants import:', error);
       res.status(400).json({ message: error instanceof Error ? error.message : "Failed to import grants" });

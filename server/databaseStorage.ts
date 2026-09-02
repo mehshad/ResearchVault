@@ -2858,6 +2858,51 @@ export class DatabaseStorage implements IStorage {
     if (rows.length > 0) await tx.insert(grantCoInvestigators).values(rows);
   }
 
+  /**
+   * Add collaborating institutions to a grant without disturbing what is
+   * already there.
+   *
+   * Additive, not a replace, because it mirrors what the import does to the
+   * text column it came from: merge and dedupe rather than overwrite. A
+   * replace would also throw away the people someone had recorded under an
+   * institution, since those hang off the institution row.
+   */
+  async addGrantCollaboratingInstitutions(grantId: number, names: string[]): Promise<number> {
+    const seen = new Set<string>();
+    const rows = names
+      .map((name) => name.trim())
+      .filter((name) => {
+        if (!name) return false;
+        const key = name.toLowerCase();
+        if (seen.has(key)) return false;
+        seen.add(key);
+        return true;
+      })
+      .map((name) => ({ grantId, name }));
+
+    if (rows.length === 0) return 0;
+    // The unique constraint on (grant_id, name) makes re-running the same
+    // import a no-op rather than a pile of duplicates.
+    const inserted = await db
+      .insert(grantCollaboratingInstitutions)
+      .values(rows)
+      .onConflictDoNothing()
+      .returning({ id: grantCollaboratingInstitutions.id });
+    return inserted.length;
+  }
+
+  /** Same, for Sidra co-investigators already resolved to staff records. */
+  async addGrantCoInvestigators(grantId: number, scientistIds: number[]): Promise<number> {
+    const ids = [...new Set(scientistIds.filter((id) => Number.isInteger(id) && id > 0))];
+    if (ids.length === 0) return 0;
+    const inserted = await db
+      .insert(grantCoInvestigators)
+      .values(ids.map((scientistId) => ({ grantId, scientistId })))
+      .onConflictDoNothing()
+      .returning({ id: grantCoInvestigators.id });
+    return inserted.length;
+  }
+
   async getGrantByProjectNumber(projectNumber: string): Promise<Grant | undefined> {
     const [grant] = await db.select().from(grants).where(eq(grants.projectNumber, projectNumber));
     return grant;

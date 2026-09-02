@@ -539,7 +539,12 @@ export function previewGrantRows(
       if (norm(current) !== norm(value)) changes.push(key);
     }
     if (changes.length === 0) {
-      previews.push({ rowNumber, action: "skip", projectNumber, title: title || existing.title, reason: "No changes" });
+      // Carries `data` even though nothing will be written from it. The apply
+      // step makes a second pass over every parsed row to mirror collaborators
+      // and co-investigators into their tables, and an unchanged row is
+      // exactly the one most likely to be missing those links -- it was
+      // imported before the tables existed.
+      previews.push({ rowNumber, action: "skip", projectNumber, title: title || existing.title, reason: "No changes", data });
     } else {
       previews.push({ rowNumber, action: "update", projectNumber, title: title || existing.title, changes, data });
     }
