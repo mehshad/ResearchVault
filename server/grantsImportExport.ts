@@ -7,6 +7,7 @@
 // "First Last" name against the scientists table.
 import ExcelJS from "exceljs";
 import { GRANT_CURRENCY_VALUES } from "@shared/schema";
+import { matchStaffByName, type StaffNameIndex } from "@shared/staffNameMatching";
 import type { Grant, InsertGrant, Scientist } from "@shared/schema";
 import {
   GrantLifecycleError,
@@ -339,7 +340,7 @@ export function previewGrantRows(
   rawRows: Record<string, any>[],
   existingByProjectNumber: Map<string, Grant>,
   scientistByEmail: Map<string, Scientist>,
-  scientistByName: Map<string, Scientist>,
+  scientistByName: StaffNameIndex,
 ): GrantRowPreview[] {
   const previews: GrantRowPreview[] = [];
   const seenProjectNumbers = new Set<string>();
@@ -408,13 +409,18 @@ export function previewGrantRows(
       }
       else lpiId = s.id;
     } else if (lpiName) {
-      const s = scientistByName.get(lpiName.toLowerCase().replace(/\s+/g, " "));
-      if (!s) {
-        const reason = `No staff member found named "${lpiName}" (use LPI Email for reliable matching)`;
+      // Tolerates the title and the middle name the office's files carry, and
+      // refuses to guess when a name fits two people.
+      const match = matchStaffByName(scientistByName, lpiName);
+      if (match.status === "matched") {
+        lpiId = match.scientist.id;
+      } else {
+        const reason = match.status === "ambiguous"
+          ? `"${lpiName}" matches ${match.candidates.length} staff members. Use LPI Email to say which.`
+          : `No staff member found named "${lpiName}" (use LPI Email for reliable matching)`;
         errors.push(reason);
         unmatchedStaff = { lpiName, lpiEmail, reason };
       }
-      else lpiId = s.id;
     }
 
     const awardedRaw = (row.awarded ?? "").toLowerCase();

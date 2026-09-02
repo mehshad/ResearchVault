@@ -82,6 +82,7 @@ import { detectDuplicateGroups, pickDefaultSurvivorId, normalizeDoi as canonical
 import { getObjectAclPolicy, ObjectPermission } from "./objectAcl";
 import { buildLinkImportTemplate, previewLinkImport } from "./publicationLinksImport";
 import { GRANT_COLUMNS, grantsToRows, buildGrantsWorkbookBuffer, buildGrantsTemplateBuffer, buildMissingGrantStaffWorkbookBuffer, collectMissingGrantStaff, previewGrantRows } from "./grantsImportExport";
+import { buildStaffNameIndex } from "@shared/staffNameMatching";
 import {
   registerSidraScoreRoutes,
   isOwnScientistProfile,
@@ -9999,9 +10000,10 @@ function writeFailureDetail(error: unknown): string {
     const [grants, scientists] = await Promise.all([storage.getGrants(), storage.getScientists()]);
     const existingByProjectNumber = new Map(grants.map((g: any) => [String(g.projectNumber).toLowerCase(), g]));
     const scientistByEmail = new Map(scientists.filter((s: any) => s.email).map((s: any) => [s.email.toLowerCase(), s]));
-    const scientistByName = new Map(scientists.map((s: any) => [
-      `${s.firstName} ${s.lastName}`.toLowerCase().replace(/\s+/g, ' '), s,
-    ]));
+    // Indexed rather than keyed on an exact "first last" string: the office's
+    // files write the title into the name field and sometimes a middle name,
+    // so "Dr. Khalid Fakhro" never matched the record "Khalid Fakhro".
+    const scientistByName = buildStaffNameIndex(scientists as any);
     return previewGrantRows(rawRows, existingByProjectNumber, scientistByEmail, scientistByName);
   }
 

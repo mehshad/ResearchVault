@@ -3,6 +3,7 @@ import test from "node:test";
 import ExcelJS from "exceljs";
 
 import type { Grant, Scientist } from "@shared/schema";
+import { buildStaffNameIndex } from "@shared/staffNameMatching";
 import {
   buildMissingGrantStaffWorkbookBuffer,
   collectMissingGrantStaff,
@@ -11,7 +12,7 @@ import {
 
 const noExistingGrants = new Map<string, Grant>();
 const noScientistsByEmail = new Map<string, Scientist>();
-const noScientistsByName = new Map<string, Scientist>();
+const noScientistsByName = buildStaffNameIndex([]);
 
 test("grant import rejects Active rows without a start date", () => {
   const [preview] = previewGrantRows(

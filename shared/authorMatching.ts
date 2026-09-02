@@ -16,7 +16,7 @@
  * Lowercase + strip diacritics + trim, so "Jérôme" matches "Jerome" and
  * stray whitespace in stored names never blocks a match.
  */
-function foldName(value: string | null | undefined): string {
+export function foldName(value: string | null | undefined): string {
   return (value ?? '')
     .normalize('NFD')
     .replace(/[\u0300-\u036f]/g, '')
@@ -25,7 +25,7 @@ function foldName(value: string | null | undefined): string {
 }
 
 /** Strip honorific/title prefixes such as "Dr." or "Prof." from a name. */
-function stripTitles(value: string): string {
+export function stripTitles(value: string): string {
   return value.replace(/^(dr\.?|prof\.?|professor|mr\.?|ms\.?|mrs\.?|phd\.?|md\.?)\s+/i, '').trim();
 }
 
