@@ -33,6 +33,7 @@ import {
   type GrantCollaborationTree,
   type GrantCoInvestigatorList,
 } from "@shared/schema";
+import type { IncompleteGrantSummary } from "@shared/grantValidity";
 import { isInvestigatorEligible } from "@shared/investigatorEligibility";
 import {
   classifyResolvedPublication,
@@ -315,6 +316,14 @@ export interface IStorage {
     tx?: any,
   ): Promise<void>;
   deleteGrant(id: number): Promise<boolean>;
+  // Clean-up tool for the Research Office. Preview and delete are separate
+  // calls, and the delete names the ids it was shown rather than re-deriving
+  // the list, so a grant completed in between is not swept up.
+  findIncompleteGrants(): Promise<IncompleteGrantSummary[]>;
+  deleteIncompleteGrants(ids: number[]): Promise<{
+    deleted: number[];
+    skipped: Array<{ id: number; projectNumber: string | null; reason: string }>;
+  }>;
 
   // System Configuration operations
   getSystemConfigurations(): Promise<SystemConfiguration[]>;

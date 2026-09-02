@@ -25,7 +25,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Grant } from "@shared/schema";
-import { Plus, Search, MoreHorizontal, Download, Filter, DollarSign, Calendar, ArrowUpDown, Link as LinkIcon, Upload, FileSpreadsheet, Loader2, AlertTriangle } from "lucide-react";
+import { Plus, Search, MoreHorizontal, Download, Filter, DollarSign, Calendar, ArrowUpDown, Link as LinkIcon, Upload, FileSpreadsheet, Loader2, AlertTriangle, Trash2 } from "lucide-react";
 import { GRANT_STATUS_OPTIONS } from "@shared/grantLifecycle";
 import {
   GRANT_ISSUE_DEFINITIONS,
@@ -48,6 +48,7 @@ import { queryClient } from "@/lib/queryClient";
 import { useCurrentUser } from "@/hooks/useCurrentUser";
 import { usePermissions } from "@/hooks/usePermissions";
 import { PermissionWrapper, useElementPermissions } from "@/components/PermissionWrapper";
+import { GrantCleanupDialog } from "@/components/GrantCleanupDialog";
 
 type EnhancedGrant = Grant & {
   lpi?: {
@@ -198,6 +199,7 @@ export default function GrantsList() {
   };
 
   // ---- Excel import (template -> preview -> apply) ----
+  const [cleanupOpen, setCleanupOpen] = useState(false);
   const [importOpen, setImportOpen] = useState(false);
   const [importFile, setImportFile] = useState<{ base64: string; name: string } | null>(null);
   const [importPreview, setImportPreview] = useState<any | null>(null);
@@ -348,6 +350,21 @@ export default function GrantsList() {
               <Button variant="outline" onClick={() => { resetImport(); setImportOpen(true); }}>
                 <Upload className="h-4 w-4 mr-2" />
                 Import
+              </Button>
+            </PermissionWrapper>
+            {/* Deleting records, so gated on canDelete rather than canAdd. */}
+            <PermissionWrapper
+              requiredPermissions={['canDelete']}
+              currentUserRole={currentUser.role}
+              navigationItem="grants"
+            >
+              <Button
+                variant="outline"
+                onClick={() => setCleanupOpen(true)}
+                data-testid="button-open-grant-cleanup"
+              >
+                <Trash2 className="h-4 w-4 mr-2" />
+                Clean up
               </Button>
             </PermissionWrapper>
             <PermissionWrapper 
@@ -734,6 +751,8 @@ export default function GrantsList() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <GrantCleanupDialog open={cleanupOpen} onOpenChange={setCleanupOpen} />
     </div>
     </PermissionWrapper>
   );

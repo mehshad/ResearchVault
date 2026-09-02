@@ -44,7 +44,12 @@ function isBlank(value: unknown): boolean {
   return typeof value !== "string" || value.trim().length === 0;
 }
 
-function isMissingAmount(value: string | number | null | undefined): boolean {
+/**
+ * Exported because a numeric column arrives from pg as a string, so "0.00" is
+ * truthy and a plain falsy check reads an empty amount as a filled-in one.
+ * Anything asking "does this grant hold a real figure" must ask here.
+ */
+export function isMissingAmount(value: string | number | null | undefined): boolean {
   if (value == null || value === "") return true;
   const amount = typeof value === "number" ? value : Number(value);
   return !Number.isFinite(amount) || amount <= 0;

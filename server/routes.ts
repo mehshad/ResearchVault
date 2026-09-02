@@ -10110,6 +10110,69 @@ function writeFailureDetail(error: unknown): string {
     }
   });
 
+  // ── Clean-up: grants too incomplete to act on ───────────────────────────
+  // Registered before the /api/grants/:id/... routes. Nothing below matches
+  // these paths today -- the third segment is a literal in every one of them
+  // -- but a later /api/grants/:id/:section would swallow "cleanup" as an id,
+  // and the ordering costs nothing now.
+  //
+  // Both inherit the research-office matrix guard mounted on the /api/grants
+  // prefix: GET needs view, DELETE needs edit.
+
+  app.get('/api/grants/cleanup/incomplete', requireAuth, async (_req: Request, res: Response) => {
+    try {
+      const grants = await storage.findIncompleteGrants();
+      res.json({
+        grants,
+        // Counted here so the page does not have to agree with the server
+        // about what it is looking at.
+        total: grants.length,
+        deletable: grants.filter((grant) => grant.deletable).length,
+        blocked: grants.filter((grant) => !grant.deletable).length,
+        withOtherContent: grants.filter((grant) => grant.hasOtherContent).length,
+      });
+    } catch (error) {
+      console.error('Error listing incomplete grants:', error);
+      res.status(500).json({ message: "Failed to list incomplete grants" });
+    }
+  });
+
+  app.delete('/api/grants/cleanup/incomplete', requireAuth, async (req: Request, res: Response) => {
+    try {
+      // Explicit ids only. A body-less "delete everything invalid" would act
+      // on whatever the table holds at that instant rather than on the list
+      // someone actually read and approved.
+      const rawIds = Array.isArray(req.body?.ids) ? req.body.ids : null;
+      if (!rawIds) {
+        return res.status(400).json({
+          message: "Send the ids to delete, as chosen from the clean-up preview.",
+        });
+      }
+
+      const ids = Array.from(
+        new Set(
+          rawIds
+            .map((value: unknown) => Number(value))
+            .filter((value: number) => Number.isInteger(value) && value > 0),
+        ),
+      ) as number[];
+
+      if (ids.length === 0) {
+        return res.status(400).json({ message: "No valid grant ids were sent." });
+      }
+
+      const result = await storage.deleteIncompleteGrants(ids);
+      res.json({
+        ...result,
+        deletedCount: result.deleted.length,
+        skippedCount: result.skipped.length,
+      });
+    } catch (error) {
+      console.error('Error deleting incomplete grants:', error);
+      res.status(500).json({ message: "Failed to delete incomplete grants" });
+    }
+  });
+
   // Grant-Research Activity relationship routes
   app.get('/api/grants/:id/research-activities', async (req: Request, res: Response) => {
     try {

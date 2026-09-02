@@ -2,6 +2,12 @@
 // Most errors here stem from untyped `useQuery` results (data inferred as `unknown`), drifted shared/schema field renames, and form values typed as `unknown`. They are not known runtime bugs but should be fixed file-by-file as each is next touched: remove this directive, run `npx tsc --noEmit`, and resolve what surfaces.
 import { eq, and, desc, asc, or, sql, inArray, notInArray, gte, ilike } from "drizzle-orm";
 import { ACCESS_ROLES, BUILT_IN_ASSIGNABLE_ROLES } from "@shared/constants";
+import {
+  isGrantIncomplete,
+  missingMinimumGrantFields,
+  type IncompleteGrantSummary,
+} from "@shared/grantValidity";
+import { isMissingAmount } from "@shared/grantIssues";
 import { db } from "./db";
 import {
   resolveInvestigatorScientistIds,
@@ -3039,6 +3045,149 @@ export class DatabaseStorage implements IStorage {
       const result = await tx.delete(grants).where(eq(grants.id, id));
       return (result.rowCount ?? 0) > 0;
     });
+  }
+
+  /**
+   * Grants too incomplete to act on, with what each one is missing and
+   * anything that would be orphaned by deleting it.
+   *
+   * Read-only on purpose: the office confirms a list before anything is
+   * removed. A "delete everything invalid" button with no preview would, on
+   * today's data, have taken out 95 of 113 grants -- real proposals whose Lead
+   * PI simply never matched a staff record on import.
+   */
+  async findIncompleteGrants(): Promise<IncompleteGrantSummary[]> {
+    const rows = await db.select().from(grants).orderBy(asc(grants.projectNumber));
+    const incomplete = rows.filter((grant) => isGrantIncomplete(grant));
+    if (incomplete.length === 0) return [];
+
+    const ids = incomplete.map((grant) => grant.id);
+
+    // Counted in two grouped queries rather than per grant: the office runs
+    // this on the whole table, and a query per row would be a hundred of them.
+    const [sdrCounts, reportCounts] = await Promise.all([
+      db
+        .select({ grantId: grantResearchActivities.grantId, count: sql<number>`count(*)::int` })
+        .from(grantResearchActivities)
+        .where(inArray(grantResearchActivities.grantId, ids))
+        .groupBy(grantResearchActivities.grantId),
+      db
+        .select({ grantId: grantProgressReports.grantId, count: sql<number>`count(*)::int` })
+        .from(grantProgressReports)
+        .where(inArray(grantProgressReports.grantId, ids))
+        .groupBy(grantProgressReports.grantId),
+    ]);
+
+    const sdrByGrant = new Map(sdrCounts.map((row) => [row.grantId, Number(row.count)]));
+    const reportsByGrant = new Map(reportCounts.map((row) => [row.grantId, Number(row.count)]));
+
+    return incomplete.map((grant) => {
+      const linkedSdrs = sdrByGrant.get(grant.id) ?? 0;
+      const progressReports = reportsByGrant.get(grant.id) ?? 0;
+      return {
+        id: grant.id,
+        projectNumber: grant.projectNumber,
+        title: grant.title,
+        status: grant.status,
+        createdAt: grant.createdAt ?? null,
+        missing: missingMinimumGrantFields(grant),
+        linkedSdrs,
+        progressReports,
+        deletable: linkedSdrs === 0 && progressReports === 0,
+        // Whether anything would actually be lost. A row holding only a
+        // project number and a title is a failed import; one carrying money,
+        // dates and an abstract is a real record that is merely unfinished,
+        // and the office should be looking at why rather than deleting it.
+        hasOtherContent: Boolean(
+          !isMissingAmount(grant.awardedAmount) ||
+            !isMissingAmount(grant.requestedAmount) ||
+            grant.fundingAgency ||
+            grant.startDate ||
+            grant.endDate ||
+            grant.description ||
+            grant.awarded,
+        ),
+      };
+    });
+  }
+
+  /**
+   * Deletes the named grants, and only those still incomplete and still
+   * unlinked at the moment of deletion.
+   *
+   * The caller passes explicit ids -- the ones it showed someone -- rather
+   * than "whatever is invalid now", so a grant fixed between the preview and
+   * the confirmation is not swept up by a stale list. Each is re-checked here
+   * anyway, because the preview is a separate request and the office is not
+   * the only writer.
+   *
+   * One transaction per grant, not one for the batch: a single blocked row
+   * should not roll back the ninety that were fine.
+   */
+  async deleteIncompleteGrants(ids: number[]): Promise<{
+    deleted: number[];
+    skipped: Array<{ id: number; projectNumber: string | null; reason: string }>;
+  }> {
+    const deleted: number[] = [];
+    const skipped: Array<{ id: number; projectNumber: string | null; reason: string }> = [];
+
+    for (const id of ids) {
+      const outcome = await db.transaction(async (tx) => {
+        await tx.execute(sql`SELECT "id" FROM "grants" WHERE "id" = ${id} FOR UPDATE`);
+
+        const [grant] = await tx.select().from(grants).where(eq(grants.id, id));
+        if (!grant) {
+          return { ok: false as const, projectNumber: null, reason: "Already gone." };
+        }
+        if (!isGrantIncomplete(grant)) {
+          return {
+            ok: false as const,
+            projectNumber: grant.projectNumber,
+            reason: "No longer incomplete -- it was completed after the preview was taken.",
+          };
+        }
+
+        const [linkedSdr] = await tx
+          .select({ id: grantResearchActivities.id })
+          .from(grantResearchActivities)
+          .where(eq(grantResearchActivities.grantId, id))
+          .limit(1);
+        if (linkedSdr) {
+          return {
+            ok: false as const,
+            projectNumber: grant.projectNumber,
+            reason: "Linked to an SDR. Unlink it first.",
+          };
+        }
+
+        // grant_progress_reports has a grant_id but no foreign key, so nothing
+        // in the database would stop this delete or clean up after it -- the
+        // reports would simply stop pointing anywhere. Refused here instead.
+        const [report] = await tx
+          .select({ id: grantProgressReports.id })
+          .from(grantProgressReports)
+          .where(eq(grantProgressReports.grantId, id))
+          .limit(1);
+        if (report) {
+          return {
+            ok: false as const,
+            projectNumber: grant.projectNumber,
+            reason: "Has progress reports, which would be orphaned. Delete those first.",
+          };
+        }
+
+        await tx.delete(grants).where(eq(grants.id, id));
+        return { ok: true as const, projectNumber: grant.projectNumber };
+      });
+
+      if (outcome.ok) {
+        deleted.push(id);
+      } else {
+        skipped.push({ id, projectNumber: outcome.projectNumber, reason: outcome.reason });
+      }
+    }
+
+    return { deleted, skipped };
   }
 
   // Grant-Research Activity relationship operations
