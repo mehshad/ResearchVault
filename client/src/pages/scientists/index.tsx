@@ -41,6 +41,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Badge } from "@/components/ui/badge";
 import { useCurrentUser } from "@/hooks/useCurrentUser";
 import { PermissionWrapper } from "@/components/PermissionWrapper";
+import { fetchList } from "@/lib/fetchList";
 import { formatFullName, formatNameWithJobTitle } from "@/utils/nameUtils";
 import { ScientistAvatar } from "@/components/ScientistAvatar";
 import { queryClient, apiRequest, invalidateScientistLists } from "@/lib/queryClient";
@@ -362,17 +363,17 @@ export default function StaffList() {
 
   const { data: staff, isLoading } = useQuery<(Scientist & { activeResearchActivities?: number })[]>({
     queryKey: ['/api/scientists', { includeActivityCount: true }],
-    queryFn: () => fetch('/api/scientists?includeActivityCount=true').then(res => res.json()),
+    queryFn: () => fetchList<Scientist & { activeResearchActivities?: number }>('/api/scientists?includeActivityCount=true'),
   });
 
   // Structured org data — used to display department/section names
   const { data: departments } = useQuery<Department[]>({
     queryKey: ['/api/departments'],
-    queryFn: () => fetch('/api/departments').then(res => res.json()),
+    queryFn: () => fetchList<Department>('/api/departments'),
   });
   const { data: sections } = useQuery<Section[]>({
     queryKey: ['/api/sections'],
-    queryFn: () => fetch('/api/sections').then(res => res.json()),
+    queryFn: () => fetchList<Section>('/api/sections'),
   });
 
   // Structured department/section name with legacy free-text fallback
@@ -388,13 +389,13 @@ export default function StaffList() {
   // Fetch IRB board members
   const { data: irbMembers } = useQuery({
     queryKey: ['/api/irb-board-members'],
-    queryFn: () => fetch('/api/irb-board-members').then(res => res.json()),
+    queryFn: () => fetchList<any>('/api/irb-board-members'),
   });
 
   // Fetch IBC board members
   const { data: ibcMembers } = useQuery({
     queryKey: ['/api/ibc-board-members'],
-    queryFn: () => fetch('/api/ibc-board-members').then(res => res.json()),
+    queryFn: () => fetchList<any>('/api/ibc-board-members'),
   });
 
   const filteredStaff = staff?.filter(person => {
