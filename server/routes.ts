@@ -10328,7 +10328,12 @@ function writeFailureDetail(error: unknown): string {
 
   app.get('/api/research-activities/import/template', requireAuth, async (_req: Request, res: Response) => {
     try {
-      const buffer = await buildSdrTemplateBuffer();
+      // The real programs, so the Program column is a dropdown of things that
+      // will actually match rather than free text that mostly will not.
+      const programs = await storage.getPrograms();
+      const buffer = await buildSdrTemplateBuffer(
+        programs.map((p: any) => ({ programId: p.programId ?? null, name: p.name })),
+      );
       res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
       res.setHeader('Content-Disposition', 'attachment; filename="sdr-import-template.xlsx"');
       res.send(buffer);
@@ -10346,12 +10351,21 @@ function writeFailureDetail(error: unknown): string {
     const rawRows = await parseUploadedFile(fileBase64, fileName);
     if (rawRows.length > 2000) throw new Error("Too many rows in one import (max 2000)");
 
-    const [activities, projects, scientists, eligiblePiIds] = await Promise.all([
+    const [activities, projects, scientists, programs, eligiblePiIds] = await Promise.all([
       storage.getResearchActivities(),
       storage.getProjects(),
       storage.getScientists(),
+      storage.getPrograms(),
       resolveInvestigatorScientistIds(),
     ]);
+
+    // Keyed by name and by PRM number, so whichever the office typed resolves.
+    const programsByKey = new Map<string, { id: number; name: string }>();
+    for (const program of programs as any[]) {
+      const entry = { id: program.id, name: program.name };
+      if (program.name) programsByKey.set(String(program.name).trim().toLowerCase(), entry);
+      if (program.programId) programsByKey.set(String(program.programId).trim().toLowerCase(), entry);
+    }
 
     return previewSdrRows(rawRows, {
       existingBySdrNumber: new Map(activities.map((a: any) => [String(a.sdrNumber).toLowerCase(), a])),
@@ -10361,6 +10375,7 @@ function writeFailureDetail(error: unknown): string {
       ),
       staffNameIndex: buildStaffNameIndex(scientists as any),
       eligiblePiIds,
+      programsByKey,
     });
   }
 
@@ -10417,6 +10432,7 @@ function writeFailureDetail(error: unknown): string {
               const project = await storage.createProject({
                 projectId: p.createsProject.projectNumber,
                 name: p.createsProject.projectName,
+                programId: p.createsProject.programId,
               } as any);
               newProjectIds.set(key, project.id);
               projectId = project.id;

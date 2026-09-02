@@ -21,6 +21,7 @@ export const SDR_COLUMNS: Array<{ header: string; key: string; required?: boolea
   { header: "PI Name", key: "piName", required: true },
   { header: "Project Number", key: "projectNumber", required: true },
   { header: "Project Name", key: "projectName", required: true },
+  { header: "Program", key: "program", required: true },
   { header: "Status", key: "status" },
   { header: "Short Title", key: "shortTitle" },
   { header: "Sidra Branch", key: "sidraBranch" },
@@ -45,6 +46,7 @@ const GUIDANCE: Record<string, string> = {
   piName: "Required if no email. The PI must hold the Investigator access role.",
   projectNumber: "Required. The PRJ number this SDR belongs to.",
   projectName: "Required. Used to create the project if that number is new.",
+  program: "Required when the project number is new: the program the created project belongs to. Pick from the list; the name or the PRM number both work.",
   status: `One of: ${SDR_STATUSES.join(", ")}. Defaults to planning.`,
   shortTitle: "Optional short name for lists.",
   sidraBranch: "Research, Clinical or External.",
@@ -54,7 +56,9 @@ const GUIDANCE: Record<string, string> = {
   description: "Optional.",
 };
 
-export async function buildSdrTemplateBuffer(): Promise<Buffer> {
+export interface TemplateProgram { programId: string | null; name: string }
+
+export async function buildSdrTemplateBuffer(programs: TemplateProgram[] = []): Promise<Buffer> {
   const workbook = new ExcelJS.Workbook();
 
   const sheet = workbook.addWorksheet("SDR Import");
@@ -73,6 +77,37 @@ export async function buildSdrTemplateBuffer(): Promise<Buffer> {
       type: "pattern", pattern: "solid", fgColor: { argb: "FFFFF3CD" },
     };
   });
+
+  // The programs, on their own sheet, referenced by a dropdown on the Program
+  // column. Typed free-hand a program name will not match and the row is
+  // refused, so offering the real list is the difference between a file that
+  // imports and one that does not.
+  if (programs.length > 0) {
+    const reference = workbook.addWorksheet("Programs");
+    reference.columns = [
+      { header: "Program", key: "label", width: 46 },
+      { header: "PRM number", key: "number", width: 16 },
+    ];
+    reference.getRow(1).font = { bold: true };
+    for (const program of programs) {
+      reference.addRow({ label: program.name, number: program.programId ?? "" });
+    }
+
+    const programColumn = SDR_COLUMNS.findIndex((c) => c.key === "program") + 1;
+    const lastReferenceRow = programs.length + 1;
+    // Applied down the sheet rather than to one cell, so it is still a dropdown
+    // on the hundredth row somebody pastes in.
+    for (let rowNumber = 2; rowNumber <= 500; rowNumber++) {
+      sheet.getCell(rowNumber, programColumn).dataValidation = {
+        type: "list",
+        allowBlank: true,
+        formulae: [`Programs!$A$2:$A$${lastReferenceRow}`],
+        showErrorMessage: true,
+        errorTitle: "Unknown program",
+        error: "Pick a program from the list, or paste its exact name or PRM number.",
+      };
+    }
+  }
 
   const instructions = workbook.addWorksheet("Instructions");
   instructions.columns = [
@@ -102,6 +137,7 @@ export async function buildSdrTemplateBuffer(): Promise<Buffer> {
     "PI Name": "Dr Example Investigator",
     "Project Number": "PRJ-001",
     "Project Name": "Example project",
+    "Program": programs[0]?.name ?? "Example program",
     "Status": "planning",
     "Sidra Branch": "Research",
     "Start Date": "2026-09-01",
@@ -121,7 +157,7 @@ export interface SdrRowPreview {
   changes?: string[];
   data?: Partial<InsertResearchActivity>;
   /** Set when the row would create the project rather than reuse one. */
-  createsProject?: { projectNumber: string; projectName: string };
+  createsProject?: { projectNumber: string; projectName: string; programId: number; programName: string };
   unmatchedStaff?: { piName: string; piEmail: string; reason: string };
 }
 
@@ -148,6 +184,8 @@ export interface SdrPreviewInputs {
   staffNameIndex: StaffNameIndex;
   /** Scientist ids allowed to be an SDR's PI. */
   eligiblePiIds: Set<number>;
+  /** Programs, keyed by lower-cased name and by PRM number, so either works. */
+  programsByKey: Map<string, { id: number; name: string }>;
 }
 
 /**
@@ -238,7 +276,20 @@ export function previewSdrRows(
       if (project) {
         projectId = project.id;
       } else if (projectName) {
-        createsProject = { projectNumber, projectName };
+        // A project created without a program is orphaned from the structure
+        // everything else is organised by, so the program is required exactly
+        // when the project is new -- and irrelevant when it already exists.
+        const programKey = (row.program ?? "").trim().toLowerCase();
+        const program = programKey ? inputs.programsByKey.get(programKey) : undefined;
+        if (!program) {
+          return skip(
+            programKey
+              ? `No program matches "${row.program}". Pick one from the Program list in the template.`
+              : `Project "${projectNumber}" is new, so it needs a Program to be created under.`,
+            "no_program",
+          );
+        }
+        createsProject = { projectNumber, projectName, programId: program.id, programName: program.name };
         projectsPlanned.add(projectNumber.toLowerCase());
       } else {
         return skip(

@@ -13,12 +13,16 @@ const inputs = (overrides: Partial<Parameters<typeof previewSdrRows>[1]> = {}) =
   scientistByEmail: new Map([["ada@sidra.org", PI as any]]),
   staffNameIndex: buildStaffNameIndex([PI, NOT_PI] as any),
   eligiblePiIds: new Set([7]),
+  programsByKey: new Map([
+    ["neuroscience", { id: 4, name: "Neuroscience" }],
+    ["prm-004", { id: 4, name: "Neuroscience" }],
+  ]),
   ...overrides,
 });
 
 const row = (over: Record<string, string> = {}) => ({
   "SDR Number": "SDR-1", "SDR Name": "A study", "PI Name": "Dr Ada Lovelace",
-  "Project Number": "PRJ-001", "Project Name": "Existing", ...over,
+  "Project Number": "PRJ-001", "Project Name": "Existing", "Program": "Neuroscience", ...over,
 });
 
 test("a complete row on an existing project is created and linked", () => {
@@ -34,7 +38,46 @@ test("an unknown project number is created from the name given alongside it", ()
   // Which is the whole reason both columns are asked for.
   const [p] = previewSdrRows([row({ "Project Number": "PRJ-NEW", "Project Name": "Fresh" })], inputs());
   assert.equal(p.action, "create");
-  assert.deepEqual(p.createsProject, { projectNumber: "PRJ-NEW", projectName: "Fresh" });
+  assert.deepEqual(p.createsProject, {
+    projectNumber: "PRJ-NEW", projectName: "Fresh", programId: 4, programName: "Neuroscience",
+  });
+});
+
+test("a new project needs a program, or it would be orphaned", () => {
+  const [p] = previewSdrRows(
+    [row({ "Project Number": "PRJ-NEW", "Project Name": "Fresh", "Program": "" })],
+    inputs(),
+  );
+  assert.equal(p.action, "skip");
+  assert.equal(p.reasonCode, "no_program");
+});
+
+test("a program that matches nothing is refused rather than dropped", () => {
+  const [p] = previewSdrRows(
+    [row({ "Project Number": "PRJ-NEW", "Project Name": "Fresh", "Program": "Astrology" })],
+    inputs(),
+  );
+  assert.equal(p.action, "skip");
+  assert.equal(p.reasonCode, "no_program");
+  assert.match(p.reason ?? "", /Astrology/);
+});
+
+test("a program can be given by its PRM number instead of its name", () => {
+  const [p] = previewSdrRows(
+    [row({ "Project Number": "PRJ-NEW", "Project Name": "Fresh", "Program": "PRM-004" })],
+    inputs(),
+  );
+  assert.equal(p.action, "create");
+  assert.equal(p.createsProject?.programId, 4);
+});
+
+test("an existing project ignores the Program column entirely", () => {
+  // The project already sits under a program; the column only exists to create
+  // one, and second-guessing an existing project's program is not this
+  // import's business.
+  const [p] = previewSdrRows([row({ "Program": "" })], inputs());
+  assert.equal(p.action, "create");
+  assert.equal(p.data?.projectId, 1);
 });
 
 test("an unknown project with no name is refused rather than guessed at", () => {
@@ -111,5 +154,5 @@ test("skips group into a summary rather than a wall of sentences", () => {
 
 test("the five minimum columns the office asked for are all marked required", () => {
   const required = SDR_COLUMNS.filter((c) => c.required).map((c) => c.header);
-  assert.deepEqual(required, ["SDR Number", "SDR Name", "PI Name", "Project Number", "Project Name"]);
+  assert.deepEqual(required, ["SDR Number", "SDR Name", "PI Name", "Project Number", "Project Name", "Program"]);
 });

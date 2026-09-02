@@ -19,6 +19,7 @@ export type SdrSkipCode =
   | "ambiguous_pi"
   | "pi_not_investigator"
   | "no_project"
+  | "no_program"
   | "bad_value"
   | "other";
 
@@ -35,6 +36,7 @@ export const SDR_SKIP_REASONS: ReadonlyArray<{
   { code: "ambiguous_pi", label: "PI name matches two people", hint: "Use PI Email to say which of them it is." },
   { code: "pi_not_investigator", label: "PI does not hold the Investigator access role", hint: "An SDR's PI must hold it. Set the access role in Settings → Users." },
   { code: "no_project", label: "No project to link to", hint: "Give both a project number and a project name, and the project is created if it does not exist." },
+  { code: "no_program", label: "New project with no program", hint: "A project being created needs a program to sit under. Pick one from the Program list in the template." },
   { code: "bad_value", label: "A value could not be read", hint: "A date or status is not in a form the import understands." },
   { code: "other", label: "Other", hint: "Listed individually below." },
 ];
