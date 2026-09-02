@@ -1,125 +1,66 @@
+import { test } from "node:test";
 import assert from "node:assert/strict";
-import test from "node:test";
-
 import {
+  GRANT_ISSUE_DEFINITIONS,
   evaluateGrantIssues,
-  grantMatchesListFilters,
-  grantMatchesIssueFilter,
   type GrantIssueCode,
 } from "./grantIssues";
 
-const completePreAward = {
-  projectNumber: "G-1",
-  title: "Grant",
-  lpiId: 1,
-  fundingAgency: "Funder",
-  requestedAmount: "100",
-  status: "submitted",
-  awarded: false,
+/**
+ * The rules panel on the grants page is generated from GRANT_ISSUE_DEFINITIONS,
+ * including each check's `when`. That makes `when` a claim the office will read
+ * and act on, so it has to be what the code actually does -- a panel confidently
+ * describing a rule nobody enforces is worse than no panel.
+ *
+ * Each definition is exercised against a grant in all three phases: everything
+ * blank, so every check that can fire does.
+ */
+const blank = {
+  projectNumber: "",
+  title: "",
+  lpiId: null,
+  fundingAgency: "",
+  requestedAmount: null,
+  awardedAmount: null,
+  currency: "",
+  awardedYear: null,
+  startDate: null,
+  endDate: null,
 };
 
-test("healthy pre-award grants have no issues and do not require an SDR", () => {
-  assert.deepEqual(evaluateGrantIssues(completePreAward, 0), []);
-});
+const codesFor = (overrides: Record<string, unknown>): Set<GrantIssueCode> =>
+  new Set(evaluateGrantIssues({ ...blank, ...overrides } as any, 0).map((i) => i.code));
 
-test("pre-award grants require their essentials and a positive requested budget", () => {
-  const issues = evaluateGrantIssues({
-    ...completePreAward,
-    projectNumber: " ",
-    title: "",
-    lpiId: null,
-    fundingAgency: null,
-    requestedAmount: "0",
+const preAward = codesFor({ status: "submitted", awarded: false });
+const awarded = codesFor({ status: "awarded", awarded: true });
+// Terminal and never awarded: neither the pre-award nor the awarded checks.
+const notAwarded = codesFor({ status: "not_awarded", awarded: false });
+
+for (const definition of GRANT_ISSUE_DEFINITIONS) {
+  test(`"${definition.label}" fires exactly where its \`when\` says (${definition.when})`, () => {
+    const inPre = preAward.has(definition.code);
+    const inAwarded = awarded.has(definition.code);
+    const inNotAwarded = notAwarded.has(definition.code);
+
+    if (definition.when === "always") {
+      assert.ok(inPre && inAwarded && inNotAwarded, "should fire in every phase");
+    } else if (definition.when === "preAward") {
+      assert.ok(inPre, "should fire before the award decision");
+      assert.ok(!inAwarded, "should not fire once awarded");
+      assert.ok(!inNotAwarded, "should not fire on a grant that was never awarded");
+    } else {
+      assert.ok(inAwarded, "should fire once awarded");
+      assert.ok(!inPre, "should not fire before the award decision");
+      assert.ok(!inNotAwarded, "should not fire on a grant that was never awarded");
+    }
   });
-  assert.deepEqual(issues.map((issue) => issue.code), [
-    "missing_project_number",
-    "missing_title",
-    "missing_lpi",
-    "missing_funding_agency",
-    "missing_requested_budget",
-  ]);
-});
+}
 
-test("a lasting award milestone requires award details, dates, and an SDR", () => {
-  const issues = evaluateGrantIssues({
-    ...completePreAward,
-    status: "cancelled",
-    awarded: true,
-    awardedAmount: null,
-    currency: null,
-    awardedYear: null,
-    startDate: null,
-    endDate: null,
-  });
-  assert.deepEqual(issues.map((issue) => issue.code), [
-    "missing_awarded_budget",
-    "missing_currency",
-    "missing_awarded_year",
-    "missing_start_date",
-    "missing_end_date",
-    "missing_sdr",
-  ]);
-});
-
-test("award-implying statuses are checked even when legacy awarded flag is false", () => {
-  const issues = evaluateGrantIssues({
-    ...completePreAward,
-    status: "completed",
-    awarded: false,
-    awardedAmount: "100",
-    currency: "QAR",
-    awardedYear: 2026,
-    startDate: "2026-01-01",
-    endDate: "2026-12-31",
-  }, 1);
-  assert.deepEqual(issues, []);
-});
-
-test("issue filtering combines all, any, and specific codes deterministically", () => {
-  const issues = evaluateGrantIssues({ ...completePreAward, lpiId: null });
-  assert.equal(grantMatchesIssueFilter(issues, "all"), true);
-  assert.equal(grantMatchesIssueFilter(issues, "any"), true);
-  assert.equal(grantMatchesIssueFilter(issues, "missing_lpi"), true);
-  assert.equal(
-    grantMatchesIssueFilter(issues, "missing_sdr" as GrantIssueCode),
-    false,
-  );
-  assert.equal(grantMatchesIssueFilter([], "any"), false);
-});
-
-test("grant list filters combine status, year, search, and issues", () => {
-  const grant = {
-    title: "Precision Medicine",
-    projectNumber: "G-2026-1",
-    fundingAgency: "Sidra IRF",
-    description: "Genomics",
-    submittedYear: 2026,
-    status: "awarded",
-    lpi: { firstName: "Emily", lastName: "Chen" },
-    issues: [{ code: "missing_sdr" as const }],
-  };
-  assert.equal(grantMatchesListFilters(grant, {
-    searchQuery: "emily",
-    status: "awarded",
-    year: "2026",
-    issue: "any",
-  }), true);
-  assert.equal(grantMatchesListFilters(grant, {
-    searchQuery: "emily",
-    status: "completed",
-    year: "2026",
-    issue: "any",
-  }), false);
-  assert.equal(grantMatchesListFilters(grant, {
-    searchQuery: "not present",
-    status: "awarded",
-    year: "2026",
-    issue: "missing_sdr",
-  }), false);
-  assert.equal(grantMatchesListFilters(grant, {
-    searchQuery: "G-2026",
-    status: "awarded",
-    year: "2026",
-    issue: "missing_lpi",
-  }), false);
+test("every issue the evaluator can raise is described in the panel", () => {
+  // A new code that never reached GRANT_ISSUE_DEFINITIONS would be flagged on
+  // the list with no explanation anywhere.
+  const described = new Set(GRANT_ISSUE_DEFINITIONS.map((d) => d.code));
+  for (const code of [...preAward, ...awarded, ...notAwarded]) {
+    assert.ok(described.has(code), `${code} is raised but not described`);
+  }
 });

@@ -25,8 +25,9 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Grant } from "@shared/schema";
-import { Plus, Search, MoreHorizontal, Download, Filter, DollarSign, Calendar, ArrowUpDown, Link as LinkIcon, Upload, FileSpreadsheet, Loader2, AlertTriangle, Trash2 } from "lucide-react";
+import { Plus, Search, MoreHorizontal, Download, Filter, DollarSign, Calendar, ArrowUpDown, Link as LinkIcon, Upload, FileSpreadsheet, Loader2, AlertTriangle, Trash2, HelpCircle } from "lucide-react";
 import { GRANT_STATUS_OPTIONS } from "@shared/grantLifecycle";
+import { summariseGrantSkips } from "@shared/grantImportReasons";
 import type { GrantSubmissionSummary } from "@shared/grantSubmission";
 import {
   GRANT_ISSUE_DEFINITIONS,
@@ -50,6 +51,7 @@ import { useCurrentUser } from "@/hooks/useCurrentUser";
 import { usePermissions } from "@/hooks/usePermissions";
 import { PermissionWrapper, useElementPermissions } from "@/components/PermissionWrapper";
 import { GrantCleanupDialog } from "@/components/GrantCleanupDialog";
+import { GrantRulesDialog } from "@/components/GrantRulesDialog";
 
 type EnhancedGrant = Grant & {
   lpi?: {
@@ -207,9 +209,11 @@ export default function GrantsList() {
 
   // ---- Excel import (template -> preview -> apply) ----
   const [cleanupOpen, setCleanupOpen] = useState(false);
+  const [rulesOpen, setRulesOpen] = useState(false);
   const [importOpen, setImportOpen] = useState(false);
   const [importFile, setImportFile] = useState<{ base64: string; name: string } | null>(null);
   const [importPreview, setImportPreview] = useState<any | null>(null);
+  const skipSummary = summariseGrantSkips(importPreview?.rows ?? []);
   const [importResult, setImportResult] = useState<any | null>(null);
 
   const resetImport = () => {
@@ -331,6 +335,13 @@ export default function GrantsList() {
             <p className="text-gray-600 mt-1 dark:text-gray-300">Manage research grants and funding applications</p>
           </div>
           <div className="flex gap-2">
+            {/* Not behind a permission: the rules apply to everyone who can
+                see the page, and someone refused an import needs to know why
+                without asking. */}
+            <Button variant="outline" onClick={() => setRulesOpen(true)} data-testid="button-open-grant-rules">
+              <HelpCircle className="h-4 w-4 mr-2" />
+              Rules
+            </Button>
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <Button variant="outline">
@@ -766,6 +777,32 @@ export default function GrantsList() {
                     <Badge variant="outline">{importPreview.summary.missingStaff} missing staff</Badge>
                   )}
                 </div>
+
+                {/* Why the skipped rows were skipped, grouped. A file of 861
+                    rows is a wall of individually-correct sentences, and the
+                    question anybody has -- why did most of this not go in --
+                    should not need scrolling to answer. */}
+                {skipSummary.length > 0 && (
+                  <div className="rounded-md border bg-muted/40 p-3">
+                    <div className="text-sm font-medium mb-2">
+                      Why {importPreview.summary.skip} row{importPreview.summary.skip === 1 ? " was" : "s were"} skipped
+                    </div>
+                    <div className="space-y-1.5">
+                      {skipSummary.map((reason) => (
+                        <div key={reason.code} className="flex items-baseline gap-3 text-sm">
+                          <span className="w-12 shrink-0 text-right font-mono font-medium tabular-nums">
+                            {reason.count}
+                          </span>
+                          <span className="min-w-0">
+                            <span className="font-medium">{reason.label}</span>
+                            <span className="text-muted-foreground"> &mdash; {reason.hint}</span>
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
                 <div className="divide-y rounded-md border text-sm">
                   {importPreview.rows.map((row: any) => (
                     <div key={row.rowNumber} className="flex items-start gap-3 px-3 py-3">
@@ -828,6 +865,7 @@ export default function GrantsList() {
       </Dialog>
 
       <GrantCleanupDialog open={cleanupOpen} onOpenChange={setCleanupOpen} />
+      <GrantRulesDialog open={rulesOpen} onOpenChange={setRulesOpen} />
     </div>
     </PermissionWrapper>
   );
