@@ -304,6 +304,7 @@ const GRANT_COLS: ColDef[] = [
   { header: "Grant Source", key: "sourceCategory", description: "QNRF Grant, Subaward Agreement, IRF Project, etc." },
   { header: "Source Record Key", key: "sourceRecordKey", description: "Stable identifier from the source dataset" },
   { header: "Submitting Institution", key: "submittingInstitution" },
+  { header: "Grant LPI", key: "grantLpiName", description: "Lead PI at the submitting institution, when it is not Sidra" },
   { header: "Co-Investigators", key: "coInvestigators", description: "Semicolon-separated; repeat imports append unique names" },
   { header: "Status", key: "status" },
   { header: "Funding Agency", key: "fundingAgency" },
@@ -994,6 +995,9 @@ function grantsToRows(
       sourceCategory: g.sourceCategory ?? "",
       sourceRecordKey: g.sourceRecordKey ?? "",
       submittingInstitution: g.submittingInstitution ?? "",
+      // Only the external name is stored, so only that round-trips. Our own
+      // grants derive it from the Sidra Lead PI and have nothing to carry.
+      grantLpiName: g.grantLpiName ?? "",
       coInvestigators: g.coInvestigators ? g.coInvestigators.join("; ") : "",
       status: g.status,
       fundingAgency: g.fundingAgency ?? "",
@@ -2380,6 +2384,12 @@ function previewGrantRows2(
     if (row.subawardCompletedYear && row.subawardCompletedYear !== "") {
       data.subawardCompletedYear = parseIntField(row.subawardCompletedYear, "Subaward Completed Year", errors);
     }
+    if (row.grantLpiName !== undefined && (row.grantLpiName !== "" || !isNew)) {
+      data.grantLpiName = isClear(row.grantLpiName) || row.grantLpiName === ""
+        ? null
+        : row.grantLpiName.trim();
+    }
+
     if (row.coInvestigators !== undefined && (row.coInvestigators !== "" || !isNew)) {
       if (row.coInvestigators !== "") {
         if (isClear(row.coInvestigators)) {
