@@ -1418,6 +1418,51 @@ export const grantCollaboratingInstitutions = pgTable("grant_collaborating_insti
   uniquePerGrant: unique().on(table.grantId, table.name),
 }));
 
+/**
+ * Sidra Medicine co-investigators on a grant.
+ *
+ * Replaces grants.co_investigators, a text array of typed names. These are our
+ * own staff, and the system already knows who they are -- a name in a box could
+ * not be counted, filtered, or shown on the person's own profile, and spelling
+ * decided whether two rows meant the same colleague.
+ *
+ * Distinct from grantInstitutionCollaborators, which records people at *other*
+ * institutions, who by definition have no staff record here.
+ *
+ * The old column is left in place and untouched, as with collaborators.
+ */
+export const grantCoInvestigators = pgTable("grant_co_investigators", {
+  id: serial("id").primaryKey(),
+  grantId: integer("grant_id")
+    .notNull()
+    .references(() => grants.id, { onDelete: "cascade" }),
+  scientistId: integer("scientist_id")
+    .notNull()
+    .references(() => scientists.id, { onDelete: "cascade" }),
+  /** Their part in the work, free text: "Co-Investigator", "Statistician". */
+  role: text("role"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => ({
+  // Naming the same colleague twice on one grant is a mistake.
+  uniquePerGrant: unique().on(table.grantId, table.scientistId),
+}));
+
+export const insertGrantCoInvestigatorSchema = createInsertSchema(grantCoInvestigators).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+export type GrantCoInvestigator = typeof grantCoInvestigators.$inferSelect;
+
+/** A grant's Sidra co-investigators as the interface works with them. */
+export type GrantCoInvestigatorList = Array<{
+  id?: number;
+  scientistId: number;
+  name?: string;
+  role?: string | null;
+}>;
+
 export const grantInstitutionCollaborators = pgTable("grant_institution_collaborators", {
   id: serial("id").primaryKey(),
   institutionId: integer("institution_id")

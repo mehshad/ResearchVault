@@ -46,8 +46,8 @@ import {
   journalImpactFactorMetrics, JournalImpactFactorMetric, InsertJournalImpactFactorMetric,
   JournalImpactFactor, InsertJournalImpactFactor,
   grants, Grant, InsertGrant,
-  grantCollaboratingInstitutions, grantInstitutionCollaborators,
-  type GrantCollaborationTree,
+  grantCollaboratingInstitutions, grantInstitutionCollaborators, grantCoInvestigators,
+  type GrantCollaborationTree, type GrantCoInvestigatorList,
   grantResearchActivities, GrantResearchActivity, InsertGrantResearchActivity,
   grantProgressReports, GrantProgressReport, InsertGrantProgressReport,
   certificationModules, CertificationModule, InsertCertificationModule,
@@ -2693,12 +2693,14 @@ export class DatabaseStorage implements IStorage {
     // /api/admin/users, which is administrator-only -- the people who need to
     // see who added a grant are not all administrators.
     const collaboratingInstitutions = await this.getGrantCollaborations(id);
+    const coInvestigatorLinks = await this.getGrantCoInvestigators(id);
     const ids = [grant.createdByUserId, grant.updatedByUserId].filter(
       (v): v is number => typeof v === "number",
     );
     if (ids.length === 0) {
-      return { ...grant, collaboratingInstitutions } as Grant & {
+      return { ...grant, collaboratingInstitutions, coInvestigatorLinks } as Grant & {
         collaboratingInstitutions: GrantCollaborationTree;
+        coInvestigatorLinks: GrantCoInvestigatorList;
       };
     }
     const rows = await db
@@ -2709,10 +2711,12 @@ export class DatabaseStorage implements IStorage {
     return {
       ...grant,
       collaboratingInstitutions,
+      coInvestigatorLinks,
       createdByName: grant.createdByUserId ? nameById.get(grant.createdByUserId) ?? null : null,
       updatedByName: grant.updatedByUserId ? nameById.get(grant.updatedByUserId) ?? null : null,
     } as Grant & {
       collaboratingInstitutions: GrantCollaborationTree;
+      coInvestigatorLinks: GrantCoInvestigatorList;
       createdByName: string | null;
       updatedByName: string | null;
     };
@@ -2793,6 +2797,59 @@ export class DatabaseStorage implements IStorage {
         await tx.insert(grantInstitutionCollaborators).values(people);
       }
     }
+  }
+
+  /** A grant's Sidra co-investigators, with each person's display name. */
+  async getGrantCoInvestigators(grantId: number): Promise<GrantCoInvestigatorList> {
+    const rows = await db
+      .select({
+        id: grantCoInvestigators.id,
+        scientistId: grantCoInvestigators.scientistId,
+        role: grantCoInvestigators.role,
+        firstName: scientists.firstName,
+        lastName: scientists.lastName,
+        honorificTitle: scientists.honorificTitle,
+      })
+      .from(grantCoInvestigators)
+      .innerJoin(scientists, eq(scientists.id, grantCoInvestigators.scientistId))
+      .where(eq(grantCoInvestigators.grantId, grantId))
+      .orderBy(asc(scientists.lastName), asc(scientists.firstName));
+
+    return rows.map((row) => ({
+      id: row.id,
+      scientistId: row.scientistId,
+      name: [row.honorificTitle, row.firstName, row.lastName].filter(Boolean).join(" "),
+      role: row.role,
+    }));
+  }
+
+  /**
+   * Replace a grant's Sidra co-investigators wholesale, matching how the editor
+   * holds and submits the whole list. Same reasoning as the collaborations.
+   */
+  async replaceGrantCoInvestigators(
+    grantId: number,
+    list: GrantCoInvestigatorList,
+    tx: typeof db = db,
+  ): Promise<void> {
+    await tx.delete(grantCoInvestigators).where(eq(grantCoInvestigators.grantId, grantId));
+
+    const seen = new Set<number>();
+    const rows = list
+      .filter((entry) => {
+        const id = Number(entry.scientistId);
+        // A row where nobody was chosen yet, or the same colleague twice.
+        if (!Number.isInteger(id) || id <= 0 || seen.has(id)) return false;
+        seen.add(id);
+        return true;
+      })
+      .map((entry) => ({
+        grantId,
+        scientistId: Number(entry.scientistId),
+        role: entry.role?.trim() || null,
+      }));
+
+    if (rows.length > 0) await tx.insert(grantCoInvestigators).values(rows);
   }
 
   async getGrantByProjectNumber(projectNumber: string): Promise<Grant | undefined> {

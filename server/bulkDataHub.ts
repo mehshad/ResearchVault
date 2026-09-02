@@ -44,6 +44,7 @@ import {
   sections,
   grants,
   grantCollaboratingInstitutions,
+  grantCoInvestigators,
   programs,
   projects,
   researchActivities,
@@ -4791,10 +4792,9 @@ export async function applySection(
       }
 
       if (sheetName === "Grants") {
-        await seedGrantCollaboratingInstitutions(
-          tx,
-          parsedSheets.find((sheet) => sheet.name === "Grants")?.rows ?? [],
-        );
+        const grantRows = parsedSheets.find((sheet) => sheet.name === "Grants")?.rows ?? [];
+        await seedGrantCollaboratingInstitutions(tx, grantRows);
+        await seedGrantCoInvestigators(tx, grantRows);
       }
 
       if (sheetName === "Scientists") {
@@ -5054,6 +5054,59 @@ async function seedGrantCollaboratingInstitutions(
     await tx
       .insert(grantCollaboratingInstitutions)
       .values(names.map((name) => ({ grantId: grant.id, name })))
+      .onConflictDoNothing();
+  }
+}
+
+/**
+ * Seed Sidra co-investigators from the Grants sheet's Co-Investigators column.
+ *
+ * The column holds typed names; co-investigators are links to staff records, so
+ * each name is matched against the directory by letters only -- spacing, case
+ * and punctuation differ between a spreadsheet and a profile. A name matching
+ * nobody is left out rather than guessed at: inventing a link to the wrong
+ * colleague is worse than recording none.
+ *
+ * Runs over every row for the same reason as the institutions: a grant whose
+ * columns already match is never reapplied, and that is exactly when a backfill
+ * is wanted.
+ */
+async function seedGrantCoInvestigators(
+  tx: TxDb,
+  rows: Array<Record<string, any>>,
+): Promise<void> {
+  const staff = await tx
+    .select({ id: scientists.id, firstName: scientists.firstName, lastName: scientists.lastName })
+    .from(scientists);
+  const key = (value: string) => value.toLowerCase().replace(/[^a-z0-9]/g, "");
+  const byName = new Map<string, number>();
+  for (const person of staff) {
+    const full = key(`${person.firstName ?? ""}${person.lastName ?? ""}`);
+    // First match wins; a duplicated name is ambiguous, so it is not resolved.
+    if (full && !byName.has(full)) byName.set(full, person.id);
+  }
+
+  for (const row of rows) {
+    const projectNumber = String(row.projectNumber ?? "").trim();
+    if (!projectNumber) continue;
+    const ids = [
+      ...new Set(
+        splitSemicolon(String(row.coInvestigators ?? ""))
+          .map((name) => byName.get(key(name)))
+          .filter((id): id is number => typeof id === "number"),
+      ),
+    ];
+    if (ids.length === 0) continue;
+
+    const [grant] = await tx
+      .select({ id: grants.id })
+      .from(grants)
+      .where(caseInsensitiveKey(grants.projectNumber, projectNumber));
+    if (!grant) continue;
+
+    await tx
+      .insert(grantCoInvestigators)
+      .values(ids.map((scientistId) => ({ grantId: grant.id, scientistId })))
       .onConflictDoNothing();
   }
 }

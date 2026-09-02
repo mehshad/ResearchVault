@@ -9,7 +9,8 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { GrantCollaborations } from "@/components/GrantCollaborations";
-import type { GrantCollaborationTree } from "@shared/schema";
+import { GrantCoInvestigators } from "@/components/GrantCoInvestigators";
+import type { GrantCollaborationTree, GrantCoInvestigatorList } from "@shared/schema";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { useToast } from "@/hooks/use-toast";
 import {
@@ -67,6 +68,8 @@ export default function EditGrant() {
   // grant, and they are sent alongside the grant rather than inside it.
   const [collaboratingInstitutions, setCollaboratingInstitutions] =
     useState<GrantCollaborationTree>([]);
+  const [coInvestigatorLinks, setCoInvestigatorLinks] =
+    useState<GrantCoInvestigatorList>([]);
 
   const [formData, setFormData] = useState({
     projectNumber: "",
@@ -185,6 +188,9 @@ export default function EditGrant() {
   useEffect(() => {
     if (grant?.collaboratingInstitutions) {
       setCollaboratingInstitutions(grant.collaboratingInstitutions);
+    }
+    if (grant?.coInvestigatorLinks) {
+      setCoInvestigatorLinks(grant.coInvestigatorLinks);
     }
   }, [grant]);
 
@@ -345,6 +351,7 @@ export default function EditGrant() {
       // Sent alongside the grant, replaced wholesale by the server. The editor
       // holds the entire tree, so what is not here is meant to be gone.
       collaboratingInstitutions,
+      coInvestigatorLinks,
     };
 
     updateGrantMutation.mutate(payload);
@@ -1047,13 +1054,18 @@ export default function EditGrant() {
               />
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div>
-                <label className="text-sm font-medium text-gray-700 mb-2 block dark:text-gray-300">
-                  Co-Investigators (one per line)
-                </label>
-                <Textarea value={formData.coInvestigators} onChange={(e) => setFormData({...formData, coInvestigators: e.target.value})} placeholder="Dr. John Smith&#10;Dr. Jane Doe" rows={3} />
-              </div>
+            <div className="space-y-2">
+              <label className="text-sm font-medium text-gray-700 block dark:text-gray-300">
+                Sidra Medicine co-investigators
+              </label>
+              <p className="text-xs text-muted-foreground">
+                Our own staff on this grant, chosen from the directory. People at other
+                institutions belong to the institution above.
+              </p>
+              <GrantCoInvestigators
+                value={coInvestigatorLinks}
+                onChange={setCoInvestigatorLinks}
+              />
             </div>
           </CardContent>
         </Card>

@@ -31,6 +31,7 @@ import {
   featureRequests, FeatureRequest, InsertFeatureRequest,
   teamMembers, TeamMember, InsertTeamMember,
   type GrantCollaborationTree,
+  type GrantCoInvestigatorList,
 } from "@shared/schema";
 import { isInvestigatorEligible } from "@shared/investigatorEligibility";
 import {
@@ -302,6 +303,12 @@ export interface IStorage {
     actorUserId?: number | null,
   ): Promise<Grant | undefined>;
   getGrantCollaborations(grantId: number): Promise<GrantCollaborationTree>;
+  getGrantCoInvestigators(grantId: number): Promise<GrantCoInvestigatorList>;
+  replaceGrantCoInvestigators(
+    grantId: number,
+    list: GrantCoInvestigatorList,
+    tx?: any,
+  ): Promise<void>;
   replaceGrantCollaborations(
     grantId: number,
     tree: GrantCollaborationTree,
