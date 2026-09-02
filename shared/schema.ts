@@ -1323,6 +1323,18 @@ export const grants = pgTable("grants", {
   sourceCategory: text("source_category"), // QNRF Grant, Subaward Agreement, IRF Project, etc.
   sourceRecordKey: text("source_record_key"), // Stable identifier from the source dataset
   submittingInstitution: text("submitting_institution"),
+  /**
+   * The Lead PI on a grant another institution submitted.
+   *
+   * lpiId stays the Sidra person who owns our part of the work -- it is shown
+   * as "Sidra Lead PI" and is what portfolios, issue flags and the clean-up
+   * rule all count. This is the external one, and it is free text on purpose:
+   * somebody at the prime institution has no staff record here, and creating
+   * one for them would put non-staff into the directory.
+   *
+   * Null on the ordinary case, where we are the submitting institution.
+   */
+  grantLpiName: text("grant_lpi_name"),
   coInvestigators: text("co_investigators").array(),
   subawardCompletedYear: integer("subaward_completed_year"),
   contributionType: text("contribution_type"), // In-kind, in-cash, or mixed

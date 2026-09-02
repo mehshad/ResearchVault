@@ -11,7 +11,15 @@ import {
   type Grant,
 } from "@shared/schema";
 import { evaluateGrantIssues } from "@shared/grantIssues";
-import { classifyGrantSubmission } from "@shared/grantSubmission";
+import { classifyGrantSubmission, resolveGrantLpiName } from "@shared/grantSubmission";
+
+const formatScientistName = (scientist: ScientistSummary | null | undefined): string | null =>
+  scientist
+    ? [scientist.honorificTitle, scientist.firstName, scientist.lastName]
+        .filter(Boolean)
+        .join(" ")
+        .trim() || null
+    : null;
 
 type ScientistSummary = {
   id: number;
@@ -92,13 +100,17 @@ export function createGrantListHandler(
 
       res.json(grants.map((grant) => {
         const linkedSdrsCount = sdrCounts.get(grant.id) ?? 0;
+        const lpi = grant.lpiId ? scientistMap.get(grant.lpiId) ?? null : null;
         return {
           ...grant,
           linkedSdrsCount,
           issues: evaluateGrantIssues(grant, linkedSdrsCount),
           collaboratingInstitutions: institutionsByGrant.get(grant.id) ?? [],
           submission: classifyGrantSubmission(grant),
-          lpi: grant.lpiId ? scientistMap.get(grant.lpiId) ?? null : null,
+          // Resolved, not stored: our own grants fall back to the Sidra Lead
+          // PI rather than showing an empty cell.
+          resolvedGrantLpiName: resolveGrantLpiName(grant, formatScientistName(lpi)),
+          lpi,
           researcher: grant.researcherId
             ? scientistMap.get(grant.researcherId) ?? null
             : null,

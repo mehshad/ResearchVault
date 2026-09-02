@@ -58,3 +58,25 @@ export function classifyGrantSubmission(grant: {
 
   return { role: "subawardee", submittedBy: recorded, label: `Subawardee of ${recorded}` };
 }
+
+/**
+ * The Lead PI of a grant as a whole, whoever they work for.
+ *
+ * On a subaward that is the external person recorded in grantLpiName. On our
+ * own grants it is the Sidra Lead PI -- the same human, so the field is never
+ * blank just because we happen to be the ones who submitted it.
+ *
+ * Derived rather than stored for our own grants, deliberately. Writing a copy
+ * of the Sidra Lead PI's name into the column would mean two places to correct
+ * when somebody fixes a spelling or the wrong person was linked, and the copy
+ * is the one nobody remembers. Only the external name, which has nowhere else
+ * to live, is actually persisted.
+ */
+export function resolveGrantLpiName(
+  grant: { grantLpiName?: string | null },
+  sidraLpiName: string | null | undefined,
+): string | null {
+  const external = grant.grantLpiName?.trim();
+  if (external) return external;
+  return sidraLpiName?.trim() || null;
+}

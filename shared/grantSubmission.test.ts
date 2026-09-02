@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { classifyGrantSubmission, isHomeInstitution } from "./grantSubmission";
+import { classifyGrantSubmission, isHomeInstitution, resolveGrantLpiName } from "./grantSubmission";
 
 test("we are the lead when the submitting institution is us", () => {
   const result = classifyGrantSubmission({ submittingInstitution: "Sidra Medicine" });
@@ -41,4 +41,23 @@ test("a partner whose name merely contains our name as a fragment is not us", ()
   // partner rather than being absorbed into our own submissions.
   assert.equal(isHomeInstitution("Sidrania Institute"), false);
   assert.equal(classifyGrantSubmission({ submittingInstitution: "Sidrania Institute" }).role, "subawardee");
+});
+
+test("the Grant LPI falls back to our own Lead PI on a grant we submitted", () => {
+  // Never blank just because we are the submitting institution: the grant
+  // still has a lead, and it is our person.
+  assert.equal(resolveGrantLpiName({ grantLpiName: null }, "Dr. Khalid Fakhro"), "Dr. Khalid Fakhro");
+  assert.equal(resolveGrantLpiName({}, "Dr. Khalid Fakhro"), "Dr. Khalid Fakhro");
+});
+
+test("a recorded external Lead PI wins over ours", () => {
+  assert.equal(
+    resolveGrantLpiName({ grantLpiName: "Prof. Ilham Al-Qaradawi" }, "Dr. Ammira Akil"),
+    "Prof. Ilham Al-Qaradawi",
+  );
+});
+
+test("blank stays blank when there is nobody at all", () => {
+  assert.equal(resolveGrantLpiName({ grantLpiName: "   " }, null), null);
+  assert.equal(resolveGrantLpiName({}, undefined), null);
 });

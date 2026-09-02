@@ -61,6 +61,7 @@ type EnhancedGrant = Grant & {
   linkedSdrsCount?: number;
   issues?: GrantIssue[];
   collaboratingInstitutions?: string[];
+  resolvedGrantLpiName?: string | null;
   submission?: GrantSubmissionSummary;
 };
 
@@ -176,6 +177,9 @@ export default function GrantsList() {
     if (sortField === "grantType") {
       aValue = getGrantType(a);
       bValue = getGrantType(b);
+    } else if (sortField === "grantLpiName") {
+      aValue = a.resolvedGrantLpiName ?? "";
+      bValue = b.resolvedGrantLpiName ?? "";
     } else if (sortField === "investigatorName") {
       aValue = a.lpi ? `${a.lpi.firstName} ${a.lpi.lastName}` : "";
       bValue = b.lpi ? `${b.lpi.firstName} ${b.lpi.lastName}` : "";
@@ -455,7 +459,7 @@ export default function GrantsList() {
               horizontal overflow already makes this div the scroll container,
               and sticky positions against the nearest scrolling ancestor. */}
           <div className="max-h-[70vh] overflow-auto rounded-md border">
-            <Table className="min-w-[1750px]">
+            <Table className="min-w-[1950px]">
               {/* Eleven columns and a hundred rows: without this you lose track
                   of which column you are reading a few rows in. Opaque
                   background, or the rows show through as they pass under. */}
@@ -469,7 +473,12 @@ export default function GrantsList() {
                   <TableHead className="min-w-60">ISSUES</TableHead>
                   <TableHead className="w-48">
                     <Button variant="ghost" onClick={() => handleSort("investigatorName")} className="h-8 p-0 font-semibold">
-                      LEAD PRINCIPAL INVESTIGATOR <ArrowUpDown className="ml-1 h-3 w-3" />
+                      SIDRA LEAD PI <ArrowUpDown className="ml-1 h-3 w-3" />
+                    </Button>
+                  </TableHead>
+                  <TableHead className="w-48">
+                    <Button variant="ghost" onClick={() => handleSort("grantLpiName")} className="h-8 p-0 font-semibold">
+                      GRANT LPI <ArrowUpDown className="ml-1 h-3 w-3" />
                     </Button>
                   </TableHead>
                   <TableHead className="w-40">
@@ -509,7 +518,7 @@ export default function GrantsList() {
               <TableBody>
                 {filteredAndSortedGrants?.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={11} className="text-center py-8 text-gray-500 dark:text-gray-400">
+                    <TableCell colSpan={12} className="text-center py-8 text-gray-500 dark:text-gray-400">
                       {searchQuery || statusFilter !== "all" || yearFilter !== "all" || issueFilter !== "all"
                         ? "No grants match your filters." 
                         : "No grants found. Create your first grant to get started."}
@@ -577,6 +586,18 @@ export default function GrantsList() {
                               {grant.lpi.honorificTitle} {grant.lpi.firstName} {grant.lpi.lastName}
                             </div>
                           </div>
+                        ) : (
+                          <span className="text-gray-400 dark:text-gray-500">—</span>
+                        )}
+                      </TableCell>
+                      <TableCell className="text-sm">
+                        {/* On our own grants this is the same person as the
+                            Sidra Lead PI; on a subaward it is the lead at the
+                            submitting institution. */}
+                        {grant.resolvedGrantLpiName ? (
+                          <span className={grant.submission?.role === "subawardee" ? "text-blue-700 dark:text-blue-300" : ""}>
+                            {grant.resolvedGrantLpiName}
+                          </span>
                         ) : (
                           <span className="text-gray-400 dark:text-gray-500">—</span>
                         )}

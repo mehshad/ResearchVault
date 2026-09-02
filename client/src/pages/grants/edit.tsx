@@ -11,6 +11,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { GrantCollaborations } from "@/components/GrantCollaborations";
 import { GrantCoInvestigators } from "@/components/GrantCoInvestigators";
 import type { GrantCollaborationTree, GrantCoInvestigatorList } from "@shared/schema";
+import { isHomeInstitution } from "@shared/grantSubmission";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { useToast } from "@/hooks/use-toast";
 import {
@@ -82,6 +83,7 @@ export default function EditGrant() {
     sourceCategory: "",
     sourceRecordKey: "",
     submittingInstitution: "",
+    grantLpiName: "",
     coInvestigators: "",
     investigatorType: "Researcher",
     lpiId: "",
@@ -121,6 +123,9 @@ export default function EditGrant() {
     enabled: !!grantId,
   });
   const canManageProgressReports = grantStatusAllowsProgressTracking(grant?.status);
+
+  // Only for the Grant LPI suggestions: names already recorded elsewhere.
+  const { data: allGrants = [] } = useQuery<any[]>({ queryKey: ["/api/grants"] });
 
   const { data: scientists = [] } = useQuery({
     queryKey: ['/api/scientists']
@@ -162,6 +167,7 @@ export default function EditGrant() {
         sourceCategory: grant.sourceCategory || "",
         sourceRecordKey: grant.sourceRecordKey || "",
         submittingInstitution: grant.submittingInstitution || "",
+        grantLpiName: grant.grantLpiName || "",
         coInvestigators: Array.isArray(grant.coInvestigators) ? grant.coInvestigators.join('\n') : "",
         investigatorType: grant.investigatorType || "Researcher",
         lpiId: grant.lpiId?.toString() || "",
@@ -329,6 +335,7 @@ export default function EditGrant() {
       sourceCategory: formData.sourceCategory || null,
       sourceRecordKey: formData.sourceRecordKey || null,
       submittingInstitution: formData.submittingInstitution || null,
+      grantLpiName: formData.grantLpiName?.trim() || null,
       coInvestigators,
       investigatorType: formData.investigatorType || null,
       lpiId: formData.lpiId && formData.lpiId.trim() ? parseInt(formData.lpiId) : null,
@@ -539,6 +546,24 @@ export default function EditGrant() {
   // SDR section is visible when awarded is true (includes Active and Completed)
   const canLinkSdrs = canGrantLinkSdrs({ awarded: formData.awarded });
   const selectedLpiId = formData.lpiId ? Number(formData.lpiId) : null;
+  // Another institution submitted this grant, so it has a Lead PI of its own.
+  const isSubaward = Boolean(
+    formData.submittingInstitution?.trim() && !isHomeInstitution(formData.submittingInstitution),
+  );
+  // Shown as the placeholder on our own grants, where the lead is our own
+  // person. Left as a placeholder rather than written into the field: storing
+  // a copy would mean two places to correct when the Sidra Lead PI changes.
+  const sidraLpiName = (() => {
+    const lpi = (scientists as any[]).find((s) => s.id === selectedLpiId);
+    return lpi ? formatFullName(lpi) : null;
+  })();
+  const knownGrantLpiNames = Array.from(
+    new Set(
+      (allGrants ?? [])
+        .map((g: any) => g?.grantLpiName?.trim())
+        .filter((name: string | undefined): name is string => Boolean(name)),
+    ),
+  ).sort();
   const lpiResearchActivities = getGrantSdrCandidates(
     researchActivities,
     selectedLpiId,
@@ -714,6 +739,24 @@ export default function EditGrant() {
                 <label className="text-sm font-medium text-gray-700 mb-2 block dark:text-gray-300">Submitting Institution</label>
                 <Input value={formData.submittingInstitution} onChange={(e) => setFormData({...formData, submittingInstitution: e.target.value})} placeholder="Institution name" />
               </div>
+              {/* Free text on purpose: on a subaward this person works at the
+                  prime institution and has no staff record here. Sits beside
+                  the submitting institution because the two are read together. */}
+              <div>
+                <label className="text-sm font-medium text-gray-700 mb-2 block dark:text-gray-300">Grant LPI</label>
+                <Input
+                  value={formData.grantLpiName}
+                  onChange={(e) => setFormData({...formData, grantLpiName: e.target.value})}
+                  placeholder={isSubaward ? "Lead PI at the submitting institution" : sidraLpiName ?? "Lead PI on the grant as a whole"}
+                  list="grant-lpi-suggestions"
+                  data-testid="input-grant-lpi"
+                />
+                {/* Suggests names already recorded, so one person does not
+                    become three spellings the way the institution field did. */}
+                <datalist id="grant-lpi-suggestions">
+                  {knownGrantLpiNames.map((name) => <option key={name} value={name} />)}
+                </datalist>
+              </div>
             </div>
 
             {/* Project Title - Full Width */}
@@ -733,7 +776,12 @@ export default function EditGrant() {
             <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mt-4">
               <div id="grant-field-lpi" className={issueFieldClass("missing_lpi")}>
                 <label className="text-sm font-medium text-gray-700 mb-2 block dark:text-gray-300">
-                  Lead Investigator
+                  Sidra Lead PI
+                  {isSubaward && (
+                    <span className="ml-1 font-normal text-xs text-muted-foreground">
+                      (who owns our part)
+                    </span>
+                  )}
                 </label>
                 <Select
                   value={formData.lpiId}
