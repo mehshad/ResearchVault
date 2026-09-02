@@ -10066,10 +10066,14 @@ function writeFailureDetail(error: unknown): string {
           if (p.action === 'create') {
             const parsedData = insertGrantSchema.parse(p.data);
             const lifecycle = reconcileGrantLifecycle(parsedData);
+            // Same audit trail as a hand-entered grant. Without this the
+            // provenance columns stayed empty on exactly the path they were
+            // added for: a bulk import is where "who put this here" is
+            // hardest to answer afterwards.
             await storage.createGrant(insertGrantSchema.parse({
               ...parsedData,
               ...lifecycle,
-            }));
+            }), req.session?.user?.id);
             created++;
           } else {
             const existing = await storage.getGrants().then((gs: any[]) =>
@@ -10091,6 +10095,8 @@ function writeFailureDetail(error: unknown): string {
                 ...parsedData,
                 ...lifecycle,
               }),
+              undefined,
+              req.session?.user?.id,
             );
             updated++;
           }
