@@ -95,7 +95,7 @@ export function SdrImportDialog({ open, onOpenChange }: SdrImportDialogProps) {
 
   return (
     <Dialog open={open} onOpenChange={(next) => { if (!next) reset(); onOpenChange(next); }}>
-      <DialogContent className="max-w-3xl max-h-[85vh] overflow-y-auto" data-testid="dialog-sdr-import">
+      <DialogContent className="max-w-5xl max-h-[85vh] overflow-y-auto overflow-x-hidden" data-testid="dialog-sdr-import">
         <DialogHeader>
           <DialogTitle>Import SDRs</DialogTitle>
           <DialogDescription>
@@ -157,7 +157,7 @@ export function SdrImportDialog({ open, onOpenChange }: SdrImportDialogProps) {
                       <span className="w-12 shrink-0 text-right font-mono font-medium tabular-nums">
                         {reason.count}
                       </span>
-                      <span className="min-w-0">
+                      <span className="min-w-0 break-words">
                         <span className="font-medium">{reason.label}</span>
                         <span className="text-muted-foreground"> &mdash; {reason.hint}</span>
                       </span>
@@ -173,12 +173,12 @@ export function SdrImportDialog({ open, onOpenChange }: SdrImportDialogProps) {
                   <Badge variant={row.action === "skip" ? "secondary" : "default"} className="mt-0.5 shrink-0">
                     {row.action}
                   </Badge>
-                  <div className="min-w-0">
+                  <div className="min-w-0 flex-1">
                     <div className="font-mono text-xs">{row.sdrNumber || "(no number)"}</div>
-                    <div className="truncate">{row.title}</div>
-                    {row.reason && <div className="text-xs text-muted-foreground">{row.reason}</div>}
+                    <div className="break-words">{row.title}</div>
+                    {row.reason && <div className="break-words text-xs text-muted-foreground">{row.reason}</div>}
                     {row.createsProject && (
-                      <div className="text-xs text-blue-700 dark:text-blue-300">
+                      <div className="break-words text-xs text-blue-700 dark:text-blue-300">
                         creates project {row.createsProject.projectNumber} &mdash; {row.createsProject.projectName}
                       </div>
                     )}

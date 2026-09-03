@@ -4,6 +4,7 @@ import RecentProjects from "@/components/dashboard/RecentProjects";
 import RecentActivity from "@/components/dashboard/RecentActivity";
 import UpcomingDeadlines from "@/components/dashboard/UpcomingDeadlines";
 import { DashboardStats } from "@/lib/types";
+import GrantFundingByProvider from "@/components/dashboard/GrantFundingByProvider";
 
 export default function Dashboard() {
   const { data: stats, isLoading: statsLoading } = useQuery<DashboardStats>({
@@ -29,12 +30,36 @@ export default function Dashboard() {
           value={statsLoading ? 0 : stats?.publications || 0} 
           type="publications" 
         />
-        <StatsCard 
-          title="Patents" 
-          value={statsLoading ? 0 : stats?.patents || 0} 
-          type="patents" 
+      </div>
+
+      {/* Grants, from the widest figure inwards: everything ever submitted,
+          how many of those were won, and how many are running now. Awarded is
+          the lasting milestone rather than the current status, so a grant that
+          was won and has since completed still counts as awarded. */}
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
+        <StatsCard
+          title="Grants Submitted (all time)"
+          value={statsLoading ? 0 : stats?.grants?.submitted ?? 0}
+          type="projects"
+        />
+        <StatsCard
+          title="Awaiting a Decision"
+          value={statsLoading ? 0 : stats?.grants?.underReview ?? 0}
+          type="applications"
+        />
+        <StatsCard
+          title="Awarded Grants"
+          value={statsLoading ? 0 : stats?.grants?.awarded ?? 0}
+          type="patents"
+        />
+        <StatsCard
+          title="Active Grants"
+          value={statsLoading ? 0 : stats?.grants?.active ?? 0}
+          type="projects"
         />
       </div>
+
+      <GrantFundingByProvider stats={stats?.grants} isLoading={statsLoading} />
 
       {/* Projects & Activities */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">

@@ -94,6 +94,8 @@ export interface IStorage {
   getAllProjectMembers(): Promise<ProjectMember[]>;
   addProjectMember(member: InsertProjectMember): Promise<ProjectMember>;
   removeProjectMember(researchActivityId: number, scientistId: number): Promise<boolean>;
+  /** Change what somebody does on an SDR without removing them from it. */
+  setProjectMemberRole(researchActivityId: number, scientistId: number, role: string): Promise<boolean>;
 
   // Data Management Plan operations
   getDataManagementPlans(): Promise<DataManagementPlan[]>;

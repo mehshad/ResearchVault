@@ -155,11 +155,11 @@ test("hashPassword handles empty string", () => {
 // demoBannerMiddleware
 // ---------------------------------------------------------------------------
 
-test("demoBannerMiddleware injects default demo user when session is empty", () => {
+test("demoBannerMiddleware injects default demo user when session is empty", async () => {
   const req = fakeReq({ session: {} } as any);
   const res = fakeRes();
   let calledNext = false;
-  demoBannerMiddleware(req, res, () => { calledNext = true; });
+  await demoBannerMiddleware(req, res, () => { calledNext = true; });
 
   assert.ok(calledNext, "must call next()");
   assert.equal((req.session as any).user.username, process.env.DEMO_USERNAME || "demo.user");
@@ -167,27 +167,27 @@ test("demoBannerMiddleware injects default demo user when session is empty", () 
   assert.equal((req.session as any).user.scientistId, null);
 });
 
-test("demoBannerMiddleware does not overwrite an existing session user", () => {
+test("demoBannerMiddleware does not overwrite an existing session user", async () => {
   const existing = { id: 5, username: "alice", role: "Investigator" };
   const req = fakeReq({ session: { user: existing } } as any);
   const res = fakeRes();
-  demoBannerMiddleware(req, res, () => {});
+  await demoBannerMiddleware(req, res, () => {});
   assert.deepEqual((req.session as any).user, existing);
 });
 
-test("demoBannerMiddleware always calls next()", () => {
+test("demoBannerMiddleware always calls next()", async () => {
   const req = fakeReq({ session: {} } as any);
   const res = fakeRes();
   let called = false;
-  demoBannerMiddleware(req, res, () => { called = true; });
+  await demoBannerMiddleware(req, res, () => { called = true; });
   assert.ok(called);
 });
 
-test("demoBannerMiddleware uses DEMO_NAME env if set", () => {
+test("demoBannerMiddleware uses DEMO_NAME env if set", async () => {
   const prev = process.env.DEMO_NAME;
   process.env.DEMO_NAME = "Dr Test";
   const req = fakeReq({ session: {} } as any);
-  demoBannerMiddleware(req, fakeRes(), () => {});
+  await demoBannerMiddleware(req, fakeRes(), () => {});
   assert.equal((req.session as any).user.name, "Dr Test");
   process.env.DEMO_NAME = prev ?? "";
 });

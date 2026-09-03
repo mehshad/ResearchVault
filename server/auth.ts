@@ -1,4 +1,5 @@
-import { roleGroups, rolePermissions, users } from "@shared/schema";
+import { roleGroups, rolePermissions, scientists, users } from "@shared/schema";
+import { INVESTIGATOR_ROLE } from "@shared/investigatorEligibility";
 import {
   ACCESS_ROLES,
   BUILT_IN_ASSIGNABLE_ROLES,
@@ -18,7 +19,7 @@ import {
 import { userRoleAssignments } from "@shared/schema";
 import { inArray } from "drizzle-orm";
 import { db } from "./db";
-import { and, eq } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import { createHash } from "crypto";
 import { type Request, type Response, type NextFunction } from "express";
 import session from "express-session";
@@ -116,19 +117,103 @@ export function hashPassword(password: string): string {
 
 // ── Middleware ─────────────────────────────────────────────────────────────────
 
+/**
+ * The staff record the demo session acts as.
+ *
+ * Demo mode has no real identity, so anything that asks "is this about me"
+ * rather than "may I" -- which SDRs I am on, whose team I lead -- had nothing
+ * to answer with and appeared broken while being merely inapplicable. Pointing
+ * the demo session at a real person makes those features explorable in the
+ * mode the application is actually demonstrated in.
+ *
+ * Resolved from DEMO_SCIENTIST_EMAIL, falling back to the configured
+ * superadmin, so which person it is stays configuration rather than a name
+ * compiled into the server. Looked up once: the demo identity does not change
+ * while the process runs, and this is on every request.
+ */
+let demoScientistId: number | null | undefined;
+
+async function resolveDemoScientistId(): Promise<number | null> {
+  if (demoScientistId !== undefined) return demoScientistId;
+
+  const email = (process.env.DEMO_SCIENTIST_EMAIL || process.env.SUPER_ADMIN_EMAIL || "")
+    .trim()
+    .toLowerCase();
+  if (!email) {
+    demoScientistId = null;
+    return demoScientistId;
+  }
+
+  try {
+    const [match] = await db
+      .select({ id: scientists.id })
+      .from(scientists)
+      .where(sql`lower(${scientists.email}) = ${email}`)
+      .limit(1);
+    demoScientistId = match?.id ?? null;
+    if (demoScientistId === null) {
+      authLog(`Demo session: no staff record matches ${email}; identity-based views stay empty`);
+    }
+  } catch {
+    // A demo session is not worth failing a request over.
+    demoScientistId = null;
+  }
+  return demoScientistId ?? null;
+}
+
+/**
+ * The demo session is linked to a staff record only while it is emulating an
+ * Investigator.
+ *
+ * Investigator is the role for whom "my SDRs" and "my team's SDRs" mean
+ * anything, so that is when a real person behind the demo is useful. Emulating
+ * Management or an office role and still being answered as a named researcher
+ * would misrepresent what those roles see.
+ */
+async function demoScientistIdForRoles(roles: readonly string[]): Promise<number | null> {
+  if (!roles.some((role) => role.trim() === INVESTIGATOR_ROLE)) return null;
+  return resolveDemoScientistId();
+}
+
+/**
+ * Secondary roles the demo session holds alongside the one being emulated.
+ *
+ * An administrator is a person as well as a set of permissions. The account
+ * this demo stands behind is a superadmin who also runs research, which is the
+ * normal shape here -- administrator rights are held alongside a working role,
+ * not instead of one. Emulating superadmin with no second role therefore
+ * misrepresents it, and left the person unable to reach anything answered by
+ * "which of these are mine".
+ */
+function demoSecondaryRolesFor(role: string): string[] {
+  const administrators = new Set(["superadmin", "admin"]);
+  return administrators.has(role.trim()) ? [INVESTIGATOR_ROLE] : [];
+}
+
 // Demo mode: auto-inject a configurable guest user for every request
-export function demoBannerMiddleware(req: Request, _res: Response, next: NextFunction) {
+export async function demoBannerMiddleware(req: Request, _res: Response, next: NextFunction) {
+  const startingRole = process.env.DEMO_ROLE || "Management";
+  const currentRole = req.session.user ? req.session.user.role : startingRole;
+  const secondaryRoles = req.session.user
+    ? req.session.user.secondaryRoles ?? []
+    : demoSecondaryRolesFor(startingRole);
+  const scientistId = await demoScientistIdForRoles([currentRole, ...secondaryRoles]);
+
   if (!req.session.user) {
     req.session.user = {
       id: 0,
       username: process.env.DEMO_USERNAME || "demo.user",
       name: process.env.DEMO_NAME || "Demo User",
       email: process.env.DEMO_EMAIL || "demo@researchvault.local",
-      role: process.env.DEMO_ROLE || "Management",
-      secondaryRoles: [],
-      scientistId: null,
+      role: startingRole,
+      secondaryRoles,
+      scientistId,
       needsRegistration: false,
     };
+  } else if (req.session.user.id === 0 && req.session.user.scientistId !== scientistId) {
+    // Sessions outlive restarts, so one created before this existed would keep
+    // its null forever and the feature would look broken to whoever had it.
+    req.session.user.scientistId = scientistId;
   }
   next();
 }
@@ -611,7 +696,7 @@ export function registerAuthRoutes(app: any) {
   // Registered only in demo mode, so outside it the path does not exist at all
   // rather than existing and refusing.
   if (mode === "demo") {
-    app.post("/api/auth/demo-role", (req: Request, res: Response) => {
+    app.post("/api/auth/demo-role", async (req: Request, res: Response) => {
       const requested = typeof req.body?.role === "string" ? req.body.role.trim() : "";
       if (!requested) {
         return res.status(400).json({ message: "A role is required." });
@@ -625,8 +710,17 @@ export function registerAuthRoutes(app: any) {
       if (!req.session.user) {
         return res.status(401).json({ message: "No demo session to update." });
       }
-      req.session.user = { ...req.session.user, role: requested, secondaryRoles: [] };
-      authLog(`demo role switched to ${requested}`);
+      // Holding Investigator -- as the primary role or alongside it -- means
+      // being somebody, so the views answering "which of these are mine" have
+      // an answer to give.
+      const secondaryRoles = demoSecondaryRolesFor(requested);
+      const scientistId = await demoScientistIdForRoles([requested, ...secondaryRoles]);
+      req.session.user = { ...req.session.user, role: requested, secondaryRoles, scientistId };
+      authLog(
+        `demo role switched to ${requested}` +
+          (secondaryRoles.length ? ` + ${secondaryRoles.join(", ")}` : "") +
+          (scientistId ? ` (as scientist ${scientistId})` : ""),
+      );
       res.json({ user: req.session.user });
     });
   }

@@ -22,6 +22,14 @@ export interface DummyUser {
    * check resolves against this object.
    */
   adminPreviewOff?: boolean;
+  /**
+   * The staff record this account is linked to, when it has one.
+   *
+   * Needed by anything that asks "is this about me" rather than "may I" --
+   * which SDRs I am a member of, whose team I lead. The session already
+   * carries it; it is repeated here because that is where the client looks.
+   */
+  scientistId?: number | null;
 }
 
 /**

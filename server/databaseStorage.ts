@@ -8,6 +8,8 @@ import {
   type IncompleteGrantSummary,
 } from "@shared/grantValidity";
 import { isMissingAmount } from "@shared/grantIssues";
+import { sumInQar } from "@shared/currency";
+import type { GrantDashboardStats } from "@shared/dashboardStats";
 import { db } from "./db";
 import {
   resolveInvestigatorScientistIds,
@@ -365,6 +367,23 @@ export class DatabaseStorage implements IStorage {
   async addProjectMember(member: InsertProjectMember): Promise<ProjectMember> {
     const [newMember] = await db.insert(projectMembers).values(member).returning();
     return newMember;
+  }
+
+  async setProjectMemberRole(
+    researchActivityId: number,
+    scientistId: number,
+    role: string,
+  ): Promise<boolean> {
+    const result = await db
+      .update(projectMembers)
+      .set({ role })
+      .where(
+        and(
+          eq(projectMembers.researchActivityId, researchActivityId),
+          eq(projectMembers.scientistId, scientistId),
+        ),
+      );
+    return (result.rowCount ?? 0) > 0;
   }
 
   async removeProjectMember(researchActivityId: number, scientistId: number): Promise<boolean> {
@@ -1695,6 +1714,7 @@ export class DatabaseStorage implements IStorage {
     activeResearchActivities: number;
     publications: number;
     patents: number;
+    grants: GrantDashboardStats;
   }> {
     const activeActivities = await db
       .select({ count: sql<number>`count(*)` })
@@ -1709,10 +1729,64 @@ export class DatabaseStorage implements IStorage {
       .select({ count: sql<number>`count(*)` })
       .from(patents);
     
+    // Every grant, once. The counts and the by-funder totals are different
+    // questions about the same rows, and two queries could disagree.
+    const allGrants = await db
+      .select({
+        awarded: grants.awarded,
+        status: grants.status,
+        awardedAmount: grants.awardedAmount,
+        currency: grants.currency,
+        fundingAgency: grants.fundingAgency,
+      })
+      .from(grants);
+
+    const byFunder = new Map<string, Array<{ amount: string | null; currency: string | null }>>();
+    for (const grant of allGrants) {
+      // Money actually received, so only grants carrying the award milestone.
+      if (!grant.awarded) continue;
+      const funder = grant.fundingAgency?.trim() || "Not recorded";
+      const entries = byFunder.get(funder) ?? [];
+      entries.push({ amount: grant.awardedAmount, currency: grant.currency });
+      byFunder.set(funder, entries);
+    }
+
+    const funders = [...byFunder.entries()]
+      .map(([funder, entries]) => {
+        const total = sumInQar(entries.map((e) => ({ amount: e.amount, currency: e.currency })));
+        return { funder, grants: entries.length, qar: total.qar, exact: total.exact };
+      })
+      .filter((row) => row.qar > 0)
+      .sort((a, b) => b.qar - a.qar);
+
+    const overall = sumInQar(
+      allGrants
+        .filter((g) => g.awarded)
+        .map((g) => ({ amount: g.awardedAmount, currency: g.currency })),
+    );
+
     return {
       activeResearchActivities: Number(activeActivities[0].count),
       publications: Number(publicationCount[0].count),
       patents: Number(patentCount[0].count),
+      grants: {
+        // "Awarded" is the lasting milestone, not the status: a grant that was
+        // won and has since become active or completed was still awarded.
+        awarded: allGrants.filter((g) => g.awarded).length,
+        active: allGrants.filter((g) => g.status === "active").length,
+        // Every grant in the system: each one was submitted at some point.
+        // Counting only the "submitted" status made this smaller than the
+        // awarded count, which reads as impossible.
+        submitted: allGrants.length,
+        // Still waiting to hear, which is what the status actually means.
+        underReview: allGrants.filter((g) =>
+          ["submitted", "pending", "in_review"].includes(g.status ?? ""),
+        ).length,
+        totalReceivedQar: overall.qar,
+        exact: overall.exact,
+        unconverted: overall.unconverted,
+        byFunder: funders,
+      },
     };
   }
 

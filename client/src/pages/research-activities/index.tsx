@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Link, useLocation } from "wouter";
 import { Button } from "@/components/ui/button";
@@ -23,9 +23,14 @@ import {
 import { Table as TableIcon, FilePlus, Search, MoreHorizontal, Users, Link as LinkIcon } from "lucide-react";
 import { formatFullName, getInitials } from "@/utils/nameUtils";
 import { useCurrentUser } from "@/hooks/useCurrentUser";
+import { allRolesOf } from "@shared/effectiveRoles";
+import { computeSdrInvolvement } from "@/lib/sdrInvolvement";
+import { INVESTIGATOR_ROLE } from "@shared/investigatorEligibility";
 import { PermissionWrapper } from "@/components/PermissionWrapper";
 import { SdrImportDialog } from "@/components/SdrImportDialog";
-import { Upload } from "lucide-react";
+import { Upload, UserRound } from "lucide-react";
+import { Badge } from "@/components/ui/badge";
+import { AlertTriangle } from "lucide-react";
 
 interface Program {
   id: number;
@@ -93,6 +98,7 @@ export default function ResearchActivitiesList() {
   const [importOpen, setImportOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [activeTab, setActiveTab] = useState("all");
+  const [mineOnly, setMineOnly] = useState(false);
   const [selectedProjectTab, setSelectedProjectTab] = useState<string>("all");
   const [, navigate] = useLocation();
   const { currentUser } = useCurrentUser();
@@ -166,6 +172,33 @@ export default function ResearchActivitiesList() {
     };
   });
 
+  // ── Mine, and my team's ────────────────────────────────────────────────────
+  // Both answered from data this page already loads, so the filter costs no
+  // extra request.
+  const myScientistId = currentUser?.scientistId ?? null;
+
+  // Only investigators lead a team, so only they are shown one. Resolved
+  // through the effective roles rather than compared against the primary role
+  // string, which would miss anyone holding Investigator as a secondary.
+  const leadsATeam = allRolesOf(currentUser).includes(INVESTIGATOR_ROLE);
+
+  const myInvolvement = useMemo(
+    () =>
+      computeSdrInvolvement({
+        myScientistId,
+        members: (projectMembers ?? []) as any,
+        scientists: (scientists ?? []) as any,
+        includeTeam: leadsATeam,
+        activities: (researchActivities ?? []) as any,
+      }),
+    [projectMembers, scientists, leadsATeam, myScientistId, researchActivities],
+  );
+
+  const nameOf = (scientistId: number): string => {
+    const person = (scientists ?? []).find((s: any) => s.id === scientistId) as any;
+    return person ? [person.honorificTitle, person.firstName, person.lastName].filter(Boolean).join(" ") : `#${scientistId}`;
+  };
+
   // Get projects for the selected program
   const projectsForSelectedProgram = projects?.filter(project => {
     if (activeTab === "all") return true;
@@ -195,7 +228,7 @@ export default function ResearchActivitiesList() {
     }
     
     return matchesSearch && matchesProgram && matchesProject;
-  });
+  })?.filter((activity: any) => !mineOnly || myInvolvement.has(activity.id));
 
   return (
     <PermissionWrapper currentUserRole={currentUser.role} navigationItem="research-activities">
@@ -232,7 +265,33 @@ export default function ResearchActivitiesList() {
       <Card>
         <CardHeader className="pb-3">
           <div className="flex items-center justify-between flex-wrap gap-2">
-            <CardTitle>All Research Activities</CardTitle>
+            <CardTitle>{mineOnly ? "My Research Activities" : "All Research Activities"}</CardTitle>
+            <div className="flex items-center gap-2">
+              {/* Shown even when it cannot work, with the reason. An account
+                  with no staff record -- every demo session is one -- is not a
+                  member of anything, so the filter would come back empty; but
+                  hiding the control makes a working feature look missing
+                  rather than inapplicable. */}
+              <Button
+                variant={mineOnly ? "default" : "outline"}
+                size="sm"
+                onClick={() => setMineOnly((on) => !on)}
+                disabled={myScientistId == null}
+                title={
+                  myScientistId == null
+                    ? "Your account is not linked to a staff profile, so it is not a member of any SDR. Sign in as a member of staff to use this."
+                    : "Show only SDRs you are on, and those your team is on"
+                }
+                data-testid="button-my-sdrs"
+              >
+                <UserRound className="mr-2 h-4 w-4" />
+                My SDRs
+                {mineOnly && myInvolvement.size > 0 && (
+                  <span className="ml-2 rounded bg-primary-foreground/20 px-1.5 text-xs">
+                    {myInvolvement.size}
+                  </span>
+                )}
+              </Button>
             <div className="relative w-64">
               <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-gray-400 dark:text-gray-500" />
               <Input
@@ -242,6 +301,7 @@ export default function ResearchActivitiesList() {
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
               />
+            </div>
             </div>
           </div>
         </CardHeader>
@@ -326,6 +386,55 @@ export default function ResearchActivitiesList() {
                           <span>No project assigned</span>
                         )}
                       </div>
+                      {/* Only under the filter. In the full list these tags
+                          would sit on a minority of rows and read as noise;
+                          the distinction matters once you have asked to see
+                          your own. */}
+                      {(() => {
+                        if (!mineOnly) return null;
+                        const involvement = myInvolvement.get(activity.id);
+                        if (!involvement) return null;
+                        // No tag for the ordinary case. Under this filter most
+                        // rows are yours, so saying so on each one is noise;
+                        // what earns a tag is the exception.
+                        if (involvement.mine) return null;
+                        if (involvement.teamMembers.length > 0) {
+                          return (
+                            <Badge
+                              variant="outline"
+                              className="mt-1.5 inline-flex items-center gap-1 whitespace-nowrap border-amber-400 text-xs font-normal text-amber-800 dark:text-amber-300"
+                              title={involvement.teamMembers.map(nameOf).join(", ")}
+                            >
+                              <UserRound className="h-3 w-3 shrink-0" />
+                              {/* Says what the number counts. A bare "(2)"
+                                  beside "Your team, not you" could as easily
+                                  have meant two SDRs, two roles or a version.
+                                  Centred, because the column is narrow enough
+                                  that it wraps and ragged two-line text in a
+                                  pill reads as a mistake. */}
+                              <span>
+                                {involvement.teamMembers.length === 1
+                                  ? "1 of your team, not you"
+                                  : `${involvement.teamMembers.length} of your team, not you`}
+                              </span>
+                            </Badge>
+                          );
+                        }
+                        return null;
+                      })()}
+                      {/* The PI of record is not on the research team. Shown so
+                          it can be corrected, rather than being treated as
+                          membership and quietly hidden. */}
+                      {mineOnly && myInvolvement.get(activity.id)?.piMissingFromTeam != null && (
+                        <Badge
+                          variant="outline"
+                          className="mt-1.5 ml-1.5 inline-flex items-center gap-1 whitespace-nowrap border-destructive/50 text-xs font-normal text-destructive"
+                          title={`${nameOf(myInvolvement.get(activity.id)!.piMissingFromTeam!)} is the PI of record but is not on the research team. Open the SDR's team to add them.`}
+                        >
+                          <AlertTriangle className="h-3 w-3 shrink-0" />
+                          <span>PI not on the team</span>
+                        </Badge>
+                      )}
                     </TableCell>
                     <TableCell>
                       <div className="text-sm">
