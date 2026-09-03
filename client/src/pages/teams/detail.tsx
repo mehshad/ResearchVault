@@ -20,6 +20,7 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { SearchableSelect } from "@/components/ui/searchable-select";
+import { PRINCIPAL_INVESTIGATOR_ROLE } from "@shared/investigatorEligibility";
 import { Separator } from "@/components/ui/separator";
 import {
   Dialog,
@@ -529,8 +530,14 @@ export default function TeamDetail(props: TeamDetailProps) {
                           </div>
                         </TableCell>
                         <TableCell>
+                          {/* The PI was matched against 'Investigator' while
+                              the role actually stored is 'Principal
+                              Investigator', so it never matched and fell
+                              through to the same green as an ordinary team
+                              member -- the one role that most needs to stand
+                              out looked like the most common one. */}
                           <Badge className={
-                            member.role === 'Investigator' ? 'bg-blue-100 text-blue-800 border-blue-200 dark:bg-blue-950 dark:text-blue-300 dark:border-blue-800' :
+                            member.role === PRINCIPAL_INVESTIGATOR_ROLE ? 'bg-blue-100 text-blue-800 border-blue-200 dark:bg-blue-950 dark:text-blue-300 dark:border-blue-800' :
                             member.role === 'Lead Scientist' ? 'bg-purple-100 text-purple-800 border-purple-200 dark:bg-purple-950 dark:text-purple-300 dark:border-purple-800' :
                             'bg-green-100 text-green-800 border-green-200 dark:bg-green-950 dark:text-green-300 dark:border-green-800'
                           }>
