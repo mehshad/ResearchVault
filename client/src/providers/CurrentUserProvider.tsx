@@ -41,11 +41,25 @@ export function CurrentUserProvider({ children }: CurrentUserProviderProps) {
           // everything.
           secondaryRoles: authUser.secondaryRoles ?? [],
           adminPreviewOff: authUser.adminPreviewOff === true,
+          scientistId: authUser.scientistId ?? null,
         };
       }
       return { id: 0, name: "Loading…", email: "", role: "user" };
     }
-    return currentUser;
+    // Demo emulates a role, but the session is what the server answers by, so
+    // the session wins wherever it has an opinion. The selector requests a
+    // change and the server grants it; keeping a second copy of the answer in
+    // React state meant the two could disagree -- after a reload the selector
+    // reset to its default while the session still held the emulated role, so
+    // pages resolved one role and the API another.
+    if (!authUser) return currentUser;
+    return {
+      ...currentUser,
+      role: authUser.role ?? currentUser.role,
+      secondaryRoles: authUser.secondaryRoles ?? [],
+      // Set only while emulating a role the server stands a real person behind.
+      scientistId: authUser.scientistId ?? null,
+    };
   }, [hasRealAuth, authUser, currentUser]);
 
   /**
