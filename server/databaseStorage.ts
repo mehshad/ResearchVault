@@ -1714,6 +1714,7 @@ export class DatabaseStorage implements IStorage {
     activeResearchActivities: number;
     publications: number;
     patents: number;
+    staff: number;
     grants: GrantDashboardStats;
   }> {
     const activeActivities = await db
@@ -1728,6 +1729,10 @@ export class DatabaseStorage implements IStorage {
     const patentCount = await db
       .select({ count: sql<number>`count(*)` })
       .from(patents);
+
+    const staffCount = await db
+      .select({ count: sql<number>`count(*)` })
+      .from(scientists);
     
     // Every grant, once. The counts and the by-funder totals are different
     // questions about the same rows, and two queries could disagree.
@@ -1769,6 +1774,7 @@ export class DatabaseStorage implements IStorage {
       activeResearchActivities: Number(activeActivities[0].count),
       publications: Number(publicationCount[0].count),
       patents: Number(patentCount[0].count),
+      staff: Number(staffCount[0].count),
       grants: {
         // "Awarded" is the lasting milestone, not the status: a grant that was
         // won and has since become active or completed was still awarded.
