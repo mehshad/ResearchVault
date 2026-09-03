@@ -15,6 +15,7 @@ import { ArrowLeft, Loader2 } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
+import { PersonSelect, PERSON_SELECT_RULES } from "@/components/PersonSelect";
 import React, { useEffect } from "react";
 
 const categories = [
@@ -61,6 +62,8 @@ export default function ProgramEdit() {
       clinicalCoLead2Id: null,
     },
   });
+
+  const physicians = scientists.filter((scientist: any) => scientist.jobTitle === 'Physician');
 
   // Update form when program data loads
   useEffect(() => {
@@ -219,23 +222,17 @@ export default function ProgramEdit() {
                   render={({ field }) => (
                     <FormItem>
                       <FormLabel>Program Director</FormLabel>
-                      <Select
-                        onValueChange={(value) => field.onChange(value ? parseInt(value) : null)}
-                        value={field.value?.toString() || ""}
-                      >
-                        <FormControl>
-                          <SelectTrigger>
-                            <SelectValue placeholder="Select Program Director" />
-                          </SelectTrigger>
-                        </FormControl>
-                        <SelectContent>
-                          {principalInvestigators.map((scientist) => (
-                            <SelectItem key={scientist.id} value={scientist.id.toString()}>
-                              {[scientist.honorificTitle, scientist.firstName, scientist.lastName].filter(Boolean).join(' ')} - {scientist.jobTitle || 'No title'}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
+                      <FormControl>
+                        <PersonSelect
+                          options={principalInvestigators}
+                          allStaff={scientists}
+                          value={field.value}
+                          onChange={field.onChange}
+                          placeholder="Select Program Director"
+                          rule={PERSON_SELECT_RULES.investigator}
+                          testId="select-program-director"
+                        />
+                      </FormControl>
                       <FormMessage />
                     </FormItem>
                   )}
@@ -247,23 +244,17 @@ export default function ProgramEdit() {
                   render={({ field }) => (
                     <FormItem>
                       <FormLabel>Research Co-Lead</FormLabel>
-                      <Select
-                        onValueChange={(value) => field.onChange(value ? parseInt(value) : null)}
-                        value={field.value?.toString() || ""}
-                      >
-                        <FormControl>
-                          <SelectTrigger>
-                            <SelectValue placeholder="Select Research Co-Lead" />
-                          </SelectTrigger>
-                        </FormControl>
-                        <SelectContent>
-                          {principalInvestigators.map((scientist) => (
-                            <SelectItem key={scientist.id} value={scientist.id.toString()}>
-                              {[scientist.honorificTitle, scientist.firstName, scientist.lastName].filter(Boolean).join(' ')} - {scientist.jobTitle || 'No title'}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
+                      <FormControl>
+                        <PersonSelect
+                          options={principalInvestigators}
+                          allStaff={scientists}
+                          value={field.value}
+                          onChange={field.onChange}
+                          placeholder="Select Research Co-Lead"
+                          rule={PERSON_SELECT_RULES.investigator}
+                          testId="select-research-co-lead"
+                        />
+                      </FormControl>
                       <FormMessage />
                     </FormItem>
                   )}
@@ -277,23 +268,17 @@ export default function ProgramEdit() {
                   render={({ field }) => (
                     <FormItem>
                       <FormLabel>Clinical Co-Lead 1</FormLabel>
-                      <Select
-                        onValueChange={(value) => field.onChange(value ? parseInt(value) : null)}
-                        value={field.value?.toString() || ""}
-                      >
-                        <FormControl>
-                          <SelectTrigger>
-                            <SelectValue placeholder="Select Clinical Co-Lead 1" />
-                          </SelectTrigger>
-                        </FormControl>
-                        <SelectContent>
-                          {scientists.filter(scientist => scientist.jobTitle === 'Physician').map((scientist) => (
-                            <SelectItem key={scientist.id} value={scientist.id.toString()}>
-                              {[scientist.honorificTitle, scientist.firstName, scientist.lastName].filter(Boolean).join(' ')} - {scientist.jobTitle || 'No title'}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
+                      <FormControl>
+                        <PersonSelect
+                          options={physicians}
+                          allStaff={scientists}
+                          value={field.value}
+                          onChange={field.onChange}
+                          placeholder="Select Clinical Co-Lead 1"
+                          rule={PERSON_SELECT_RULES.physician}
+                          testId="select-clinical-co-lead-1"
+                        />
+                      </FormControl>
                       <FormMessage />
                     </FormItem>
                   )}
@@ -305,23 +290,17 @@ export default function ProgramEdit() {
                   render={({ field }) => (
                     <FormItem>
                       <FormLabel>Clinical Co-Lead 2</FormLabel>
-                      <Select
-                        onValueChange={(value) => field.onChange(value ? parseInt(value) : null)}
-                        value={field.value?.toString() || ""}
-                      >
-                        <FormControl>
-                          <SelectTrigger>
-                            <SelectValue placeholder="Select Clinical Co-Lead 2" />
-                          </SelectTrigger>
-                        </FormControl>
-                        <SelectContent>
-                          {scientists.filter(scientist => scientist.jobTitle === 'Physician').map((scientist) => (
-                            <SelectItem key={scientist.id} value={scientist.id.toString()}>
-                              {[scientist.honorificTitle, scientist.firstName, scientist.lastName].filter(Boolean).join(' ')} - {scientist.jobTitle || 'No title'}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
+                      <FormControl>
+                        <PersonSelect
+                          options={physicians}
+                          allStaff={scientists}
+                          value={field.value}
+                          onChange={field.onChange}
+                          placeholder="Select Clinical Co-Lead 2"
+                          rule={PERSON_SELECT_RULES.physician}
+                          testId="select-clinical-co-lead-2"
+                        />
+                      </FormControl>
                       <FormMessage />
                     </FormItem>
                   )}

@@ -30,7 +30,14 @@ export function auditContextMiddleware(req: Request, _res: Response, next: NextF
   const user = (req.session as any)?.user;
 
   req.audit = new AuditService({
-    userId:    user?.id    ?? null,
+    // `|| null`, not `?? null`: the demo session is user id 0, which is not a
+    // real users row, and audit_log.changed_by is a foreign key to it. `??`
+    // preserves the 0, the insert is rejected, and every audited write in demo
+    // mode loses its audit entry. Recording nobody is right here -- in demo
+    // mode there is nobody to record. This is the third place this exact
+    // distinction has mattered; see grants.created_by_user_id and
+    // user_role_assignments.assigned_by.
+    userId:    user?.id    || null,
     // Trust proxy is set in index.ts, so req.ip is the real client IP.
     ipAddress: req.ip      ?? null,
     userAgent: (req.headers["user-agent"] as string | undefined) ?? null,

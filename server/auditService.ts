@@ -74,6 +74,36 @@ export class AuditService {
     };
   }
 
+  /**
+   * Write one audit row.
+   *
+   * Every caller runs *after* its change has already committed, so throwing
+   * from here reports failure on work that succeeded: the record was saved,
+   * the operator was told it was not, and clicking again produced "not found"
+   * because the delete had in fact gone through. That is how a missing
+   * audit_log table turned every staff edit in production into a 500.
+   *
+   * So a failed audit write is logged loudly and swallowed. It is a real
+   * problem -- an audit gap -- but it is the smaller of the two, and it is now
+   * visible in the logs instead of being reported to the wrong person as the
+   * wrong error.
+   */
+  private async write(
+    entry: typeof auditLog.$inferInsert,
+    describe: string,
+  ): Promise<void> {
+    try {
+      await db.insert(auditLog).values(entry);
+    } catch (error) {
+      console.error(
+        `AUDIT WRITE FAILED (${describe}). The change itself was saved; only the ` +
+        `audit entry was lost. If this repeats, check that the audit_log table ` +
+        `exists and that migrations/20260831_audit_log.sql has been applied.`,
+        error,
+      );
+    }
+  }
+
   /** Call after a successful INSERT. */
   async logInsert(
     tableName: string,
@@ -81,7 +111,7 @@ export class AuditService {
     newValues: Record<string, unknown>,
     reason?:   string,
   ): Promise<void> {
-    await db.insert(auditLog).values({
+    await this.write({
       ...this.base(),
       tableName,
       recordId,
@@ -89,7 +119,7 @@ export class AuditService {
       newValues:     redact(newValues),
       changedFields: Object.keys(newValues),
       reason:        reason ?? null,
-    });
+    }, `INSERT ${tableName}#${recordId}`);
   }
 
   /**
@@ -106,7 +136,7 @@ export class AuditService {
     const changed = changedKeys(before, after);
     if (changed.length === 0) return;
 
-    await db.insert(auditLog).values({
+    await this.write({
       ...this.base(),
       tableName,
       recordId,
@@ -115,7 +145,7 @@ export class AuditService {
       newValues:     redact(after),
       changedFields: changed,
       reason:        reason ?? null,
-    });
+    }, `UPDATE ${tableName}#${recordId}`);
   }
 
   /** Call after a successful DELETE (pass the row snapshot before deletion). */
@@ -125,7 +155,7 @@ export class AuditService {
     oldValues: Record<string, unknown>,
     reason?:   string,
   ): Promise<void> {
-    await db.insert(auditLog).values({
+    await this.write({
       ...this.base(),
       tableName,
       recordId,
@@ -133,7 +163,7 @@ export class AuditService {
       oldValues:     redact(oldValues),
       changedFields: Object.keys(oldValues),
       reason:        reason ?? null,
-    });
+    }, `DELETE ${tableName}#${recordId}`);
   }
 
   /**

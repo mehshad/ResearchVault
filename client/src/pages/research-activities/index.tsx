@@ -24,6 +24,8 @@ import { Table as TableIcon, FilePlus, Search, MoreHorizontal, Users, Link as Li
 import { formatFullName, getInitials } from "@/utils/nameUtils";
 import { useCurrentUser } from "@/hooks/useCurrentUser";
 import { PermissionWrapper } from "@/components/PermissionWrapper";
+import { SdrImportDialog } from "@/components/SdrImportDialog";
+import { Upload } from "lucide-react";
 
 interface Program {
   id: number;
@@ -88,6 +90,7 @@ interface ResearchActivity {
 }
 
 export default function ResearchActivitiesList() {
+  const [importOpen, setImportOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [activeTab, setActiveTab] = useState("all");
   const [selectedProjectTab, setSelectedProjectTab] = useState<string>("all");
@@ -199,18 +202,31 @@ export default function ResearchActivitiesList() {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-semibold text-foreground">Research Activities (SDR)</h1>
-        <PermissionWrapper
-          currentUserRole={currentUser.role}
-          navigationItem="research-activities"
-          requiredPermissions={['canAdd']}
-          fallback={null}
-        >
-          <Link href="/research-activities/create">
-            <Button className="bg-primary text-primary-foreground hover:bg-primary/90">
-              New Research Activity
+        <div className="flex gap-2">
+          <PermissionWrapper
+            currentUserRole={currentUser.role}
+            navigationItem="research-activities"
+            requiredPermissions={['canAdd']}
+            fallback={null}
+          >
+            <Button variant="outline" onClick={() => setImportOpen(true)} data-testid="button-open-sdr-import">
+              <Upload className="mr-2 h-4 w-4" />
+              Import
             </Button>
-          </Link>
-        </PermissionWrapper>
+          </PermissionWrapper>
+          <PermissionWrapper
+            currentUserRole={currentUser.role}
+            navigationItem="research-activities"
+            requiredPermissions={['canAdd']}
+            fallback={null}
+          >
+            <Link href="/research-activities/create">
+              <Button className="bg-primary text-primary-foreground hover:bg-primary/90">
+                New Research Activity
+              </Button>
+            </Link>
+          </PermissionWrapper>
+        </div>
       </div>
 
       <Card>
@@ -435,6 +451,8 @@ export default function ResearchActivitiesList() {
           </Tabs>
         </CardContent>
       </Card>
+
+      <SdrImportDialog open={importOpen} onOpenChange={setImportOpen} />
     </div>
     </PermissionWrapper>
   );

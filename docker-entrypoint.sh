@@ -132,6 +132,7 @@ for migration in \
     "migrations/20260830_consolidate_researcher_role.sql" \
     "migrations/20260830_role_permissions_foreign_key.sql" \
     "migrations/20260831_add_sdr_exemption.sql" \
+    "migrations/20260831_audit_log.sql" \
     "migrations/20260831_consolidate_navigation_areas.sql" \
     "migrations/20260901_grant_audit_and_not_awarded.sql" \
     "migrations/20260901_grant_collaborating_institutions.sql" \
@@ -143,6 +144,7 @@ for migration in \
        [ "$migration" = "migrations/20260901_grant_audit_and_not_awarded.sql" ] || \
        [ "$migration" = "migrations/20260901_grant_collaborating_institutions.sql" ] || \
        [ "$migration" = "migrations/20260902_grant_external_lpi.sql" ] || \
+       [ "$migration" = "migrations/20260831_audit_log.sql" ] || \
        [ "$migration" = "migrations/20260827_add_publication_invalid_reason.sql" ]; then
       # This migration installs lifecycle constraints and concurrency guards.
       # Do not start the application if those protections fail to apply.
