@@ -19,6 +19,7 @@ import {
 } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
+import { SearchableSelect } from "@/components/ui/searchable-select";
 import { Separator } from "@/components/ui/separator";
 import {
   Dialog,
@@ -326,48 +327,39 @@ export default function TeamDetail(props: TeamDetailProps) {
             <div className="grid gap-4 py-4">
               <div className="grid gap-2">
                 <Label htmlFor="scientist">Scientist</Label>
-                <Select
-                  value={selectedScientistId?.toString() || ""}
-                  onValueChange={(value) => {
+                {/* Typeahead rather than a plain list. The directory runs to
+                    several hundred people; scrolling to find one, past
+                    colleagues who differ only by first name, is slower than
+                    typing three letters. Job title, staff ID and email are all
+                    searchable because people reach for whichever they know. */}
+                <SearchableSelect
+                  options={availableScientists.map((scientist: Scientist) => ({
+                    value: String(scientist.id),
+                    label: `${formatFullName(scientist)}${scientist.jobTitle ? ` — ${scientist.jobTitle}` : ""}`,
+                    searchText: [
+                      formatFullName(scientist),
+                      scientist.jobTitle,
+                      scientist.staffId,
+                      scientist.email,
+                    ].filter(Boolean).join(" "),
+                  }))}
+                  value={selectedScientistId ? String(selectedScientistId) : ""}
+                  onChange={(value) => {
                     setSelectedScientistId(parseInt(value));
-                    // Clear role selection when scientist changes to prevent invalid combinations
+                    // Clear the role when the person changes, so an invalid
+                    // pairing cannot be left behind.
                     setSelectedRole("");
                   }}
-                >
-                  <SelectTrigger id="scientist">
-                    <SelectValue placeholder="Select scientist" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {scientistsLoading ? (
-                      <SelectItem value="loading" disabled>
-                        Loading scientists...
-                      </SelectItem>
-                    ) : availableScientists.length === 0 ? (
-                      <SelectItem value="none" disabled>
-                        No available scientists
-                      </SelectItem>
-                    ) : (
-                      availableScientists.map((scientist: Scientist) => (
-                        <SelectItem
-                          key={scientist.id}
-                          value={scientist.id.toString()}
-                        >
-                          <div className="flex items-center justify-between w-full">
-                            <div className="flex flex-col">
-                              <span className="font-medium">{formatFullName(scientist)}</span>
-                              <span className="text-xs text-muted-foreground">{scientist.jobTitle}</span>
-                            </div>
-                            {scientist.staffId && 
-                              <Badge variant="outline" className="text-xs font-mono bg-blue-50 text-blue-700 border-blue-200 dark:bg-blue-950 dark:text-blue-300 dark:border-blue-800">
-                                {scientist.staffId}
-                              </Badge>
-                            }
-                          </div>
-                        </SelectItem>
-                      ))
-                    )}
-                  </SelectContent>
-                </Select>
+                  placeholder={scientistsLoading ? "Loading staff…" : "Search for a colleague"}
+                  searchPlaceholder="Type a name, job title or staff ID…"
+                  emptyMessage={
+                    availableScientists.length === 0
+                      ? "Everyone is already on this team."
+                      : "Nobody matches that."
+                  }
+                  disabled={scientistsLoading}
+                  data-testid="select-team-member"
+                />
               </div>
               <div className="grid gap-2">
                 <Label htmlFor="role">Team Role Assignment</Label>
