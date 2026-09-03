@@ -6,6 +6,9 @@ import { useLocation, useParams } from "wouter";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Scientist, ResearchActivity, Project, Program } from "@shared/schema";
+import type { Department, Section } from "@shared/schema";
+import { fetchList } from "@/lib/fetchList";
+import { resolveOrgPlacement } from "@/lib/staffOrgPlacement";
 import { ArrowLeft, Mail, Building, User, Pencil, ChevronRight, ChevronDown, Folder, FileText, Users, ExternalLink, Trash2, Loader2 } from "lucide-react";
 import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
@@ -295,6 +298,19 @@ export default function ScientistDetail() {
     },
   });
 
+  // Where this person sits in the organisation. Held on the staff record as
+  // ids, so the names have to be looked up -- the profile showed neither before
+  // and most records have no legacy free-text department to fall back on.
+  const { data: departments = [] } = useQuery<Department[]>({
+    queryKey: ['/api/departments'],
+    queryFn: () => fetchList<Department>('/api/departments'),
+  });
+
+  const { data: sections = [] } = useQuery<Section[]>({
+    queryKey: ['/api/sections'],
+    queryFn: () => fetchList<Section>('/api/sections'),
+  });
+
   // Fetch scientist's research activities
   const { data: scientistActivities, isLoading: activitiesLoading } = useQuery<(ResearchActivity & { project?: Project; program?: Program; memberRole?: string })[]>({
     queryKey: ['/api/scientists', id, 'research-activities'],
@@ -389,6 +405,8 @@ export default function ScientistDetail() {
       </div>
     );
   }
+
+  const { departmentName, section } = resolveOrgPlacement(scientist, departments, sections);
 
   // Check if this is a scientific staff member
   const isScientificStaff = scientist.staffType === 'scientific';
@@ -507,7 +525,7 @@ export default function ScientistDetail() {
                       </h2>
                       <div className="flex items-center">
                         <div className="text-sm font-medium text-muted-foreground mr-2">Job Title:</div>
-                        <p className="text-neutral-700">
+                        <p className="text-foreground">
                           {scientist.jobTitle || "No title"}
                         </p>
                         {scientist.isInvestigator && (
@@ -521,9 +539,36 @@ export default function ScientistDetail() {
                       </div>
                     </div>
 
-                    <div className="flex flex-wrap gap-2">
-                      {scientist.department && (
-                        <Badge variant="outline" className="bg-green-50 text-green-700 border-green-200 dark:bg-green-950 dark:text-green-300 dark:border-green-800">{scientist.department}</Badge>
+                    {/*
+                      * Where this person sits in the organisation.
+                      *
+                      * This was a single unlabelled green badge holding the
+                      * free-text `department` field. Two problems: the word
+                      * alone never said whether it was a department, a section
+                      * or a research area, and almost every record has moved to
+                      * the structured department/section links the badge did
+                      * not read -- so most profiles named no department at all.
+                      *
+                      * Labelled and laid out like the job title above it, which
+                      * is the same kind of fact about the same person.
+                      */}
+                    <div className="space-y-1">
+                      <div className="flex items-baseline">
+                        <div className="text-sm font-medium text-muted-foreground mr-2">Department:</div>
+                        <p className="text-foreground" data-testid="text-department">
+                          {departmentName || "Not recorded"}
+                        </p>
+                      </div>
+                      {section && (
+                        <div className="flex items-baseline">
+                          <div className="text-sm font-medium text-muted-foreground mr-2">Section:</div>
+                          <p className="text-foreground" data-testid="text-section">
+                            {section.name}
+                            {section.type && (
+                              <span className="text-muted-foreground"> · {section.type}</span>
+                            )}
+                          </p>
+                        </div>
                       )}
                     </div>
 
