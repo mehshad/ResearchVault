@@ -670,7 +670,32 @@ export default function StaffList() {
                       </TableHead>
                       <TableHead>Staff Type</TableHead>
                       <TableHead>Contact</TableHead>
-                      <TableHead className="text-center">Active SDRs</TableHead>
+                      <TableHead className="text-center">
+                        <Button
+                          variant="ghost"
+                          className="mx-auto p-0 h-auto font-bold hover:bg-transparent flex items-center"
+                          onClick={() => {
+                            if (sortField === 'activeResearchActivities') {
+                              setSortDirection(sortDirection === 'asc' ? 'desc' : 'asc');
+                            } else {
+                              setSortField('activeResearchActivities');
+                              // Busiest first. Ascending would open on everyone
+                              // with none, which is not what anybody sorting by
+                              // a workload count is looking for.
+                              setSortDirection('desc');
+                            }
+                          }}
+                          data-testid="sort-active-sdrs"
+                        >
+                          Active SDRs
+                          {sortField === 'activeResearchActivities' && (
+                            <span className="ml-1">
+                              {sortDirection === 'asc' ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+                            </span>
+                          )}
+                          {sortField !== 'activeResearchActivities' && <ArrowUpDown className="ml-1 h-4 w-4 opacity-50" />}
+                        </Button>
+                      </TableHead>
                       <TableHead className="w-[100px]"></TableHead>
                     </TableRow>
                   </TableHeader>
