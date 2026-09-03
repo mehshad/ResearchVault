@@ -1,3 +1,4 @@
+import type { GrantDashboardStats } from "@shared/dashboardStats";
 // Common types used across the application
 import { 
   Scientist, Project, ProjectMember, DataManagementPlan, 
@@ -117,6 +118,7 @@ export interface DashboardStats {
   activeResearchActivities: number;
   publications: number;
   patents: number;
+  grants?: GrantDashboardStats;
 }
 
 export interface Deadline {
