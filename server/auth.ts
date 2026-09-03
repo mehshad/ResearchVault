@@ -170,17 +170,34 @@ async function resolveDemoScientistId(): Promise<number | null> {
  * Management or an office role and still being answered as a named researcher
  * would misrepresent what those roles see.
  */
-async function demoScientistIdForRole(role: string | null | undefined): Promise<number | null> {
-  if ((role ?? "").trim() !== INVESTIGATOR_ROLE) return null;
+async function demoScientistIdForRoles(roles: readonly string[]): Promise<number | null> {
+  if (!roles.some((role) => role.trim() === INVESTIGATOR_ROLE)) return null;
   return resolveDemoScientistId();
+}
+
+/**
+ * Secondary roles the demo session holds alongside the one being emulated.
+ *
+ * An administrator is a person as well as a set of permissions. The account
+ * this demo stands behind is a superadmin who also runs research, which is the
+ * normal shape here -- administrator rights are held alongside a working role,
+ * not instead of one. Emulating superadmin with no second role therefore
+ * misrepresents it, and left the person unable to reach anything answered by
+ * "which of these are mine".
+ */
+function demoSecondaryRolesFor(role: string): string[] {
+  const administrators = new Set(["superadmin", "admin"]);
+  return administrators.has(role.trim()) ? [INVESTIGATOR_ROLE] : [];
 }
 
 // Demo mode: auto-inject a configurable guest user for every request
 export async function demoBannerMiddleware(req: Request, _res: Response, next: NextFunction) {
   const startingRole = process.env.DEMO_ROLE || "Management";
-  const scientistId = await demoScientistIdForRole(
-    req.session.user ? req.session.user.role : startingRole,
-  );
+  const currentRole = req.session.user ? req.session.user.role : startingRole;
+  const secondaryRoles = req.session.user
+    ? req.session.user.secondaryRoles ?? []
+    : demoSecondaryRolesFor(startingRole);
+  const scientistId = await demoScientistIdForRoles([currentRole, ...secondaryRoles]);
 
   if (!req.session.user) {
     req.session.user = {
@@ -189,7 +206,7 @@ export async function demoBannerMiddleware(req: Request, _res: Response, next: N
       name: process.env.DEMO_NAME || "Demo User",
       email: process.env.DEMO_EMAIL || "demo@researchvault.local",
       role: startingRole,
-      secondaryRoles: [],
+      secondaryRoles,
       scientistId,
       needsRegistration: false,
     };
@@ -693,11 +710,17 @@ export function registerAuthRoutes(app: any) {
       if (!req.session.user) {
         return res.status(401).json({ message: "No demo session to update." });
       }
-      // Emulating an Investigator means being somebody, so that the views
-      // answering "which of these are mine" have an answer to give.
-      const scientistId = await demoScientistIdForRole(requested);
-      req.session.user = { ...req.session.user, role: requested, secondaryRoles: [], scientistId };
-      authLog(`demo role switched to ${requested}${scientistId ? ` (as scientist ${scientistId})` : ""}`);
+      // Holding Investigator -- as the primary role or alongside it -- means
+      // being somebody, so the views answering "which of these are mine" have
+      // an answer to give.
+      const secondaryRoles = demoSecondaryRolesFor(requested);
+      const scientistId = await demoScientistIdForRoles([requested, ...secondaryRoles]);
+      req.session.user = { ...req.session.user, role: requested, secondaryRoles, scientistId };
+      authLog(
+        `demo role switched to ${requested}` +
+          (secondaryRoles.length ? ` + ${secondaryRoles.join(", ")}` : "") +
+          (scientistId ? ` (as scientist ${scientistId})` : ""),
+      );
       res.json({ user: req.session.user });
     });
   }

@@ -354,14 +354,20 @@ export default function AdminUsersPage() {
                     </div>
 
                     {/* Secondary roles: additive, and how administrator rights
-                        are granted. Superadmin is excluded because it comes
-                        from configuration, never from this screen. */}
+                        are granted.
+                        
+                        Offered to a superadmin too. Their permissions already
+                        cover everything, but these roles are not only
+                        permissions -- Investigator decides who may be a PI, who
+                        appears in the PI pickers, and whose SDRs are whose. A
+                        superadmin who also runs research could hold none of
+                        that, and was locked out of their own work. What stays
+                        forbidden is assigning *superadmin* as a secondary,
+                        which the server refuses; that is a different thing from
+                        a superadmin holding other roles. */}
                     <div className="min-w-0">
                       <span className="mr-2 font-medium text-foreground md:hidden">Secondary roles:</span>
-                      {isSuperAdmin ? (
-                        <span className="text-xs text-muted-foreground">Not applicable</span>
-                      ) : (
-                        <div className="flex flex-wrap items-center gap-1.5">
+                      <div className="flex flex-wrap items-center gap-1.5">
                           {currentSecondary.length === 0 && (
                             <span className="text-xs text-muted-foreground">None</span>
                           )}
@@ -413,18 +419,17 @@ export default function AdminUsersPage() {
                               )}
                             </SelectContent>
                           </Select>
-                          {secondaryChanged && (
-                            <Button
-                              size="sm"
-                              className="h-7"
-                              onClick={() => secondaryMutation.mutate({ id: u.id, roles: currentSecondary })}
-                              disabled={secondaryMutation.isPending}
-                            >
-                              Save
-                            </Button>
-                          )}
-                        </div>
-                      )}
+                        {secondaryChanged && (
+                          <Button
+                            size="sm"
+                            className="h-7"
+                            onClick={() => secondaryMutation.mutate({ id: u.id, roles: currentSecondary })}
+                            disabled={secondaryMutation.isPending}
+                          >
+                            Save
+                          </Button>
+                        )}
+                      </div>
                     </div>
                   </div>
                 );
