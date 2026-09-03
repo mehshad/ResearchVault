@@ -201,7 +201,12 @@ export default function ScientistDetail() {
   const id = parseInt(params.id);
   const { user, authConfig } = useAuth();
   const { currentUser } = useCurrentUser();
-  const ownerId = authConfig.mode === "demo" ? currentUser.id : user?.scientistId;
+  // The *staff* record of whoever is looking, compared against the profile
+  // being viewed. Demo mode read `currentUser.id` here -- the account id, which
+  // is 0 for a demo session -- and compared it against a scientist id, so
+  // `isOwner` was false on every profile including your own. Real sessions were
+  // already correct; only demo asked the wrong object for the number.
+  const ownerId = authConfig.mode === "demo" ? currentUser.scientistId : user?.scientistId;
   const effectiveRole = authConfig.mode === "demo" ? currentUser.role : (user?.role ?? "user");
   /**
    * The person, not one role string. Access is the union of the primary role
@@ -694,7 +699,14 @@ export default function ScientistDetail() {
 
         {/* Unified Publications panel - Only show for scientific staff.
             Combines recent publications, internal author links, and (when an
-            external profile is on file) the missing-works importer. */}
+            external profile is on file) the missing-works importer.
+
+            The last two are shown on your own profile only. Both are
+            self-service tidying of your own bibliography, both are worded for
+            the person whose publications they are, and both are work only that
+            person can settle -- on a colleague's profile they read as an
+            invitation to edit somebody else's record. The Outcome Office has
+            its own screen for doing this across everybody. */}
         {isScientificStaff && (
           <PublicationsPanel
             scientistId={id}
@@ -703,8 +715,9 @@ export default function ScientistDetail() {
             hasScholar={!!scientist.googleScholarUrl}
             canImport={canImport}
             demoViewerRole={authConfig.mode === "demo" ? currentUser.role : undefined}
-            demoViewerScientistId={authConfig.mode === "demo" ? currentUser.id : undefined}
-            showAuthorFixes={!isRestrictedRealUser}
+            demoViewerScientistId={authConfig.mode === "demo" ? (currentUser.scientistId ?? undefined) : undefined}
+            showAuthorFixes={isOwner && !isRestrictedRealUser}
+            showMissingPapers={isOwner && !isRestrictedRealUser}
             showInvalidIssues={isOwner || hasAnyRole(effectiveUser, ["Outcome Officer", "Management", "admin", "superadmin"])}
             canActOnInvalid={isOwner}
           />
@@ -753,7 +766,7 @@ export default function ScientistDetail() {
               scientistId={id}
               yearsSince={5}
               demoViewerRole={authConfig.mode === "demo" ? currentUser.role : undefined}
-              demoViewerScientistId={authConfig.mode === "demo" ? currentUser.id : undefined}
+              demoViewerScientistId={authConfig.mode === "demo" ? (currentUser.scientistId ?? undefined) : undefined}
             />
           )}
           {isScientificStaff && (
