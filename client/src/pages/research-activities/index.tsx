@@ -374,6 +374,18 @@ export default function ResearchActivitiesList() {
                         <TableIcon className="h-4 w-4 text-primary-500" />
                         <span>{activity.sdrNumber}</span>
                       </div>
+                    </TableCell>
+                    <TableCell>
+                      <div className="font-medium">{activity.title}</div>
+                      <div className="text-sm text-gray-600 mt-1 dark:text-gray-300">
+                        {activity.project ? (
+                          <span>
+                            PRJ: {activity.project.projectId} - {activity.project.name} • PRG: {activity.project.program?.name || 'No program'}
+                          </span>
+                        ) : (
+                          <span>No project assigned</span>
+                        )}
+                      </div>
                       {/* Only under the filter. In the full list these tags
                           would sit on a minority of rows and read as noise;
                           the distinction matters once you have asked to see
@@ -390,16 +402,21 @@ export default function ResearchActivitiesList() {
                           return (
                             <Badge
                               variant="outline"
-                              className="mt-1 border-amber-400 text-xs font-normal text-amber-800 dark:text-amber-300"
+                              className="mt-1.5 inline-flex items-center gap-1 whitespace-nowrap border-amber-400 text-xs font-normal text-amber-800 dark:text-amber-300"
                               title={involvement.teamMembers.map(nameOf).join(", ")}
                             >
-                              <UserRound className="mr-1 h-3 w-3" />
+                              <UserRound className="h-3 w-3 shrink-0" />
                               {/* Says what the number counts. A bare "(2)"
                                   beside "Your team, not you" could as easily
-                                  have meant two SDRs, two roles or a version. */}
-                              {involvement.teamMembers.length === 1
-                                ? "1 of your team, not you"
-                                : `${involvement.teamMembers.length} of your team, not you`}
+                                  have meant two SDRs, two roles or a version.
+                                  Centred, because the column is narrow enough
+                                  that it wraps and ragged two-line text in a
+                                  pill reads as a mistake. */}
+                              <span>
+                                {involvement.teamMembers.length === 1
+                                  ? "1 of your team, not you"
+                                  : `${involvement.teamMembers.length} of your team, not you`}
+                              </span>
                             </Badge>
                           );
                         }
@@ -411,25 +428,13 @@ export default function ResearchActivitiesList() {
                       {mineOnly && myInvolvement.get(activity.id)?.piMissingFromTeam != null && (
                         <Badge
                           variant="outline"
-                          className="mt-1 border-destructive/50 text-xs font-normal text-destructive"
+                          className="mt-1.5 ml-1.5 inline-flex items-center gap-1 whitespace-nowrap border-destructive/50 text-xs font-normal text-destructive"
                           title={`${nameOf(myInvolvement.get(activity.id)!.piMissingFromTeam!)} is the PI of record but is not on the research team. Open the SDR's team to add them.`}
                         >
-                          <AlertTriangle className="mr-1 h-3 w-3" />
-                          PI not on the team
+                          <AlertTriangle className="h-3 w-3 shrink-0" />
+                          <span>PI not on the team</span>
                         </Badge>
                       )}
-                    </TableCell>
-                    <TableCell>
-                      <div className="font-medium">{activity.title}</div>
-                      <div className="text-sm text-gray-600 mt-1 dark:text-gray-300">
-                        {activity.project ? (
-                          <span>
-                            PRJ: {activity.project.projectId} - {activity.project.name} • PRG: {activity.project.program?.name || 'No program'}
-                          </span>
-                        ) : (
-                          <span>No project assigned</span>
-                        )}
-                      </div>
                     </TableCell>
                     <TableCell>
                       <div className="text-sm">
