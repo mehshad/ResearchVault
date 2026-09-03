@@ -382,13 +382,10 @@ export default function ResearchActivitiesList() {
                         if (!mineOnly) return null;
                         const involvement = myInvolvement.get(activity.id);
                         if (!involvement) return null;
-                        if (involvement.mine) {
-                          return (
-                            <Badge variant="secondary" className="mt-1 text-xs font-normal">
-                              You are a member
-                            </Badge>
-                          );
-                        }
+                        // No tag for the ordinary case. Under this filter most
+                        // rows are yours, so saying so on each one is noise;
+                        // what earns a tag is the exception.
+                        if (involvement.mine) return null;
                         if (involvement.teamMembers.length > 0) {
                           return (
                             <Badge
