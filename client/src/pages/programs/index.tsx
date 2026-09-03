@@ -16,7 +16,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { Beaker, FilePlus, Search, MoreHorizontal } from "lucide-react";
+import { Beaker, ExternalLink, FilePlus, FolderOpen, Globe, Search, MoreHorizontal } from "lucide-react";
 import { useCurrentUser } from "@/hooks/useCurrentUser";
 import { PermissionWrapper, useElementPermissions } from "@/components/PermissionWrapper";
 
@@ -29,6 +29,8 @@ interface Program {
   researchCoLeadId: number | null;
   clinicalCoLead1Id: number | null;
   clinicalCoLead2Id: number | null;
+  sharepointUrl: string | null;
+  websiteUrl: string | null;
   createdAt: string;
   updatedAt: string;
   
@@ -145,6 +147,7 @@ export default function ProgramsList() {
                   <TableHead>Name</TableHead>
                   <TableHead>Director</TableHead>
                   <TableHead>Co-Leads</TableHead>
+                  <TableHead>Links</TableHead>
                   <TableHead className="w-[100px]"></TableHead>
                 </TableRow>
               </TableHeader>
@@ -208,6 +211,41 @@ export default function ProgramsList() {
                       </div>
                     </TableCell>
                     <TableCell>
+                      <div className="flex items-center gap-2">
+                        {program.sharepointUrl && (
+                          <a
+                            href={program.sharepointUrl}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            onClick={(e) => e.stopPropagation()}
+                            className="inline-flex items-center gap-1 text-xs text-blue-700 hover:underline dark:text-blue-300"
+                            data-testid={`link-sharepoint-${program.id}`}
+                          >
+                            <FolderOpen className="h-3.5 w-3.5" />
+                            SharePoint
+                            <ExternalLink className="h-3 w-3" />
+                          </a>
+                        )}
+                        {program.websiteUrl && (
+                          <a
+                            href={program.websiteUrl}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            onClick={(e) => e.stopPropagation()}
+                            className="inline-flex items-center gap-1 text-xs text-green-700 hover:underline dark:text-green-300"
+                            data-testid={`link-website-${program.id}`}
+                          >
+                            <Globe className="h-3.5 w-3.5" />
+                            Website
+                            <ExternalLink className="h-3 w-3" />
+                          </a>
+                        )}
+                        {!program.sharepointUrl && !program.websiteUrl && (
+                          <span className="text-gray-600 text-sm dark:text-gray-300">None</span>
+                        )}
+                      </div>
+                    </TableCell>
+                    <TableCell>
                       <DropdownMenu>
                         <DropdownMenuTrigger asChild>
                           <Button 
@@ -238,7 +276,7 @@ export default function ProgramsList() {
                 ))}
                 {filteredPrograms?.length === 0 && (
                   <TableRow>
-                    <TableCell colSpan={5} className="text-center py-8 text-gray-600 dark:text-gray-300">
+                    <TableCell colSpan={6} className="text-center py-8 text-gray-600 dark:text-gray-300">
                       No programs found matching your search.
                     </TableCell>
                   </TableRow>

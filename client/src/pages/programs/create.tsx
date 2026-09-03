@@ -304,6 +304,53 @@ export default function CreateProgram() {
                     </FormItem>
                   )}
                 />
+                <FormField
+                  control={form.control}
+                  name="sharepointUrl"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>SharePoint Link</FormLabel>
+                      <FormControl>
+                        <Input
+                          type="url"
+                          placeholder="https://sidra.sharepoint.com/sites/..."
+                          autoComplete="off"
+                          data-1p-ignore="true"
+                          data-lpignore="true"
+                          data-testid="input-sharepoint-url"
+                          {...field}
+                          value={field.value ?? ""}
+                        />
+                      </FormControl>
+                      <FormDescription>The program's SharePoint site. Optional.</FormDescription>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+
+                <FormField
+                  control={form.control}
+                  name="websiteUrl"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Website Link</FormLabel>
+                      <FormControl>
+                        <Input
+                          type="url"
+                          placeholder="https://www.sidra.org/..."
+                          autoComplete="off"
+                          data-1p-ignore="true"
+                          data-lpignore="true"
+                          data-testid="input-website-url"
+                          {...field}
+                          value={field.value ?? ""}
+                        />
+                      </FormControl>
+                      <FormDescription>The program's public web page. Optional.</FormDescription>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
               </div>
 
               <CardFooter className="flex justify-end space-x-2 px-0">

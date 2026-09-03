@@ -335,6 +335,8 @@ const PROGRAM_COLS: ColDef[] = [
   { header: "Research Co-Lead Email", key: "researchCoLeadEmail" },
   { header: "Clinical Co-Lead 1 Email", key: "clinicalCoLead1Email" },
   { header: "Clinical Co-Lead 2 Email", key: "clinicalCoLead2Email" },
+  { header: "SharePoint Link", key: "sharepointUrl", description: "Full https:// link" },
+  { header: "Website Link", key: "websiteUrl", description: "Full https:// link" },
 ];
 
 const PROJECT_COLS: ColDef[] = [
@@ -1034,6 +1036,8 @@ function programsToRows(
     researchCoLeadEmail: p.researchCoLeadId ? (scientistById.get(p.researchCoLeadId)?.email ?? "") : "",
     clinicalCoLead1Email: p.clinicalCoLead1Id ? (scientistById.get(p.clinicalCoLead1Id)?.email ?? "") : "",
     clinicalCoLead2Email: p.clinicalCoLead2Id ? (scientistById.get(p.clinicalCoLead2Id)?.email ?? "") : "",
+    sharepointUrl: p.sharepointUrl ?? "",
+    websiteUrl: p.websiteUrl ?? "",
   }));
 }
 
@@ -2542,6 +2546,22 @@ function previewProgramRows(
     if (ccl1 !== undefined) data.clinicalCoLead1Id = ccl1;
     const ccl2 = resolveLeader(row.clinicalCoLead2Email ?? "", "Clinical Co-Lead 2");
     if (ccl2 !== undefined) data.clinicalCoLead2Id = ccl2;
+
+    const resolveLink = (raw: string, label: string): string | null | undefined => {
+      const value = maybeText(raw.trim(), !isNew);
+      // Same rule the API enforces: these are rendered into an href, so only
+      // http(s) gets stored. A bad cell fails the row rather than silently
+      // importing a link that will not work.
+      if (typeof value === "string" && !/^https?:\/\/\S/i.test(value)) {
+        errors.push(`${label} "${value}" must start with http:// or https://`);
+        return undefined;
+      }
+      return value;
+    };
+    const sharepoint = resolveLink(row.sharepointUrl ?? "", "SharePoint Link");
+    if (sharepoint !== undefined) data.sharepointUrl = sharepoint;
+    const website = resolveLink(row.websiteUrl ?? "", "Website Link");
+    if (website !== undefined) data.websiteUrl = website;
 
     if (errors.length > 0) {
       entries.push({ sheetName: "Programs", rowNumber, action: "error", key: programId, reason: errors.join("; ") });

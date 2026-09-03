@@ -174,15 +174,43 @@ export const programs = pgTable("programs", {
   researchCoLeadId: integer("research_co_lead_id"), // Research Co-Lead (references scientists.id)
   clinicalCoLead1Id: integer("clinical_co_lead_1_id"), // Clinical Co-Lead 1 (references scientists.id)
   clinicalCoLead2Id: integer("clinical_co_lead_2_id"), // Clinical Co-Lead 2 (references scientists.id)
+  sharepointUrl: text("sharepoint_url"), // The program's SharePoint site
+  websiteUrl: text("website_url"), // The program's public web page
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 });
 
-export const insertProgramSchema = createInsertSchema(programs).omit({
-  id: true,
-  createdAt: true,
-  updatedAt: true,
-});
+/**
+ * A link somebody will click from the program page or the programs table.
+ *
+ * Only http(s) is accepted. Both columns are free text typed by a coordinator
+ * and are rendered straight into an `href`, so a `javascript:` URL saved here
+ * would run in the next reader's session. Rejecting it on the way in means
+ * every stored value is safe to render, wherever it is rendered.
+ *
+ * An empty box means "no link" and is stored as null rather than "", so the
+ * page can test the field for truthiness and the export writes a blank cell.
+ */
+const programLinkUrl = z
+  .string()
+  .trim()
+  .transform((value) => (value === "" ? null : value))
+  .nullable()
+  .refine((value) => value === null || /^https?:\/\/\S/i.test(value), {
+    message: "Enter a full link starting with http:// or https://",
+  })
+  .optional();
+
+export const insertProgramSchema = createInsertSchema(programs)
+  .omit({
+    id: true,
+    createdAt: true,
+    updatedAt: true,
+  })
+  .extend({
+    sharepointUrl: programLinkUrl,
+    websiteUrl: programLinkUrl,
+  });
 
 // Projects (PRJ) - Collections of related research activities
 export const projects = pgTable("projects", {

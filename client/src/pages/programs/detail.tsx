@@ -3,7 +3,7 @@ import { useLocation, useParams, Link } from "wouter";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Program, Project, Scientist } from "@shared/schema";
-import { ArrowLeft, Calendar, FileText, Layers, Plus, Edit, User } from "lucide-react";
+import { ArrowLeft, Calendar, ExternalLink, FileText, FolderOpen, Globe, Layers, Plus, Edit, User } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Badge } from "@/components/ui/badge";
 import { Table, TableHeader, TableRow, TableHead, TableBody, TableCell } from "@/components/ui/table";
@@ -272,6 +272,40 @@ export default function ProgramDetail() {
                   </div>
                 </div>
               </div>
+
+              {(program.sharepointUrl || program.websiteUrl) && (
+                <div className="mt-4">
+                  <h3 className="text-sm font-medium text-foreground">Links</h3>
+                  <div className="flex flex-wrap gap-2 mt-1">
+                    {program.sharepointUrl && (
+                      <a
+                        href={program.sharepointUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-blue-50 text-blue-700 hover:bg-blue-100 transition-colors text-sm dark:bg-blue-950 dark:text-blue-300 dark:hover:bg-blue-950"
+                        data-testid="link-sharepoint"
+                      >
+                        <FolderOpen className="h-4 w-4" />
+                        SharePoint
+                        <ExternalLink className="h-3 w-3" />
+                      </a>
+                    )}
+                    {program.websiteUrl && (
+                      <a
+                        href={program.websiteUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-green-50 text-green-700 hover:bg-green-100 transition-colors text-sm dark:bg-green-950 dark:text-green-300 dark:hover:bg-green-950"
+                        data-testid="link-website"
+                      >
+                        <Globe className="h-4 w-4" />
+                        Website
+                        <ExternalLink className="h-3 w-3" />
+                      </a>
+                    )}
+                  </div>
+                </div>
+              )}
 
               {program.description && (
                 <div className="mt-4">
