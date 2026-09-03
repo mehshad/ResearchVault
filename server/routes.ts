@@ -3732,6 +3732,20 @@ function writeFailureDetail(error: unknown): string {
       if (updatedActivity.budgetHolderId) {
         try {
           const team = await storage.getProjectMembers(id);
+
+          // Whoever used to be PI is demoted rather than removed. They were
+          // genuinely on this work and may still be; dropping them would lose
+          // that, and an SDR is supposed to have exactly one PI, so leaving two
+          // is not an option either. Removing them stays a deliberate act.
+          for (const member of team as any[]) {
+            if (
+              member.role === "Principal Investigator" &&
+              member.scientistId !== updatedActivity.budgetHolderId
+            ) {
+              await storage.setProjectMemberRole(id, member.scientistId, "Team Member");
+            }
+          }
+
           const alreadyOnIt = team.some(
             (member: any) => member.scientistId === updatedActivity.budgetHolderId,
           );
@@ -3741,10 +3755,14 @@ function writeFailureDetail(error: unknown): string {
               scientistId: updatedActivity.budgetHolderId,
               role: "Principal Investigator",
             });
+          } else {
+            // Already on the team in some other capacity: promote rather than
+            // add a second row for the same person.
+            await storage.setProjectMemberRole(id, updatedActivity.budgetHolderId, "Principal Investigator");
           }
         } catch (memberError) {
           // Worth reporting, not worth failing a saved update over.
-          console.error("Failed to add the PI to the team for", updatedActivity.sdrNumber, memberError);
+          console.error("Failed to reconcile the team for", updatedActivity.sdrNumber, memberError);
         }
       }
       

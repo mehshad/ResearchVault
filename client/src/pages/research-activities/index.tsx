@@ -397,8 +397,12 @@ export default function ResearchActivitiesList() {
                               title={involvement.teamMembers.map(nameOf).join(", ")}
                             >
                               <UserRound className="mr-1 h-3 w-3" />
-                              Your team, not you
-                              {involvement.teamMembers.length > 1 && ` (${involvement.teamMembers.length})`}
+                              {/* Says what the number counts. A bare "(2)"
+                                  beside "Your team, not you" could as easily
+                                  have meant two SDRs, two roles or a version. */}
+                              {involvement.teamMembers.length === 1
+                                ? "1 of your team, not you"
+                                : `${involvement.teamMembers.length} of your team, not you`}
                             </Badge>
                           );
                         }

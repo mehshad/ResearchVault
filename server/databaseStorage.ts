@@ -369,6 +369,23 @@ export class DatabaseStorage implements IStorage {
     return newMember;
   }
 
+  async setProjectMemberRole(
+    researchActivityId: number,
+    scientistId: number,
+    role: string,
+  ): Promise<boolean> {
+    const result = await db
+      .update(projectMembers)
+      .set({ role })
+      .where(
+        and(
+          eq(projectMembers.researchActivityId, researchActivityId),
+          eq(projectMembers.scientistId, scientistId),
+        ),
+      );
+    return (result.rowCount ?? 0) > 0;
+  }
+
   async removeProjectMember(researchActivityId: number, scientistId: number): Promise<boolean> {
     const result = await db
       .delete(projectMembers)
