@@ -101,6 +101,7 @@ import {
   rejectPublicationCreateWorkflowMutation,
   rejectProtectedPublicationStatusFields,
   getStatusTransitionWorkflowViolation,
+  parsePublicationStatusFields,
 } from "./publicationMutationPolicy";
 import {
   createIpVettingHandler,
@@ -5578,7 +5579,15 @@ function writeFailureDetail(error: unknown): string {
         return res.status(400).json({ message: "Invalid publication ID" });
       }
 
-      const { status, changes, updatedFields } = req.body;
+      const { status, changes } = req.body;
+
+      // Coerced, not trusted as sent: a date arrives here as a string and the
+      // column is a timestamp.
+      const parsedFields = parsePublicationStatusFields(req.body?.updatedFields);
+      if (!parsedFields.ok) {
+        return res.status(400).json({ message: parsedFields.message });
+      }
+      const updatedFields = parsedFields.fields;
 
       if (!status) {
         return res.status(400).json({ message: "Status is required" });
