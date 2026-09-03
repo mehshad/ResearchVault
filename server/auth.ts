@@ -19,7 +19,7 @@ import {
 import { userRoleAssignments } from "@shared/schema";
 import { inArray } from "drizzle-orm";
 import { db } from "./db";
-import { and, eq, sql } from "drizzle-orm";
+import { and, eq, isNull, sql } from "drizzle-orm";
 import { createHash } from "crypto";
 import { type Request, type Response, type NextFunction } from "express";
 import session from "express-session";
@@ -418,20 +418,53 @@ function resolveRole(existingRole: string, email: string): string {
   return existingRole;
 }
 
+/**
+ * The staff profile whose email matches, ignoring case.
+ *
+ * The directory and the identity provider disagree about capitalisation: staff
+ * records here are lower-case, while Active Directory returns the address as it
+ * was registered -- "WHendrickx@..." for "whendrickx@...". Comparing them
+ * literally finds nothing, the person is sent to register, and registering
+ * creates a second staff profile for somebody already in the table.
+ */
+async function findScientistByEmail(email: string): Promise<number | null> {
+  const normalised = email.trim().toLowerCase();
+  if (!normalised) return null;
+  const [match] = await db
+    .select({ id: scientists.id })
+    .from(scientists)
+    .where(sql`lower(${scientists.email}) = ${normalised}`)
+    .limit(1);
+  return match?.id ?? null;
+}
+
 async function findOrCreateExternalUser(
   username: string,
   name: string,
   email: string,
 ): Promise<SessionUser | null> {
-  let [user] = await db.select().from(users).where(eq(users.username, username));
+  // Case-insensitive, for the same reason: the provider may send a username
+  // capitalised differently from the one already stored, and matching literally
+  // would provision a second account for the same person.
+  let [user] = await db
+    .select()
+    .from(users)
+    .where(sql`lower(${users.username}) = ${username.trim().toLowerCase()}`);
 
   const role = resolveRole("user", email);
 
   if (!user) {
-    authLog(`provisioning new user username=${username} email=${email} role=${role}`);
+    // Adopt the staff profile that already exists for this address rather than
+    // sending somebody who is plainly in the directory off to re-enter
+    // themselves. Registration is for people the directory does not know.
+    const existingScientistId = await findScientistByEmail(email);
+    authLog(
+      `provisioning new user username=${username} email=${email} role=${role}` +
+        (existingScientistId ? ` linked to existing staff profile ${existingScientistId}` : " with no staff profile"),
+    );
     const [created] = await db
       .insert(users)
-      .values({ username, name, email, password: "", role })
+      .values({ username, name, email, password: "", role, scientistId: existingScientistId } as any)
       .returning();
     user = created;
     if (!user) {
@@ -454,6 +487,23 @@ async function findOrCreateExternalUser(
   }
 
   if (!user) return null;
+
+  // An account created before this linked on sign-in, or before its staff
+  // profile existed, is adopted the next time the person signs in rather than
+  // being left to register into a duplicate forever.
+  if (!(user as any).scientistId) {
+    const existingScientistId = await findScientistByEmail(user.email ?? email);
+    if (existingScientistId) {
+      authLog(`linking user id=${user.id} to existing staff profile ${existingScientistId}`);
+      const [linked] = await db
+        .update(users)
+        .set({ scientistId: existingScientistId, updatedAt: new Date() })
+        .where(and(eq(users.id, user.id), isNull(users.scientistId)))
+        .returning();
+      if (linked) user = linked;
+    }
+  }
+
   return toSessionUser(user, await loadSecondaryRoles(user.id));
 }
 
