@@ -40,14 +40,43 @@ export async function resolveInvestigatorScientistIds(
   return ids;
 }
 
+/**
+ * Those whose *primary* access role is Investigator, as distinct from holding
+ * it alongside another.
+ *
+ * Both are investigators and neither is more entitled than the other. The
+ * difference is what the person is here to do: somebody whose primary role is
+ * Investigator runs research as their job, while a Research Officer who also
+ * leads a study holds it in addition. In a list of a laboratory's
+ * investigators, the first is who you are looking for.
+ */
+export async function resolvePrimaryInvestigatorScientistIds(
+  database: Pick<typeof db, "select"> = db,
+): Promise<Set<number>> {
+  const rows = await database
+    .select({ scientistId: users.scientistId })
+    .from(users)
+    .where(eq(users.role, INVESTIGATOR_ROLE));
+
+  const ids = new Set<number>();
+  for (const row of rows) {
+    if (row.scientistId != null) ids.add(row.scientistId);
+  }
+  return ids;
+}
+
 /** Stamp the derived flag onto staff records before they leave the server. */
 export function withInvestigatorFlag<T extends { id: number }>(
   records: T[],
   investigatorIds: Set<number>,
-): Array<T & { isInvestigator: boolean }> {
+  primaryInvestigatorIds?: Set<number>,
+): Array<T & { isInvestigator: boolean; isPrimaryInvestigator: boolean }> {
   return records.map((record) => ({
     ...record,
     isInvestigator: investigatorIds.has(record.id),
+    // Absent set means nobody was resolved as primary, not everybody: a caller
+    // that has not asked gets false rather than a wrong true.
+    isPrimaryInvestigator: primaryInvestigatorIds?.has(record.id) ?? false,
   }));
 }
 

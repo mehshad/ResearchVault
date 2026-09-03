@@ -13,6 +13,7 @@ import type { GrantDashboardStats } from "@shared/dashboardStats";
 import { db } from "./db";
 import {
   resolveInvestigatorScientistIds,
+  resolvePrimaryInvestigatorScientistIds,
   withInvestigatorFlag,
 } from "./investigatorRoleResolver";
 import { IStorage } from "./storage";
@@ -225,7 +226,11 @@ export class DatabaseStorage implements IStorage {
     // isInvestigator is derived from the access role on each person's account,
     // not read from the staff profile, so the flag the interface sees and the
     // role an administrator granted are always the same thing.
-    return withInvestigatorFlag(rows, await resolveInvestigatorScientistIds());
+    const [investigatorIds, primaryInvestigatorIds] = await Promise.all([
+      resolveInvestigatorScientistIds(),
+      resolvePrimaryInvestigatorScientistIds(),
+    ]);
+    return withInvestigatorFlag(rows, investigatorIds, primaryInvestigatorIds);
   }
 
   async getScientistsWithActivityCount(): Promise<(Scientist & { activeResearchActivities: number })[]> {
@@ -294,7 +299,7 @@ export class DatabaseStorage implements IStorage {
     const rows = await db.select().from(scientists)
       .where(inArray(scientists.id, [...investigatorIds]))
       .orderBy(scientists.lastName, scientists.firstName);
-    return withInvestigatorFlag(rows, investigatorIds);
+    return withInvestigatorFlag(rows, investigatorIds, await resolvePrimaryInvestigatorScientistIds());
   }
 
   // Research Activity operations

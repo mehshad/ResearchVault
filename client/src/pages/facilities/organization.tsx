@@ -97,7 +97,10 @@ export default function OrganizationStructure() {
   // staff needs access to the Scientists area, which someone managing the
   // organisation chart may not hold, so a refusal here leaves the chart intact
   // and simply shows no names rather than failing the page.
-  const { data: staff } = useQuery<Scientist[]>({
+  // isPrimaryInvestigator is derived on the server from the account's primary
+  // access role and stamped onto the record, so it is not part of the table's
+  // own type.
+  const { data: staff } = useQuery<Array<Scientist & { isPrimaryInvestigator?: boolean }>>({
     queryKey: ["/api/scientists", "organization"],
     queryFn: async () => {
       const response = await fetch("/api/scientists");
@@ -397,8 +400,24 @@ export default function OrganizationStructure() {
                                           key={person.id}
                                           type="button"
                                           onClick={() => navigate(`/scientists/${person.id}`)}
-                                          className="rounded-full border border-border bg-background px-2 py-0.5 text-xs hover:bg-accent hover:text-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                                          title={person.jobTitle ? `${person.jobTitle} — open profile` : "Open profile"}
+                                          className={
+                                            // Investigator as their primary role
+                                            // is who the section is built around;
+                                            // held alongside another role it is an
+                                            // additional hat. Same list, so the
+                                            // distinction is carried by weight and
+                                            // colour rather than by separating them.
+                                            person.isPrimaryInvestigator
+                                              ? "rounded-full border border-primary/40 bg-primary/10 px-2 py-0.5 text-xs font-medium text-primary hover:bg-primary/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                                              : "rounded-full border border-border bg-background px-2 py-0.5 text-xs hover:bg-accent hover:text-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                                          }
+                                          title={[
+                                            person.jobTitle,
+                                            person.isPrimaryInvestigator
+                                              ? "Investigator is their primary role"
+                                              : "Holds Investigator alongside another role",
+                                            "open profile",
+                                          ].filter(Boolean).join(" — ")}
                                           data-testid={`investigator-${person.id}`}
                                         >
                                           {person.honorificTitle} {person.firstName} {person.lastName}

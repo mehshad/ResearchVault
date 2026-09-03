@@ -4,7 +4,10 @@ import type { Scientist } from "@shared/schema";
 export type SectionMember = Pick<
   Scientist,
   "id" | "firstName" | "lastName" | "isInvestigator" | "sectionId"
->;
+> & {
+  /** Investigator is their primary access role, not one held alongside another. */
+  isPrimaryInvestigator?: boolean;
+};
 
 /**
  * Group investigators by the section they are placed in.
@@ -15,8 +18,7 @@ export type SectionMember = Pick<
  * chart should say what the roles say. The server derives `isInvestigator` from
  * the account, so this reads it without knowing how it was resolved.
  *
- * Sorted by surname so a section with several reads as a list rather than
- * whatever order the query returned.
+ * Primary investigators first, then by surname.
  */
 export function groupInvestigatorsBySection<T extends SectionMember>(
   staff: readonly T[] | undefined,
@@ -29,8 +31,16 @@ export function groupInvestigatorsBySection<T extends SectionMember>(
     else bySection.set(person.sectionId, [person]);
   }
   for (const list of bySection.values()) {
-    list.sort((a, b) =>
-      `${a.lastName} ${a.firstName}`.localeCompare(`${b.lastName} ${b.firstName}`));
+    // Whoever holds Investigator as their primary role comes first: in a
+    // laboratory's list they are the person the section is built around, while
+    // a colleague holding it alongside another role is there in addition.
+    // Surname within each group, so it still reads as a list rather than
+    // whatever order the query returned.
+    list.sort((a, b) => {
+      const byRole = Number(b.isPrimaryInvestigator ?? false) - Number(a.isPrimaryInvestigator ?? false);
+      if (byRole !== 0) return byRole;
+      return `${a.lastName} ${a.firstName}`.localeCompare(`${b.lastName} ${b.firstName}`);
+    });
   }
   return bySection;
 }
