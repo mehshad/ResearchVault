@@ -116,13 +116,13 @@ export default function Settings() {
   // Active tab — can be set via URL hash (e.g. /settings#access-control)
   const [activeTab, setActiveTab] = useState(() => {
     const hash = window.location.hash.replace('#', '');
-    const valid = ['layout-theme', 'team', 'authentication', 'access-control', 'data-import-export'];
+    const valid = ['layout-theme', 'team', 'authentication', 'access-control', 'data-import-export', 'feature-requests'];
     return valid.includes(hash) ? hash : 'layout-theme';
   });
 
   useEffect(() => {
     const hash = window.location.hash.replace('#', '');
-    const valid = ['layout-theme', 'team', 'authentication', 'access-control', 'data-import-export'];
+    const valid = ['layout-theme', 'team', 'authentication', 'access-control', 'data-import-export', 'feature-requests'];
     if (valid.includes(hash)) setActiveTab(hash);
   }, []);
 
@@ -382,7 +382,7 @@ Q-BRIDGE is a research governance and information management platform built with
       </div>
 
       <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">
-        <TabsList className="grid h-auto w-full grid-cols-1 sm:grid-cols-2 xl:grid-cols-5">
+        <TabsList className="grid h-auto w-full grid-cols-1 sm:grid-cols-2 xl:grid-cols-6">
           <TabsTrigger value="layout-theme" className="flex items-center gap-2">
             <Palette className="h-4 w-4" />
             Layout & Theme
@@ -402,6 +402,14 @@ Q-BRIDGE is a research governance and information management platform built with
           <TabsTrigger value="data-import-export" className="flex items-center gap-2" data-testid="tab-data-import-export">
             <Layers className="h-4 w-4" />
             Data Import & Export
+          </TabsTrigger>
+          {/* Restored. The management view -- every request, its status, and
+              the controls to change or remove it -- was left in place when the
+              submission form moved to its own page, but its tab was deleted, so
+              for two weeks nobody could reach the requests people were filing. */}
+          <TabsTrigger value="feature-requests" className="flex items-center gap-2" data-testid="tab-feature-requests">
+            <MessageSquarePlus className="h-4 w-4" />
+            Feature Requests
           </TabsTrigger>
         </TabsList>
 
