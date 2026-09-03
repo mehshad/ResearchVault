@@ -11711,9 +11711,12 @@ function writeFailureDetail(error: unknown): string {
   });
 
   /**
-   * POST /api/admin/users/provision-investigators
+   * POST /api/admin/users/provision-by-job-title
    *
-   * Creates an account for every staff member titled Investigator who has none.
+   * Creates an account for every staff member with the given job title who has
+   * none. Takes the job title group rather than being written once per title:
+   * Investigators and Physicians need exactly the same thing, and a second copy
+   * of eighty lines would drift from the first.
    *
    * Investigator eligibility is the Investigator *access role*, which lives on
    * an account -- so a person holding the job title but no account cannot be
@@ -11728,8 +11731,35 @@ function writeFailureDetail(error: unknown): string {
    *
    * Pass `dryRun` to see the plan without writing anything.
    */
-  app.post('/api/admin/users/provision-investigators', requireAuth, requireAdmin, async (req: Request, res: Response) => {
-    const dryRun = (req.body as { dryRun?: boolean } | undefined)?.dryRun === true;
+  app.post('/api/admin/users/provision-by-job-title', requireAuth, requireAdmin, async (req: Request, res: Response) => {
+    const body = req.body as {
+      dryRun?: boolean;
+      jobTitleGroup?: string;
+      scientistIds?: unknown;
+    } | undefined;
+    const dryRun = body?.dryRun === true;
+
+    // Named people take precedence over a job title group, so the same
+    // machinery serves "everyone titled Physician" and "this one person" --
+    // the username derivation, the collision handling and the reasons for
+    // skipping are worth having in one place rather than two.
+    const explicitIds = Array.isArray(body?.scientistIds)
+      ? [...new Set((body!.scientistIds as unknown[])
+          .map((value) => Number(value))
+          .filter((value) => Number.isInteger(value) && value > 0))]
+      : null;
+
+    const group = (body?.jobTitleGroup ?? 'investigator').trim();
+    const titles = explicitIds ? [] : JOB_TITLE_TAB_ALIASES[group];
+    if (!explicitIds && !titles) {
+      return res.status(400).json({
+        message: `"${group}" is not a job title group. Known: ${Object.keys(JOB_TITLE_TAB_ALIASES).join(', ')}`,
+      });
+    }
+    if (explicitIds && explicitIds.length === 0) {
+      return res.status(400).json({ message: 'No valid scientist ids were sent.' });
+    }
+
     try {
       const allScientists = await storage.getScientists();
       const existingUsers = await db
@@ -11749,9 +11779,9 @@ function writeFailureDetail(error: unknown): string {
         existingUsers.map((u) => (u.email ?? '').trim().toLowerCase()).filter(Boolean),
       );
 
-      const candidates = allScientists.filter((scientist: any) =>
-        matchesJobTitle(scientist.jobTitle, JOB_TITLE_TAB_ALIASES.investigator ?? []),
-      );
+      const candidates = explicitIds
+        ? allScientists.filter((scientist: any) => explicitIds.includes(scientist.id))
+        : allScientists.filter((scientist: any) => matchesJobTitle(scientist.jobTitle, titles!));
 
       const toCreate: Array<{ scientistId: number; username: string; name: string; email: string }> = [];
       const skipped: Array<{ name: string; reason: string }> = [];
@@ -11816,8 +11846,8 @@ function writeFailureDetail(error: unknown): string {
 
       res.json({ dryRun: false, created, plan: toCreate, skipped });
     } catch (err) {
-      console.error('Error provisioning investigator accounts:', err);
-      res.status(500).json({ message: 'Failed to create investigator accounts' });
+      console.error(`Error provisioning ${group} accounts:`, err);
+      res.status(500).json({ message: `Failed to create ${group} accounts` });
     }
   });
 

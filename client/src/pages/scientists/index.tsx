@@ -40,6 +40,7 @@ import { UploadingModal } from "@/components/ui/upload-modal";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Badge } from "@/components/ui/badge";
 import { useCurrentUser } from "@/hooks/useCurrentUser";
+import { isAdministrator } from "@shared/effectiveRoles";
 import { PermissionWrapper } from "@/components/PermissionWrapper";
 import { fetchList } from "@/lib/fetchList";
 import { formatFullName, formatNameWithJobTitle } from "@/utils/nameUtils";
@@ -360,6 +361,51 @@ export default function StaffList() {
   const [sortDirection, setSortDirection] = useState<"asc" | "desc">("asc");
   const [, navigate] = useLocation();
   const { currentUser } = useCurrentUser();
+  const { toast } = useToast();
+
+  // Resolved for the whole person, so administrator held as a secondary role
+  // still counts.
+  const viewerIsAdministrator = isAdministrator(currentUser);
+
+  // Who already holds an account, so the action is offered only to people who
+  // need one. Administrator-only endpoint, so it is asked for only by one.
+  const { data: accounts = [] } = useQuery<Array<{ id: number; scientistId: number | null }>>({
+    queryKey: ["/api/admin/users"],
+    queryFn: () => fetchList<{ id: number; scientistId: number | null }>("/api/admin/users"),
+    enabled: viewerIsAdministrator,
+  });
+  const scientistIdsWithAccounts = new Set(
+    accounts.map((account) => account.scientistId).filter((id): id is number => id != null),
+  );
+
+  const createAccountMutation = useMutation({
+    mutationFn: async (scientistId: number) => {
+      const res = await apiRequest("POST", "/api/admin/users/provision-by-job-title", {
+        dryRun: false,
+        scientistIds: [scientistId],
+      });
+      return await res.json();
+    },
+    onSuccess: (data: any) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/users"] });
+      const made = data.created?.[0];
+      if (made) {
+        toast({
+          title: `Account created for ${made.name}`,
+          description: `Username ${made.username}. It starts with the restricted user role — set the real one in Settings → Users.`,
+        });
+      } else {
+        toast({
+          title: "No account created",
+          description: data.skipped?.[0]?.reason ?? "Nothing to do.",
+          variant: "destructive",
+        });
+      }
+    },
+    onError: (error: any) => {
+      toast({ title: "Could not create the account", description: error?.message, variant: "destructive" });
+    },
+  });
 
   const { data: staff, isLoading } = useQuery<(Scientist & { activeResearchActivities?: number })[]>({
     queryKey: ['/api/scientists', { includeActivityCount: true }],
@@ -792,6 +838,24 @@ export default function StaffList() {
                                   </Link>
                                 </DropdownMenuItem>
                               </PermissionWrapper>
+                              {/* Offered per person rather than only in bulk,
+                                  and only where it would do something: somebody
+                                  who already has an account, or has no email to
+                                  build a username from, cannot be given one. */}
+                              {viewerIsAdministrator && !scientistIdsWithAccounts.has(person.id) && (
+                                <DropdownMenuItem
+                                  disabled={!person.email || createAccountMutation.isPending}
+                                  onClick={(event) => {
+                                    event.stopPropagation();
+                                    createAccountMutation.mutate(person.id);
+                                  }}
+                                  data-testid={`menu-create-account-${person.id}`}
+                                >
+                                  {person.email
+                                    ? "Create user account"
+                                    : "Create user account (needs an email)"}
+                                </DropdownMenuItem>
+                              )}
                             </DropdownMenuContent>
                           </DropdownMenu>
                         </TableCell>
