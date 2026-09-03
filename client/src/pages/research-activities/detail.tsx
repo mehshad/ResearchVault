@@ -5,6 +5,8 @@ import { useLocation, useParams } from "wouter";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Project, Scientist, ResearchActivity, IrbApplication, IbcApplication, DataManagementPlan, Publication } from "@shared/schema";
+import { useMemo } from "react";
+import { orderPublicationsForActivity } from "@shared/publicationOrdering";
 import { ArrowLeft, Calendar, FileText, Layers, Users, Building, Beaker, FileCheck, FileSpreadsheet, Edit } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Badge } from "@/components/ui/badge";
@@ -93,6 +95,13 @@ export default function ResearchActivityDetail() {
     select: (data) => data.filter(pub => pub.researchActivityId === activity?.id),
     enabled: !!activity?.id,
   });
+
+  // Published work oldest to newest so the newest sits at the bottom, then
+  // everything still in progress from the most advanced down to Concept.
+  const orderedPublications = useMemo(
+    () => orderPublicationsForActivity(publications ?? []),
+    [publications],
+  );
   
   // Fetch Data Management Plan for this research activity
   const { data: dmpData } = useQuery<DataManagementPlan[]>({
@@ -439,7 +448,7 @@ export default function ResearchActivityDetail() {
                       <span className="font-medium text-sm">Publications</span>
                       <span className="text-xs text-gray-500 dark:text-gray-400">({publications.length})</span>
                     </div>
-                    {publications.map((publication) => (
+                    {orderedPublications.map((publication) => (
                       <Button
                         key={publication.id}
                         variant="ghost"
@@ -464,7 +473,13 @@ export default function ResearchActivityDetail() {
                           <span className="text-xs text-gray-600 truncate w-full dark:text-gray-300">{publication.title}</span>
                           <div className="flex items-center gap-2 mt-1">
                             <span className="text-xs text-gray-500 dark:text-gray-400">{publication.journal}</span>
-                            {publication.publicationYear && (
+                            {publication.publicationDate ? (
+                              <span className="text-xs text-blue-600 font-medium dark:text-blue-400">
+                                {new Date(publication.publicationDate).toLocaleDateString(undefined, {
+                                  year: "numeric", month: "short", day: "numeric",
+                                })}
+                              </span>
+                            ) : publication.publicationYear && (
                               <span className="text-xs text-blue-600 font-medium dark:text-blue-400">
                                 {publication.publicationYear}
                               </span>
