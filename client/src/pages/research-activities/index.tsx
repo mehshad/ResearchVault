@@ -30,6 +30,7 @@ import { PermissionWrapper } from "@/components/PermissionWrapper";
 import { SdrImportDialog } from "@/components/SdrImportDialog";
 import { Upload, UserRound } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
+import { AlertTriangle } from "lucide-react";
 
 interface Program {
   id: number;
@@ -188,8 +189,9 @@ export default function ResearchActivitiesList() {
         members: (projectMembers ?? []) as any,
         scientists: (scientists ?? []) as any,
         includeTeam: leadsATeam,
+        activities: (researchActivities ?? []) as any,
       }),
-    [projectMembers, scientists, leadsATeam, myScientistId],
+    [projectMembers, scientists, leadsATeam, myScientistId, researchActivities],
   );
 
   const nameOf = (scientistId: number): string => {
@@ -387,18 +389,34 @@ export default function ResearchActivitiesList() {
                             </Badge>
                           );
                         }
-                        return (
-                          <Badge
-                            variant="outline"
-                            className="mt-1 border-amber-400 text-xs font-normal text-amber-800 dark:text-amber-300"
-                            title={involvement.teamMembers.map(nameOf).join(", ")}
-                          >
-                            <UserRound className="mr-1 h-3 w-3" />
-                            Your team, not you
-                            {involvement.teamMembers.length > 1 && ` (${involvement.teamMembers.length})`}
-                          </Badge>
-                        );
+                        if (involvement.teamMembers.length > 0) {
+                          return (
+                            <Badge
+                              variant="outline"
+                              className="mt-1 border-amber-400 text-xs font-normal text-amber-800 dark:text-amber-300"
+                              title={involvement.teamMembers.map(nameOf).join(", ")}
+                            >
+                              <UserRound className="mr-1 h-3 w-3" />
+                              Your team, not you
+                              {involvement.teamMembers.length > 1 && ` (${involvement.teamMembers.length})`}
+                            </Badge>
+                          );
+                        }
+                        return null;
                       })()}
+                      {/* The PI of record is not on the research team. Shown so
+                          it can be corrected, rather than being treated as
+                          membership and quietly hidden. */}
+                      {mineOnly && myInvolvement.get(activity.id)?.piMissingFromTeam != null && (
+                        <Badge
+                          variant="outline"
+                          className="mt-1 border-destructive/50 text-xs font-normal text-destructive"
+                          title={`${nameOf(myInvolvement.get(activity.id)!.piMissingFromTeam!)} is the PI of record but is not on the research team. Open the SDR's team to add them.`}
+                        >
+                          <AlertTriangle className="mr-1 h-3 w-3" />
+                          PI not on the team
+                        </Badge>
+                      )}
                     </TableCell>
                     <TableCell>
                       <div className="font-medium">{activity.title}</div>

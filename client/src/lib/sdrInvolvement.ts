@@ -29,6 +29,17 @@ export interface Involvement {
   mine: boolean;
   /** People reporting to me who are on it, when I am not. */
   teamMembers: number[];
+  /**
+   * Set when this SDR's PI of record -- me, or one of my people -- is not on
+   * its research team. A discrepancy to correct, not a kind of membership.
+   */
+  piMissingFromTeam?: number;
+}
+
+export interface InvolvementActivity {
+  id: number;
+  /** The PI of record. */
+  budgetHolderId?: number | null;
 }
 
 export interface InvolvementInputs {
@@ -38,6 +49,15 @@ export interface InvolvementInputs {
   scientists: readonly InvolvementPerson[];
   /** Whether to look at the team at all. Only investigators lead one. */
   includeTeam: boolean;
+  /**
+   * The SDRs themselves, so being the PI of record counts as being on it.
+   *
+   * Team membership and the PI field are maintained separately, and only the
+   * create-an-SDR form ever wrote both: an SDR that arrived by import, or whose
+   * PI was changed afterwards, names a PI who is absent from its own team.
+   * Reading these lets that be flagged rather than passed over.
+   */
+  activities?: readonly InvolvementActivity[];
 }
 
 export function scientistsReportingTo(
@@ -73,6 +93,32 @@ export function computeSdrInvolvement(inputs: InvolvementInputs): Map<number, In
     if (isMe) entry.mine = true;
     else if (!entry.teamMembers.includes(member.scientistId)) entry.teamMembers.push(member.scientistId);
     involvement.set(member.researchActivityId, entry);
+  }
+
+  // Being the PI of record and being on the research team are stored
+  // separately, and only the create-an-SDR form ever wrote both. An SDR that
+  // arrived by import, or whose PI was changed afterwards, names a PI who is
+  // absent from its own team.
+  //
+  // Deliberately NOT treated as membership. Counting the PI as a member would
+  // paper over the inconsistency in exactly the view most likely to reveal it;
+  // it is surfaced as something to correct instead.
+  for (const activity of inputs.activities ?? []) {
+    const pi = activity.budgetHolderId;
+    if (pi == null) continue;
+
+    const isMine = pi === myScientistId;
+    const isMyTeams = !isMine && teamIds.has(pi);
+    if (!isMine && !isMyTeams) continue;
+
+    const onTheTeam = members.some(
+      (member) => member.researchActivityId === activity.id && member.scientistId === pi,
+    );
+    if (onTheTeam) continue;
+
+    const entry = involvement.get(activity.id) ?? { mine: false, teamMembers: [] };
+    entry.piMissingFromTeam = pi;
+    involvement.set(activity.id, entry);
   }
 
   return involvement;

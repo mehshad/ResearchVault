@@ -74,3 +74,49 @@ test("the same person listed twice on one SDR is counted once", () => {
   });
   assert.deepEqual(involvement.get(7)?.teamMembers, [20]);
 });
+
+// ── The PI of record who is not on the team ────────────────────────────────
+// Membership and the PI field are stored separately and only the create form
+// ever wrote both, so an imported SDR names a PI absent from its own team.
+// That is a discrepancy to correct, not a kind of membership: counting it as
+// membership would hide it in the very view most likely to reveal it.
+
+const activities = [
+  { id: 1, budgetHolderId: null },
+  { id: 5, budgetHolderId: 15 },  // I am the PI, and not on the team
+  { id: 6, budgetHolderId: 20 },  // one of my people is, and is not on the team
+  { id: 3, budgetHolderId: 15 },  // I am the PI and I am on the team
+];
+
+const withActivities = (over = {}) =>
+  computeSdrInvolvement({
+    myScientistId: 15, members, scientists: staff, includeTeam: true, activities, ...over,
+  });
+
+test("being the PI without a membership row is flagged, not counted as membership", () => {
+  const entry = withActivities().get(5);
+  assert.equal(entry?.mine, false, "not silently treated as being on the team");
+  assert.equal(entry?.piMissingFromTeam, 15, "flagged so it can be corrected");
+});
+
+test("the same gap on one of my people's SDRs is flagged too", () => {
+  const entry = withActivities().get(6);
+  assert.equal(entry?.piMissingFromTeam, 20);
+});
+
+test("a PI who is on the team raises no flag", () => {
+  const entry = withActivities().get(3);
+  assert.equal(entry?.mine, true);
+  assert.equal(entry?.piMissingFromTeam, undefined);
+});
+
+test("a PI who is nothing to do with me is not flagged", () => {
+  const entry = withActivities({ activities: [{ id: 9, budgetHolderId: 30 }] }).get(9);
+  assert.equal(entry, undefined);
+});
+
+test("passing no activities leaves the old answers untouched", () => {
+  assert.equal(computeSdrInvolvement({
+    myScientistId: 15, members, scientists: staff, includeTeam: true,
+  }).get(5), undefined);
+});

@@ -3724,6 +3724,29 @@ function writeFailureDetail(error: unknown): string {
       if (!updatedActivity) {
         return res.status(404).json({ message: "Research activity not found" });
       }
+
+      // Creating an SDR puts its PI on the research team; changing the PI did
+      // not, so somebody made PI of an existing SDR was the PI on record and
+      // absent from its team at the same time. Anything reading membership --
+      // the team screen, "My SDRs" -- then disagreed with the SDR itself.
+      if (updatedActivity.budgetHolderId) {
+        try {
+          const team = await storage.getProjectMembers(id);
+          const alreadyOnIt = team.some(
+            (member: any) => member.scientistId === updatedActivity.budgetHolderId,
+          );
+          if (!alreadyOnIt) {
+            await storage.addProjectMember({
+              researchActivityId: id,
+              scientistId: updatedActivity.budgetHolderId,
+              role: "Principal Investigator",
+            });
+          }
+        } catch (memberError) {
+          // Worth reporting, not worth failing a saved update over.
+          console.error("Failed to add the PI to the team for", updatedActivity.sdrNumber, memberError);
+        }
+      }
       
       res.json(updatedActivity);
     } catch (error) {
