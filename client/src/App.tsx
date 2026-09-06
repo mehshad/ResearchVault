@@ -365,6 +365,7 @@ function AppRouter() {
         {/* Research Portfolio */}
         <Route path="/research-portfolio/grants" component={PortfolioGrants} />
         <Route path="/research-portfolio/contracts" component={PortfolioContracts} />
+        <Route path="/research-portfolio/contracts/request" component={ContractRequest} />
 
         {/* Research Teams */}
         <Route path="/teams" component={TeamsList} />

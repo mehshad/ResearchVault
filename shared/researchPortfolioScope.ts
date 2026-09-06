@@ -5,6 +5,11 @@
  * different question, for the people whose work the records describe: which of
  * these are mine, and which are my section's.
  *
+ * Both pages withhold something, though they withhold different amounts. A
+ * contract outside the viewer's section is not shown at all. A grant outside it
+ * is shown only while it is in good standing -- awarded, running or finished --
+ * so another section's applications, refusals and bad endings stay theirs.
+ *
  * A **section** is the team here, read from `scientists.sectionId`, the
  * structured organisation already recorded on every staff profile. That is a
  * deliberate second notion of team alongside the one in `sdrInvolvement.ts`,
@@ -37,6 +42,53 @@ export interface SectionMember {
 
 /** How a record concerns the viewer. `null` means it does not. */
 export type Involvement = "mine" | "team" | null;
+
+/**
+ * The only grant statuses visible outside the viewer's own section.
+ *
+ * A grant in good standing: won, running, or finished. Everything else is a
+ * section's own affair.
+ *
+ * Two kinds of thing are deliberately kept in, and it is worth being explicit
+ * about which, because the obvious shortcut gets it wrong in both directions:
+ *
+ *  - **The pipeline and the refusals.** An application still under review, or
+ *    one the funder declined, is that section's business while it is theirs to
+ *    manage. `not_awarded` alone is 153 of the 272 grants on record.
+ *  - **The endings.** `withdrawn`, `terminated`, `suspended` and `transferred`
+ *    all follow a real award, so a test on the `awarded` flag would let every
+ *    one of them across. They are also the ones a section would least like
+ *    broadcast, and none of them is what a colleague elsewhere is looking for.
+ *
+ * That second point is why this is a status list and not `awarded === true`.
+ * The flag answers "was this ever won", which is a different question from
+ * "may other sections see it", and the two differ on exactly the four statuses
+ * nobody wants published.
+ *
+ * `active` is on the list because it is what a won, running grant carries. An
+ * earlier version listed only awarded and completed, which showed other
+ * sections' finished work and hid the work in progress.
+ *
+ * One list, named once: changing what crosses a section boundary should be an
+ * edit here and nowhere else.
+ */
+export const STATUSES_VISIBLE_OUTSIDE_SECTION = ["awarded", "active", "completed"] as const;
+
+/**
+ * Whether a grant may be listed for this viewer at all.
+ *
+ * Anything the viewer or their section is on is visible whatever its status --
+ * your own refused application is still your lab's work. Everything else has
+ * to be in good standing.
+ */
+export function grantVisibleToViewer(
+  involvement: Involvement,
+  status: string | null | undefined,
+): boolean {
+  if (involvement !== null) return true;
+  const normalised = (status ?? "").trim().toLowerCase();
+  return (STATUSES_VISIBLE_OUTSIDE_SECTION as readonly string[]).includes(normalised);
+}
 
 /**
  * Everyone in the viewer's section, including the viewer.

@@ -1,9 +1,11 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
+  STATUSES_VISIBLE_OUTSIDE_SECTION,
   contractInvolvement,
   contractOwnerScientistId,
   grantInvolvement,
+  grantVisibleToViewer,
   sectionColleagueIds,
   visibleContracts,
   type PortfolioViewer,
@@ -78,6 +80,62 @@ test("a grant with no people on it concerns nobody", () => {
 test("for Management every grant with a person on it is their team's", () => {
   assert.equal(grantInvolvement({ lpiId: 3 }, management, null), "team");
   assert.equal(grantInvolvement({ lpiId: 9 }, management, null), "mine");
+});
+
+// ── What crosses a section boundary ─────────────────────────────────────────
+
+test("my own section is visible at every status, refusals included", () => {
+  for (const status of ["submitted", "not_awarded", "rejected", "terminated", "suspended"]) {
+    assert.equal(grantVisibleToViewer("mine", status), true, `mine/${status}`);
+    assert.equal(grantVisibleToViewer("team", status), true, `team/${status}`);
+  }
+});
+
+test("another section's grant is visible while it is in good standing", () => {
+  for (const status of ["awarded", "active", "completed"]) {
+    assert.equal(grantVisibleToViewer(null, status), true, status);
+  }
+});
+
+test("a running grant in another section is visible", () => {
+  // An earlier version listed only awarded and completed, which showed other
+  // sections' finished work and hid the work in progress. This is that
+  // regression.
+  assert.equal(grantVisibleToViewer(null, "active"), true);
+});
+
+test("another section's pipeline and refusals stay theirs", () => {
+  for (const status of ["submitted", "pending", "in_review", "not_awarded", "rejected", "cancelled"]) {
+    assert.equal(grantVisibleToViewer(null, status), false, status);
+  }
+});
+
+test("another section's bad endings stay theirs too", () => {
+  // These all follow a real award, so a test on the `awarded` flag would let
+  // every one of them across. They are also the ones a section would least
+  // like published, which is why the rule is a status list and not that flag.
+  for (const status of ["withdrawn", "terminated", "suspended", "transferred"]) {
+    assert.equal(grantVisibleToViewer(null, status), false, status);
+  }
+});
+
+test("the visible list is exactly the three good-standing statuses", () => {
+  // Pinned so widening it is a deliberate edit rather than a side effect.
+  assert.deepEqual([...STATUSES_VISIBLE_OUTSIDE_SECTION], ["awarded", "active", "completed"]);
+});
+
+test("status is compared without regard to case or padding", () => {
+  assert.equal(grantVisibleToViewer(null, "  Active "), true);
+  assert.equal(grantVisibleToViewer(null, "COMPLETED"), true);
+});
+
+test("a grant with no status is not visible outside the section", () => {
+  // Unknown is not good standing, and defaulting the other way would leak the
+  // pipeline through a blank field.
+  assert.equal(grantVisibleToViewer(null, null), false);
+  assert.equal(grantVisibleToViewer(null, undefined), false);
+  assert.equal(grantVisibleToViewer(null, ""), false);
+  assert.equal(grantVisibleToViewer("team", null), true);
 });
 
 // ── Contracts ───────────────────────────────────────────────────────────────

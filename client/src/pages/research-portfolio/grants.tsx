@@ -1,10 +1,16 @@
 /**
  * Grants, as the researcher named on them sees them.
  *
- * Every grant is listed. The scope control narrows to the ones the viewer is on
- * and the ones their section is on -- a convenience over data they are already
- * entitled to, which is why the filtering happens here rather than on the
- * server. The contracts page is the opposite case and filters server-side.
+ * The server sends the viewer's own section entire and other sections only
+ * while a grant is in good standing, so what arrives here is already bounded.
+ * Within that, the scope and status controls are conveniences over data the
+ * viewer may see, which is why they filter in the browser.
+ *
+ * The status control has to say where the boundary falls, though: picking
+ * "Submitted" returns the viewer's section and nothing else, and a list that
+ * short is read as missing data unless the page says why. Hence the marks in
+ * the dropdown and the notice under it -- the restriction is the server's, and
+ * this page's job is to stop it looking like a fault.
  */
 import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
@@ -28,9 +34,10 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Search, Users, User } from "lucide-react";
+import { Search, Users, User, Info } from "lucide-react";
 import type { Grant } from "@shared/schema";
 import { GRANT_STATUS_OPTIONS } from "@shared/grantLifecycle";
+import { STATUSES_VISIBLE_OUTSIDE_SECTION } from "@shared/researchPortfolioScope";
 import { useCurrentUser } from "@/hooks/useCurrentUser";
 import { PermissionWrapper } from "@/components/PermissionWrapper";
 import { PortfolioScopeSelect } from "@/components/PortfolioScopeSelect";
@@ -85,6 +92,22 @@ export default function PortfolioGrants() {
   const grants = data?.grants;
   const viewer = data?.viewer;
 
+  // Statuses at which the viewer will only ever see their own section, because
+  // the server sends no other section's grant at them. Empty for Management,
+  // who have no boundary and would otherwise be warned about one they do not
+  // have.
+  const sectionOnlyStatuses = useMemo(() => {
+    if (viewer?.seesEverything) return new Set<string>();
+    return new Set(
+      GRANT_STATUS_OPTIONS.map((option) => option.value).filter(
+        (value) => !(STATUSES_VISIBLE_OUTSIDE_SECTION as readonly string[]).includes(value),
+      ),
+    );
+  }, [viewer?.seesEverything]);
+
+  const restrictionApplies = sectionOnlyStatuses.size > 0;
+  const selectedStatusIsSectionOnly = restrictionApplies && sectionOnlyStatuses.has(statusFilter);
+
   const filtered = useMemo(() => {
     if (!grants) return undefined;
     const needle = searchQuery.trim().toLowerCase();
@@ -114,8 +137,18 @@ export default function PortfolioGrants() {
         <div>
           <h1 className="text-2xl font-semibold text-foreground">Grants</h1>
           <p className="text-sm text-muted-foreground mt-1">
-            Every grant on record. Narrow it to the ones you are named on, or the ones your
-            section is running.
+            {restrictionApplies ? (
+              <>
+                Your section&rsquo;s grants at every stage, and other sections&rsquo; awarded,
+                active and completed grants. Narrow the list to the ones you are named on, or the
+                ones your section is running.
+              </>
+            ) : (
+              <>
+                Every grant on record. Narrow it to the ones you are named on, or the ones your
+                section is running.
+              </>
+            )}
           </p>
         </div>
 
@@ -140,14 +173,23 @@ export default function PortfolioGrants() {
                   allLabel="All grants"
                 />
                 <Select value={statusFilter} onValueChange={setStatusFilter}>
-                  <SelectTrigger className="w-44" data-testid="select-grant-status">
+                  <SelectTrigger className="w-52" data-testid="select-grant-status">
                     <SelectValue placeholder="Any status" />
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="all">Any status</SelectItem>
                     {GRANT_STATUS_OPTIONS.map((option) => (
                       <SelectItem key={option.value} value={option.value}>
+                        {/*
+                          Marked in the list itself, not only in a note below
+                          it. Someone picking "Submitted" is about to see their
+                          own section and nothing else, and the moment to say
+                          so is while they are choosing.
+                        */}
                         {option.label}
+                        {sectionOnlyStatuses.has(option.value) && (
+                          <span className="text-muted-foreground"> · your section</span>
+                        )}
                       </SelectItem>
                     ))}
                   </SelectContent>
@@ -165,6 +207,23 @@ export default function PortfolioGrants() {
                 </div>
               </div>
             </div>
+            {/*
+              Shown when the chosen status is one the boundary applies to, so
+              an unexpectedly short list is explained where it happens rather
+              than read as missing data.
+            */}
+            {selectedStatusIsSectionOnly && (
+              <p
+                className="text-xs text-muted-foreground mt-3 flex items-start gap-1.5"
+                data-testid="text-status-scope-notice"
+              >
+                <Info className="h-3.5 w-3.5 mt-0.5 flex-shrink-0" />
+                <span>
+                  Showing your section only. From other sections, this list carries awarded,
+                  active and completed grants only.
+                </span>
+              </p>
+            )}
           </CardHeader>
           <CardContent>
             {isLoading ? (

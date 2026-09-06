@@ -22,7 +22,8 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Search, Users, User, Calendar } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Search, Users, User, Calendar, Plus } from "lucide-react";
 import type { ResearchContract } from "@shared/schema";
 import { useCurrentUser } from "@/hooks/useCurrentUser";
 import { PermissionWrapper } from "@/components/PermissionWrapper";
@@ -107,13 +108,33 @@ export default function PortfolioContracts() {
       showReadOnlyBanner={false}
     >
       <div className="space-y-6">
-        <div>
-          <h1 className="text-2xl font-semibold text-foreground">Contracts</h1>
-          <p className="text-sm text-muted-foreground mt-1">
-            {viewer?.seesEverything
-              ? "Every research contract on record."
-              : "Research contracts your section is running. Contracts belonging to other sections are not shown."}
-          </p>
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <h1 className="text-2xl font-semibold text-foreground">Contracts</h1>
+            <p className="text-sm text-muted-foreground mt-1">
+              {viewer?.seesEverything
+                ? "Every research contract on record."
+                : "Research contracts your section is running. Contracts belonging to other sections are not shown."}
+            </p>
+          </div>
+          {/*
+            Requesting a contract belongs with the people who need one, not
+            with the office that fulfils it. Gated on "create" for this area,
+            which is the level that distinguishes a researcher who may ask from
+            one who may only read.
+          */}
+          <PermissionWrapper
+            requiredPermissions={['canAdd']}
+            currentUserRole={currentUser.role}
+            navigationItem="research-portfolio"
+          >
+            <Link href="/research-portfolio/contracts/request">
+              <Button data-testid="button-request-contract">
+                <Plus className="h-4 w-4 mr-2" />
+                Request New Contract
+              </Button>
+            </Link>
+          </PermissionWrapper>
         </div>
 
         <Card>

@@ -213,7 +213,7 @@ export default function ContractRequest() {
       }
 
       // Step 1: Create the contract
-      const contractResponse = await apiRequest("POST", "/api/research-contracts", formattedPayload);
+      const contractResponse = await apiRequest("POST", "/api/contract-requests", formattedPayload);
       const contract = await contractResponse.json();
 
       // Step 2: Save scope items for the contract
@@ -224,19 +224,23 @@ export default function ContractRequest() {
             contractId: contract.id,
             dueDate: item.dueDate ? item.dueDate.toISOString().split('T')[0] : undefined,
           };
-          await apiRequest("POST", `/api/research-contracts/${contract.id}/scope-items`, scopePayload);
+          await apiRequest("POST", `/api/contract-requests/${contract.id}/scope-items`, scopePayload);
         }
       }
 
       return contract;
     },
     onSuccess: (data) => {
+      // Both lists hold the new row: the requester's portfolio page and the
+      // office queue. A requester who lands back on their own page and does
+      // not see what they just filed assumes it failed.
+      queryClient.invalidateQueries({ queryKey: ['/api/research-portfolio/contracts'] });
       queryClient.invalidateQueries({ queryKey: ['/api/research-contracts'] });
       toast({
         title: "Contract request submitted",
         description: "Your contract request has been successfully submitted for review.",
       });
-      navigate(`/research-contracts/${data.id}`);
+      navigate("/research-portfolio/contracts");
     },
     onError: (error) => {
       toast({
@@ -254,12 +258,12 @@ export default function ContractRequest() {
   return (
     <PermissionWrapper 
       currentUserRole={currentUser.role} 
-      navigationItem="contracts"
+      navigationItem="research-portfolio"
       showReadOnlyBanner={false}
     >
       <div className="space-y-6">
         <div className="flex items-center gap-2">
-          <Button variant="ghost" size="sm" onClick={() => navigate("/contracts")} data-testid="button-back">
+          <Button variant="ghost" size="sm" onClick={() => navigate("/research-portfolio/contracts")} data-testid="button-back">
             <ArrowLeft className="h-4 w-4 mr-1" />
             Back
           </Button>
@@ -935,7 +939,7 @@ export default function ContractRequest() {
               <Button 
                 variant="outline" 
                 type="button"
-                onClick={() => navigate("/contracts")}
+                onClick={() => navigate("/research-portfolio/contracts")}
                 data-testid="button-cancel"
               >
                 Cancel

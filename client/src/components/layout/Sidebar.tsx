@@ -271,7 +271,7 @@ export default function Sidebar({ mobile = false, onClose, onCollapsedChange }: 
         },
         {
           href: "/contracts",
-          label: "Research Contracts",
+          label: "Contract Office",
           icon: Handshake
         },
         {

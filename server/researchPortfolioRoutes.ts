@@ -6,14 +6,19 @@
  * issue flags. These two endpoints answer the question the people named on
  * those records ask instead: which are mine, and which are my section's.
  *
- * The two pages deliberately differ in kind:
+ * Both withhold, but they withhold different amounts:
  *
- *  - **Grants** lists every grant and marks each one. The filter is a
- *    convenience, so the data is not withheld and the client can switch
- *    between all / mine / my section without another request.
- *  - **Contracts** is a restriction. Anything outside the viewer's section
- *    never leaves the server, so the filtering happens here and not in the
- *    browser.
+ *  - **Grants** shows the viewer's own section entire -- every status,
+ *    including applications that were refused -- and every other section only
+ *    once a grant has an outcome. Within what is sent, the scope control is a
+ *    convenience, so switching between all / mine / my section costs no
+ *    further request.
+ *  - **Contracts** withholds outright. Anything outside the viewer's section
+ *    never leaves the server.
+ *
+ * In both cases the withholding happens here rather than in the browser. A
+ * record the viewer may not see should not be in the response for them to
+ * read, whatever the interface then chooses to render.
  *
  * Both mount under /api/research-portfolio, which is one matrix area
  * ("research-portfolio") separate from "research-office". That separation is
@@ -28,8 +33,13 @@ import { db } from "./db";
 import { storage } from "./databaseStorage";
 import { requireAuth } from "./auth";
 import { hasAnyRole } from "@shared/effectiveRoles";
+import { ZodError } from "zod";
+import { fromZodError } from "zod-validation-error";
+
 import {
   grantCoInvestigators,
+  insertResearchContractSchema,
+  insertResearchContractScopeItemSchema,
   scientists,
   users,
   type Grant,
@@ -37,6 +47,7 @@ import {
 } from "@shared/schema";
 import {
   grantInvolvement,
+  grantVisibleToViewer,
   sectionColleagueIds,
   visibleContracts,
   type PortfolioViewer,
@@ -166,23 +177,32 @@ export function createPortfolioGrantsHandler(
         else coInvestigatorsByGrant.set(row.grantId, [row.scientistId]);
       }
 
+      const listed = [];
+      for (const grant of grants) {
+        const coInvestigatorIds = coInvestigatorsByGrant.get(grant.id) ?? [];
+        const involvement = grantInvolvement(
+          { lpiId: grant.lpiId, coInvestigatorIds },
+          viewer,
+          colleagues,
+        );
+        // Another section's application is theirs while it is in flight. Only
+        // its outcome crosses the boundary, and it is dropped here rather than
+        // hidden in the browser -- a grant the viewer may not see should not
+        // be in the response for them to read.
+        if (!grantVisibleToViewer(involvement, grant.status)) continue;
+        listed.push({
+          ...grant,
+          lpiName: formatName(grant.lpiId ? staffById.get(grant.lpiId) : undefined),
+          coInvestigatorNames: coInvestigatorIds
+            .map((id) => formatName(staffById.get(id)))
+            .filter((name): name is string => name != null),
+          involvement,
+        });
+      }
+
       res.json({
         viewer: viewerSummary(viewer, colleagues),
-        grants: grants.map((grant) => {
-          const coInvestigatorIds = coInvestigatorsByGrant.get(grant.id) ?? [];
-          return {
-            ...grant,
-            lpiName: formatName(grant.lpiId ? staffById.get(grant.lpiId) : undefined),
-            coInvestigatorNames: coInvestigatorIds
-              .map((id) => formatName(staffById.get(id)))
-              .filter((name): name is string => name != null),
-            involvement: grantInvolvement(
-              { lpiId: grant.lpiId, coInvestigatorIds },
-              viewer,
-              colleagues,
-            ),
-          };
-        }),
+        grants: listed,
       });
     } catch (error) {
       console.error("Error fetching portfolio grants:", error);
@@ -236,7 +256,105 @@ export function createPortfolioContractsHandler(
   };
 }
 
+/**
+ * Raising a contract request.
+ *
+ * The office endpoints under /api/research-contracts create and administer
+ * contracts, and answer to the "research-office" area. Asking for one is a
+ * different act by a different person: a researcher who needs a collaboration
+ * agreement is not thereby an officer of the Research Office, and requiring
+ * them to hold that area in order to ask would have meant granting the office
+ * screens to everyone who might ever need a contract.
+ *
+ * So the request has its own prefix answering to "research-portfolio". It
+ * writes the same rows through the same storage and validation -- this is a
+ * second door onto one record, not a second kind of record -- and the office
+ * reviews what comes through it exactly as before.
+ *
+ * This is what makes "create" a meaningful level for the portfolio area:
+ * "view" reads your section's grants and contracts, "create" additionally
+ * lets you ask for a contract. Nothing here edits, so "edit" still grants
+ * nothing beyond "create".
+ */
+function createContractRequestHandler(): RequestHandler {
+  return async (req: Request, res: Response) => {
+    try {
+      const validated = insertResearchContractSchema
+        .omit({ contractNumber: true })
+        .parse(req.body);
+
+      if (validated.researchActivityId) {
+        const activity = await storage.getResearchActivity(validated.researchActivityId);
+        if (!activity) return res.status(404).json({ message: "Research activity not found" });
+      }
+      if (validated.leadPIId) {
+        const pi = await storage.getScientist(validated.leadPIId);
+        if (!pi) return res.status(404).json({ message: "Lead PI not found" });
+      }
+
+      const contract = await storage.createResearchContract({
+        ...validated,
+        contractNumber: `CR-${Date.now()}`,
+        // Taken from the session, never from the body. This is what places the
+        // contract in a section before a lead PI is assigned, so a requester
+        // who could name somebody else here could file a request into another
+        // section and read it back through the portfolio contracts list.
+        requestedByUserId: req.session?.user?.id ?? null,
+        status: "submitted",
+      } as Parameters<typeof storage.createResearchContract>[0]);
+
+      await req.audit?.logInsert(
+        "research_contracts",
+        contract.id,
+        contract as Record<string, unknown>,
+      );
+      res.status(201).json(contract);
+    } catch (error) {
+      if (error instanceof ZodError) {
+        return res.status(400).json({ message: fromZodError(error).message });
+      }
+      console.error("Error creating contract request:", error);
+      res.status(500).json({ message: "Failed to submit contract request" });
+    }
+  };
+}
+
+function createContractRequestScopeItemHandler(): RequestHandler {
+  return async (req: Request, res: Response) => {
+    try {
+      const contractId = parseInt(req.params.contractId);
+      if (isNaN(contractId)) return res.status(400).json({ message: "Invalid contract ID" });
+
+      const contract = await storage.getResearchContract(contractId);
+      if (!contract) return res.status(404).json({ message: "Research contract not found" });
+
+      const validated = insertResearchContractScopeItemSchema.parse({
+        ...req.body,
+        contractId,
+      });
+      const scopeItem = await storage.createResearchContractScopeItem(validated);
+      res.status(201).json(scopeItem);
+    } catch (error) {
+      if (error instanceof ZodError) {
+        return res.status(400).json({ message: fromZodError(error).message });
+      }
+      console.error("Error creating contract request scope item:", error);
+      res.status(500).json({ message: "Failed to save scope item" });
+    }
+  };
+}
+
 export function registerResearchPortfolioRoutes(app: Express): void {
   app.get("/api/research-portfolio/grants", requireAuth, createPortfolioGrantsHandler());
   app.get("/api/research-portfolio/contracts", requireAuth, createPortfolioContractsHandler());
+
+  // Separate prefix, same area: see the comment above. The matrix guard is
+  // mounted on the prefix, so both of these need "create" on
+  // research-portfolio, which is what a POST resolves to.
+  app.post("/api/contract-requests", requireAuth, createContractRequestHandler());
+  app.post(
+    "/api/contract-requests/:contractId/scope-items",
+    requireAuth,
+    createContractRequestScopeItemHandler(),
+  );
 }

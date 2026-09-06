@@ -62,10 +62,22 @@ const staff = [
 ];
 
 const grants = [
-  { id: 101, projectNumber: "G-1", title: "Mine", lpiId: 1, status: "active" },
-  { id: 102, projectNumber: "G-2", title: "My colleague's", lpiId: 2, status: "active" },
-  { id: 103, projectNumber: "G-3", title: "Another section's", lpiId: 3, status: "active" },
-  { id: 104, projectNumber: "G-4", title: "Co-investigator", lpiId: 3, status: "active" },
+  { id: 101, projectNumber: "G-1", title: "Mine", lpiId: 1, status: "active", awarded: true },
+  { id: 102, projectNumber: "G-2", title: "My colleague's", lpiId: 2, status: "active", awarded: true },
+  { id: 103, projectNumber: "G-3", title: "Another section's", lpiId: 3, status: "awarded", awarded: true },
+  { id: 104, projectNumber: "G-4", title: "Co-investigator", lpiId: 3, status: "active", awarded: true },
+  // Another section's, still an application: withheld.
+  { id: 105, projectNumber: "G-5", title: "Their application", lpiId: 3, status: "submitted", awarded: false },
+  // Another section's, awarded and then terminated. Withheld: it follows a
+  // real award, so an `awarded` test would let it through, and it is exactly
+  // the kind of thing a section would not want published elsewhere.
+  { id: 109, projectNumber: "G-9", title: "Their termination", lpiId: 3, status: "terminated", awarded: true },
+  // Another section's, awarded then finished: shown.
+  { id: 106, projectNumber: "G-6", title: "Their outcome", lpiId: 3, status: "completed", awarded: true },
+  // Another section's, won and still running. The case a status list missed.
+  { id: 108, projectNumber: "G-8", title: "Their running grant", lpiId: 3, status: "active", awarded: true },
+  // Mine, refused. Visible to me because it is mine.
+  { id: 107, projectNumber: "G-7", title: "My refusal", lpiId: 1, status: "rejected", awarded: false },
 ] as any[];
 
 const contracts = [
@@ -114,21 +126,70 @@ test("both portfolio endpoints require authentication", async () => {
 
 // ── Grants: everything is listed, each row marked ───────────────────────────
 
-test("the grants page lists every grant and marks each one", async () => {
+test("the grants page marks each grant it lists", async () => {
   await inAuthMode("local", async () => {
     await withServer("grants", researcher, dependencies, async (url) => {
       const body = await (await fetch(url)).json();
-      // Nothing is withheld: the filter is a convenience, not a restriction.
-      assert.deepEqual(
-        body.grants.map((g: any) => g.id),
-        [101, 102, 103, 104],
-      );
       const involvement = new Map(body.grants.map((g: any) => [g.id, g.involvement]));
       assert.equal(involvement.get(101), "mine");
       assert.equal(involvement.get(102), "team");
       assert.equal(involvement.get(103), null);
       // Named as co-investigator on somebody else's grant: still mine.
       assert.equal(involvement.get(104), "mine");
+      // Mine at a status that would be withheld if it were another section's.
+      assert.equal(involvement.get(107), "mine");
+    });
+  });
+});
+
+test("another section's grant is listed only while it is in good standing", async () => {
+  await inAuthMode("local", async () => {
+    await withServer("grants", researcher, dependencies, async (url) => {
+      const body = await (await fetch(url)).json();
+      // Another section's: 103 (awarded), 106 (completed) and 108 (active) all
+      // cross; 105 is still an application and 109 was terminated, and neither
+      // does. 108 is the case a list of "awarded, completed" got wrong; 109 is
+      // the case an `awarded` flag would get wrong.
+      assert.deepEqual(
+        body.grants.map((g: any) => g.id),
+        [101, 102, 103, 104, 106, 108, 107],
+      );
+    });
+  });
+});
+
+test("another section's running grant is listed, not only their finished ones", async () => {
+  await inAuthMode("local", async () => {
+    await withServer("grants", researcher, dependencies, async (url) => {
+      const body = await (await fetch(url)).json();
+      const running = body.grants.find((g: any) => g.id === 108);
+      assert.ok(running, "a won, running grant elsewhere should be listed");
+      assert.equal(running.status, "active");
+      assert.equal(running.involvement, null);
+    });
+  });
+});
+
+test("a withheld grant is absent from the response, not merely unmarked", async () => {
+  await inAuthMode("local", async () => {
+    await withServer("grants", researcher, dependencies, async (url) => {
+      const raw = await (await fetch(url)).text();
+      assert.equal(raw.includes("Their application"), false);
+      assert.equal(raw.includes("G-5"), false);
+      // The terminated one too: withheld even though it carries the award.
+      assert.equal(raw.includes("Their termination"), false);
+      assert.equal(raw.includes("G-9"), false);
+    });
+  });
+});
+
+test("my own section's grants are listed whatever their status", async () => {
+  await inAuthMode("local", async () => {
+    await withServer("grants", researcher, dependencies, async (url) => {
+      const body = await (await fetch(url)).json();
+      const mine = body.grants.find((g: any) => g.id === 107);
+      assert.ok(mine, "a rejected grant of my own should still be listed");
+      assert.equal(mine.status, "rejected");
     });
   });
 });

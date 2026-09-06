@@ -75,21 +75,12 @@ export default function ContractsList() {
         <div className="flex items-center justify-between">
           <h1 className="text-2xl font-semibold text-foreground">Research Contracts</h1>
           <div className="flex items-center gap-2">
-            <PermissionWrapper
-              requiredPermissions={['canAdd']}
-              currentUserRole={currentUser.role}
-              navigationItem="contracts"
-            >
-              <Link href="/contracts/request">
-                <Button 
-                  variant="outline"
-                  data-testid="button-request-contract"
-                >
-                  <Plus className="h-4 w-4 mr-2" />
-                  Request New Contract
-                </Button>
-              </Link>
-            </PermissionWrapper>
+            {/*
+              "Request New Contract" used to sit here. Asking for a contract is
+              a researcher's act, not an officer's, so it now lives on the
+              Research Portfolio contracts page, where the people who raise
+              requests actually are. This page administers what comes in.
+            */}
             <PermissionWrapper
               requiredPermissions={['canAdd']}
               currentUserRole={currentUser.role}
