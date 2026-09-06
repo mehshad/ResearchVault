@@ -114,7 +114,17 @@ export const createDefaultPermissions = (): NavigationPermission[] => {
 
       const officeDashboardAccess = getOfficeDashboardDefaultAccess(jobTitle, navItem);
       if (officeDashboardAccess) defaultAccess = officeDashboardAccess;
-      
+
+      // The Research Portfolio pages only read: they show a researcher their
+      // own and their section's grants and contracts, and the records
+      // themselves are still changed through the Research Office screens. So
+      // "view" is the most any role can usefully hold, and the loop above --
+      // which defaults most roles to "edit" -- would otherwise offer a level
+      // that means nothing here.
+      if (navItem === "research-portfolio") {
+        defaultAccess = "view";
+      }
+
       defaultPermissions.push({
         id: `${jobTitle}-${navItem}`,
         jobTitle,

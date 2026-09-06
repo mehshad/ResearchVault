@@ -78,6 +78,13 @@ export const NAVIGATION_ROUTE_RULES: NavigationRouteRule[] = [
   { prefix: "/api/grants", navigationItem: "research-office", label: "Research office" },
   { prefix: "/api/grant-progress-reports", navigationItem: "research-office", label: "Research office" },
 
+  // ── Research portfolio ───────────────────────────────────────────────────
+  // The same records as the Research Office prefixes above, read through the
+  // researcher's own view of them. A separate area on purpose: it is what lets
+  // researchers be granted their own and their section's grants and contracts
+  // without also being granted the office screens.
+  { prefix: "/api/research-portfolio", navigationItem: "research-portfolio", label: "Research portfolio" },
+
   // ── Research output ──────────────────────────────────────────────────────
   { prefix: "/api/publications", navigationItem: "publications", label: "Publications" },
   { prefix: "/api/journal-impact-factors", navigationItem: "publications", label: "Publications" },

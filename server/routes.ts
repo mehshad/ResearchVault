@@ -136,6 +136,7 @@ import {
   reconcileGrantLifecycle,
 } from "@shared/grantLifecycle";
 import { registerGrantListRoute } from "./grantIssueRoutes";
+import { registerResearchPortfolioRoutes } from "./researchPortfolioRoutes";
 import {
   applySection as applyBulkDataSection,
   buildExportWorkbook as buildBulkDataExportWorkbook,
@@ -9915,6 +9916,11 @@ function writeFailureDetail(error: unknown): string {
 
   // Grant routes
   registerGrantListRoute(app);
+
+  // The researcher-facing views of grants and contracts. Registered here rather
+  // than beside the office routes because they answer to a different matrix
+  // area -- see server/researchPortfolioRoutes.ts.
+  registerResearchPortfolioRoutes(app);
 
   app.get('/api/grants/:id', async (req: Request, res: Response) => {
     try {

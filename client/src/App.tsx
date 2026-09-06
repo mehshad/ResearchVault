@@ -119,6 +119,11 @@ import GrantsList from "@/pages/grants";
 import CreateGrant from "@/pages/grants/create";
 import EditGrant from "@/pages/grants/edit";
 
+// Research Portfolio — the researcher's view of the same records the
+// Research Office pages above administer, on their own matrix area.
+import PortfolioGrants from "@/pages/research-portfolio/grants";
+import PortfolioContracts from "@/pages/research-portfolio/contracts";
+
 // Research Teams
 import TeamsList from "@/pages/teams";
 import TeamDetail from "@/pages/teams/detail";
@@ -356,7 +361,11 @@ function AppRouter() {
         <Route path="/grants" component={GrantsList} />
         <Route path="/grants/create" component={CreateGrant} />
         <Route path="/grants/:id/edit" component={EditGrant} />
-        
+
+        {/* Research Portfolio */}
+        <Route path="/research-portfolio/grants" component={PortfolioGrants} />
+        <Route path="/research-portfolio/contracts" component={PortfolioContracts} />
+
         {/* Research Teams */}
         <Route path="/teams" component={TeamsList} />
         <Route path="/teams/:id" component={(props: any) => <TeamDetail researchActivityId={parseInt(props.params.id)} />} />
