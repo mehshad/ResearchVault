@@ -47,6 +47,7 @@ import { formatFullName, formatNameWithJobTitle } from "@/utils/nameUtils";
 import { ScientistAvatar } from "@/components/ScientistAvatar";
 import { queryClient, apiRequest, invalidateScientistLists } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
+import { nextSort, type SortDirection, type SortField } from "@/lib/staffSort";
 
 interface ImportPreview {
   toInsert: any[];
@@ -357,8 +358,19 @@ function StaffImportExportButtons() {
 export default function StaffList() {
   const [searchQuery, setSearchQuery] = useState("");
   const [activeTab, setActiveTab] = useState("all");
-  const [sortField, setSortField] = useState<"name" | "department" | "jobTitle" | "activeResearchActivities">("name");
-  const [sortDirection, setSortDirection] = useState<"asc" | "desc">("asc");
+  const [sortField, setSortField] = useState<SortField>("name");
+  const [sortDirection, setSortDirection] = useState<SortDirection>("asc");
+
+  /**
+   * Choose a sort. Both the "Sort by" dropdown and the column headers land
+   * here so they cannot decide the direction differently -- see
+   * client/src/lib/staffSort.ts for what went wrong when they did.
+   */
+  const applySort = (field: SortField, reverse: boolean) => {
+    const next = nextSort({ field: sortField, direction: sortDirection }, field, reverse);
+    setSortField(next.field);
+    setSortDirection(next.direction);
+  };
   const [, navigate] = useLocation();
   const { currentUser } = useCurrentUser();
   const { toast } = useToast();
@@ -570,16 +582,16 @@ export default function StaffList() {
                   </Button>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="end">
-                  <DropdownMenuItem onClick={() => setSortField('name')}>
+                  <DropdownMenuItem onClick={() => applySort("name", false)}>
                     Name
                   </DropdownMenuItem>
-                  <DropdownMenuItem onClick={() => setSortField('department')}>
+                  <DropdownMenuItem onClick={() => applySort("department", false)}>
                     Department
                   </DropdownMenuItem>
-                  <DropdownMenuItem onClick={() => setSortField('jobTitle')}>
+                  <DropdownMenuItem onClick={() => applySort("jobTitle", false)}>
                     Job Title
                   </DropdownMenuItem>
-                  <DropdownMenuItem onClick={() => setSortField('activeResearchActivities')}>
+                  <DropdownMenuItem onClick={() => applySort("activeResearchActivities", false)}>
                     Active SDRs
                   </DropdownMenuItem>
                 </DropdownMenuContent>
@@ -652,14 +664,7 @@ export default function StaffList() {
                         <Button 
                           variant="ghost" 
                           className="p-0 h-auto font-bold hover:bg-transparent flex items-center"
-                          onClick={() => {
-                            if (sortField === 'name') {
-                              setSortDirection(sortDirection === 'asc' ? 'desc' : 'asc');
-                            } else {
-                              setSortField('name');
-                              setSortDirection('asc');
-                            }
-                          }}
+                          onClick={() => applySort("name", true)}
                         >
                           Name
                           {sortField === 'name' && (
@@ -674,14 +679,7 @@ export default function StaffList() {
                         <Button 
                           variant="ghost" 
                           className="p-0 h-auto font-bold hover:bg-transparent flex items-center"
-                          onClick={() => {
-                            if (sortField === 'department') {
-                              setSortDirection(sortDirection === 'asc' ? 'desc' : 'asc');
-                            } else {
-                              setSortField('department');
-                              setSortDirection('asc');
-                            }
-                          }}
+                          onClick={() => applySort("department", true)}
                         >
                           Department
                           {sortField === 'department' && (
@@ -696,14 +694,7 @@ export default function StaffList() {
                         <Button 
                           variant="ghost" 
                           className="p-0 h-auto font-bold hover:bg-transparent flex items-center"
-                          onClick={() => {
-                            if (sortField === 'jobTitle') {
-                              setSortDirection(sortDirection === 'asc' ? 'desc' : 'asc');
-                            } else {
-                              setSortField('jobTitle');
-                              setSortDirection('asc');
-                            }
-                          }}
+                          onClick={() => applySort("jobTitle", true)}
                         >
                           Job Title
                           {sortField === 'jobTitle' && (
@@ -720,17 +711,7 @@ export default function StaffList() {
                         <Button
                           variant="ghost"
                           className="mx-auto p-0 h-auto font-bold hover:bg-transparent flex items-center"
-                          onClick={() => {
-                            if (sortField === 'activeResearchActivities') {
-                              setSortDirection(sortDirection === 'asc' ? 'desc' : 'asc');
-                            } else {
-                              setSortField('activeResearchActivities');
-                              // Busiest first. Ascending would open on everyone
-                              // with none, which is not what anybody sorting by
-                              // a workload count is looking for.
-                              setSortDirection('desc');
-                            }
-                          }}
+                          onClick={() => applySort("activeResearchActivities", true)}
                           data-testid="sort-active-sdrs"
                         >
                           Active SDRs
