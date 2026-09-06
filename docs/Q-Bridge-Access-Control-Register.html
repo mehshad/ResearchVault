@@ -1092,26 +1092,36 @@
     </p>
 
     <div class="stats">
-      <div class="stat"><div class="v">295</div><div class="l">API routes</div></div>
-      <div class="stat"><div class="v">287</div><div class="l">Reach a guard</div></div>
+      <div class="stat"><div class="v">318</div><div class="l">HTTP routes</div></div>
+      <div class="stat"><div class="v">308</div><div class="l">Reach a guard</div></div>
       <div class="stat"><div class="v">97%</div><div class="l">Covered</div></div>
-      <div class="stat"><div class="v">8</div><div class="l">Open before sign-in</div></div>
+      <div class="stat"><div class="v">10</div><div class="l">Open before sign-in</div></div>
     </div>
 
     <p>
-      The eight that reach no guard are the ones that cannot: sign-in itself, registration, the
-      liveness probe and object storage are all reached before a role exists, and guarding them
-      would lock everyone out. They are listed in
+      The ten that reach no guard are the ones that cannot: the seven sign-in routes under
+      <span class="mono">/api/auth</span>, the two liveness probes
+      (<span class="mono">/api/health</span> and
+      <span class="mono">/api/health/database</span>) and object storage are all reached before a
+      role exists, and guarding them would lock everyone out. They are listed in
       <span class="mono">UNMAPPED_API_PREFIXES</span> beside the reason each is excluded.
     </p>
     <p>
-      Five more sit in that list while still being guarded:
+      Seven more sit in that list while still being guarded:
       <span class="mono">/api/system-configurations</span> has no matrix area but is
       administrator-only through <span class="mono">requireAdmin</span>, in the same way as
       <span class="mono">/api/admin</span> and <span class="mono">/api/bulk-data</span>. Four
       presentation keys under it &mdash; theme name, institution labels, section visibility and
       default colour mode &mdash; are readable without a session, because the sign-in page applies
       them before anyone has said who they are.
+    </p>
+    <p>
+      <span class="mono">/api/register</span> is the one whose stated reason has gone out of date.
+      It is listed as reached before a role exists, but it now carries
+      <span class="mono">requireAuth</span> and
+      <span class="mono">requireInvestigatorDesignationManager</span>, so a first-time user
+      linking their own account must already hold the designation-manager role. Either the guard
+      or the reason is wrong; the register does not say which.
     </p>
     <div class="note">
       <p>
@@ -1250,7 +1260,7 @@ grep -oE 'navigationItem: "[^"]+"' server/navigationAccess.ts | sort -u</div>
 
     <h3>Which routes still reach no guard</h3>
     <div class="evidence"># every app.get/post/put/patch/delete, against NAVIGATION_ROUTE_RULES
-# and the route-level guards; expect 17, all in UNMAPPED_API_PREFIXES</div>
+# and the route-level guards; expect 10, all in UNMAPPED_API_PREFIXES</div>
 
     <h3>That every configured area is reviewable, and the matrix is complete</h3>
     <div class="evidence">SELECT DISTINCT navigation_item FROM role_permissions ORDER BY 1;
@@ -1274,6 +1284,12 @@ ORDER BY u.username;</div>
     <p>
       Prepared from source at commit <span class="mono">3f468cf</span> on branch
       <span class="mono">WH_changes</span>, 30 August 2026.
+    </p>
+    <p>
+      Section&nbsp;07 was re-derived on 6 September 2026, after the duplicate
+      <span class="mono">/api/health</span> handler was removed; those counts reflect that
+      later state, not the commit above. The 127-GET-route sweep recorded below the stat block
+      has not been re-run since, and there are now 146.
     </p>
     <p>
       <strong>Resolved findings are deleted, not archived.</strong> This document is a list of work
