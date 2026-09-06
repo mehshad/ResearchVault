@@ -15,6 +15,12 @@ interface PublicationsPanelProps {
   demoViewerRole?: string;
   demoViewerScientistId?: number;
   showAuthorFixes?: boolean;
+  /**
+   * The "find works we do not have yet" tool. Gated separately from having an
+   * ORCID: whether a person *has* one and whether *you* should be reconciling
+   * their bibliography are different questions.
+   */
+  showMissingPapers?: boolean;
   showInvalidIssues?: boolean;
   canActOnInvalid?: boolean;
 }
@@ -28,10 +34,11 @@ export function PublicationsPanel({
   demoViewerRole,
   demoViewerScientistId,
   showAuthorFixes = true,
+  showMissingPapers = true,
   showInvalidIssues = false,
   canActOnInvalid = false,
 }: PublicationsPanelProps) {
-  const showMissing = hasOrcid || hasScholar;
+  const showMissing = showMissingPapers && (hasOrcid || hasScholar);
 
   return (
     <Card data-testid="card-publications-panel">

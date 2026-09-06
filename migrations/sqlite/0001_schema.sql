@@ -157,6 +157,35 @@ CREATE TABLE IF NOT EXISTS "feature_requests" (
   "updated_at" TEXT
 );
 
+-- grantCoInvestigators
+CREATE TABLE IF NOT EXISTS "grant_co_investigators" (
+  "id" INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+  "grant_id" INTEGER NOT NULL,
+  "scientist_id" INTEGER NOT NULL,
+  "role" TEXT,
+  "created_at" TEXT,
+  "updated_at" TEXT
+);
+
+-- grantCollaboratingInstitutions
+CREATE TABLE IF NOT EXISTS "grant_collaborating_institutions" (
+  "id" INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+  "grant_id" INTEGER NOT NULL,
+  "name" TEXT NOT NULL,
+  "created_at" TEXT,
+  "updated_at" TEXT
+);
+
+-- grantInstitutionCollaborators
+CREATE TABLE IF NOT EXISTS "grant_institution_collaborators" (
+  "id" INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+  "institution_id" INTEGER NOT NULL,
+  "name" TEXT NOT NULL,
+  "role" TEXT,
+  "created_at" TEXT,
+  "updated_at" TEXT
+);
+
 -- grantProgressReports
 CREATE TABLE IF NOT EXISTS "grant_progress_reports" (
   "id" INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
@@ -204,6 +233,7 @@ CREATE TABLE IF NOT EXISTS "grants" (
   "source_category" TEXT,
   "source_record_key" TEXT,
   "submitting_institution" TEXT,
+  "grant_lpi_name" TEXT,
   "co_investigators" TEXT,
   "subaward_completed_year" INTEGER,
   "contribution_type" TEXT,
@@ -216,6 +246,8 @@ CREATE TABLE IF NOT EXISTS "grants" (
   "collaborators" TEXT,
   "description" TEXT,
   "funding_agency" TEXT,
+  "created_by_user_id" INTEGER,
+  "updated_by_user_id" INTEGER,
   "created_at" TEXT,
   "updated_at" TEXT,
   CONSTRAINT "grants_project_number_unique" UNIQUE ("project_number")
@@ -656,6 +688,8 @@ CREATE TABLE IF NOT EXISTS "programs" (
   "research_co_lead_id" INTEGER,
   "clinical_co_lead_1_id" INTEGER,
   "clinical_co_lead_2_id" INTEGER,
+  "sharepoint_url" TEXT,
+  "website_url" TEXT,
   "created_at" TEXT,
   "updated_at" TEXT,
   CONSTRAINT "programs_program_id_unique" UNIQUE ("program_id")

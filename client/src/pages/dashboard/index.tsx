@@ -30,6 +30,14 @@ export default function Dashboard() {
           value={statsLoading ? 0 : stats?.publications || 0} 
           type="publications" 
         />
+        {/* Fills the slot the Patents card left behind. Everyone in the
+            directory, not only those with an account or an SDR: it answers
+            "how big are we", which is the question a dashboard count is for. */}
+        <StatsCard
+          title="Staff"
+          value={statsLoading ? 0 : stats?.staff || 0}
+          type="applications"
+        />
       </div>
 
       {/* Grants, from the widest figure inwards: everything ever submitted,

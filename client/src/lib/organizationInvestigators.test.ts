@@ -71,3 +71,40 @@ test("no staff at all yields no groups rather than throwing", () => {
   assert.equal(groupInvestigatorsBySection(undefined).size, 0);
   assert.equal(groupInvestigatorsBySection([]).size, 0);
 });
+
+// ── Primary investigators lead the list ────────────────────────────────────
+// Holding Investigator as the primary access role and holding it alongside
+// another are both being an investigator; the difference is what the person is
+// here to do. In a laboratory's list the first is who you are looking for.
+
+const p = (id: number, lastName: string, isPrimaryInvestigator: boolean) => ({
+  id, firstName: "A", lastName, sectionId: 1, isInvestigator: true, isPrimaryInvestigator,
+});
+
+test("primary investigators come before those holding it alongside another role", () => {
+  const grouped = groupInvestigatorsBySection([
+    p(1, "Zephyr", false),
+    p(2, "Young", true),
+    p(3, "Abbott", false),
+  ]);
+  assert.deepEqual(grouped.get(1)?.map((x) => x.lastName), ["Young", "Abbott", "Zephyr"]);
+});
+
+test("surname still orders within each group", () => {
+  const grouped = groupInvestigatorsBySection([
+    p(1, "Baker", true),
+    p(2, "Archer", true),
+    p(3, "Dunn", false),
+    p(4, "Clark", false),
+  ]);
+  assert.deepEqual(grouped.get(1)?.map((x) => x.lastName), ["Archer", "Baker", "Clark", "Dunn"]);
+});
+
+test("a record with no flag is treated as not primary, not as unknown", () => {
+  // Callers that have not asked the server for it must not be reordered.
+  const grouped = groupInvestigatorsBySection([
+    { id: 1, firstName: "A", lastName: "Baker", sectionId: 1, isInvestigator: true },
+    { id: 2, firstName: "A", lastName: "Archer", sectionId: 1, isInvestigator: true },
+  ] as any);
+  assert.deepEqual(grouped.get(1)?.map((x) => x.lastName), ["Archer", "Baker"]);
+});

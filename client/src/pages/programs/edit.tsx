@@ -60,6 +60,8 @@ export default function ProgramEdit() {
       researchCoLeadId: null,
       clinicalCoLead1Id: null,
       clinicalCoLead2Id: null,
+      sharepointUrl: "",
+      websiteUrl: "",
     },
   });
 
@@ -76,6 +78,8 @@ export default function ProgramEdit() {
         researchCoLeadId: program.researchCoLeadId || null,
         clinicalCoLead1Id: program.clinicalCoLead1Id || null,
         clinicalCoLead2Id: program.clinicalCoLead2Id || null,
+        sharepointUrl: program.sharepointUrl || "",
+        websiteUrl: program.websiteUrl || "",
       });
     }
   }, [program, form]);
@@ -307,7 +311,53 @@ export default function ProgramEdit() {
                 />
               </div>
 
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <FormField
+                  control={form.control}
+                  name="sharepointUrl"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>SharePoint Link</FormLabel>
+                      <FormControl>
+                        <Input
+                          type="url"
+                          placeholder="https://sidra.sharepoint.com/sites/..."
+                          autoComplete="off"
+                          data-1p-ignore="true"
+                          data-lpignore="true"
+                          data-testid="input-sharepoint-url"
+                          {...field}
+                          value={field.value || ""}
+                        />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
 
+                <FormField
+                  control={form.control}
+                  name="websiteUrl"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Website Link</FormLabel>
+                      <FormControl>
+                        <Input
+                          type="url"
+                          placeholder="https://www.sidra.org/..."
+                          autoComplete="off"
+                          data-1p-ignore="true"
+                          data-lpignore="true"
+                          data-testid="input-website-url"
+                          {...field}
+                          value={field.value || ""}
+                        />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+              </div>
 
               <div className="flex gap-4">
                 <Button 

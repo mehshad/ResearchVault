@@ -5,7 +5,10 @@ import { useLocation, useParams } from "wouter";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Project, Scientist, ResearchActivity, IrbApplication, IbcApplication, DataManagementPlan, Publication } from "@shared/schema";
-import { ArrowLeft, Calendar, FileText, Layers, Users, Building, Beaker, FileCheck, FileSpreadsheet, Edit } from "lucide-react";
+import { useMemo } from "react";
+import { orderPublicationsForActivity } from "@shared/publicationOrdering";
+import { GRANT_STATUS_OPTIONS } from "@shared/grantLifecycle";
+import { ArrowLeft, Banknote, Calendar, FileText, Layers, Users, Building, Beaker, FileCheck, FileSpreadsheet, Edit } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Badge } from "@/components/ui/badge";
 import { format } from "date-fns";
@@ -93,6 +96,17 @@ export default function ResearchActivityDetail() {
     select: (data) => data.filter(pub => pub.researchActivityId === activity?.id),
     enabled: !!activity?.id,
   });
+
+  // Published work oldest to newest so the newest sits at the bottom, then
+  // everything still in progress from the most advanced down to Concept.
+  // The label the Grants Office uses, not the stored value.
+  const getStatusLabel = (status: string) =>
+    GRANT_STATUS_OPTIONS.find((option) => option.value === status)?.label ?? status;
+
+  const orderedPublications = useMemo(
+    () => orderPublicationsForActivity(publications ?? []),
+    [publications],
+  );
   
   // Fetch Data Management Plan for this research activity
   const { data: dmpData } = useQuery<DataManagementPlan[]>({
@@ -122,6 +136,20 @@ export default function ResearchActivityDetail() {
     enabled: !!activity?.id,
   });
   
+  // Linked grants. The endpoint has always been there; this page simply never
+  // asked, so an SDR paid for by a grant looked unfunded.
+  const { data: linkedGrants } = useQuery<Array<{ id: number; projectNumber: string; title: string; status: string }>>({
+    queryKey: ['/api/research-activities', id, 'grants'],
+    queryFn: async () => {
+      const response = await fetch(`/api/research-activities/${id}/grants`);
+      if (!response.ok) {
+        throw new Error('Failed to fetch linked grants');
+      }
+      return response.json();
+    },
+    enabled: !!id,
+  });
+
   // Fetch IBC applications for this research activity
   const { data: ibcApplications } = useQuery<IbcApplication[]>({
     queryKey: ['/api/research-activities', id, 'ibc-applications'],
@@ -439,7 +467,7 @@ export default function ResearchActivityDetail() {
                       <span className="font-medium text-sm">Publications</span>
                       <span className="text-xs text-gray-500 dark:text-gray-400">({publications.length})</span>
                     </div>
-                    {publications.map((publication) => (
+                    {orderedPublications.map((publication) => (
                       <Button
                         key={publication.id}
                         variant="ghost"
@@ -464,7 +492,13 @@ export default function ResearchActivityDetail() {
                           <span className="text-xs text-gray-600 truncate w-full dark:text-gray-300">{publication.title}</span>
                           <div className="flex items-center gap-2 mt-1">
                             <span className="text-xs text-gray-500 dark:text-gray-400">{publication.journal}</span>
-                            {publication.publicationYear && (
+                            {publication.publicationDate ? (
+                              <span className="text-xs text-blue-600 font-medium dark:text-blue-400">
+                                {new Date(publication.publicationDate).toLocaleDateString(undefined, {
+                                  year: "numeric", month: "short", day: "numeric",
+                                })}
+                              </span>
+                            ) : publication.publicationYear && (
                               <span className="text-xs text-blue-600 font-medium dark:text-blue-400">
                                 {publication.publicationYear}
                               </span>
@@ -488,6 +522,38 @@ export default function ResearchActivityDetail() {
                   </Button>
                 )}
                 
+                {linkedGrants && linkedGrants.length > 0 && (
+                  <div className="border border-gray-200 rounded-lg p-3 space-y-2 dark:border-gray-700">
+                    <div className="flex items-center gap-2">
+                      <Banknote className="h-4 w-4 text-amber-600 dark:text-amber-400" />
+                      <span className="font-medium text-sm">Grants</span>
+                      <span className="text-xs text-gray-500 dark:text-gray-400">({linkedGrants.length})</span>
+                    </div>
+                    {linkedGrants.map((grant) => (
+                      <Button
+                        key={grant.id}
+                        variant="ghost"
+                        className="w-full justify-start p-2 h-auto text-left hover:bg-amber-50 dark:hover:bg-amber-950"
+                        onClick={() => navigate(`/grants/${grant.id}`)}
+                      >
+                        <div className="flex flex-col items-start w-full">
+                          <div className="flex items-center justify-between w-full gap-2">
+                            <span className="font-medium text-sm text-amber-700 truncate dark:text-amber-400">
+                              {grant.projectNumber}
+                            </span>
+                            <Badge variant="outline" className="text-xs shrink-0">
+                              {getStatusLabel(grant.status)}
+                            </Badge>
+                          </div>
+                          <span className="text-xs text-gray-600 truncate w-full dark:text-gray-300">
+                            {grant.title}
+                          </span>
+                        </div>
+                      </Button>
+                    ))}
+                  </div>
+                )}
+
                 {irbApplications && irbApplications.length > 0 && (
                   <div className="border border-gray-200 rounded-lg p-3 space-y-3 dark:border-gray-700">
                     <div className="flex items-center gap-2">
@@ -534,18 +600,7 @@ export default function ResearchActivityDetail() {
               </div>
             </CardContent>
           </Card>
-          
-          <Card>
-            <CardHeader>
-              <CardTitle>Documents</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <p className="text-foreground">No documents available.</p>
-              <Button variant="outline" className="w-full mt-4" disabled>
-                <FileText className="h-4 w-4 mr-2" /> Add Document
-              </Button>
-            </CardContent>
-          </Card>
+
         </div>
       </div>
     </div>

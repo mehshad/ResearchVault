@@ -101,6 +101,7 @@ import {
   rejectPublicationCreateWorkflowMutation,
   rejectProtectedPublicationStatusFields,
   getStatusTransitionWorkflowViolation,
+  parsePublicationStatusFields,
 } from "./publicationMutationPolicy";
 import {
   createIpVettingHandler,
@@ -5578,7 +5579,15 @@ function writeFailureDetail(error: unknown): string {
         return res.status(400).json({ message: "Invalid publication ID" });
       }
 
-      const { status, changes, updatedFields } = req.body;
+      const { status, changes } = req.body;
+
+      // Coerced, not trusted as sent: a date arrives here as a string and the
+      // column is a timestamp.
+      const parsedFields = parsePublicationStatusFields(req.body?.updatedFields);
+      if (!parsedFields.ok) {
+        return res.status(400).json({ message: parsedFields.message });
+      }
+      const updatedFields = parsedFields.fields;
 
       if (!status) {
         return res.status(400).json({ message: "Status is required" });
@@ -11875,6 +11884,33 @@ function writeFailureDetail(error: unknown): string {
       let scientistId: number;
       try {
         scientistId = await db.transaction(async (tx) => {
+          // Adopt the staff profile that already exists for this address before
+          // making another one. Matched ignoring case: staff records here are
+          // lower-case while Active Directory returns the address as registered
+          // -- "WHendrickx@..." for "whendrickx@..." -- and comparing literally
+          // created a second profile for somebody already in the table, which
+          // then had to be merged by hand.
+          //
+          // Registration still creates a profile for anyone the directory does
+          // not know; it just stops being the only thing it can do.
+          const normalisedEmail = String(sessionUser.email ?? '').trim().toLowerCase();
+          if (normalisedEmail) {
+            const [existing] = await tx
+              .select({ id: scientists.id })
+              .from(scientists)
+              .where(sql`lower(${scientists.email}) = ${normalisedEmail}`)
+              .limit(1);
+            if (existing) {
+              const [linkedToExisting] = await tx
+                .update(users)
+                .set({ scientistId: existing.id })
+                .where(and(eq(users.id, sessionUser.id), isNull(users.scientistId)))
+                .returning({ id: users.id });
+              if (!linkedToExisting) throw new Error('REGISTRATION_ALREADY_LINKED');
+              return existing.id;
+            }
+          }
+
           const [created] = await tx
             .insert(scientists)
             .values({

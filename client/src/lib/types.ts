@@ -118,6 +118,8 @@ export interface DashboardStats {
   activeResearchActivities: number;
   publications: number;
   patents: number;
+  /** Everyone in the staff directory. */
+  staff: number;
   grants?: GrantDashboardStats;
 }
 

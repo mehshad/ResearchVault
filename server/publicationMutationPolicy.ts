@@ -3,6 +3,7 @@ import {
   IP_VETTED_STATUS,
   IP_VETTING_READY_STATUS,
 } from "@shared/publicationWorkflow";
+import { insertPublicationSchema, type InsertPublication } from "@shared/schema";
 
 export type PublicationWorkflowViolation = {
   statusCode: 400 | 403;
@@ -101,6 +102,46 @@ export function getStatusTransitionWorkflowViolation(
   }
 
   return null;
+}
+
+/**
+ * The fields sent alongside a status change, coerced to what the column types
+ * expect and stripped of anything that is not a publication field.
+ *
+ * The status endpoint used to hand `updatedFields` to the storage layer exactly
+ * as the browser sent it. `publicationDate` leaves an `<input type="date">` as
+ * "2026-07-03", but the column is a timestamp and Drizzle calls `.toISOString()`
+ * on whatever it is given -- so moving a publication to Published threw
+ * `value.toISOString is not a function` before any SQL ran, and the endpoint
+ * answered a bare 500. Published is the only stage that writes a date, which is
+ * why every earlier stage worked and this one could never be reached.
+ *
+ * The generic edit endpoint never had the problem because it parses its body
+ * through `insertPublicationSchema`, which converts the date. Sharing that
+ * schema here removes the asymmetry, rather than converting this one field at
+ * the call site and leaving the next timestamp to fail the same way.
+ */
+export function parsePublicationStatusFields(
+  updatedFields: unknown
+):
+  | { ok: true; fields: Partial<InsertPublication> | undefined }
+  | { ok: false; message: string } {
+  if (updatedFields == null) return { ok: true, fields: undefined };
+  if (typeof updatedFields !== "object" || Array.isArray(updatedFields)) {
+    return { ok: false, message: "Updated fields must be an object." };
+  }
+
+  const parsed = insertPublicationSchema.partial().safeParse(updatedFields);
+  if (!parsed.success) {
+    return {
+      ok: false,
+      message: parsed.error.errors
+        .map((issue) => `${issue.path.join(".") || "field"}: ${issue.message}`)
+        .join("; "),
+    };
+  }
+
+  return { ok: true, fields: parsed.data };
 }
 
 export function getStatusUpdatedFieldsWorkflowViolation(
