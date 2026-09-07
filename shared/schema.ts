@@ -26,7 +26,13 @@ export const CONTRACT_STATUS_VALUES = [
 ] as const;
 
 // Zod schemas for validation
-export const contractTypeSchema = z.enum(CONTRACT_TYPES);
+/**
+ * Contract types are rows in contract_types now, not a fixed list, so this can
+ * no longer be an enum of eight. Any non-empty name is accepted; the interface
+ * is what makes sure it came from the list, exactly as it does for
+ * institutions.
+ */
+export const contractTypeSchema = z.string().trim().min(1);
 export const contractStatusSchema = z.enum(CONTRACT_STATUS_VALUES);
 
 // TypeScript types
@@ -1483,11 +1489,44 @@ export const institutions = pgTable("institutions", {
    * the table exists.
    */
   nameKey: text("name_key").notNull().unique(),
+  /**
+   * Where the organisation is, so a contract naming a counterparty can fill in
+   * its country rather than asking somebody to type it again.
+   *
+   * Nullable: the office's own list has one for every row, but a counterparty
+   * added through a form has none until somebody says.
+   */
+  country: text("country"),
   /** Who added it. Null for the rows seeded from existing data. */
   createdByUserId: integer("created_by_user_id").references(() => users.id),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 });
+
+/**
+ * The kinds of agreement the Research Office writes.
+ *
+ * Was a fixed list of eight in code. The office maintains a list of
+ * forty-three, and knowing its own agreement vocabulary is not something it
+ * should need a deployment for — so this is a table, seeded with both, and
+ * editable in the same way institutions are.
+ *
+ * The eight that shipped are marked built-in and sort first: contracts already
+ * carrying one must still have a type that is on the list.
+ */
+export const contractTypes = pgTable("contract_types", {
+  id: serial("id").primaryKey(),
+  name: text("name").notNull(),
+  /** Case, spacing and punctuation removed. Carries the unique index. */
+  nameKey: text("name_key").notNull().unique(),
+  sortOrder: integer("sort_order").notNull().default(0),
+  isBuiltIn: boolean("is_built_in").notNull().default(false),
+  createdByUserId: integer("created_by_user_id").references(() => users.id),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+export type ContractTypeRow = typeof contractTypes.$inferSelect;
 
 export const insertInstitutionSchema = createInsertSchema(institutions).omit({
   id: true,

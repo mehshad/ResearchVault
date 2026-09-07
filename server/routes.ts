@@ -138,6 +138,7 @@ import {
 import { registerGrantListRoute } from "./grantIssueRoutes";
 import { registerResearchPortfolioRoutes } from "./researchPortfolioRoutes";
 import { registerInstitutionRoutes } from "./institutionRoutes";
+import { registerContractTypeRoutes } from "./contractTypeRoutes";
 import {
   applySection as applyBulkDataSection,
   buildExportWorkbook as buildBulkDataExportWorkbook,
@@ -9925,6 +9926,7 @@ function writeFailureDetail(error: unknown): string {
 
   // The shared institution list, read by the grant and contract forms.
   registerInstitutionRoutes(app);
+  registerContractTypeRoutes(app);
 
   app.get('/api/grants/:id', async (req: Request, res: Response) => {
     try {

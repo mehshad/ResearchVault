@@ -15,6 +15,7 @@ import {
 } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
 import { InstitutionCombobox } from "@/components/InstitutionCombobox";
+import { ContractTypeCombobox } from "@/components/ContractTypeCombobox";
 import { Textarea } from "@/components/ui/textarea";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -401,20 +402,13 @@ export default function ContractRequest() {
                   render={({ field }) => (
                     <FormItem>
                       <FormLabel>Contract Type</FormLabel>
-                      <Select onValueChange={field.onChange} defaultValue={field.value}>
-                        <FormControl>
-                          <SelectTrigger data-testid="select-contract-type">
-                            <SelectValue placeholder="Select contract type" />
-                          </SelectTrigger>
-                        </FormControl>
-                        <SelectContent>
-                          {CONTRACT_TYPES.map((type) => (
-                            <SelectItem key={type} value={type}>
-                              {type}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
+                      <FormControl>
+                        <ContractTypeCombobox
+                          value={field.value}
+                          onChange={field.onChange}
+                          data-testid="select-contract-type"
+                        />
+                      </FormControl>
                       <FormMessage />
                     </FormItem>
                   )}

@@ -31,6 +31,18 @@
  * showing them next to each other.
  */
 export function institutionKey(name: string): string {
+  return referenceNameKey(name);
+}
+
+/**
+ * The same rule, named for what it is, because contract types need it too.
+ *
+ * Any list the office curates by typing into it has this problem: the second
+ * person to need an entry spells it differently, and the list grows a twin.
+ * One normalisation, used by every such list, so they cannot disagree about
+ * what counts as the same thing.
+ */
+export function referenceNameKey(name: string): string {
   return name.toLowerCase().replace(/[^a-z0-9]/g, "");
 }
 
