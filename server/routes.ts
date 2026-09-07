@@ -139,6 +139,7 @@ import { registerGrantListRoute } from "./grantIssueRoutes";
 import { registerResearchPortfolioRoutes } from "./researchPortfolioRoutes";
 import { registerInstitutionRoutes } from "./institutionRoutes";
 import { registerContractTypeRoutes } from "./contractTypeRoutes";
+import { registerGrantStatusRoutes, refreshGrantStatusRegistry } from "./grantStatusRoutes";
 import {
   applySection as applyBulkDataSection,
   buildExportWorkbook as buildBulkDataExportWorkbook,
@@ -9927,6 +9928,12 @@ function writeFailureDetail(error: unknown): string {
   // The shared institution list, read by the grant and contract forms.
   registerInstitutionRoutes(app);
   registerContractTypeRoutes(app);
+  registerGrantStatusRoutes(app);
+
+  // Load the status list into the registry the lifecycle rules read. Failing
+  // this leaves the built-in thirteen in place, which is what the system meant
+  // before the table existed.
+  void refreshGrantStatusRegistry();
 
   app.get('/api/grants/:id', async (req: Request, res: Response) => {
     try {

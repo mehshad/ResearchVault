@@ -1528,6 +1528,36 @@ export const contractTypes = pgTable("contract_types", {
 
 export type ContractTypeRow = typeof contractTypes.$inferSelect;
 
+/**
+ * The grant statuses the Research Office maintains.
+ *
+ * `stage` is the load-bearing column: every lifecycle rule reads it rather than
+ * matching the status word, which is what lets the office add its funder's
+ * vocabulary without the system losing track of what "awarded" means. See
+ * shared/grantStatusStages.ts.
+ */
+export const grantStatuses = pgTable("grant_statuses", {
+  id: serial("id").primaryKey(),
+  /** Stored in grants.status. */
+  value: text("value").notNull().unique(),
+  label: text("label").notNull(),
+  /** One of the five stages. Constrained in the database as well. */
+  stage: text("stage").notNull(),
+  sortOrder: integer("sort_order").notNull().default(0),
+  /** The thirteen that ship: relabelled and reordered freely, never deleted. */
+  isBuiltIn: boolean("is_built_in").notNull().default(false),
+  /**
+   * Hidden from the dropdown without breaking grants that already carry it.
+   * Deleting a status in use would leave those grants meaning nothing.
+   */
+  retiredAt: timestamp("retired_at"),
+  createdByUserId: integer("created_by_user_id").references(() => users.id),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+export type GrantStatusRow = typeof grantStatuses.$inferSelect;
+
 export const insertInstitutionSchema = createInsertSchema(institutions).omit({
   id: true,
   // Both are derived from the name by the server: a caller that could choose

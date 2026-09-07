@@ -129,6 +129,7 @@ export const UNMAPPED_API_PREFIXES: ReadonlyArray<{ prefix: string; reason: stri
   { prefix: "/api/office-dashboards", reason: "Guarded by the office guards, which now read the matrix." },
   { prefix: "/api/system-configurations", reason: "Administrator-only via requireAdmin; the theme, branding and section-visibility keys stay readable so the sign-in page can render." },
   { prefix: "/api/institutions", reason: "A shared reference list, not a record: read by both the Research Office grant forms and the portfolio contract-request form, so no single matrix area owns it. Guarded by requireAuth." },
+  { prefix: "/api/grant-statuses", reason: "Reading is open to any session because every screen that shows or filters a grant status needs the list to render; writing carries its own research-office guard on the route." },
   { prefix: "/api/contract-types", reason: "A shared reference list, like /api/institutions: read by the Research Office contract screens and the portfolio request form alike, so no single matrix area owns it. Guarded by requireAuth." },
   { prefix: "/objects", reason: "Object storage, served outside the /api surface." },
 ];
