@@ -200,14 +200,13 @@ export default function PortfolioContracts() {
                   {filtered?.map((contract) => (
                     <TableRow key={contract.id} data-testid={`row-contract-${contract.id}`}>
                       <TableCell>
-                        <div className="font-medium">
-                          <Link
-                            href={`/contracts/${contract.id}`}
-                            className="hover:text-primary transition-colors"
-                          >
-                            {contract.title}
-                          </Link>
-                        </div>
+                        {/* Not a link, for the same reason the grants page
+                            title is not one: /contracts/:id renders, but its
+                            data comes from an endpoint answering to the
+                            Research Office area this page exists to avoid
+                            needing, so a researcher following it lands on an
+                            empty page. */}
+                        <div className="font-medium">{contract.title}</div>
                         <div className="text-sm text-muted-foreground mt-1 flex items-center gap-2">
                           <span>{contract.contractNumber}</span>
                           {/* Only under a scope that mixes the two. */}
