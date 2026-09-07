@@ -64,6 +64,7 @@ export default function CreateGrant() {
       sourceCategory: "",
       sourceRecordKey: "",
       submittingInstitution: "",
+      programId: null,
       coInvestigators: [],
       investigatorType: "Researcher",
       lpiId: undefined,
@@ -86,6 +87,10 @@ export default function CreateGrant() {
     queryKey: ['/api/scientists']
   });
 
+  const { data: programs = [] } = useQuery({
+    queryKey: ['/api/programs']
+  });
+
   const createGrantMutation = useMutation({
     mutationFn: async (data: CreateGrantForm) => {
       const collaborators = collaboratorsInput
@@ -104,6 +109,7 @@ export default function CreateGrant() {
         sourceCategory: rawFormValues.sourceCategory || null,
         sourceRecordKey: rawFormValues.sourceRecordKey || null,
         submittingInstitution: rawFormValues.submittingInstitution || null,
+        programId: rawFormValues.programId ?? null,
         subawardCompletedYear: rawFormValues.subawardCompletedYear || null,
         contributionType: rawFormValues.contributionType || null,
         contributionDetails: rawFormValues.contributionDetails || null,
@@ -240,6 +246,44 @@ export default function CreateGrant() {
                         <FormControl>
                           <Input {...field} placeholder="e.g., 2024-1" />
                         </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+
+                  {/* The programme is chosen here, at submission, because this
+                      is what submission is. It limits which SDRs can be linked
+                      later, once the grant is awarded — and changing it after
+                      SDRs are linked is refused, so choosing it now is the
+                      cheapest moment. */}
+                  <FormField
+                    control={form.control}
+                    name="programId"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Programme</FormLabel>
+                        <Select
+                          value={field.value ? field.value.toString() : "none"}
+                          onValueChange={(value) =>
+                            field.onChange(value === "none" ? null : parseInt(value))
+                          }
+                        >
+                          <FormControl>
+                            <SelectTrigger data-testid="select-grant-program">
+                              <SelectValue placeholder="No programme" />
+                            </SelectTrigger>
+                          </FormControl>
+                          <SelectContent>
+                            <SelectItem value="none">No programme</SelectItem>
+                            {(Array.isArray(programs) ? programs : []).map((program: any) => (
+                              <SelectItem key={program.id} value={program.id.toString()}>
+                                {program.programId
+                                  ? `${program.programId} — ${program.name}`
+                                  : program.name}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
                         <FormMessage />
                       </FormItem>
                     )}

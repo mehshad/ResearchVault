@@ -14,7 +14,6 @@
  */
 import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Link } from "wouter";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
@@ -254,14 +253,12 @@ export default function PortfolioGrants() {
                   {filtered?.map((grant) => (
                     <TableRow key={grant.id} data-testid={`row-grant-${grant.id}`}>
                       <TableCell>
-                        <div className="font-medium">
-                          <Link
-                            href={`/grants/${grant.id}`}
-                            className="hover:text-primary transition-colors"
-                          >
-                            {grant.title}
-                          </Link>
-                        </div>
+                        {/* Not a link. There is no grant detail page -- only
+                            /grants/:id/edit, which answers to the Research
+                            Office area this page exists to avoid needing. A
+                            title that looks clickable and goes nowhere is
+                            worse than plain text. */}
+                        <div className="font-medium">{grant.title}</div>
                         <div className="text-sm text-muted-foreground mt-1 flex items-center gap-2">
                           <span>{grant.projectNumber}</span>
                           {/*

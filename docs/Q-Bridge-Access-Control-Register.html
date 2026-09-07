@@ -833,6 +833,8 @@
           <tr><td class="k">Portfolio contracts are limited to the viewer's section</td><td>Research portfolio</td><td>The Research Portfolio contracts page</td><td>A contract outside the viewer's section is not sent to the browser at all. A contract belongs to the section of its lead PI, or of whoever raised the request when no lead PI is recorded. Management and administrators see every contract. An account with no staff profile, or a profile not placed in a section, sees none rather than all.</td></tr>
           <tr><td class="k">Another section's grants are visible only while in good standing</td><td>Research portfolio</td><td>The Research Portfolio grants page</td><td>The viewer's own section is listed at every status, refused applications included. Every other section is listed only at Awarded, Active or Completed, so their applications, refusals and terminations are not sent to the browser. Management and administrators are not bounded this way. The status filter marks which statuses this applies to, so a short list is not read as missing data.</td></tr>
           <tr><td class="k">Raising a contract request does not require the Research Office</td><td>Research portfolio</td><td>The Request New Contract form</td><td>Submitting a contract request needs <em>create</em> on Research Portfolio, not the Research Office area that administers contracts. The requesting account is taken from the session and never from the form, so a request cannot be filed into another section. This is why Research Portfolio has a meaningful <em>create</em> level; nothing in that area edits an existing record, so <em>edit</em> grants nothing beyond <em>create</em>.</td></tr>
+          <tr><td class="k">A grant&rsquo;s programme limits the SDRs linked to it</td><td>Research office</td><td>Grant editing and SDR linking</td><td>An SDR may be linked to a grant only when its own project sits in the grant&rsquo;s programme, on top of the existing rule that its Principal Investigator must be the grant&rsquo;s Lead PI. A missing programme on either side restricts nothing: a grant naming none has nothing to narrow by, and an SDR reaching none is not excluded by a programme it cannot be compared against. Changing a grant&rsquo;s programme while SDRs from another are linked is refused, naming them, rather than dropping the links or leaving the grant holding work its own programme excludes.</td></tr>
+          <tr><td class="k">Institutions come from one shared list</td><td>Reference data</td><td>Grant submitting and collaborating institutions, contract counterparties</td><td>Any signed-in account may read the institution list and add to it, because every form that names an organisation needs both. Names are unique on a key that ignores case, spacing and punctuation, so the list cannot hold two spellings of one organisation, and the key is derived by the server rather than accepted from a caller.</td></tr>
         </tbody>
       </table>
     </div>
@@ -1158,8 +1160,8 @@
     </p>
 
     <div class="stats">
-      <div class="stat"><div class="v">322</div><div class="l">API routes</div></div>
-      <div class="stat"><div class="v">312</div><div class="l">Reach a guard</div></div>
+      <div class="stat"><div class="v">324</div><div class="l">API routes</div></div>
+      <div class="stat"><div class="v">314</div><div class="l">Reach a guard</div></div>
       <div class="stat"><div class="v">96.9%</div><div class="l">Covered</div></div>
       <div class="stat"><div class="v">10</div><div class="l">Open before sign-in</div></div>
     </div>
@@ -1188,7 +1190,7 @@
       <p>
         <strong>Being on the exclusion list is not the same as being open.</strong>
         <span class="mono">/api/register</span> sits in
-        <span class="mono">UNMAPPED_API_PREFIXES</span> and is nonetheless counted among the 312
+        <span class="mono">UNMAPPED_API_PREFIXES</span> and is nonetheless counted among the 314
         guarded above: it carries <span class="mono">requireAuth</span> and
         <span class="mono">requireInvestigatorDesignationManager</span>, so a caller is
         authenticated before it answers &mdash; they simply hold no role yet, which is why no
@@ -1211,7 +1213,7 @@
       </p>
       <p>
         <strong>Not re-run at this revision.</strong> The counts above were re-derived from source
-        at the stated commit; this no-cookie sweep was not, and there are now 148 GET routes
+        at the stated commit; this no-cookie sweep was not, and there are now 149 GET routes
         against the 127 swept then. The routes added since are covered by the static analysis but
         have not been fired at a live server without a session. Re-run it before the next review
         period relies on this paragraph.
@@ -1327,7 +1329,7 @@
 
     <h3>Route coverage — the split in section&nbsp;07</h3>
     <div class="evidence"># Routes are registered across server/*.ts, not only routes.ts, so counting
-# one file understates the total: routes.ts alone holds 281 of the 322.
+# one file understates the total: routes.ts alone holds 281 of the 324.
 grep -rhoE "app\.(get|post|patch|put|delete)\(\s*['\"]/api/[^'\"]+['\"]" server/*.ts \
   | grep -v '\.test\.ts' | wc -l</div>
     <p>
