@@ -137,6 +137,7 @@ import {
 } from "@shared/grantLifecycle";
 import { registerGrantListRoute } from "./grantIssueRoutes";
 import { registerResearchPortfolioRoutes } from "./researchPortfolioRoutes";
+import { registerInstitutionRoutes } from "./institutionRoutes";
 import {
   applySection as applyBulkDataSection,
   buildExportWorkbook as buildBulkDataExportWorkbook,
@@ -9921,6 +9922,9 @@ function writeFailureDetail(error: unknown): string {
   // than beside the office routes because they answer to a different matrix
   // area -- see server/researchPortfolioRoutes.ts.
   registerResearchPortfolioRoutes(app);
+
+  // The shared institution list, read by the grant and contract forms.
+  registerInstitutionRoutes(app);
 
   app.get('/api/grants/:id', async (req: Request, res: Response) => {
     try {

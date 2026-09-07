@@ -1,5 +1,6 @@
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { InstitutionCombobox } from "@/components/InstitutionCombobox";
 import { Label } from "@/components/ui/label";
 import { Building2, Plus, Trash2, UserPlus } from "lucide-react";
 import type { GrantCollaborationTree } from "@shared/schema";
@@ -77,10 +78,15 @@ export function GrantCollaborations({ value, onChange, disabled }: GrantCollabor
               <Label className="text-xs">Institution</Label>
               <div className="flex items-center gap-2">
                 <Building2 className="h-4 w-4 shrink-0 text-muted-foreground" />
-                <Input
+                {/* The same list the submitting institution uses, so a
+                    collaborator recorded here is spelled the way it is spelled
+                    everywhere else. This box is where "Weill Cornell Medical
+                    College in Qatar" and "Weill Cornell Medicine Qatar" both
+                    came from. */}
+                <InstitutionCombobox
                   value={institution.name}
-                  onChange={(e) => updateInstitution(index, { name: e.target.value })}
-                  placeholder="e.g. Weill Cornell Medical College in Qatar"
+                  onChange={(name) => updateInstitution(index, { name })}
+                  placeholder="Select or add an institution"
                   disabled={disabled}
                   data-testid={`input-institution-name-${index}`}
                 />

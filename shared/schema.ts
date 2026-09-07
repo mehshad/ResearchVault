@@ -1444,6 +1444,51 @@ export type Grant = typeof grants.$inferSelect;
  * copied here by the backfill, and dropping a column is not reversible if the
  * copy turns out to have missed something.
  */
+/**
+ * External organisations, as one list shared by everything that names one.
+ *
+ * A grant's submitting institution, the institutions a grant is run with, and a
+ * contract's counterparty were three free-text boxes, so the same organisation
+ * arrived spelled several ways and no screen could offer what had been typed
+ * before. This is the list all three now choose from, and anyone filling one of
+ * those forms can add to it.
+ *
+ * The names themselves stay on the records that use them rather than becoming
+ * foreign keys. Those columns are read by the grant import and export, by
+ * isHomeInstitution(), and by 272 rows that predate this table; pointing them
+ * at ids would have meant migrating all of that to gain a rename that nobody
+ * has asked for. This table's job is to make sure the text that lands in them
+ * came from a list.
+ */
+export const institutions = pgTable("institutions", {
+  id: serial("id").primaryKey(),
+  /** As somebody typed it, whitespace tidied. Their capitalisation is kept. */
+  name: text("name").notNull(),
+  /**
+   * The name with case, spacing and punctuation removed -- see
+   * institutionKey() in shared/institutions.ts. Unique, so the list cannot
+   * come to hold two spellings of one organisation, which is the whole reason
+   * the table exists.
+   */
+  nameKey: text("name_key").notNull().unique(),
+  /** Who added it. Null for the rows seeded from existing data. */
+  createdByUserId: integer("created_by_user_id").references(() => users.id),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+export const insertInstitutionSchema = createInsertSchema(institutions).omit({
+  id: true,
+  // Both are derived from the name by the server: a caller that could choose
+  // its own key could put a duplicate past the unique index.
+  nameKey: true,
+  createdByUserId: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export type Institution = typeof institutions.$inferSelect;
+
 export const grantCollaboratingInstitutions = pgTable("grant_collaborating_institutions", {
   id: serial("id").primaryKey(),
   grantId: integer("grant_id")

@@ -137,7 +137,8 @@ for migration in \
     "migrations/20260901_grant_audit_and_not_awarded.sql" \
     "migrations/20260901_grant_collaborating_institutions.sql" \
     "migrations/20260902_grant_external_lpi.sql" \
-    "migrations/20260903_program_links.sql"; do
+    "migrations/20260903_program_links.sql" \
+    "migrations/20260907_institutions.sql"; do
   if [ -f "/app/$migration" ]; then
     echo "  Applying $migration..."
     if [ "$migration" = "migrations/20260820_grant_lifecycle_consistency.sql" ] || \

@@ -30,6 +30,7 @@ import { Switch } from "@/components/ui/switch";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Label } from "@/components/ui/label";
 import { apiRequest } from "@/lib/queryClient";
+import { InstitutionCombobox } from "@/components/InstitutionCombobox";
 import { formatFullName } from "@/utils/nameUtils";
 import { GRANT_CURRENCY_VALUES, insertGrantSchema, type InsertGrant } from "@shared/schema";
 import {
@@ -340,7 +341,7 @@ export default function CreateGrant() {
                     <FormItem><FormLabel>Source Record Key</FormLabel><FormControl><Input {...field} placeholder="Source system reference" /></FormControl><FormMessage /></FormItem>
                   )} />
                   <FormField control={form.control} name="submittingInstitution" render={({ field }) => (
-                    <FormItem><FormLabel>Submitting Institution</FormLabel><FormControl><Input {...field} placeholder="Institution name" /></FormControl><FormMessage /></FormItem>
+                    <FormItem><FormLabel>Submitting Institution</FormLabel><FormControl><InstitutionCombobox value={field.value} onChange={field.onChange} data-testid="select-submitting-institution" /></FormControl><FormMessage /></FormItem>
                   )} />
                 </div>
 

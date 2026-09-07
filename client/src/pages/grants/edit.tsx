@@ -9,6 +9,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { GrantCollaborations } from "@/components/GrantCollaborations";
+import { InstitutionCombobox } from "@/components/InstitutionCombobox";
 import { GrantCoInvestigators } from "@/components/GrantCoInvestigators";
 import type { GrantCollaborationTree, GrantCoInvestigatorList } from "@shared/schema";
 import { isHomeInstitution } from "@shared/grantSubmission";
@@ -737,7 +738,11 @@ export default function EditGrant() {
               </div>
               <div>
                 <label className="text-sm font-medium text-gray-700 mb-2 block dark:text-gray-300">Submitting Institution</label>
-                <Input value={formData.submittingInstitution} onChange={(e) => setFormData({...formData, submittingInstitution: e.target.value})} placeholder="Institution name" />
+                <InstitutionCombobox
+                  value={formData.submittingInstitution}
+                  onChange={(name) => setFormData({...formData, submittingInstitution: name})}
+                  data-testid="select-submitting-institution"
+                />
               </div>
               {/* Free text on purpose: on a subaward this person works at the
                   prime institution and has no staff record here. Sits beside
