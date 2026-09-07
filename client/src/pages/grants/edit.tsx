@@ -842,19 +842,11 @@ export default function EditGrant() {
               </div>
             </div>
 
-            {/* Fourth Row: Awarded Amount, Start Date, End Date, Cycle */}
-            <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mt-4">
-              <div id="grant-field-awarded-budget" className={issueFieldClass("missing_awarded_budget")}>
-                <label className="text-sm font-medium text-gray-700 mb-2 block dark:text-gray-300">
-                  Awarded Amount
-                </label>
-                <Input
-                  value={formData.awardedAmount}
-                  onChange={(e) => setFormData({...formData, awardedAmount: e.target.value})}
-                  placeholder="$626,565.00"
-                />
-              </div>
-
+            {/* Fourth Row: Project Start Date, Project End Date, Cycle.
+                Awarded Amount used to sit here, away from the Requested Amount
+                and Currency it is read against; it now sits with them under
+                Grant Details. */}
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mt-4">
               {canGrantSetSchedule({
                 status: formData.status,
                 awarded: formData.awarded,
@@ -862,7 +854,7 @@ export default function EditGrant() {
                 <>
                   <div id="grant-field-start-date" className={issueFieldClass("missing_start_date")}>
                     <label className="text-sm font-medium text-gray-700 mb-2 block dark:text-gray-300">
-                      Start Date {grantStatusRequiresStartDate(formData.status) && <span className="text-red-500">*</span>}
+                      Project Start Date {grantStatusRequiresStartDate(formData.status) && <span className="text-red-500">*</span>}
                     </label>
                     <Input
                       type="date"
@@ -873,7 +865,7 @@ export default function EditGrant() {
 
                   <div id="grant-field-end-date" className={issueFieldClass("missing_end_date")}>
                     <label className="text-sm font-medium text-gray-700 mb-2 block dark:text-gray-300">
-                      End Date
+                      Project End Date
                     </label>
                     <Input
                       type="date"
@@ -918,7 +910,14 @@ export default function EditGrant() {
             <CardTitle>Grant Details</CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+            {/* The money, together. Requested against awarded is the
+                comparison this office actually makes, and the currency both
+                are denominated in belongs beside them; Awarded Amount used to
+                sit up in Overview, three fields away from either. */}
+            <h3 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide mb-3">
+              Budget
+            </h3>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
               <div id="grant-field-requested-budget" className={issueFieldClass("missing_requested_budget")}>
                 <label className="text-sm font-medium text-gray-700 mb-2 block dark:text-gray-300">
                   Requested Amount
@@ -930,6 +929,34 @@ export default function EditGrant() {
                 />
               </div>
 
+              <div id="grant-field-awarded-budget" className={issueFieldClass("missing_awarded_budget")}>
+                <label className="text-sm font-medium text-gray-700 mb-2 block dark:text-gray-300">
+                  Awarded Amount
+                </label>
+                <Input
+                  value={formData.awardedAmount}
+                  onChange={(e) => setFormData({...formData, awardedAmount: e.target.value})}
+                  placeholder="$626,565.00"
+                />
+              </div>
+
+              <div id="grant-field-currency" className={issueFieldClass("missing_currency")}>
+                <label className="text-sm font-medium text-gray-700 mb-2 block dark:text-gray-300">Currency</label>
+                <Select
+                  value={formData.currency || undefined}
+                  onValueChange={(value) => setFormData({...formData, currency: value})}
+                >
+                  <SelectTrigger><SelectValue placeholder="Select currency" /></SelectTrigger>
+                  <SelectContent>
+                    {GRANT_CURRENCY_VALUES.map((currency) => (
+                      <SelectItem key={currency} value={currency}>{currency}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
               <div>
                 <label className="text-sm font-medium text-gray-700 mb-2 block dark:text-gray-300">
                   Submitted Year
@@ -952,20 +979,6 @@ export default function EditGrant() {
                   onChange={(e) => setFormData({...formData, awardedYear: e.target.value})}
                   placeholder="2024"
                 />
-              </div>
-              <div id="grant-field-currency" className={issueFieldClass("missing_currency")}>
-                <label className="text-sm font-medium text-gray-700 mb-2 block dark:text-gray-300">Currency</label>
-                <Select
-                  value={formData.currency || undefined}
-                  onValueChange={(value) => setFormData({...formData, currency: value})}
-                >
-                  <SelectTrigger><SelectValue placeholder="Select currency" /></SelectTrigger>
-                  <SelectContent>
-                    {GRANT_CURRENCY_VALUES.map((currency) => (
-                      <SelectItem key={currency} value={currency}>{currency}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
               </div>
             </div>
 
@@ -1047,48 +1060,13 @@ export default function EditGrant() {
         {/* Collaborators & Timeline */}
         <Card>
           <CardHeader>
-            <CardTitle>Collaborators & Timeline</CardTitle>
+            <CardTitle>Collaborating Institutions</CardTitle>
           </CardHeader>
-          <CardContent>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
-              <div>
-                <label className="text-sm font-medium text-gray-700 mb-2 block dark:text-gray-300">
-                  Reporting Interval (months)
-                </label>
-                <Input
-                  type="number"
-                  min="1"
-                  max="60"
-                  value={formData.reportingIntervalMonths}
-                  onChange={(e) => setFormData({...formData, reportingIntervalMonths: e.target.value})}
-                  placeholder="e.g., 12 for annual reports"
-                />
-              </div>
-              <div>
-                <label className="text-sm font-medium text-gray-700 mb-2 block dark:text-gray-300">
-                  Duration (Months)
-                </label>
-                <Input
-                  type="number"
-                  min="1"
-                  value={formData.durationMonths}
-                  onChange={(e) => setFormData({...formData, durationMonths: e.target.value})}
-                  placeholder="e.g., 36"
-                />
-              </div>
-              <div>
-                <label className="text-sm font-medium text-gray-700 mb-2 block dark:text-gray-300">
-                  Subaward Completed Year
-                </label>
-                <Input
-                  type="number"
-                  value={formData.subawardCompletedYear}
-                  onChange={(e) => setFormData({...formData, subawardCompletedYear: e.target.value})}
-                  placeholder="2024"
-                />
-              </div>
-            </div>
-
+          <CardContent className="space-y-6">
+            {/* The institutions lead, because they are what this section is
+                about. The three timeline fields used to sit above them as an
+                unlabelled block, which read as the card's main content and
+                pushed the collaborators out of sight. */}
             <div className="space-y-2">
               <label className="text-sm font-medium text-gray-700 block dark:text-gray-300">
                 Collaborating institutions
@@ -1100,6 +1078,50 @@ export default function EditGrant() {
                 value={collaboratingInstitutions}
                 onChange={setCollaboratingInstitutions}
               />
+            </div>
+
+            <div>
+              <h3 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide mb-3">
+                Timeline
+              </h3>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div>
+                  <label className="text-sm font-medium text-gray-700 mb-2 block dark:text-gray-300">
+                    Reporting Interval (months)
+                  </label>
+                  <Input
+                    type="number"
+                    min="1"
+                    max="60"
+                    value={formData.reportingIntervalMonths}
+                    onChange={(e) => setFormData({...formData, reportingIntervalMonths: e.target.value})}
+                    placeholder="e.g., 12 for annual reports"
+                  />
+                </div>
+                <div>
+                  <label className="text-sm font-medium text-gray-700 mb-2 block dark:text-gray-300">
+                    Duration (Months)
+                  </label>
+                  <Input
+                    type="number"
+                    min="1"
+                    value={formData.durationMonths}
+                    onChange={(e) => setFormData({...formData, durationMonths: e.target.value})}
+                    placeholder="e.g., 36"
+                  />
+                </div>
+                <div>
+                  <label className="text-sm font-medium text-gray-700 mb-2 block dark:text-gray-300">
+                    Subaward Completed Year
+                  </label>
+                  <Input
+                    type="number"
+                    value={formData.subawardCompletedYear}
+                    onChange={(e) => setFormData({...formData, subawardCompletedYear: e.target.value})}
+                    placeholder="2024"
+                  />
+                </div>
+              </div>
             </div>
 
             <div className="space-y-2">

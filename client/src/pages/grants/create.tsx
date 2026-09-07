@@ -527,7 +527,7 @@ export default function CreateGrant() {
                     <div className="grid grid-cols-2 gap-4 mb-4">
                       <div>
                         <label className="text-sm font-medium text-gray-700 mb-2 block dark:text-gray-300">
-                          Start Date {grantStatusRequiresStartDate(currentStatus) && <span className="text-red-500">*</span>}
+                          Project Start Date {grantStatusRequiresStartDate(currentStatus) && <span className="text-red-500">*</span>}
                         </label>
                         <Input
                           type="date"
@@ -537,7 +537,7 @@ export default function CreateGrant() {
                       </div>
                       <div>
                         <label className="text-sm font-medium text-gray-700 mb-2 block dark:text-gray-300">
-                          End Date
+                          Project End Date
                         </label>
                         <Input
                           type="date"
