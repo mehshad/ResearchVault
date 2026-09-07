@@ -39,6 +39,7 @@ import {
   getGrantSdrCandidates,
   isGrantSdrEligible,
 } from "@shared/grantSdrEligibility";
+import { filterSdrsByProgram } from "@shared/grantProgramScope";
 import {
   evaluateGrantIssues,
   type GrantIssueCode,
@@ -78,6 +79,7 @@ export default function EditGrant() {
     title: "",
     description: "",
     cycle: "",
+    programId: "",
     status: "submitted",
     grantType: "Local",
     fundingAgency: "",
@@ -136,6 +138,16 @@ export default function EditGrant() {
     queryKey: ['/api/research-activities']
   });
 
+  // The programme a grant can be submitted under, and the projects that let an
+  // SDR's programme be resolved. Both are short tables.
+  const { data: programs = [] } = useQuery({
+    queryKey: ['/api/programs']
+  });
+
+  const { data: projects = [] } = useQuery({
+    queryKey: ['/api/projects']
+  });
+
   const { data: grantSdrs = [] } = useQuery({
     queryKey: [`/api/grants/${grantId}/research-activities`],
     enabled: !!grantId,
@@ -162,6 +174,7 @@ export default function EditGrant() {
         title: grant.title || "",
         description: grant.description || "",
         cycle: grant.cycle || "",
+        programId: grant.programId?.toString() || "",
         status: grant.status || "submitted",
         grantType: grant.grantType || "Local",
         fundingAgency: grant.fundingAgency || "",
@@ -336,6 +349,7 @@ export default function EditGrant() {
       sourceCategory: formData.sourceCategory || null,
       sourceRecordKey: formData.sourceRecordKey || null,
       submittingInstitution: formData.submittingInstitution || null,
+      programId: formData.programId ? parseInt(formData.programId) : null,
       grantLpiName: formData.grantLpiName?.trim() || null,
       coInvestigators,
       investigatorType: formData.investigatorType || null,
@@ -565,9 +579,26 @@ export default function EditGrant() {
         .filter((name: string | undefined): name is string => Boolean(name)),
     ),
   ).sort();
-  const lpiResearchActivities = getGrantSdrCandidates(
-    researchActivities,
-    selectedLpiId,
+  // The SDR's programme comes through its project, so the picker needs the
+  // project list to resolve it. Projects is a short table and the page already
+  // depends on the PMO area for /api/research-activities, so this adds no
+  // permission the picker did not already need.
+  const programIdByProject = new Map(
+    (Array.isArray(projects) ? projects : []).map((project: any) => [project.id, project.programId]),
+  );
+  const activitiesWithProgram = (Array.isArray(researchActivities) ? researchActivities : []).map(
+    (activity: any) => ({
+      ...activity,
+      programId: activity.projectId != null ? programIdByProject.get(activity.projectId) ?? null : null,
+    }),
+  );
+
+  // Two limits, applied in order: the Lead PI rule, then the grant's
+  // programme. Both keep already-linked SDRs in the list.
+  const selectedProgramId = formData.programId ? parseInt(formData.programId) : null;
+  const lpiResearchActivities = filterSdrsByProgram(
+    getGrantSdrCandidates(activitiesWithProgram, selectedLpiId, linkedSdrs),
+    selectedProgramId,
     linkedSdrs,
   );
   const currentIssues = evaluateGrantIssues({
@@ -711,6 +742,10 @@ export default function EditGrant() {
                   <SelectContent>
                     <SelectItem value="Local">Local</SelectItem>
                     <SelectItem value="International">International</SelectItem>
+                    {/* Funded from within Sidra rather than by an outside
+                        body -- the IRF and PI-budget work the office was
+                        recording as Local for want of anywhere better. */}
+                    <SelectItem value="Internal">Internal</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
@@ -891,6 +926,39 @@ export default function EditGrant() {
                   placeholder="e.g., 2024-1"
                   required
                 />
+              </div>
+
+              {/* Chosen at submission, and it limits which SDRs can be linked
+                  once the grant is awarded. Changing it while SDRs from another
+                  programme are linked is refused by the server, which names
+                  them -- see shared/grantProgramScope.ts. */}
+              <div>
+                <label className="text-sm font-medium text-gray-700 mb-2 block dark:text-gray-300">
+                  Programme
+                </label>
+                <Select
+                  value={formData.programId || "none"}
+                  onValueChange={(value) =>
+                    setFormData({...formData, programId: value === "none" ? "" : value})
+                  }
+                >
+                  <SelectTrigger data-testid="select-grant-program">
+                    <SelectValue placeholder="No programme" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="none">No programme</SelectItem>
+                    {(Array.isArray(programs) ? programs : []).map((program: any) => (
+                      <SelectItem key={program.id} value={program.id.toString()}>
+                        {program.programId ? `${program.programId} — ${program.name}` : program.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <p className="text-xs text-muted-foreground mt-1">
+                  {formData.programId
+                    ? "Only SDRs in this programme can be linked below."
+                    : "Without one, any SDR led by the Lead PI can be linked."}
+                </p>
               </div>
             </div>
 

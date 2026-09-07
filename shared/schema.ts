@@ -1335,6 +1335,18 @@ export type InsertJournalImpactFactor = z.infer<typeof insertJournalImpactFactor
 export const grants = pgTable("grants", {
   id: serial("id").primaryKey(),
   cycle: text("cycle"), // Grant cycle (e.g., "2023-1")
+  /**
+   * The programme this grant belongs to, chosen at submission.
+   *
+   * Limits which SDRs may be linked once the grant is awarded: only those
+   * whose own project sits in the same programme. See
+   * shared/grantProgramScope.ts for the rule, including why a null on either
+   * side restricts nothing.
+   *
+   * Nullable, and null on every grant that predates it. A grant naming no
+   * programme is not limited by one.
+   */
+  programId: integer("program_id").references(() => programs.id),
   projectNumber: text("project_number").notNull().unique(), // Project identifier
   lpiId: integer("lpi_id"), // Lead Principal Investigator (references scientists.id)
   investigatorType: text("investigator_type"), // "Researcher" or "Clinician"
@@ -1347,7 +1359,7 @@ export const grants = pgTable("grants", {
   runningTimeYears: integer("running_time_years"), // How many years the grant has been running
   currentGrantYear: text("current_grant_year"), // What year we are in (e.g., "1/3", "2/5")
   status: text("status").notNull().default("submitted"), // active, completed, cancelled, etc.
-  grantType: text("grant_type").default("Local"), // International or Local
+  grantType: text("grant_type").default("Local"), // Local, International or Internal (Sidra-funded)
   sourceCategory: text("source_category"), // QNRF Grant, Subaward Agreement, IRF Project, etc.
   sourceRecordKey: text("source_record_key"), // Stable identifier from the source dataset
   submittingInstitution: text("submitting_institution"),
