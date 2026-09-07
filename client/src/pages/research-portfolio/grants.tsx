@@ -36,7 +36,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Search, Users, User, Info } from "lucide-react";
 import type { Grant } from "@shared/schema";
 import { GRANT_STATUS_OPTIONS } from "@shared/grantLifecycle";
-import { STATUSES_VISIBLE_OUTSIDE_SECTION } from "@shared/researchPortfolioScope";
+import { statusesVisibleOutsideSection } from "@shared/researchPortfolioScope";
 import { useCurrentUser } from "@/hooks/useCurrentUser";
 import { PermissionWrapper } from "@/components/PermissionWrapper";
 import { PortfolioScopeSelect } from "@/components/PortfolioScopeSelect";
@@ -99,7 +99,7 @@ export default function PortfolioGrants() {
     if (viewer?.seesEverything) return new Set<string>();
     return new Set(
       GRANT_STATUS_OPTIONS.map((option) => option.value).filter(
-        (value) => !(STATUSES_VISIBLE_OUTSIDE_SECTION as readonly string[]).includes(value),
+        (value) => !statusesVisibleOutsideSection().includes(value),
       ),
     );
   }, [viewer?.seesEverything]);

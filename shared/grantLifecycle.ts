@@ -1,3 +1,10 @@
+import { stageOfGrantStatus } from "./grantStatusRegistry";
+import {
+  stageImpliesAward,
+  stageRequiresAward,
+  stageRequiresSchedule,
+} from "./grantStatusStages";
+
 export const GRANT_STATUS_OPTIONS = [
   { value: "submitted", label: "Submitted" },
   { value: "pending", label: "Pending" },
@@ -96,29 +103,46 @@ export class GrantLifecycleError extends Error {
   }
 }
 
+/**
+ * Every rule below asks the same question first: what stage is this status?
+ *
+ * The sets above are no longer consulted. They named the thirteen built-in
+ * statuses, and the office can now add its own -- so the meaning has to come
+ * from what the status *declares* rather than from a list of words this file
+ * happens to know. See shared/grantStatusRegistry.ts.
+ *
+ * A status the registry does not recognise resolves to null, and every rule
+ * treats that as no: it does not imply an award, does not require dates, and
+ * does not cross a section boundary. Refusing to guess is the safe direction
+ * for all four.
+ */
 export function grantStatusImpliesAward(
   status: string | null | undefined,
 ): boolean {
-  return AWARD_IMPLYING_STATUSES.has(status as GrantStatus);
+  const stage = stageOfGrantStatus(status);
+  return stage !== null && stageImpliesAward(stage);
 }
 
 /** Whether a status is only valid on a grant that was actually awarded. */
 export function grantStatusRequiresAward(
   status: string | null | undefined,
 ): boolean {
-  return REQUIRES_AWARD_STATUSES.has(status as GrantStatus);
+  const stage = stageOfGrantStatus(status);
+  return stage !== null && stageRequiresAward(stage);
 }
 
 export function grantStatusRequiresStartDate(
   status: string | null | undefined,
 ): boolean {
-  return START_DATE_REQUIRED_STATUSES.has(status as GrantStatus);
+  const stage = stageOfGrantStatus(status);
+  return stage !== null && stageRequiresSchedule(stage);
 }
 
 export function grantStatusAllowsProgressTracking(
   status: string | null | undefined,
 ): boolean {
-  return START_DATE_REQUIRED_STATUSES.has(status as GrantStatus);
+  const stage = stageOfGrantStatus(status);
+  return stage !== null && stageRequiresSchedule(stage);
 }
 
 export function canGrantSetSchedule(

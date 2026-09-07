@@ -25,6 +25,9 @@
  * to check.
  */
 
+import { grantStatusDefinitions, stageOfGrantStatus } from "./grantStatusRegistry";
+import { stageVisibleOutsideSection } from "./grantStatusStages";
+
 /** The person looking, as this module needs them. */
 export interface PortfolioViewer {
   /** Their staff record, or null for an account not linked to one. */
@@ -72,7 +75,11 @@ export type Involvement = "mine" | "team" | null;
  * One list, named once: changing what crosses a section boundary should be an
  * edit here and nowhere else.
  */
-export const STATUSES_VISIBLE_OUTSIDE_SECTION = ["awarded", "active", "completed"] as const;
+export function statusesVisibleOutsideSection(): string[] {
+  return grantStatusDefinitions()
+    .filter((status) => stageVisibleOutsideSection(status.stage))
+    .map((status) => status.value);
+}
 
 /**
  * Whether a grant may be listed for this viewer at all.
@@ -80,14 +87,23 @@ export const STATUSES_VISIBLE_OUTSIDE_SECTION = ["awarded", "active", "completed
  * Anything the viewer or their section is on is visible whatever its status --
  * your own refused application is still your lab's work. Everything else has
  * to be in good standing.
+ *
+ * "Good standing" is the status's declared stage, not a list of words. It used
+ * to be the three strings awarded/active/completed, which stopped being a
+ * complete answer the moment the office could add statuses of its own: a new
+ * status meaning "won and running" would have been withheld from every other
+ * section because this list had never heard of it.
+ *
+ * A status the registry does not know is not shown across a boundary. Unknown
+ * is not good standing.
  */
 export function grantVisibleToViewer(
   involvement: Involvement,
   status: string | null | undefined,
 ): boolean {
   if (involvement !== null) return true;
-  const normalised = (status ?? "").trim().toLowerCase();
-  return (STATUSES_VISIBLE_OUTSIDE_SECTION as readonly string[]).includes(normalised);
+  const stage = stageOfGrantStatus((status ?? "").trim());
+  return stage !== null && stageVisibleOutsideSection(stage);
 }
 
 /**

@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
-  STATUSES_VISIBLE_OUTSIDE_SECTION,
+  statusesVisibleOutsideSection,
   contractInvolvement,
   contractOwnerScientistId,
   grantInvolvement,
@@ -121,7 +121,7 @@ test("another section's bad endings stay theirs too", () => {
 
 test("the visible list is exactly the three good-standing statuses", () => {
   // Pinned so widening it is a deliberate edit rather than a side effect.
-  assert.deepEqual([...STATUSES_VISIBLE_OUTSIDE_SECTION], ["awarded", "active", "completed"]);
+  assert.deepEqual(statusesVisibleOutsideSection(), ["awarded", "active", "completed"]);
 });
 
 test("status is compared without regard to case or padding", () => {
