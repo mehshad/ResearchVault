@@ -143,8 +143,7 @@ for migration in \
     "migrations/20260907_collaborators_and_agreement_types.sql" \
     "migrations/20260907_grant_statuses.sql" \
     "migrations/20260908_impact_factor_year_labels.sql" \
-    "migrations/20260908_office_grant_statuses.sql" \
-    "migrations/20260908_scientist_investigator_type.sql"; do
+    "migrations/20260908_office_grant_statuses.sql"; do
   if [ -f "/app/$migration" ]; then
     echo "  Applying $migration..."
     if [ "$migration" = "migrations/20260820_grant_lifecycle_consistency.sql" ] || \

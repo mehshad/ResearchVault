@@ -31,6 +31,7 @@ import { apiRequest } from "@/lib/queryClient";
 import { InstitutionCombobox } from "@/components/InstitutionCombobox";
 import { formatFullName } from "@/utils/nameUtils";
 import { isHomeInstitution } from "@shared/grantSubmission";
+import { investigatorTypeOf } from "@shared/investigatorType";
 import { GrantCollaborations } from "@/components/GrantCollaborations";
 import { GrantCoInvestigators } from "@/components/GrantCoInvestigators";
 import type { GrantCollaborationTree, GrantCoInvestigatorList } from "@shared/schema";
@@ -118,7 +119,9 @@ export default function CreateGrant() {
   // a copy would mean two places to correct when the Sidra Lead PI changes.
   const selectedLpi = (scientists as any[]).find((s) => s.id === watchedLpiId) ?? null;
   const sidraLpiName = selectedLpi ? formatFullName(selectedLpi) : null;
-  const sidraLpiInvestigatorType: string | null = selectedLpi?.investigatorType ?? null;
+  // Read off the job title rather than asked for or stored. See
+  // shared/investigatorType.ts.
+  const sidraLpiInvestigatorType = investigatorTypeOf(selectedLpi);
   const knownGrantLpiNames = Array.from(
     new Set(
       ((allGrants as any[]) ?? [])
