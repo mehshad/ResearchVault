@@ -52,6 +52,7 @@ import { usePermissions } from "@/hooks/usePermissions";
 import { PermissionWrapper, useElementPermissions } from "@/components/PermissionWrapper";
 import { GrantCleanupDialog } from "@/components/GrantCleanupDialog";
 import { GrantRulesDialog } from "@/components/GrantRulesDialog";
+import { formatDateLong } from "@/lib/dates";
 
 type EnhancedGrant = Grant & {
   lpi?: {
@@ -122,11 +123,7 @@ export default function GrantsList() {
 
   const formatDate = (date: string | Date | null | undefined) => {
     if (!date) return "—";
-    return new Date(date).toLocaleDateString('en-US', { 
-      year: 'numeric', 
-      month: 'short',
-      day: 'numeric'
-    });
+    return formatDateLong(date);
   };
 
   const statusColors: Record<string, string> = {

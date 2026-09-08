@@ -14,6 +14,7 @@ import { Badge } from "@/components/ui/badge";
 import { format } from "date-fns";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { formatFullName } from "@/utils/nameUtils";
+import { formatDateLong } from "@/lib/dates";
 
 // Define interface for detail data
 interface ResearchActivityDetail extends ResearchActivity {
@@ -495,9 +496,7 @@ export default function ResearchActivityDetail() {
                             <span className="text-xs text-gray-500 dark:text-gray-400">{publication.journal}</span>
                             {publication.publicationDate ? (
                               <span className="text-xs text-blue-600 font-medium dark:text-blue-400">
-                                {new Date(publication.publicationDate).toLocaleDateString(undefined, {
-                                  year: "numeric", month: "short", day: "numeric",
-                                })}
+                                {formatDateLong(publication.publicationDate)}
                               </span>
                             ) : publication.publicationYear && (
                               <span className="text-xs text-blue-600 font-medium dark:text-blue-400">

@@ -13,6 +13,7 @@ import { ArrowLeft, Save, Send, FileCheck, Clock, Users, MessageSquare, History 
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
+import { formatDate } from "@/lib/dates";
 
 interface Ra200Form {
   // Header Information
@@ -736,7 +737,7 @@ export default function EditRa200() {
                           )}
                         </div>
                         <span className="text-xs text-muted-foreground">
-                          {new Date(entry.timestamp).toLocaleDateString()}
+                          {formatDate(entry.timestamp)}
                         </span>
                       </div>
                     </div>
@@ -768,7 +769,7 @@ export default function EditRa200() {
                           <div className="flex justify-between items-start mb-1">
                             <span className="font-medium text-sm">{comment.user}</span>
                             <span className="text-xs text-muted-foreground">
-                              {new Date(comment.timestamp).toLocaleDateString()}
+                              {formatDate(comment.timestamp)}
                             </span>
                           </div>
                           <p className="text-sm">{comment.comment}</p>
@@ -793,7 +794,7 @@ export default function EditRa200() {
                           <div className="flex justify-between items-start mb-1">
                             <span className="font-medium text-sm">{comment.user}</span>
                             <span className="text-xs text-muted-foreground">
-                              {new Date(comment.timestamp).toLocaleDateString()}
+                              {formatDate(comment.timestamp)}
                             </span>
                           </div>
                           <p className="text-sm">{comment.comment}</p>

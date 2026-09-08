@@ -11,6 +11,7 @@ import {
 import { useQuery } from "@tanstack/react-query";
 import type { Scientist } from "@shared/schema";
 import { OfficeDashboard } from "@/components/office-dashboard";
+import { formatDateLong } from "@/lib/dates";
 
 interface PmoApplication {
   id: number;
@@ -79,13 +80,7 @@ export default function PmoOfficeReview() {
 
   const formatDate = (dateString: string | null) => {
     if (!dateString) return "—";
-    return new Date(dateString).toLocaleDateString('en-US', {
-      month: 'short',
-      day: 'numeric',
-      year: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit'
-    });
+    return formatDateLong(dateString);
   };
 
   return (

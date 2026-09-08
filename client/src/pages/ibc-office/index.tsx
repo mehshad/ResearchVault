@@ -25,6 +25,7 @@ import {
 } from "lucide-react";
 import type { IbcApplication, IbcBoardMember, Scientist } from "@shared/schema";
 import { formatFullName } from "@/utils/nameUtils";
+import { formatDate } from "@/lib/dates";
 
 const IBC_WORKFLOW_STATUSES = [
   { value: "draft", label: "Draft", color: "bg-gray-100 text-gray-800 dark:bg-gray-800 dark:text-gray-200" },
@@ -215,7 +216,7 @@ export default function IbcOfficePage() {
                                     {app.submissionDate && (
                                       <span className="flex items-center space-x-1">
                                         <Calendar className="h-3 w-3" />
-                                        <span>Submitted: {new Date(app.submissionDate).toLocaleDateString()}</span>
+                                        <span>Submitted: {formatDate(app.submissionDate)}</span>
                                       </span>
                                     )}
                                   </div>
@@ -278,7 +279,7 @@ export default function IbcOfficePage() {
                           )}
                           <span className="flex items-center space-x-1">
                             <Calendar className="h-3 w-3" />
-                            <span>Term ends: {new Date(member.termEndDate).toLocaleDateString()}</span>
+                            <span>Term ends: {formatDate(member.termEndDate)}</span>
                           </span>
                         </div>
                       </div>

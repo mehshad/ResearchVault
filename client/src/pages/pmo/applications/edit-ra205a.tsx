@@ -16,6 +16,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { useToast } from "@/hooks/use-toast";
 import { ArrowLeft, FileText, Users, CheckCircle2, AlertCircle, Save, Send, History, MessageSquare } from "lucide-react";
 import { apiRequest } from "@/lib/queryClient";
+import { formatDate } from "@/lib/dates";
 
 // Form validation schema for RA-205A
 const ra205aFormSchema = z.object({
@@ -419,7 +420,7 @@ export default function EditRA205AApplication() {
                     
                     <div className="mt-4 p-4 bg-blue-50 rounded-lg dark:bg-blue-950">
                       <p className="text-sm text-blue-800 dark:text-blue-300">
-                        <strong>Date:</strong> {new Date().toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: 'numeric' })}
+                        <strong>Date:</strong> {formatDate(new Date())}
                       </p>
                     </div>
                   </CardContent>
@@ -968,7 +969,7 @@ export default function EditRA205AApplication() {
                             )}
                           </div>
                           <span className="text-xs text-muted-foreground">
-                            {new Date(entry.timestamp).toLocaleDateString()}
+                            {formatDate(entry.timestamp)}
                           </span>
                         </div>
                       </div>
@@ -1000,7 +1001,7 @@ export default function EditRA205AApplication() {
                             <div className="flex justify-between items-start mb-1">
                               <span className="font-medium text-sm">{comment.user}</span>
                               <span className="text-xs text-muted-foreground">
-                                {new Date(comment.timestamp).toLocaleDateString()}
+                                {formatDate(comment.timestamp)}
                               </span>
                             </div>
                             <p className="text-sm">{comment.comment}</p>
@@ -1025,7 +1026,7 @@ export default function EditRA205AApplication() {
                             <div className="flex justify-between items-start mb-1">
                               <span className="font-medium text-sm">{comment.user}</span>
                               <span className="text-xs text-muted-foreground">
-                                {new Date(comment.timestamp).toLocaleDateString()}
+                                {formatDate(comment.timestamp)}
                               </span>
                             </div>
                             <p className="text-sm">{comment.comment}</p>

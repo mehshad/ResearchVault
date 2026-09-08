@@ -17,6 +17,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { PermissionWrapper } from "@/components/PermissionWrapper";
 import { usePermissions } from "@/hooks/usePermissions";
 import { useCurrentUser } from "@/hooks/useCurrentUser";
+import { formatDateLong } from "@/lib/dates";
 
 export default function DataManagementList() {
   const [searchQuery, setSearchQuery] = useState("");
@@ -28,11 +29,7 @@ export default function DataManagementList() {
 
   const formatDate = (date: string | Date | null | undefined) => {
     if (!date) return "—";
-    return new Date(date).toLocaleDateString('en-US', { 
-      year: 'numeric', 
-      month: 'short',
-      day: 'numeric'
-    });
+    return formatDateLong(date);
   };
 
   const filteredPlans = plans?.filter(plan => {

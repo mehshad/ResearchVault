@@ -18,6 +18,7 @@ import {
 import { useToast } from "@/hooks/use-toast";
 import { Scientist } from "@shared/schema";
 import { formatFullName } from "@/utils/nameUtils";
+import { formatDate } from "@/lib/dates";
 
 interface IrbBoardMember {
   id: number;
@@ -462,7 +463,7 @@ export default function IrbBoardManager() {
                     </div>
                   </TableCell>
                   <TableCell>
-                    {new Date(member.termEndDate).toLocaleDateString()}
+                    {formatDate(member.termEndDate)}
                   </TableCell>
                   <TableCell>
                     <Button

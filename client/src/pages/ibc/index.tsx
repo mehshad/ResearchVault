@@ -16,6 +16,7 @@ import {
 } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
 import { formatNameWithJobTitle } from "@/utils/nameUtils";
+import { formatDateLong } from "@/lib/dates";
 
 export default function IbcList() {
   const [searchQuery, setSearchQuery] = useState("");
@@ -27,11 +28,7 @@ export default function IbcList() {
 
   const formatDate = (date: string | Date | undefined) => {
     if (!date) return "—";
-    return new Date(date).toLocaleDateString('en-US', { 
-      year: 'numeric', 
-      month: 'short',
-      day: 'numeric'
-    });
+    return formatDateLong(date);
   };
 
   const statusColors = {

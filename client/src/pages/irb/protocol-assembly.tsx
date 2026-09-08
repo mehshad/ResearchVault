@@ -17,6 +17,7 @@ import {
 import { Checkbox } from "@/components/ui/checkbox";
 import { IrbApplication, ResearchActivity, Scientist, ProjectMember } from "@shared/schema";
 import { formatFullName } from "@/utils/nameUtils";
+import { formatDate } from "@/lib/dates";
 
 interface DocumentUpload {
   id: string;
@@ -591,7 +592,7 @@ export default function ProtocolAssembly() {
                         <div className="flex items-center gap-1">
                           <CheckCircle className="h-4 w-4" />
                           Signed by {document.signatures[0].signedBy} on{' '}
-                          {new Date(document.signatures[0].signedAt).toLocaleDateString()}
+                          {formatDate(document.signatures[0].signedAt)}
                         </div>
                       </div>
                     )}
@@ -785,7 +786,7 @@ export default function ProtocolAssembly() {
                         // Try to parse the key as a timestamp, fallback to current date
                         const timestamp = !isNaN(Number(key)) ? Number(key) : Date.now();
                         const date = new Date(timestamp);
-                        dateText = isNaN(date.getTime()) ? 'Recent' : date.toLocaleDateString();
+                        dateText = isNaN(date.getTime()) ? 'Recent' : formatDate(date);
                         
                         return (
                           <div key={key} className="bg-white p-3 rounded border dark:bg-card">
@@ -830,7 +831,7 @@ export default function ProtocolAssembly() {
                 {application?.submissionDate && (
                   <div className="flex items-center gap-2">
                     <div className="h-2 w-2 rounded-full bg-green-500"></div>
-                    <span>Submitted: {new Date(application.submissionDate).toLocaleDateString()}</span>
+                    <span>Submitted: {formatDate(application.submissionDate)}</span>
                   </div>
                 )}
                 {application?.workflowStatus === 'revisions_requested' && (
@@ -842,13 +843,13 @@ export default function ProtocolAssembly() {
                 {application?.initialApprovalDate && (
                   <div className="flex items-center gap-2">
                     <div className="h-2 w-2 rounded-full bg-blue-500"></div>
-                    <span>Approved: {new Date(application.initialApprovalDate).toLocaleDateString()}</span>
+                    <span>Approved: {formatDate(application.initialApprovalDate)}</span>
                   </div>
                 )}
                 {application?.expirationDate && (
                   <div className="flex items-center gap-2">
                     <div className="h-2 w-2 rounded-full bg-purple-500"></div>
-                    <span>Expires: {new Date(application.expirationDate).toLocaleDateString()}</span>
+                    <span>Expires: {formatDate(application.expirationDate)}</span>
                   </div>
                 )}
               </div>

@@ -16,6 +16,7 @@ import {
 } from "lucide-react";
 import { IrbApplication, ResearchActivity, Scientist } from "@shared/schema";
 import TimelineComments from "@/components/TimelineComments";
+import { formatDateLong } from "@/lib/dates";
 
 interface ReviewAction {
   action: 'approve' | 'reject' | 'request_revisions' | 'assign_reviewer' | 'assign_reviewers';
@@ -249,13 +250,7 @@ export default function IrbOfficeProtocolDetail(
 
   const formatDate = (date: string | Date | undefined) => {
     if (!date) return "—";
-    return new Date(date).toLocaleDateString('en-US', { 
-      year: 'numeric', 
-      month: 'long',
-      day: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit'
-    });
+    return formatDateLong(date);
   };
 
   const getStatusBadge = (status: string) => {

@@ -12,6 +12,7 @@ import { Badge } from "@/components/ui/badge";
 import { EnhancedPatent } from "@/lib/types";
 import { Plus, Search, MoreHorizontal, Calendar, Award } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
+import { formatDateLong } from "@/lib/dates";
 
 export default function PatentsList() {
   const [searchQuery, setSearchQuery] = useState("");
@@ -22,11 +23,7 @@ export default function PatentsList() {
 
   const formatDate = (date: string | Date | undefined) => {
     if (!date) return "—";
-    return new Date(date).toLocaleDateString('en-US', { 
-      year: 'numeric', 
-      month: 'short',
-      day: 'numeric'
-    });
+    return formatDateLong(date);
   };
 
   const statusColors = {

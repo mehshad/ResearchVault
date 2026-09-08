@@ -16,6 +16,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { useToast } from "@/hooks/use-toast";
 import { ArrowLeft, FileText, Users, CheckCircle2, AlertCircle } from "lucide-react";
 import { apiRequest } from "@/lib/queryClient";
+import { formatDate } from "@/lib/dates";
 
 // Form validation schema for RA-205A
 const ra205aFormSchema = z.object({
@@ -337,7 +338,7 @@ export default function CreateRA205AApplication() {
                     
                     <div className="mt-4 p-4 bg-blue-50 rounded-lg dark:bg-blue-950">
                       <p className="text-sm text-blue-800 dark:text-blue-300">
-                        <strong>Date:</strong> {new Date().toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: 'numeric' })}
+                        <strong>Date:</strong> {formatDate(new Date())}
                       </p>
                     </div>
                   </CardContent>
