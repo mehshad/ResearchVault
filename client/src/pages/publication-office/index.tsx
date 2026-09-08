@@ -3618,11 +3618,20 @@ export default function PublicationOffice({ embeddedTab }: PublicationOfficeProp
             top of the page above the summary and the filters -- from there it
             was not obvious what they would export, and the filters that narrow
             the export were between the button and the table. */}
-        <CardHeader className="flex flex-row flex-wrap items-center justify-between gap-2 space-y-0">
-          <CardTitle>
-            Impact Factors ({totalRecords.toLocaleString()} journals, showing page {currentPage} of {totalPages})
-          </CardTitle>
-          <div className="flex gap-2">
+        <CardHeader className="flex flex-row items-start justify-between gap-4 space-y-0">
+          <div className="min-w-0 flex-1">
+            <CardTitle>
+              Impact Factors ({totalRecords.toLocaleString()} journals, showing page {currentPage} of {totalPages})
+            </CardTitle>
+            {/* Said here because the Year column changes from row to row and
+                nothing else explains why: each journal is shown at whatever
+                year we last hold for it, not at a year the reader chose. */}
+            <CardDescription className="mt-1">
+              One row per journal, at the most recent year on record for that journal — so the
+              Year column varies. Select a journal to see every year we hold for it.
+            </CardDescription>
+          </div>
+          <div className="flex shrink-0 gap-2">
               <Label htmlFor="csv-upload" className="cursor-pointer">
                 <Button variant="outline" asChild>
                   <span>
