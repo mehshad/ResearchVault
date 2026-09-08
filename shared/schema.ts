@@ -1,4 +1,5 @@
 import { pgTable, text, serial, integer, timestamp, boolean, json, uniqueIndex, unique, date, numeric, check } from "drizzle-orm/pg-core";
+import { stageOfGrantStatus } from "./grantStatusRegistry";
 import { sql } from "drizzle-orm";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
@@ -1442,7 +1443,21 @@ export const insertGrantSchema = createInsertSchema(grants).omit({
   createdAt: true,
   updatedAt: true,
 }).extend({
-  status: z.enum(GRANT_STATUS_VALUES),
+  /**
+   * Validated against the status registry, not a fixed list.
+   *
+   * This was `z.enum(GRANT_STATUS_VALUES)`, which is exactly what made statuses
+   * uneditable: a status the office added was rejected here before it reached
+   * the database, with an error naming the thirteen it would accept. The
+   * registry is the list of what exists, and it is refreshed whenever the table
+   * changes.
+   *
+   * Still a closed set, just not a hardcoded one — a status nobody has declared
+   * is refused, because the lifecycle rules would have no idea what it means.
+   */
+  status: z.string().refine((value) => stageOfGrantStatus(value) !== null, {
+    message: "That is not a grant status. Add it in Research Office configuration first.",
+  }),
   currency: z.enum(GRANT_CURRENCY_VALUES).nullable().optional(),
 });
 

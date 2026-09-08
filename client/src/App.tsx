@@ -159,6 +159,7 @@ import PmoApplicationDetail from "@/pages/pmo/applications/detail";
 import PmoOfficeReview from "@/pages/pmo/office/index";
 import PmoOfficeReviewDetail from "@/pages/pmo/office/review";
 import ResearchOfficeDashboard from "@/pages/research-office";
+import ResearchOfficeConfiguration from "@/pages/research-office/configuration";
 import OutcomeOfficeDashboard from "@/pages/outcome-office/dashboard";
 import ManagementHub from "@/pages/management";
 
@@ -363,6 +364,7 @@ function AppRouter() {
         <Route path="/grants/:id/edit" component={EditGrant} />
 
         {/* Research Portfolio */}
+        <Route path="/research-office/configuration" component={ResearchOfficeConfiguration} />
         <Route path="/research-portfolio/grants" component={PortfolioGrants} />
         <Route path="/research-portfolio/contracts" component={PortfolioContracts} />
         <Route path="/research-portfolio/contracts/request" component={ContractRequest} />

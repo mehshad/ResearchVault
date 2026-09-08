@@ -140,6 +140,7 @@ import { registerResearchPortfolioRoutes } from "./researchPortfolioRoutes";
 import { registerInstitutionRoutes } from "./institutionRoutes";
 import { registerContractTypeRoutes } from "./contractTypeRoutes";
 import { registerGrantStatusRoutes, refreshGrantStatusRegistry } from "./grantStatusRoutes";
+import { registerReferenceListAdminRoutes } from "./referenceListAdmin";
 import {
   applySection as applyBulkDataSection,
   buildExportWorkbook as buildBulkDataExportWorkbook,
@@ -9929,6 +9930,7 @@ function writeFailureDetail(error: unknown): string {
   registerInstitutionRoutes(app);
   registerContractTypeRoutes(app);
   registerGrantStatusRoutes(app);
+  registerReferenceListAdminRoutes(app);
 
   // Load the status list into the registry the lifecycle rules read. Failing
   // this leaves the built-in thirteen in place, which is what the system meant
