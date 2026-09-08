@@ -9,6 +9,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { GrantCollaborations } from "@/components/GrantCollaborations";
+import { InstitutionCombobox } from "@/components/InstitutionCombobox";
 import { GrantCoInvestigators } from "@/components/GrantCoInvestigators";
 import type { GrantCollaborationTree, GrantCoInvestigatorList } from "@shared/schema";
 import { isHomeInstitution } from "@shared/grantSubmission";
@@ -38,6 +39,7 @@ import {
   getGrantSdrCandidates,
   isGrantSdrEligible,
 } from "@shared/grantSdrEligibility";
+import { filterSdrsByProgram } from "@shared/grantProgramScope";
 import {
   evaluateGrantIssues,
   type GrantIssueCode,
@@ -77,6 +79,7 @@ export default function EditGrant() {
     title: "",
     description: "",
     cycle: "",
+    programId: "",
     status: "submitted",
     grantType: "Local",
     fundingAgency: "",
@@ -135,6 +138,16 @@ export default function EditGrant() {
     queryKey: ['/api/research-activities']
   });
 
+  // The programme a grant can be submitted under, and the projects that let an
+  // SDR's programme be resolved. Both are short tables.
+  const { data: programs = [] } = useQuery({
+    queryKey: ['/api/programs']
+  });
+
+  const { data: projects = [] } = useQuery({
+    queryKey: ['/api/projects']
+  });
+
   const { data: grantSdrs = [] } = useQuery({
     queryKey: [`/api/grants/${grantId}/research-activities`],
     enabled: !!grantId,
@@ -161,6 +174,7 @@ export default function EditGrant() {
         title: grant.title || "",
         description: grant.description || "",
         cycle: grant.cycle || "",
+        programId: grant.programId?.toString() || "",
         status: grant.status || "submitted",
         grantType: grant.grantType || "Local",
         fundingAgency: grant.fundingAgency || "",
@@ -335,6 +349,7 @@ export default function EditGrant() {
       sourceCategory: formData.sourceCategory || null,
       sourceRecordKey: formData.sourceRecordKey || null,
       submittingInstitution: formData.submittingInstitution || null,
+      programId: formData.programId ? parseInt(formData.programId) : null,
       grantLpiName: formData.grantLpiName?.trim() || null,
       coInvestigators,
       investigatorType: formData.investigatorType || null,
@@ -564,9 +579,26 @@ export default function EditGrant() {
         .filter((name: string | undefined): name is string => Boolean(name)),
     ),
   ).sort();
-  const lpiResearchActivities = getGrantSdrCandidates(
-    researchActivities,
-    selectedLpiId,
+  // The SDR's programme comes through its project, so the picker needs the
+  // project list to resolve it. Projects is a short table and the page already
+  // depends on the PMO area for /api/research-activities, so this adds no
+  // permission the picker did not already need.
+  const programIdByProject = new Map(
+    (Array.isArray(projects) ? projects : []).map((project: any) => [project.id, project.programId]),
+  );
+  const activitiesWithProgram = (Array.isArray(researchActivities) ? researchActivities : []).map(
+    (activity: any) => ({
+      ...activity,
+      programId: activity.projectId != null ? programIdByProject.get(activity.projectId) ?? null : null,
+    }),
+  );
+
+  // Two limits, applied in order: the Lead PI rule, then the grant's
+  // programme. Both keep already-linked SDRs in the list.
+  const selectedProgramId = formData.programId ? parseInt(formData.programId) : null;
+  const lpiResearchActivities = filterSdrsByProgram(
+    getGrantSdrCandidates(activitiesWithProgram, selectedLpiId, linkedSdrs),
+    selectedProgramId,
     linkedSdrs,
   );
   const currentIssues = evaluateGrantIssues({
@@ -710,6 +742,10 @@ export default function EditGrant() {
                   <SelectContent>
                     <SelectItem value="Local">Local</SelectItem>
                     <SelectItem value="International">International</SelectItem>
+                    {/* Funded from within Sidra rather than by an outside
+                        body -- the IRF and PI-budget work the office was
+                        recording as Local for want of anywhere better. */}
+                    <SelectItem value="Internal">Internal</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
@@ -737,7 +773,11 @@ export default function EditGrant() {
               </div>
               <div>
                 <label className="text-sm font-medium text-gray-700 mb-2 block dark:text-gray-300">Submitting Institution</label>
-                <Input value={formData.submittingInstitution} onChange={(e) => setFormData({...formData, submittingInstitution: e.target.value})} placeholder="Institution name" />
+                <InstitutionCombobox
+                  value={formData.submittingInstitution}
+                  onChange={(name) => setFormData({...formData, submittingInstitution: name})}
+                  data-testid="select-submitting-institution"
+                />
               </div>
               {/* Free text on purpose: on a subaward this person works at the
                   prime institution and has no staff record here. Sits beside
@@ -842,19 +882,11 @@ export default function EditGrant() {
               </div>
             </div>
 
-            {/* Fourth Row: Awarded Amount, Start Date, End Date, Cycle */}
-            <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mt-4">
-              <div id="grant-field-awarded-budget" className={issueFieldClass("missing_awarded_budget")}>
-                <label className="text-sm font-medium text-gray-700 mb-2 block dark:text-gray-300">
-                  Awarded Amount
-                </label>
-                <Input
-                  value={formData.awardedAmount}
-                  onChange={(e) => setFormData({...formData, awardedAmount: e.target.value})}
-                  placeholder="$626,565.00"
-                />
-              </div>
-
+            {/* Fourth Row: Project Start Date, Project End Date, Cycle.
+                Awarded Amount used to sit here, away from the Requested Amount
+                and Currency it is read against; it now sits with them under
+                Grant Details. */}
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mt-4">
               {canGrantSetSchedule({
                 status: formData.status,
                 awarded: formData.awarded,
@@ -862,7 +894,7 @@ export default function EditGrant() {
                 <>
                   <div id="grant-field-start-date" className={issueFieldClass("missing_start_date")}>
                     <label className="text-sm font-medium text-gray-700 mb-2 block dark:text-gray-300">
-                      Start Date {grantStatusRequiresStartDate(formData.status) && <span className="text-red-500">*</span>}
+                      Project Start Date {grantStatusRequiresStartDate(formData.status) && <span className="text-red-500">*</span>}
                     </label>
                     <Input
                       type="date"
@@ -873,7 +905,7 @@ export default function EditGrant() {
 
                   <div id="grant-field-end-date" className={issueFieldClass("missing_end_date")}>
                     <label className="text-sm font-medium text-gray-700 mb-2 block dark:text-gray-300">
-                      End Date
+                      Project End Date
                     </label>
                     <Input
                       type="date"
@@ -894,6 +926,39 @@ export default function EditGrant() {
                   placeholder="e.g., 2024-1"
                   required
                 />
+              </div>
+
+              {/* Chosen at submission, and it limits which SDRs can be linked
+                  once the grant is awarded. Changing it while SDRs from another
+                  programme are linked is refused by the server, which names
+                  them -- see shared/grantProgramScope.ts. */}
+              <div>
+                <label className="text-sm font-medium text-gray-700 mb-2 block dark:text-gray-300">
+                  Programme
+                </label>
+                <Select
+                  value={formData.programId || "none"}
+                  onValueChange={(value) =>
+                    setFormData({...formData, programId: value === "none" ? "" : value})
+                  }
+                >
+                  <SelectTrigger data-testid="select-grant-program">
+                    <SelectValue placeholder="No programme" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="none">No programme</SelectItem>
+                    {(Array.isArray(programs) ? programs : []).map((program: any) => (
+                      <SelectItem key={program.id} value={program.id.toString()}>
+                        {program.programId ? `${program.programId} — ${program.name}` : program.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <p className="text-xs text-muted-foreground mt-1">
+                  {formData.programId
+                    ? "Only SDRs in this programme can be linked below."
+                    : "Without one, any SDR led by the Lead PI can be linked."}
+                </p>
               </div>
             </div>
 
@@ -918,7 +983,14 @@ export default function EditGrant() {
             <CardTitle>Grant Details</CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+            {/* The money, together. Requested against awarded is the
+                comparison this office actually makes, and the currency both
+                are denominated in belongs beside them; Awarded Amount used to
+                sit up in Overview, three fields away from either. */}
+            <h3 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide mb-3">
+              Budget
+            </h3>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
               <div id="grant-field-requested-budget" className={issueFieldClass("missing_requested_budget")}>
                 <label className="text-sm font-medium text-gray-700 mb-2 block dark:text-gray-300">
                   Requested Amount
@@ -930,6 +1002,34 @@ export default function EditGrant() {
                 />
               </div>
 
+              <div id="grant-field-awarded-budget" className={issueFieldClass("missing_awarded_budget")}>
+                <label className="text-sm font-medium text-gray-700 mb-2 block dark:text-gray-300">
+                  Awarded Amount
+                </label>
+                <Input
+                  value={formData.awardedAmount}
+                  onChange={(e) => setFormData({...formData, awardedAmount: e.target.value})}
+                  placeholder="$626,565.00"
+                />
+              </div>
+
+              <div id="grant-field-currency" className={issueFieldClass("missing_currency")}>
+                <label className="text-sm font-medium text-gray-700 mb-2 block dark:text-gray-300">Currency</label>
+                <Select
+                  value={formData.currency || undefined}
+                  onValueChange={(value) => setFormData({...formData, currency: value})}
+                >
+                  <SelectTrigger><SelectValue placeholder="Select currency" /></SelectTrigger>
+                  <SelectContent>
+                    {GRANT_CURRENCY_VALUES.map((currency) => (
+                      <SelectItem key={currency} value={currency}>{currency}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
               <div>
                 <label className="text-sm font-medium text-gray-700 mb-2 block dark:text-gray-300">
                   Submitted Year
@@ -952,20 +1052,6 @@ export default function EditGrant() {
                   onChange={(e) => setFormData({...formData, awardedYear: e.target.value})}
                   placeholder="2024"
                 />
-              </div>
-              <div id="grant-field-currency" className={issueFieldClass("missing_currency")}>
-                <label className="text-sm font-medium text-gray-700 mb-2 block dark:text-gray-300">Currency</label>
-                <Select
-                  value={formData.currency || undefined}
-                  onValueChange={(value) => setFormData({...formData, currency: value})}
-                >
-                  <SelectTrigger><SelectValue placeholder="Select currency" /></SelectTrigger>
-                  <SelectContent>
-                    {GRANT_CURRENCY_VALUES.map((currency) => (
-                      <SelectItem key={currency} value={currency}>{currency}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
               </div>
             </div>
 
@@ -1047,48 +1133,13 @@ export default function EditGrant() {
         {/* Collaborators & Timeline */}
         <Card>
           <CardHeader>
-            <CardTitle>Collaborators & Timeline</CardTitle>
+            <CardTitle>Collaborating Institutions</CardTitle>
           </CardHeader>
-          <CardContent>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
-              <div>
-                <label className="text-sm font-medium text-gray-700 mb-2 block dark:text-gray-300">
-                  Reporting Interval (months)
-                </label>
-                <Input
-                  type="number"
-                  min="1"
-                  max="60"
-                  value={formData.reportingIntervalMonths}
-                  onChange={(e) => setFormData({...formData, reportingIntervalMonths: e.target.value})}
-                  placeholder="e.g., 12 for annual reports"
-                />
-              </div>
-              <div>
-                <label className="text-sm font-medium text-gray-700 mb-2 block dark:text-gray-300">
-                  Duration (Months)
-                </label>
-                <Input
-                  type="number"
-                  min="1"
-                  value={formData.durationMonths}
-                  onChange={(e) => setFormData({...formData, durationMonths: e.target.value})}
-                  placeholder="e.g., 36"
-                />
-              </div>
-              <div>
-                <label className="text-sm font-medium text-gray-700 mb-2 block dark:text-gray-300">
-                  Subaward Completed Year
-                </label>
-                <Input
-                  type="number"
-                  value={formData.subawardCompletedYear}
-                  onChange={(e) => setFormData({...formData, subawardCompletedYear: e.target.value})}
-                  placeholder="2024"
-                />
-              </div>
-            </div>
-
+          <CardContent className="space-y-6">
+            {/* The institutions lead, because they are what this section is
+                about. The three timeline fields used to sit above them as an
+                unlabelled block, which read as the card's main content and
+                pushed the collaborators out of sight. */}
             <div className="space-y-2">
               <label className="text-sm font-medium text-gray-700 block dark:text-gray-300">
                 Collaborating institutions
@@ -1100,6 +1151,50 @@ export default function EditGrant() {
                 value={collaboratingInstitutions}
                 onChange={setCollaboratingInstitutions}
               />
+            </div>
+
+            <div>
+              <h3 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide mb-3">
+                Timeline
+              </h3>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div>
+                  <label className="text-sm font-medium text-gray-700 mb-2 block dark:text-gray-300">
+                    Reporting Interval (months)
+                  </label>
+                  <Input
+                    type="number"
+                    min="1"
+                    max="60"
+                    value={formData.reportingIntervalMonths}
+                    onChange={(e) => setFormData({...formData, reportingIntervalMonths: e.target.value})}
+                    placeholder="e.g., 12 for annual reports"
+                  />
+                </div>
+                <div>
+                  <label className="text-sm font-medium text-gray-700 mb-2 block dark:text-gray-300">
+                    Duration (Months)
+                  </label>
+                  <Input
+                    type="number"
+                    min="1"
+                    value={formData.durationMonths}
+                    onChange={(e) => setFormData({...formData, durationMonths: e.target.value})}
+                    placeholder="e.g., 36"
+                  />
+                </div>
+                <div>
+                  <label className="text-sm font-medium text-gray-700 mb-2 block dark:text-gray-300">
+                    Subaward Completed Year
+                  </label>
+                  <Input
+                    type="number"
+                    value={formData.subawardCompletedYear}
+                    onChange={(e) => setFormData({...formData, subawardCompletedYear: e.target.value})}
+                    placeholder="2024"
+                  />
+                </div>
+              </div>
             </div>
 
             <div className="space-y-2">

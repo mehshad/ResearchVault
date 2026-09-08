@@ -228,6 +228,7 @@ export const NAVIGATION_ITEMS = [
   { id: "ibc-reviewer", name: "IBC Reviewer", description: "IBC review interface" },
   { id: "data-management", name: "Data Management Plans", description: "Research data governance" },
   { id: "research-office", name: "Research Office", description: "Grants and research contracts" },
+  { id: "research-portfolio", name: "Research Portfolio", description: "A researcher's own and their section's grants and contracts" },
   { id: "publications", name: "Publications", description: "Academic publications" },
   { id: "outcome-office", name: "Outcome Office", description: "Research outcomes and impact tracking" },
   { id: "patents", name: "Patents", description: "Intellectual property" },

@@ -6,6 +6,7 @@ import { db } from "./db";
 import { storage, normalizeJournalName } from "./databaseStorage";
 import { publicationAuthors, publications, scientists, journals, journalImpactFactorMetrics } from "@shared/schema";
 import { eq, inArray } from "drizzle-orm";
+import { impactFactorLookupYear } from "@shared/impactFactorYear";
 import {
   SidraScoreSettings,
   SidraScoreResult,
@@ -343,6 +344,7 @@ export function calculateScientistScore(
     startMonth,
     endMonth,
     impactFactorYear,
+    impactFactorCutoff,
     multipliers,
     includeNonVetted,
   } = settings;
@@ -492,11 +494,15 @@ export function calculateScientistScore(
       }
 
       // ── Gate 6: impact factor lookup ──
-      const pubYear = pubDate.getFullYear();
-      let targetYear: number;
-      if (impactFactorYear === "prior") targetYear = pubYear - 1;
-      else if (impactFactorYear === "publication") targetYear = pubYear;
-      else targetYear = currentYear;
+      // The cut-off decides when the impact-factor year turns over, which is
+      // not necessarily 1 January: JCR publishes a year's factors partway
+      // through the following year, so scoring a January manuscript against
+      // its own calendar year would use a factor nobody had released yet.
+      const targetYear = impactFactorLookupYear(
+        pubDate,
+        { impactFactorYear, impactFactorCutoff },
+        currentYear,
+      );
 
       let ifValue = lookupIf(ifByJournalYear, pub.journal, targetYear);
       let actualYear = targetYear;

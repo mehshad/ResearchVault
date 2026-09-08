@@ -1,6 +1,12 @@
 // @ts-nocheck — Pre-existing TypeScript errors in this file are suppressed so `npx tsc --noEmit` runs clean and new code in other files gets reliable type-checking feedback.
 // Most errors here stem from untyped `useQuery` results (data inferred as `unknown`), drifted shared/schema field renames, and form values typed as `unknown`. They are not known runtime bugs but should be fixed file-by-file as each is next touched: remove this directive, run `npx tsc --noEmit`, and resolve what surfaces.
 import { useState, useEffect, useRef, useLayoutEffect, useMemo } from "react";
+import {
+  DEFAULT_IMPACT_FACTOR_CUTOFF,
+  formatImpactFactorYear,
+  impactFactorExamples,
+  isValidImpactFactorCutoff,
+} from "@shared/impactFactorYear";
 import { useAuth } from "@/hooks/useAuth";
 import { usePermissions } from "@/hooks/usePermissions";
 import { useQuery, useMutation, useQueryClient, keepPreviousData } from "@tanstack/react-query";
@@ -306,6 +312,8 @@ export default function PublicationOffice({ embeddedTab }: PublicationOfficeProp
   const [secondAuthorMultiplier, setSecondAuthorMultiplier] = useState(1.5);
   const [correspondingAuthorMultiplier, setCorrespondingAuthorMultiplier] = useState(2);
   const [impactFactorYear, setImpactFactorYear] = useState("publication"); // "prior", "publication", "latest"
+  // DD-MM. 01-01 is the old behaviour: the year turns over with the calendar.
+  const [impactFactorCutoff, setImpactFactorCutoff] = useState(DEFAULT_IMPACT_FACTOR_CUTOFF);
   const [sidraIncludeNonVetted, setSidraIncludeNonVetted] = useState(false);
   const [sidraRankings, setSidraRankings] = useState<SidraRanking[]>([]);
   const [selectedScientistDetails, setSelectedScientistDetails] = useState<SidraRanking | null>(null);
@@ -324,6 +332,7 @@ export default function PublicationOffice({ embeddedTab }: PublicationOfficeProp
         setSidraStartMonth(settings.startMonth || "");
         setSidraEndMonth(settings.endMonth || "");
         setImpactFactorYear(settings.impactFactorYear);
+        if (settings.impactFactorCutoff) setImpactFactorCutoff(settings.impactFactorCutoff);
         setSidraIncludeNonVetted(settings.includeNonVetted);
         setFirstAuthorMultiplier(settings.multipliers["First Author"]);
         setSecondAuthorMultiplier(settings.multipliers["Second or Second Last Author"]);
@@ -1111,6 +1120,7 @@ export default function PublicationOffice({ embeddedTab }: PublicationOfficeProp
           ? { startMonth: sidraStartMonth, endMonth: sidraEndMonth }
           : {}),
         impactFactorYear: impactFactorYear,
+        impactFactorCutoff: impactFactorCutoff,
         includeNonVetted: sidraIncludeNonVetted,
         multipliers: {
           'First Author': firstAuthorMultiplier,
@@ -1135,6 +1145,53 @@ export default function PublicationOffice({ embeddedTab }: PublicationOfficeProp
     },
     onError: () => {
       toast({ title: "Error", description: "Failed to calculate Sidra scores", variant: "destructive" });
+    },
+  });
+
+  /** The settings as both the save and the calculate call send them. */
+  const currentSidraSettings = () => ({
+    years: sidraYears,
+    ...(sidraRangeMode === "custom" && sidraStartMonth && sidraEndMonth
+      ? { startMonth: sidraStartMonth, endMonth: sidraEndMonth }
+      : {}),
+    impactFactorYear,
+    impactFactorCutoff,
+    includeNonVetted: sidraIncludeNonVetted,
+    multipliers: {
+      'First Author': firstAuthorMultiplier,
+      'Last Author': lastAuthorMultiplier,
+      'Second or Second Last Author': secondAuthorMultiplier,
+      'Corresponding Author': correspondingAuthorMultiplier,
+    },
+  });
+
+  /**
+   * Save the settings without recalculating.
+   *
+   * There was no way to do this: the settings were persisted only as a side
+   * effect of "Calculate and save official scores", so changing the cut-off and
+   * leaving the page lost it, which reads exactly like a field that does not
+   * save. The endpoint existed already and nothing called it.
+   */
+  const saveSidraSettingsMutation = useMutation({
+    mutationFn: async () => {
+      const response = await fetch('/api/sidra-score/settings', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify(currentSidraSettings()),
+      });
+      if (!response.ok) {
+        const body = await response.json().catch(() => null);
+        throw new Error(body?.message || 'Failed to save settings');
+      }
+      return response.json();
+    },
+    onSuccess: () => {
+      toast({ title: "Settings saved", description: "Scores calculated from now on will use them." });
+    },
+    onError: (error: any) => {
+      toast({ title: "Could not save settings", description: error?.message, variant: "destructive" });
     },
   });
 
@@ -2889,6 +2946,128 @@ export default function PublicationOffice({ embeddedTab }: PublicationOfficeProp
                       {impactFactorYear === "publication" && "Uses impact factor from the same year as publication"}
                       {impactFactorYear === "latest" && "Uses the most recent impact factor available for the journal"}
                     </p>
+                    {/* Which "year" is meant is not obvious, and getting it
+                        wrong shifts every score by one edition. */}
+                    <p className="text-xs text-muted-foreground">
+                      Years mean the Journal Impact Factor year — the year the citations are
+                      from. The 2025 factors are the ones published in Journal Citation Reports
+                      2026.
+                    </p>
+                  </div>
+
+                  {/* When the impact-factor year rolls over. JCR publishes a
+                      year's factors partway through the following year, so
+                      until this date a manuscript counts as the previous
+                      year's — otherwise a January paper is scored against a
+                      factor nobody had released yet. */}
+                  <div className="space-y-2">
+                    <Label htmlFor="if-cutoff">Impact Factor cut-off date</Label>
+                    <Input
+                      id="if-cutoff"
+                      value={impactFactorCutoff}
+                      onChange={(e) => setImpactFactorCutoff(e.target.value)}
+                      placeholder="DD-MM"
+                      className="w-32"
+                      data-testid="input-if-cutoff"
+                      disabled={impactFactorYear === "latest"}
+                    />
+                    <p className="text-xs text-gray-500 dark:text-gray-400">
+                      {impactFactorYear === "latest"
+                        ? "Not used: “Latest available” does not look at the publication date."
+                        : "The day the impact factor year rolls over. Journal Citation Reports publishes a year's factors partway through the following year, so before this date a manuscript is scored on the previous year's. 01-01 means the calendar year."}
+                    </p>
+                    {!isValidImpactFactorCutoff(impactFactorCutoff) && (
+                      <p className="text-xs text-red-600 dark:text-red-400">
+                        Must be DD-MM, such as 30-06.
+                      </p>
+                    )}
+
+                    {/* Worked examples, computed from the settings above rather
+                        than written out, so they cannot describe a rule the
+                        code stopped following. The pair a day apart is the
+                        point: that is the part nobody predicts from the date
+                        alone. */}
+                    {isValidImpactFactorCutoff(impactFactorCutoff) && (
+                      <div className="rounded-md border bg-muted/40 p-3 mt-2">
+                        <p className="text-xs font-medium mb-2">
+                          Manuscripts across the period above would be scored on:
+                        </p>
+                        <table className="w-full text-xs">
+                          <tbody>
+                            {impactFactorExamples(
+                              {
+                                impactFactorYear: impactFactorYear as "prior" | "publication" | "latest",
+                                impactFactorCutoff,
+                                years: sidraYears,
+                                ...(sidraRangeMode === "custom" && sidraStartMonth && sidraEndMonth
+                                  ? { startMonth: sidraStartMonth, endMonth: sidraEndMonth }
+                                  : {}),
+                              },
+                              new Date(),
+                              availableYears,
+                            ).map((example) => (
+                              <tr key={example.publishedOn} data-testid={`if-example-${example.publishedOn}`}>
+                                {/* Two columns, not three: this card is a
+                                    narrow side panel, and a third column made
+                                    the dates wrap mid-number. Where the date
+                                    sits relative to the cut-off goes under it
+                                    as a quieter line instead.
+
+                                    Day-month-year, matching the cut-off field
+                                    above. The stored value stays ISO; only the
+                                    display is reordered. */}
+                                <td className="py-1 pr-3 align-top whitespace-nowrap">
+                                  <div className="font-mono">
+                                    {example.publishedOn.split("-").reverse().join("-")}
+                                  </div>
+                                  {example.situation && (
+                                    <div className="text-[11px] text-muted-foreground leading-tight">
+                                      {example.situation}
+                                    </div>
+                                  )}
+                                </td>
+                                <td className="py-1 align-top">
+                                  {/* The year asked for and the year found are
+                                      not always the same. Naming only the first
+                                      described a lookup that cannot succeed:
+                                      a 2026 manuscript wanting "the 2026
+                                      impact factor", which is not published
+                                      until mid-2027. */}
+                                  {/* Both names are needed — "2026 not loaded"
+                                      reads as false to somebody who loaded JCR
+                                      2026 last week — but spelling both out in
+                                      one sentence made the row unreadable. So
+                                      the year actually used leads, and the
+                                      substitution is a second, quieter line. */}
+                                  {example.resolvedYear === null ? (
+                                    <>
+                                      <div className="font-medium text-amber-700 dark:text-amber-400">
+                                        No score
+                                      </div>
+                                      <div className="text-[11px] text-muted-foreground leading-tight">
+                                        {formatImpactFactorYear(example.usesYear)} not loaded
+                                      </div>
+                                    </>
+                                  ) : (
+                                    <>
+                                      <div className="font-medium">
+                                        {formatImpactFactorYear(example.resolvedYear)}
+                                      </div>
+                                      {example.resolvedYear !== example.usesYear && (
+                                        <div className="text-[11px] text-amber-700 dark:text-amber-400 leading-tight">
+                                          substituted; {formatImpactFactorYear(example.usesYear)} not
+                                          loaded
+                                        </div>
+                                      )}
+                                    </>
+                                  )}
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    )}
                   </div>
 
                   <div className="space-y-2 border-t pt-4">
@@ -2956,13 +3135,33 @@ export default function PublicationOffice({ embeddedTab }: PublicationOfficeProp
                     </div>
                   </div>
 
-                  <Button 
-                    className="w-full flex items-center gap-2" 
+                  {/* Saving settings used to be possible only as a side effect
+                      of recalculating every score, which is why a changed
+                      cut-off appeared not to save: nothing on this card wrote
+                      it, and leaving the page lost it. */}
+                  <Button
+                    className="w-full flex items-center gap-2"
+                    onClick={() => saveSidraSettingsMutation.mutate()}
+                    disabled={
+                      sidraSettingsLoading ||
+                      saveSidraSettingsMutation.isPending ||
+                      !isValidImpactFactorCutoff(impactFactorCutoff) ||
+                      (sidraRangeMode === "custom" &&
+                        (!sidraStartMonth || !sidraEndMonth || sidraStartMonth > sidraEndMonth))
+                    }
+                    data-testid="button-save-sidra-settings"
+                  >
+                    {saveSidraSettingsMutation.isPending ? 'Saving...' : 'Save settings'}
+                  </Button>
+
+                  <Button
+                    className="w-full flex items-center gap-2 mt-2"
                     variant="outline"
                     onClick={handleCalculateSidraScores}
                     disabled={
                       sidraSettingsLoading ||
                       calculateSidraScoresMutation.isPending ||
+                      !isValidImpactFactorCutoff(impactFactorCutoff) ||
                       (sidraRangeMode === "custom" &&
                         (!sidraStartMonth || !sidraEndMonth || sidraStartMonth > sidraEndMonth))
                     }
@@ -3108,6 +3307,23 @@ export default function PublicationOffice({ embeddedTab }: PublicationOfficeProp
 
         {/* Impact Factors Tab */}
         <TabsContent value="impact-factors" className="space-y-6">
+          {/* Clarivate names the same release two ways, one year apart, and a
+              set loaded under the wrong one is invisible until somebody
+              spot-checks a journal. That is what happened to the set loaded as
+              2026, which was the JCR 2026 edition holding 2025 factors. Said
+              here because this is the screen somebody is looking at while
+              deciding what to type. */}
+          <div className="rounded-md border bg-muted/40 p-3 text-sm">
+            <p className="font-medium mb-1">Year here means the Journal Impact Factor year</p>
+            <p className="text-muted-foreground">
+              That is the year whose citations the factor is computed from — not the year the
+              file was released. Clarivate publishes the <strong>2025</strong> Journal Impact
+              Factors in <strong>Journal Citation Reports 2026</strong>, released June 2026, so
+              that download belongs under <strong>2025</strong> here. A set filed under the
+              edition year is one year out and will be matched to the wrong publications.
+            </p>
+          </div>
+
           <div className="flex justify-between items-center">
             <div></div>
             <div className="flex gap-2">
@@ -3150,7 +3366,9 @@ export default function PublicationOffice({ embeddedTab }: PublicationOfficeProp
                         <SelectContent>
                           {availableYears.map((y) => (
                             <SelectItem key={y} value={String(y)} data-testid={`option-export-year-${y}`}>
-                              {y}
+                              {/* Both names: a bare year here is what let a
+                                  JCR 2026 download be filed as 2026. */}
+                              {formatImpactFactorYear(y)}
                             </SelectItem>
                           ))}
                         </SelectContent>

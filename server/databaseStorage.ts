@@ -19,6 +19,11 @@ import {
 import { IStorage } from "./storage";
 import { isGrantSdrEligible } from "@shared/grantSdrEligibility";
 import {
+  isSdrInGrantProgram,
+  programChangeBlockedMessage,
+  sdrsBlockingProgramChange,
+} from "@shared/grantProgramScope";
+import {
   users, User, InsertUser,
   scientists, Scientist, InsertScientist,
   programs, Program, InsertProgram,
@@ -3047,6 +3052,46 @@ export class DatabaseStorage implements IStorage {
         ? undefined
         : [...new Set(desiredResearchActivityIds)];
       const nextAwarded = grant.awarded ?? currentGrant.awarded ?? false;
+      const nextProgramId = Object.prototype.hasOwnProperty.call(grant, "programId")
+        ? grant.programId ?? null
+        : currentGrant.programId ?? null;
+
+      // Moving a grant to a programme its linked SDRs are not in is refused
+      // rather than performed. The alternatives were to grandfather the links
+      // -- leaving the grant holding work its own programme excludes -- or to
+      // drop them, which destroys links with no record of what they were. The
+      // office adjusts the SDRs first.
+      //
+      // Checked against what the links will be after this save, not what they
+      // are now: a single request can change the programme and the SDR list
+      // together, and judging the new programme against the old list would
+      // refuse a save that is in fact consistent.
+      if (nextProgramId !== (currentGrant.programId ?? null) && nextProgramId != null) {
+        const idsAfterSave = desiredIds ?? (await tx
+          .select({ id: grantResearchActivities.researchActivityId })
+          .from(grantResearchActivities)
+          .where(eq(grantResearchActivities.grantId, id))).map((row) => row.id);
+
+        if (idsAfterSave.length > 0) {
+          const linked = await tx
+            .select({
+              id: researchActivities.id,
+              sdrNumber: researchActivities.sdrNumber,
+              programId: projects.programId,
+            })
+            .from(researchActivities)
+            .leftJoin(projects, eq(projects.id, researchActivities.projectId))
+            .where(inArray(researchActivities.id, idsAfterSave));
+
+          const blocking = sdrsBlockingProgramChange(linked, nextProgramId);
+          if (blocking.length > 0) {
+            throw new GrantSdrLifecycleStorageError(
+              "SDR_PROGRAM_MISMATCH",
+              programChangeBlockedMessage(blocking),
+            );
+          }
+        }
+      }
 
       if (!nextAwarded) {
         if (desiredIds && desiredIds.length > 0) {
@@ -3075,9 +3120,12 @@ export class DatabaseStorage implements IStorage {
         const matchingActivities = await tx
           .select({
             id: researchActivities.id,
+            sdrNumber: researchActivities.sdrNumber,
             budgetHolderId: researchActivities.budgetHolderId,
+            programId: projects.programId,
           })
           .from(researchActivities)
+          .leftJoin(projects, eq(projects.id, researchActivities.projectId))
           .where(inArray(researchActivities.id, desiredIds));
         if (matchingActivities.length !== desiredIds.length) {
           throw new GrantSdrLifecycleStorageError(
@@ -3094,6 +3142,18 @@ export class DatabaseStorage implements IStorage {
           throw new GrantSdrLifecycleStorageError(
             "SDR_PI_MISMATCH",
             "Only SDRs whose Principal Investigator is the grant Lead PI can be linked.",
+          );
+        }
+        // The programme narrows further. Uses the programme this save leaves
+        // the grant with, so setting a programme and its SDRs in one request
+        // is judged as a whole.
+        const outsideProgram = matchingActivities.filter(
+          (activity) => !isSdrInGrantProgram(nextProgramId, activity.programId),
+        );
+        if (outsideProgram.length > 0) {
+          throw new GrantSdrLifecycleStorageError(
+            "SDR_PROGRAM_MISMATCH",
+            programChangeBlockedMessage(outsideProgram),
           );
         }
       }
@@ -3376,8 +3436,11 @@ export class DatabaseStorage implements IStorage {
         .select({
           id: researchActivities.id,
           budgetHolderId: researchActivities.budgetHolderId,
+          // The SDR reaches a programme only through its project.
+          programId: projects.programId,
         })
         .from(researchActivities)
+        .leftJoin(projects, eq(projects.id, researchActivities.projectId))
         .where(eq(researchActivities.id, researchActivityId));
       if (!researchActivity) {
         throw new GrantSdrLifecycleStorageError(
@@ -3389,6 +3452,13 @@ export class DatabaseStorage implements IStorage {
         throw new GrantSdrLifecycleStorageError(
           "SDR_PI_MISMATCH",
           "Only SDRs whose Principal Investigator is the grant Lead PI can be linked.",
+        );
+      }
+      // The programme narrows further, on top of the Lead PI rule above.
+      if (!isSdrInGrantProgram(grant.programId, researchActivity.programId)) {
+        throw new GrantSdrLifecycleStorageError(
+          "SDR_PROGRAM_MISMATCH",
+          "Only SDRs in this grant's programme can be linked to it.",
         );
       }
 

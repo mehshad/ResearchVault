@@ -78,6 +78,17 @@ export const NAVIGATION_ROUTE_RULES: NavigationRouteRule[] = [
   { prefix: "/api/grants", navigationItem: "research-office", label: "Research office" },
   { prefix: "/api/grant-progress-reports", navigationItem: "research-office", label: "Research office" },
 
+  // ── Research portfolio ───────────────────────────────────────────────────
+  // The same records as the Research Office prefixes above, read through the
+  // researcher's own view of them. A separate area on purpose: it is what lets
+  // researchers be granted their own and their section's grants and contracts
+  // without also being granted the office screens.
+  { prefix: "/api/research-portfolio", navigationItem: "research-portfolio", label: "Research portfolio" },
+  // Raising a contract request. Separate prefix, same area: asking the Research
+  // Office for a contract is a researcher's act, not an officer's, so it must
+  // not require the office area -- see server/researchPortfolioRoutes.ts.
+  { prefix: "/api/contract-requests", navigationItem: "research-portfolio", label: "Research portfolio" },
+
   // ── Research output ──────────────────────────────────────────────────────
   { prefix: "/api/publications", navigationItem: "publications", label: "Publications" },
   { prefix: "/api/journal-impact-factors", navigationItem: "publications", label: "Publications" },
@@ -106,13 +117,20 @@ export const NAVIGATION_ROUTE_RULES: NavigationRouteRule[] = [
 export const UNMAPPED_API_PREFIXES: ReadonlyArray<{ prefix: string; reason: string }> = [
   { prefix: "/api/auth", reason: "Sign-in itself; guarding it would lock everyone out." },
   { prefix: "/api/health", reason: "Liveness probe, polled by uptime monitors without a session." },
-  { prefix: "/api/register", reason: "Reached before a role exists." },
+  // Excluded from the matrix, not from authorisation: the route itself carries
+  // requireAuth and requireInvestigatorDesignationManager. The reason here used
+  // to read "Reached before a role exists", which described the sign-in flow
+  // rather than this route and made the exclusion look like an open endpoint.
+  { prefix: "/api/register", reason: "No matrix area: the caller is authenticated but holds no role yet. Guarded on the route by requireAuth and requireInvestigatorDesignationManager." },
   { prefix: "/api/admin", reason: "Already administrator-only via requireAdmin." },
   { prefix: "/api/bulk-data", reason: "Already administrator-only via requireAdmin." },
   { prefix: "/api/ownership-overrides", reason: "Already administrator-only via requireAdmin." },
   { prefix: "/api/management", reason: "Guarded by requireManagement, which now reads the matrix." },
   { prefix: "/api/office-dashboards", reason: "Guarded by the office guards, which now read the matrix." },
   { prefix: "/api/system-configurations", reason: "Administrator-only via requireAdmin; the theme, branding and section-visibility keys stay readable so the sign-in page can render." },
+  { prefix: "/api/institutions", reason: "A shared reference list, not a record: read by both the Research Office grant forms and the portfolio contract-request form, so no single matrix area owns it. Guarded by requireAuth." },
+  { prefix: "/api/grant-statuses", reason: "Reading is open to any session because every screen that shows or filters a grant status needs the list to render; writing carries its own research-office guard on the route." },
+  { prefix: "/api/contract-types", reason: "A shared reference list, like /api/institutions: read by the Research Office contract screens and the portfolio request form alike, so no single matrix area owns it. Guarded by requireAuth." },
   { prefix: "/objects", reason: "Object storage, served outside the /api surface." },
 ];
 

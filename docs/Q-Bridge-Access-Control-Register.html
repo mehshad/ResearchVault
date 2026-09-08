@@ -430,10 +430,10 @@
     </p>
     <dl class="provenance">
       <div><dt>Repository</dt><dd>mehshad/ResearchVault</dd></div>
-      <div><dt>Branch</dt><dd>WH_changes</dd></div>
-      <div><dt>Commit</dt><dd>3f468cf</dd></div>
-      <div><dt>Reviewed</dt><dd>2026-08-30</dd></div>
-      <div><dt>Revision</dt><dd>6 &mdash; open items</dd></div>
+      <div><dt>Branch</dt><dd>phase2</dd></div>
+      <div><dt>Commit</dt><dd>705998f</dd></div>
+      <div><dt>Reviewed</dt><dd>2026-09-06</dd></div>
+      <div><dt>Revision</dt><dd>7 &mdash; open items</dd></div>
       <div><dt>Method</dt><dd>Source review</dd></div>
     </dl>
   </header>
@@ -776,7 +776,7 @@
             <td class="k">Per-area prefix guards</td>
             <td>Admins, plus whatever the matrix grants for the area that owns the path</td>
             <td class="num-col">33</td>
-            <td>Mounted on API path prefixes covering 18 areas, so a route added under one is covered by being written</td>
+            <td>Mounted on API path prefixes covering 19 areas, so a route added under one is covered by being written</td>
           </tr>
         </tbody>
       </table>
@@ -830,6 +830,11 @@
           <tr><td class="k">IP vetting and sealed publications have extra safeguards</td><td>Publication workflow</td><td>Publication status changes and corrections</td><td>Only an Outcome Officer or higher can move a Complete Draft through IP vetting. Published records are sealed from ordinary changes; researcher corrections are limited to linked records.</td></tr>
           <tr><td class="k">Unpublished publications are relationship-restricted</td><td>Publication visibility</td><td>Publication lists, direct details, staff profiles, charts, counts, filters, author-link checks</td><td>Published and <span class="mono">Published *</span> records remain generally visible. An unpublished record is visible only to its creator, a linked internal author, that author's direct line manager, or Management and administrators.</td></tr>
           <tr><td class="k">Outcome Office access is limited to the authorised office view</td><td>Publication visibility</td><td>Outcome Office publication queues and the ordinary Publications page</td><td>Outcome Officers review all workflow records inside the server-authorised office view. That authority does not expose unrelated unpublished records on the ordinary Publications list or through a direct-detail request.</td></tr>
+          <tr><td class="k">Portfolio contracts are limited to the viewer's section</td><td>Research portfolio</td><td>The Research Portfolio contracts page</td><td>A contract outside the viewer's section is not sent to the browser at all. A contract belongs to the section of its lead PI, or of whoever raised the request when no lead PI is recorded. Management and administrators see every contract. An account with no staff profile, or a profile not placed in a section, sees none rather than all.</td></tr>
+          <tr><td class="k">Another section's grants are visible only while in good standing</td><td>Research portfolio</td><td>The Research Portfolio grants page</td><td>The viewer's own section is listed at every status, refused applications included. Every other section is listed only at Awarded, Active or Completed, so their applications, refusals and terminations are not sent to the browser. Management and administrators are not bounded this way. The status filter marks which statuses this applies to, so a short list is not read as missing data.</td></tr>
+          <tr><td class="k">Raising a contract request does not require the Research Office</td><td>Research portfolio</td><td>The Request New Contract form</td><td>Submitting a contract request needs <em>create</em> on Research Portfolio, not the Research Office area that administers contracts. The requesting account is taken from the session and never from the form, so a request cannot be filed into another section. This is why Research Portfolio has a meaningful <em>create</em> level; nothing in that area edits an existing record, so <em>edit</em> grants nothing beyond <em>create</em>.</td></tr>
+          <tr><td class="k">A grant&rsquo;s programme limits the SDRs linked to it</td><td>Research office</td><td>Grant editing and SDR linking</td><td>An SDR may be linked to a grant only when its own project sits in the grant&rsquo;s programme, on top of the existing rule that its Principal Investigator must be the grant&rsquo;s Lead PI. A missing programme on either side restricts nothing: a grant naming none has nothing to narrow by, and an SDR reaching none is not excluded by a programme it cannot be compared against. Changing a grant&rsquo;s programme while SDRs from another are linked is refused, naming them, rather than dropping the links or leaving the grant holding work its own programme excludes.</td></tr>
+          <tr><td class="k">Institutions come from one shared list</td><td>Reference data</td><td>Grant submitting and collaborating institutions, contract counterparties</td><td>Any signed-in account may read the institution list and add to it, because every form that names an organisation needs both. Names are unique on a key that ignores case, spacing and punctuation, so the list cannot hold two spellings of one organisation, and the key is derived by the server rather than accepted from a caller.</td></tr>
         </tbody>
       </table>
     </div>
@@ -922,9 +927,9 @@
 
     <div class="stats">
       <div class="stat"><div class="v">13</div><div class="l">Roles</div></div>
-      <div class="stat"><div class="v">18</div><div class="l">Areas</div></div>
-      <div class="stat"><div class="v">234</div><div class="l">Cells</div></div>
-      <div class="stat"><div class="v">18</div><div class="l">Enforced server-side</div></div>
+      <div class="stat"><div class="v">19</div><div class="l">Areas</div></div>
+      <div class="stat"><div class="v">247</div><div class="l">Cells</div></div>
+      <div class="stat"><div class="v">19</div><div class="l">Enforced server-side</div></div>
     </div>
 
     <h3>How a cell resolves</h3>
@@ -938,7 +943,7 @@
 
     <div class="note">
       <p>
-        <strong>The matrix governs the API, not only the interface.</strong> All 18 areas are
+        <strong>The matrix governs the API, not only the interface.</strong> All 19 areas are
         resolved by server-side guards covering 94% of routes, so a caller reaching the API
         directly meets the same cells the interface does; see section&nbsp;07.
       </p>
@@ -963,7 +968,7 @@
 
     <h3>The consolidated area set</h3>
     <p>
-      The matrix configures <strong>18 areas</strong> for 13 roles &mdash; 234 cells, complete,
+      The matrix configures <strong>19 areas</strong> for 13 roles &mdash; 247 cells, complete,
       with no gaps. One definition governs: the client list is derived from the shared constants,
       so the set the matrix is seeded from and the set the settings grid renders cannot disagree,
       and no area can exist where an administrator is unable to see it.
@@ -987,8 +992,37 @@
             <td class="k">certifications</td>
             <td>Nothing folds in; an area in its own right, enforced and shown in the grid</td>
           </tr>
+          <tr>
+            <td>&mdash;</td>
+            <td class="k">research-portfolio</td>
+            <td>Split <em>out</em> rather than folded in &mdash; see below</td>
+          </tr>
         </tbody>
       </table>
+    </div>
+    <div class="note">
+      <p>
+        <strong>One area was separated rather than merged.</strong> The Research Office pages show
+        the office every grant and contract, with the import and clean-up tooling an office needs.
+        The two Research Portfolio pages show a researcher the same records scoped to themselves
+        and their section, and read only. Both sets of pages read the same tables, so a single
+        <span class="mono">research-office</span> column could not tell them apart: granting a
+        researcher their own view would have granted the office screens with it. The separation is
+        what makes the distinction configurable at all.
+      </p>
+      <p>
+        This runs against the consolidation above, and deliberately. Areas were merged where the
+        cells always said the same thing; these two say different things for the same role, which
+        is exactly the case a column is for.
+      </p>
+      <p>
+        <strong>The area tops out at <em>create</em>.</strong> <em>view</em> reads your own and
+        your section's grants and contracts; <em>create</em> additionally lets you raise a contract
+        request, which is why asking the Research Office for a contract no longer requires holding
+        the Research Office. Nothing in the area edits an existing record &mdash; that stays with
+        the office screens &mdash; so a stored <em>edit</em> grants nothing beyond <em>create</em>
+        and means the cell was set without reading what it governs.
+      </p>
     </div>
     <div class="note">
       <p>
@@ -1056,6 +1090,40 @@
             <td>Own profile and own certifications only, plus ordinary publication and
                 impact-factor reads.</td>
           </tr>
+          <tr>
+            <td class="k">Section scope</td>
+            <td>Contracts on the Research Portfolio contracts page</td>
+            <td>A contract is placed in the section of its lead PI, or of whoever raised the
+                request when no lead PI is recorded, and is withheld from everyone outside it.
+                Management and administrators are unbounded. The two gaps that make the section
+                unanswerable &mdash; an account with no staff profile, and a profile placed in no
+                section &mdash; yield nothing rather than everything, so an unplaced profile is a
+                configuration gap and not a licence.</td>
+          </tr>
+          <tr>
+            <td class="k">Good standing across sections</td>
+            <td>Grants on the Research Portfolio grants page</td>
+            <td>The viewer's own section is listed entire, refused applications included; every
+                other section only at <span class="mono">awarded</span>,
+                <span class="mono">active</span> or <span class="mono">completed</span>. A grant
+                with no status recorded does not cross the boundary either &mdash; unknown is not
+                good standing, and defaulting the other way would leak the pipeline through a
+                blank field.
+                <p><strong>Why a status list and not the award flag.</strong> Two candidate rules
+                exist and neither shortcut is right.
+                <span class="mono">awarded = true</span> would admit
+                <span class="mono">withdrawn</span>, <span class="mono">terminated</span>,
+                <span class="mono">suspended</span> and <span class="mono">transferred</span>,
+                which all follow a real award and are exactly what a section would least like
+                published elsewhere. A list of <em>awarded, completed</em> alone would exclude
+                <span class="mono">active</span>, which is what a won and running grant carries
+                &mdash; showing other sections' finished work while hiding the work in progress.
+                The rule is the three good-standing statuses, and both wrong answers are pinned by
+                tests so widening it is deliberate.</p>
+                Against the current data 191 grants are withheld from a viewer outside the
+                section holding them: 153 <span class="mono">not_awarded</span>, 38
+                <span class="mono">submitted</span>, and the 4 post-award endings.</td>
+          </tr>
         </tbody>
       </table>
     </div>
@@ -1092,22 +1160,27 @@
     </p>
 
     <div class="stats">
-      <div class="stat"><div class="v">295</div><div class="l">API routes</div></div>
-      <div class="stat"><div class="v">287</div><div class="l">Reach a guard</div></div>
-      <div class="stat"><div class="v">97%</div><div class="l">Covered</div></div>
-      <div class="stat"><div class="v">8</div><div class="l">Open before sign-in</div></div>
+      <div class="stat"><div class="v">332</div><div class="l">API routes</div></div>
+      <div class="stat"><div class="v">323</div><div class="l">Reach a guard</div></div>
+      <div class="stat"><div class="v">97.3%</div><div class="l">Covered</div></div>
+      <div class="stat"><div class="v">9</div><div class="l">Open before sign-in</div></div>
     </div>
 
     <p>
-      The eight that reach no guard are the ones that cannot: sign-in itself, registration, the
-      liveness probe and object storage are all reached before a role exists, and guarding them
-      would lock everyone out. They are listed in
-      <span class="mono">UNMAPPED_API_PREFIXES</span> beside the reason each is excluded.
+      The nine that reach no guard are the ones that cannot: the seven
+      <span class="mono">/api/auth</span> routes &mdash; sign-in, sign-out, the session read, the
+      two OIDC legs and the demo role selector &mdash; and two liveness probes. All nine are
+      reached before a role exists, or must answer without one, and guarding them would lock
+      everyone out. Every one is listed in
+      <span class="mono">UNMAPPED_API_PREFIXES</span> beside the reason it is excluded, and
+      nothing reaches no guard that is absent from that list.
     </p>
     <p>
-      Five more sit in that list while still being guarded:
-      <span class="mono">/api/system-configurations</span> has no matrix area but is
-      administrator-only through <span class="mono">requireAdmin</span>, in the same way as
+      Others sit in that list while still being guarded, so presence there is not the same as
+      being open. <span class="mono">/api/system-configurations</span> has no matrix area but is
+      administrator-only through <span class="mono">requireAdmin</span> and the
+      <span class="mono">requireSystemConfigRead</span> /
+      <span class="mono">requireSystemConfigWrite</span> pair, in the same way as
       <span class="mono">/api/admin</span> and <span class="mono">/api/bulk-data</span>. Four
       presentation keys under it &mdash; theme name, institution labels, section visibility and
       default colour mode &mdash; are readable without a session, because the sign-in page applies
@@ -1115,12 +1188,35 @@
     </p>
     <div class="note">
       <p>
-        <strong>Nothing else answers without an account.</strong> Verified by requesting all 127
-        GET routes against a running server in <span class="mono">local</span> mode with no cookie
-        of any kind: the only JSON that came back was the liveness probe. A bare prefix such as
+        <strong>Being on the exclusion list is not the same as being open.</strong>
+        <span class="mono">/api/register</span> sits in
+        <span class="mono">UNMAPPED_API_PREFIXES</span> and is nonetheless counted among the 323
+        guarded above: it carries <span class="mono">requireAuth</span> and
+        <span class="mono">requireInvestigatorDesignationManager</span>, so a caller is
+        authenticated before it answers &mdash; they simply hold no role yet, which is why no
+        matrix area fits. Its stated reason had read &ldquo;reached before a role exists&rdquo;,
+        which described the sign-in flow rather than this route and made a guarded endpoint read
+        as an open one. Corrected at this revision. Nothing was ever exposed by it &mdash; the
+        drift ran towards more enforcement than documented, not less &mdash; but the exclusion
+        list is a control document and has to say what is true.
+      </p>
+    </div>
+    <div class="note">
+      <p>
+        <strong>Nothing else answers without an account.</strong> Established at revision 6, by
+        requesting every GET route against a running server in
+        <span class="mono">local</span> mode with no cookie of any kind: the only JSON that came
+        back was the liveness probe. A bare prefix such as
         <span class="mono">/api/admin</span> returns 200, but the body is
         <span class="mono">text/html</span> &mdash; the single-page-app catch-all, not an endpoint.
         Check the content type before reading such a result as an exposure.
+      </p>
+      <p>
+        <strong>Not re-run at this revision.</strong> The counts above were re-derived from source
+        at the stated commit; this no-cookie sweep was not, and there are now 151 GET routes
+        against the 127 swept then. The routes added since are covered by the static analysis but
+        have not been fired at a live server without a session. Re-run it before the next review
+        period relies on this paragraph.
       </p>
     </div>
     <div class="note">
@@ -1232,8 +1328,26 @@
     </p>
 
     <h3>Route coverage — the split in section&nbsp;07</h3>
-    <div class="evidence">grep -oE "app\.(get|post|patch|put|delete)\('/api/[^']+'" server/routes.ts | wc -l
-grep -E "requireAuth|requireAdmin|requirePublicationOfficer|requireManagement" server/routes.ts | wc -l</div>
+    <div class="evidence"># Routes are registered across server/*.ts, not only routes.ts, so counting
+# one file understates the total: routes.ts alone holds 296 of the 332.
+# Flatten each file first: a line-based grep misses the registrations whose
+# path sits on the line after app.get(, and reports 316 rather than 332.
+for f in server/*.ts; do case "$f" in *.test.ts) continue;; esac; tr '\n' ' ' &lt; "$f"; echo; done \
+  | grep -oE "(app|router)\.(get|post|patch|put|delete)\( *[\"'`]/api/" | wc -l</div>
+    <p>
+      Guards are the harder half, because several are written across lines &mdash;
+      <span class="mono">app.get(</span>, then the path, then
+      <span class="mono">requireAuth</span> on its own line. A same-line grep reports those routes
+      as unguarded; a window wide enough to catch them will swallow the next registration and lose
+      it from the total. Both mistakes were made deriving the figures above before they were
+      caught, in opposite directions. Match the path, then read a bounded window after it that
+      stops at the next <span class="mono">app.&lt;method&gt;(</span>, and take the guard list
+      from the source rather than from memory:
+    </p>
+    <div class="evidence">grep -rhoE "\brequire[A-Z][A-Za-z]*" server/*.ts | grep -v '\.test\.ts' | sort -u
+# 11 guards mount in route position. A list naming only the obvious four
+# reports the four /api/system-configurations routes as unguarded, because
+# theirs are called requireSystemConfigRead and requireSystemConfigWrite.</div>
 
     <h3>Endpoints with no authorisation</h3>
     <div class="evidence">grep -nE "app\.(post|patch|delete)\('/api/role-permissions" server/routes.ts</div>
@@ -1250,15 +1364,42 @@ grep -oE 'navigationItem: "[^"]+"' server/navigationAccess.ts | sort -u</div>
 
     <h3>Which routes still reach no guard</h3>
     <div class="evidence"># every app.get/post/put/patch/delete, against NAVIGATION_ROUTE_RULES
-# and the route-level guards; expect 17, all in UNMAPPED_API_PREFIXES</div>
+# and the route-level guards; expect 9, all in UNMAPPED_API_PREFIXES
+# and the unexplained count zero -- a route reaching no guard that is
+# absent from that list is the finding this check exists to produce.</div>
+
+    <h3>The Research Portfolio section scope</h3>
+    <div class="evidence">-- What one person's portfolio should hold, to check the API against.
+-- Substitute their scientists.id for 15.
+WITH me AS (SELECT id, section_id FROM scientists WHERE id = 15),
+     mysection AS (SELECT s.id FROM scientists s, me WHERE s.section_id = me.section_id),
+     participants AS (
+       SELECT g.id AS grant_id, g.lpi_id AS sid FROM grants g WHERE g.lpi_id IS NOT NULL
+       UNION
+       SELECT c.grant_id, c.scientist_id FROM grant_co_investigators c
+     )
+SELECT (SELECT count(*) FROM mysection) AS section_size,
+       (SELECT count(DISTINCT grant_id) FROM participants WHERE sid = 15) AS mine,
+       (SELECT count(DISTINCT grant_id) FROM participants p
+          WHERE p.sid IN (SELECT id FROM mysection)
+            AND p.grant_id NOT IN (SELECT grant_id FROM participants WHERE sid = 15))
+         AS team_not_mine;
+-- Compare against GET /api/research-portfolio/grants for that person: the
+-- involvement tallies must match, and the grants array must still hold every
+-- grant, since that page withholds nothing.
+
+-- Staff who will see no contracts and no section grants, because their
+-- profile sits in no section. Expected to be a short list; a long one means
+-- the organisation chart is incomplete, not that the rule is wrong.
+SELECT id, first_name, last_name FROM scientists WHERE section_id IS NULL;</div>
 
     <h3>That every configured area is reviewable, and the matrix is complete</h3>
     <div class="evidence">SELECT DISTINCT navigation_item FROM role_permissions ORDER BY 1;
--- expect 18, each one present in NAVIGATION_ITEMS
+-- expect 19, each one present in NAVIGATION_ITEMS
 
 SELECT (SELECT count(*) FROM role_groups) AS roles,
        (SELECT count(DISTINCT navigation_item) FROM role_permissions) AS areas,
-       (SELECT count(*) FROM role_permissions) AS cells;   -- 13 x 18 = 234, no gaps</div>
+       (SELECT count(*) FROM role_permissions) AS cells;   -- 13 x 19 = 247, no gaps</div>
 
     <h3>Effective roles for one person</h3>
     <div class="evidence">SELECT u.username, u.role AS primary_role,
@@ -1272,8 +1413,8 @@ ORDER BY u.username;</div>
 
   <footer>
     <p>
-      Prepared from source at commit <span class="mono">3f468cf</span> on branch
-      <span class="mono">WH_changes</span>, 30 August 2026.
+      Prepared from source at commit <span class="mono">705998f</span> on branch
+      <span class="mono">phase2</span>, 6 September 2026.
     </p>
     <p>
       <strong>Resolved findings are deleted, not archived.</strong> This document is a list of work

@@ -136,6 +136,9 @@ export default function Sidebar({ mobile = false, onClose, onCollapsedChange }: 
       "/patents": "patents",
       "/reports": "reports",
       "/grants": "grants",
+      "/research-office/configuration": "research-office",
+      "/research-portfolio/grants": "research-portfolio",
+      "/research-portfolio/contracts": "research-portfolio",
       "/certifications": "certifications",
       "/settings": "settings",
       "/management": "management"
@@ -269,13 +272,31 @@ export default function Sidebar({ mobile = false, onClose, onCollapsedChange }: 
         },
         {
           href: "/contracts",
-          label: "Research Contracts",
+          label: "Contract Office",
           icon: Handshake
         },
         {
           href: "/grants",
           label: "Grants Office",
           icon: PieChart
+        },
+        // The researcher-facing pair. Same records as the two office pages
+        // above, but scoped to the viewer and their section, and behind their
+        // own matrix area so they can be granted without the office screens.
+        {
+          href: "/research-portfolio/grants",
+          label: "Grants",
+          icon: PieChart
+        },
+        {
+          href: "/research-portfolio/contracts",
+          label: "Contracts",
+          icon: Handshake
+        },
+        {
+          href: "/research-office/configuration",
+          label: "Office Configuration",
+          icon: Settings
         }
       ]
     },

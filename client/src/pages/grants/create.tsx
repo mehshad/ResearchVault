@@ -30,6 +30,7 @@ import { Switch } from "@/components/ui/switch";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Label } from "@/components/ui/label";
 import { apiRequest } from "@/lib/queryClient";
+import { InstitutionCombobox } from "@/components/InstitutionCombobox";
 import { formatFullName } from "@/utils/nameUtils";
 import { GRANT_CURRENCY_VALUES, insertGrantSchema, type InsertGrant } from "@shared/schema";
 import {
@@ -63,6 +64,7 @@ export default function CreateGrant() {
       sourceCategory: "",
       sourceRecordKey: "",
       submittingInstitution: "",
+      programId: null,
       coInvestigators: [],
       investigatorType: "Researcher",
       lpiId: undefined,
@@ -85,6 +87,10 @@ export default function CreateGrant() {
     queryKey: ['/api/scientists']
   });
 
+  const { data: programs = [] } = useQuery({
+    queryKey: ['/api/programs']
+  });
+
   const createGrantMutation = useMutation({
     mutationFn: async (data: CreateGrantForm) => {
       const collaborators = collaboratorsInput
@@ -103,6 +109,7 @@ export default function CreateGrant() {
         sourceCategory: rawFormValues.sourceCategory || null,
         sourceRecordKey: rawFormValues.sourceRecordKey || null,
         submittingInstitution: rawFormValues.submittingInstitution || null,
+        programId: rawFormValues.programId ?? null,
         subawardCompletedYear: rawFormValues.subawardCompletedYear || null,
         contributionType: rawFormValues.contributionType || null,
         contributionDetails: rawFormValues.contributionDetails || null,
@@ -244,6 +251,44 @@ export default function CreateGrant() {
                     )}
                   />
 
+                  {/* The programme is chosen here, at submission, because this
+                      is what submission is. It limits which SDRs can be linked
+                      later, once the grant is awarded — and changing it after
+                      SDRs are linked is refused, so choosing it now is the
+                      cheapest moment. */}
+                  <FormField
+                    control={form.control}
+                    name="programId"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Programme</FormLabel>
+                        <Select
+                          value={field.value ? field.value.toString() : "none"}
+                          onValueChange={(value) =>
+                            field.onChange(value === "none" ? null : parseInt(value))
+                          }
+                        >
+                          <FormControl>
+                            <SelectTrigger data-testid="select-grant-program">
+                              <SelectValue placeholder="No programme" />
+                            </SelectTrigger>
+                          </FormControl>
+                          <SelectContent>
+                            <SelectItem value="none">No programme</SelectItem>
+                            {(Array.isArray(programs) ? programs : []).map((program: any) => (
+                              <SelectItem key={program.id} value={program.id.toString()}>
+                                {program.programId
+                                  ? `${program.programId} — ${program.name}`
+                                  : program.name}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+
                   <FormField
                     control={form.control}
                     name="status"
@@ -340,7 +385,7 @@ export default function CreateGrant() {
                     <FormItem><FormLabel>Source Record Key</FormLabel><FormControl><Input {...field} placeholder="Source system reference" /></FormControl><FormMessage /></FormItem>
                   )} />
                   <FormField control={form.control} name="submittingInstitution" render={({ field }) => (
-                    <FormItem><FormLabel>Submitting Institution</FormLabel><FormControl><Input {...field} placeholder="Institution name" /></FormControl><FormMessage /></FormItem>
+                    <FormItem><FormLabel>Submitting Institution</FormLabel><FormControl><InstitutionCombobox value={field.value} onChange={field.onChange} data-testid="select-submitting-institution" /></FormControl><FormMessage /></FormItem>
                   )} />
                 </div>
 
@@ -527,7 +572,7 @@ export default function CreateGrant() {
                     <div className="grid grid-cols-2 gap-4 mb-4">
                       <div>
                         <label className="text-sm font-medium text-gray-700 mb-2 block dark:text-gray-300">
-                          Start Date {grantStatusRequiresStartDate(currentStatus) && <span className="text-red-500">*</span>}
+                          Project Start Date {grantStatusRequiresStartDate(currentStatus) && <span className="text-red-500">*</span>}
                         </label>
                         <Input
                           type="date"
@@ -537,7 +582,7 @@ export default function CreateGrant() {
                       </div>
                       <div>
                         <label className="text-sm font-medium text-gray-700 mb-2 block dark:text-gray-300">
-                          End Date
+                          Project End Date
                         </label>
                         <Input
                           type="date"

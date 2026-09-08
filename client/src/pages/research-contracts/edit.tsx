@@ -4,6 +4,8 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
+import { InstitutionCombobox } from "@/components/InstitutionCombobox";
+import { ContractTypeCombobox } from "@/components/ContractTypeCombobox";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useForm, useFieldArray } from "react-hook-form";
@@ -458,20 +460,13 @@ export default function ResearchContractEdit() {
                   render={({ field }) => (
                     <FormItem>
                       <FormLabel>Contract Type</FormLabel>
-                      <Select onValueChange={field.onChange} value={field.value || ""}>
-                        <FormControl>
-                          <SelectTrigger>
-                            <SelectValue placeholder="Select contract type" />
-                          </SelectTrigger>
-                        </FormControl>
-                        <SelectContent>
-                          {CONTRACT_TYPES.map((type) => (
-                            <SelectItem key={type} value={type}>
-                              {type}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
+                      <FormControl>
+                        <ContractTypeCombobox
+                          value={field.value}
+                          onChange={field.onChange}
+                          data-testid="select-contract-type"
+                        />
+                      </FormControl>
                       <FormMessage />
                     </FormItem>
                   )}
@@ -544,11 +539,10 @@ export default function ResearchContractEdit() {
                     <FormItem>
                       <FormLabel>Organization Name</FormLabel>
                       <FormControl>
-                        <Input 
-                          placeholder="e.g. Novagen Therapeutics Ltd." 
-                          {...field}
-                          value={field.value || ""}
-                          data-testid="input-contractor-name"
+                        <InstitutionCombobox
+                          value={field.value}
+                          onChange={field.onChange}
+                          data-testid="select-contractor-name"
                         />
                       </FormControl>
                       <FormMessage />

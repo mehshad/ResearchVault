@@ -1,4 +1,5 @@
 import { pgTable, text, serial, integer, timestamp, boolean, json, uniqueIndex, unique, date, numeric, check } from "drizzle-orm/pg-core";
+import { stageOfGrantStatus } from "./grantStatusRegistry";
 import { sql } from "drizzle-orm";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
@@ -26,7 +27,13 @@ export const CONTRACT_STATUS_VALUES = [
 ] as const;
 
 // Zod schemas for validation
-export const contractTypeSchema = z.enum(CONTRACT_TYPES);
+/**
+ * Contract types are rows in contract_types now, not a fixed list, so this can
+ * no longer be an enum of eight. Any non-empty name is accepted; the interface
+ * is what makes sure it came from the list, exactly as it does for
+ * institutions.
+ */
+export const contractTypeSchema = z.string().trim().min(1);
 export const contractStatusSchema = z.enum(CONTRACT_STATUS_VALUES);
 
 // TypeScript types
@@ -1259,6 +1266,19 @@ export const journals = pgTable("journals", {
 export const journalImpactFactorMetrics = pgTable("journal_impact_factor_metrics", {
   id: serial("id").primaryKey(),
   journalId: integer("journal_id").notNull().references(() => journals.id, { onDelete: "cascade" }),
+  /**
+   * The **Journal Impact Factor year**, not the JCR edition year.
+   *
+   * Clarivate names the same release both ways, one year apart: the 2025
+   * Journal Impact Factors are published in "Journal Citation Reports 2026",
+   * released June 2026. This column describes the metric in the row, so that
+   * download belongs under 2025 — and it is what the scorer means when it
+   * matches a manuscript published in 2024 to the 2024 factor.
+   *
+   * A set loaded under the edition year is one year out and silently scores
+   * against the wrong publications. One already was: see
+   * migrations/20260908_impact_factor_year_labels.sql.
+   */
   year: integer("year").notNull(),
   totalCites: integer("total_cites"),
   totalArticles: integer("total_articles"),
@@ -1335,6 +1355,18 @@ export type InsertJournalImpactFactor = z.infer<typeof insertJournalImpactFactor
 export const grants = pgTable("grants", {
   id: serial("id").primaryKey(),
   cycle: text("cycle"), // Grant cycle (e.g., "2023-1")
+  /**
+   * The programme this grant belongs to, chosen at submission.
+   *
+   * Limits which SDRs may be linked once the grant is awarded: only those
+   * whose own project sits in the same programme. See
+   * shared/grantProgramScope.ts for the rule, including why a null on either
+   * side restricts nothing.
+   *
+   * Nullable, and null on every grant that predates it. A grant naming no
+   * programme is not limited by one.
+   */
+  programId: integer("program_id").references(() => programs.id),
   projectNumber: text("project_number").notNull().unique(), // Project identifier
   lpiId: integer("lpi_id"), // Lead Principal Investigator (references scientists.id)
   investigatorType: text("investigator_type"), // "Researcher" or "Clinician"
@@ -1347,7 +1379,7 @@ export const grants = pgTable("grants", {
   runningTimeYears: integer("running_time_years"), // How many years the grant has been running
   currentGrantYear: text("current_grant_year"), // What year we are in (e.g., "1/3", "2/5")
   status: text("status").notNull().default("submitted"), // active, completed, cancelled, etc.
-  grantType: text("grant_type").default("Local"), // International or Local
+  grantType: text("grant_type").default("Local"), // Local, International or Internal (Sidra-funded)
   sourceCategory: text("source_category"), // QNRF Grant, Subaward Agreement, IRF Project, etc.
   sourceRecordKey: text("source_record_key"), // Stable identifier from the source dataset
   submittingInstitution: text("submitting_institution"),
@@ -1424,7 +1456,21 @@ export const insertGrantSchema = createInsertSchema(grants).omit({
   createdAt: true,
   updatedAt: true,
 }).extend({
-  status: z.enum(GRANT_STATUS_VALUES),
+  /**
+   * Validated against the status registry, not a fixed list.
+   *
+   * This was `z.enum(GRANT_STATUS_VALUES)`, which is exactly what made statuses
+   * uneditable: a status the office added was rejected here before it reached
+   * the database, with an error naming the thirteen it would accept. The
+   * registry is the list of what exists, and it is refreshed whenever the table
+   * changes.
+   *
+   * Still a closed set, just not a hardcoded one — a status nobody has declared
+   * is refused, because the lifecycle rules would have no idea what it means.
+   */
+  status: z.string().refine((value) => stageOfGrantStatus(value) !== null, {
+    message: "That is not a grant status. Add it in Research Office configuration first.",
+  }),
   currency: z.enum(GRANT_CURRENCY_VALUES).nullable().optional(),
 });
 
@@ -1444,6 +1490,114 @@ export type Grant = typeof grants.$inferSelect;
  * copied here by the backfill, and dropping a column is not reversible if the
  * copy turns out to have missed something.
  */
+/**
+ * External organisations, as one list shared by everything that names one.
+ *
+ * A grant's submitting institution, the institutions a grant is run with, and a
+ * contract's counterparty were three free-text boxes, so the same organisation
+ * arrived spelled several ways and no screen could offer what had been typed
+ * before. This is the list all three now choose from, and anyone filling one of
+ * those forms can add to it.
+ *
+ * The names themselves stay on the records that use them rather than becoming
+ * foreign keys. Those columns are read by the grant import and export, by
+ * isHomeInstitution(), and by 272 rows that predate this table; pointing them
+ * at ids would have meant migrating all of that to gain a rename that nobody
+ * has asked for. This table's job is to make sure the text that lands in them
+ * came from a list.
+ */
+export const institutions = pgTable("institutions", {
+  id: serial("id").primaryKey(),
+  /** As somebody typed it, whitespace tidied. Their capitalisation is kept. */
+  name: text("name").notNull(),
+  /**
+   * The name with case, spacing and punctuation removed -- see
+   * institutionKey() in shared/institutions.ts. Unique, so the list cannot
+   * come to hold two spellings of one organisation, which is the whole reason
+   * the table exists.
+   */
+  nameKey: text("name_key").notNull().unique(),
+  /**
+   * Where the organisation is, so a contract naming a counterparty can fill in
+   * its country rather than asking somebody to type it again.
+   *
+   * Nullable: the office's own list has one for every row, but a counterparty
+   * added through a form has none until somebody says.
+   */
+  country: text("country"),
+  /** Who added it. Null for the rows seeded from existing data. */
+  createdByUserId: integer("created_by_user_id").references(() => users.id),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+/**
+ * The kinds of agreement the Research Office writes.
+ *
+ * Was a fixed list of eight in code. The office maintains a list of
+ * forty-three, and knowing its own agreement vocabulary is not something it
+ * should need a deployment for — so this is a table, seeded with both, and
+ * editable in the same way institutions are.
+ *
+ * The eight that shipped are marked built-in and sort first: contracts already
+ * carrying one must still have a type that is on the list.
+ */
+export const contractTypes = pgTable("contract_types", {
+  id: serial("id").primaryKey(),
+  name: text("name").notNull(),
+  /** Case, spacing and punctuation removed. Carries the unique index. */
+  nameKey: text("name_key").notNull().unique(),
+  sortOrder: integer("sort_order").notNull().default(0),
+  isBuiltIn: boolean("is_built_in").notNull().default(false),
+  createdByUserId: integer("created_by_user_id").references(() => users.id),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+export type ContractTypeRow = typeof contractTypes.$inferSelect;
+
+/**
+ * The grant statuses the Research Office maintains.
+ *
+ * `stage` is the load-bearing column: every lifecycle rule reads it rather than
+ * matching the status word, which is what lets the office add its funder's
+ * vocabulary without the system losing track of what "awarded" means. See
+ * shared/grantStatusStages.ts.
+ */
+export const grantStatuses = pgTable("grant_statuses", {
+  id: serial("id").primaryKey(),
+  /** Stored in grants.status. */
+  value: text("value").notNull().unique(),
+  label: text("label").notNull(),
+  /** One of the five stages. Constrained in the database as well. */
+  stage: text("stage").notNull(),
+  sortOrder: integer("sort_order").notNull().default(0),
+  /** The thirteen that ship: relabelled and reordered freely, never deleted. */
+  isBuiltIn: boolean("is_built_in").notNull().default(false),
+  /**
+   * Hidden from the dropdown without breaking grants that already carry it.
+   * Deleting a status in use would leave those grants meaning nothing.
+   */
+  retiredAt: timestamp("retired_at"),
+  createdByUserId: integer("created_by_user_id").references(() => users.id),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+export type GrantStatusRow = typeof grantStatuses.$inferSelect;
+
+export const insertInstitutionSchema = createInsertSchema(institutions).omit({
+  id: true,
+  // Both are derived from the name by the server: a caller that could choose
+  // its own key could put a duplicate past the unique index.
+  nameKey: true,
+  createdByUserId: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export type Institution = typeof institutions.$inferSelect;
+
 export const grantCollaboratingInstitutions = pgTable("grant_collaborating_institutions", {
   id: serial("id").primaryKey(),
   grantId: integer("grant_id")

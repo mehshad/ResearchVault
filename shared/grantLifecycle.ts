@@ -1,3 +1,10 @@
+import { grantStatusDefinitions, stageOfGrantStatus } from "./grantStatusRegistry";
+import {
+  stageImpliesAward,
+  stageRequiresAward,
+  stageRequiresSchedule,
+} from "./grantStatusStages";
+
 export const GRANT_STATUS_OPTIONS = [
   { value: "submitted", label: "Submitted" },
   { value: "pending", label: "Pending" },
@@ -85,7 +92,8 @@ export type GrantLifecycleInput = {
 };
 
 export type NormalizedGrantLifecycle = {
-  status: GrantStatus;
+  /** A registry value, not one of thirteen literals. */
+  status: string;
   awarded: boolean;
 };
 
@@ -96,29 +104,46 @@ export class GrantLifecycleError extends Error {
   }
 }
 
+/**
+ * Every rule below asks the same question first: what stage is this status?
+ *
+ * The sets above are no longer consulted. They named the thirteen built-in
+ * statuses, and the office can now add its own -- so the meaning has to come
+ * from what the status *declares* rather than from a list of words this file
+ * happens to know. See shared/grantStatusRegistry.ts.
+ *
+ * A status the registry does not recognise resolves to null, and every rule
+ * treats that as no: it does not imply an award, does not require dates, and
+ * does not cross a section boundary. Refusing to guess is the safe direction
+ * for all four.
+ */
 export function grantStatusImpliesAward(
   status: string | null | undefined,
 ): boolean {
-  return AWARD_IMPLYING_STATUSES.has(status as GrantStatus);
+  const stage = stageOfGrantStatus(status);
+  return stage !== null && stageImpliesAward(stage);
 }
 
 /** Whether a status is only valid on a grant that was actually awarded. */
 export function grantStatusRequiresAward(
   status: string | null | undefined,
 ): boolean {
-  return REQUIRES_AWARD_STATUSES.has(status as GrantStatus);
+  const stage = stageOfGrantStatus(status);
+  return stage !== null && stageRequiresAward(stage);
 }
 
 export function grantStatusRequiresStartDate(
   status: string | null | undefined,
 ): boolean {
-  return START_DATE_REQUIRED_STATUSES.has(status as GrantStatus);
+  const stage = stageOfGrantStatus(status);
+  return stage !== null && stageRequiresSchedule(stage);
 }
 
 export function grantStatusAllowsProgressTracking(
   status: string | null | undefined,
 ): boolean {
-  return START_DATE_REQUIRED_STATUSES.has(status as GrantStatus);
+  const stage = stageOfGrantStatus(status);
+  return stage !== null && stageRequiresSchedule(stage);
 }
 
 export function canGrantSetSchedule(
@@ -133,21 +158,19 @@ export function canGrantLinkSdrs(
   return grant.awarded === true;
 }
 
-function isGrantStatus(value: string): value is GrantStatus {
-  return (GRANT_STATUS_VALUES as readonly string[]).includes(value);
+/**
+ * Whether the registry knows this status.
+ *
+ * Was a check against the thirteen hardcoded values, which is what rejected
+ * every status the office added -- after the schema had already accepted it.
+ */
+function isGrantStatus(value: string): boolean {
+  return stageOfGrantStatus(value) !== null;
 }
 
 const statusKey = (value: string) => value.toLowerCase().replace(/[^a-z0-9]/g, "");
 
-const STATUS_BY_KEY: Record<string, GrantStatus> = GRANT_STATUS_OPTIONS.reduce(
-  (acc, option) => {
-    // Both spellings resolve: the stored value and the label people read.
-    acc[statusKey(option.value)] = option.value;
-    acc[statusKey(option.label)] = option.value;
-    return acc;
-  },
-  {} as Record<string, GrantStatus>,
-);
+
 
 /**
  * The stored status a written one means, comparing letters only.
@@ -159,9 +182,20 @@ const STATUS_BY_KEY: Record<string, GrantStatus> = GRANT_STATUS_OPTIONS.reduce(
  */
 export function normalizeGrantStatus(
   value: string | null | undefined,
-): GrantStatus | null {
+): string | null {
   if (!value) return null;
-  return STATUS_BY_KEY[statusKey(String(value))] ?? null;
+  const written = String(value);
+  const key = statusKey(written);
+  for (const status of grantStatusDefinitions()) {
+    // Both spellings resolve: the stored value and the label people read.
+    if (statusKey(status.value) === key || statusKey(status.label) === key) return status.value;
+  }
+  return null;
+}
+
+/** A status''s display name, from the registry. */
+function statusLabel(value: string): string {
+  return grantStatusDefinitions().find((s) => s.value === value)?.label ?? value;
 }
 
 function dateValue(value: string | Date | null | undefined): number | null {
@@ -180,7 +214,7 @@ export function reconcileGrantLifecycle(
   const requestedStatus = normalizeGrantStatus(rawStatus) ?? rawStatus;
   if (!requestedStatus || !isGrantStatus(requestedStatus)) {
     throw new GrantLifecycleError(
-      `Grant status must be one of: ${GRANT_STATUS_OPTIONS.map((option) => option.label).join(", ")}.`,
+      `Grant status must be one of: ${grantStatusDefinitions().map((s) => s.label).join(", ")}.`,
     );
   }
 
@@ -194,9 +228,9 @@ export function reconcileGrantLifecycle(
 
   if (grantStatusImpliesAward(status)) {
     awarded = true;
-  } else if (REQUIRES_AWARD_STATUSES.has(status) && !awarded) {
+  } else if (grantStatusRequiresAward(status) && !awarded) {
     throw new GrantLifecycleError(
-      `${GRANT_STATUS_OPTIONS.find((option) => option.value === status)?.label ?? status} describes a grant that was awarded. Use Not Awarded if the funder declined, or Rejected if the application was refused.`,
+      `${statusLabel(status)} describes a grant that was awarded. Use Not Awarded if the funder declined, or Rejected if the application was refused.`,
     );
   } else if ((status === "rejected" || status === "not_awarded") && awarded) {
     // Same reasoning as Rejected: an award already made cannot be undone by
@@ -206,7 +240,7 @@ export function reconcileGrantLifecycle(
     throw new GrantLifecycleError(
       `An awarded grant cannot be marked ${label}. Use Cancelled if an awarded project will not proceed.`,
     );
-  } else if (PRE_AWARD_STATUSES.has(status) && awarded) {
+  } else if (stageOfGrantStatus(status) === "application" && awarded) {
     const isNewAward =
       !current?.awarded && explicitlyChangedAward && input.awarded === true;
     if (isNewAward) {
@@ -229,7 +263,7 @@ export function reconcileGrantLifecycle(
 
   if (grantStatusRequiresStartDate(status) && startTime == null) {
     throw new GrantLifecycleError(
-      `${GRANT_STATUS_OPTIONS.find((option) => option.value === status)?.label} grants require a start date.`,
+      `${statusLabel(status)} grants require a start date.`,
     );
   }
 

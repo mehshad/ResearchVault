@@ -114,7 +114,29 @@ export const createDefaultPermissions = (): NavigationPermission[] => {
 
       const officeDashboardAccess = getOfficeDashboardDefaultAccess(jobTitle, navItem);
       if (officeDashboardAccess) defaultAccess = officeDashboardAccess;
-      
+
+      // The Research Portfolio area tops out at "create": "view" reads your
+      // own and your section's grants and contracts, and "create" additionally
+      // lets you raise a contract request. Nothing here edits an existing
+      // record -- that stays with the Research Office screens -- so "edit"
+      // would grant nothing beyond "create", and the loop above (which
+      // defaults most roles to "edit") would otherwise offer a level that
+      // means nothing.
+      //
+      // The starting point is "create" for the people the pages are for, and
+      // "hide" elsewhere. It is only a starting point: nothing is written
+      // until an administrator applies it, and an existing database holds no
+      // row for this area at all, which resolves to hide.
+      if (navItem === "research-portfolio") {
+        defaultAccess =
+          jobTitle === RESEARCHER_ROLE ||
+          jobTitle === "Investigator" ||
+          jobTitle === "Management" ||
+          jobTitle === RESEARCH_OFFICER_ROLE
+            ? "create"
+            : "hide";
+      }
+
       defaultPermissions.push({
         id: `${jobTitle}-${navItem}`,
         jobTitle,

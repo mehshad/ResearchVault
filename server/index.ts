@@ -154,6 +154,9 @@ app.use((req: Request, res: Response, next: NextFunction) => {
 
   registerAuthRoutes(app);
 
+  // ── Health / availability endpoint ────────────────────────────────────────
+  // Polled by ELK Heartbeat / uptime monitors.
+  // Returns 200 when healthy, 503 when the DB is unreachable.
   app.get("/api/health", async (_req: Request, res: Response) => {
     let dbOk = false;
     try {
@@ -190,26 +193,6 @@ app.use((req: Request, res: Response, next: NextFunction) => {
   registerNavigationAccessGuards(app);
 
   // Register API routes
-  // ── Health / availability endpoint ────────────────────────────────────────
-  // Polled by ELK Heartbeat / uptime monitors.
-  // Returns 200 when healthy, 503 when the DB is unreachable.
-  app.get("/api/health", async (_req: Request, res: Response) => {
-    let dbOk = false;
-    try {
-      await db.execute(sql`SELECT 1`);
-      dbOk = true;
-    } catch {
-      // db unreachable — still respond so the caller gets a 503 not a timeout
-    }
-    const status = dbOk ? "ok" : "degraded";
-    res.status(dbOk ? 200 : 503).json({
-      status,
-      uptime: Math.floor((Date.now() - APP_START) / 1000),
-      db: dbOk ? "ok" : "unreachable",
-      timestamp: new Date().toISOString(),
-    });
-  });
-
   const server = await registerRoutes(app);
   startBulkDataArchiveScheduler();
 

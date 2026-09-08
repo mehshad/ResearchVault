@@ -13,6 +13,7 @@ import {
   FormMessage,
 } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
+import { InstitutionCombobox } from "@/components/InstitutionCombobox";
 import { Textarea } from "@/components/ui/textarea";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -323,7 +324,11 @@ export default function CreateContract() {
                   <FormItem>
                     <FormLabel>Contractor Name</FormLabel>
                     <FormControl>
-                      <Input placeholder="e.g. Novagen Therapeutics" {...field} />
+                      <InstitutionCombobox
+                        value={field.value}
+                        onChange={field.onChange}
+                        data-testid="select-contractor-name"
+                      />
                     </FormControl>
                     <FormDescription>
                       External organization or entity

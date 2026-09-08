@@ -159,6 +159,27 @@ const SERVER_ENFORCED_RULES = [
     enforcement:
       "Only administrators can preview or apply staff imports. Organization assignments are also validated before staff records are saved.",
   },
+  {
+    category: "Research portfolio",
+    title: "Portfolio contracts are limited to the viewer's section",
+    appliesTo: "The Research Portfolio contracts page",
+    enforcement:
+      "A contract outside the viewer's section is not sent to the browser at all. A contract belongs to the section of its lead PI, or of whoever raised the request when no lead PI is recorded. Management and administrators see every contract. An account with no staff profile, or a profile not placed in a section, sees none rather than all.",
+  },
+  {
+    category: "Research portfolio",
+    title: "Another section's grants are visible only while in good standing",
+    appliesTo: "The Research Portfolio grants page",
+    enforcement:
+      "The viewer's own section is listed at every status, refused applications included. Every other section is listed only at Awarded, Active or Completed, so their applications, refusals and terminations are not sent to the browser. Management and administrators are not bounded this way. The status filter marks which statuses this applies to, so a short list is not read as missing data.",
+  },
+  {
+    category: "Research portfolio",
+    title: "Raising a contract request does not require the Research Office",
+    appliesTo: "The Request New Contract form",
+    enforcement:
+      "Submitting a contract request needs Add on Research Portfolio, not the Research Office area that administers contracts. The requesting account is taken from the session and never from the form, so a request cannot be filed into another section. This is why Research Portfolio has a meaningful Add level; nothing in that area edits an existing record, so Edit grants nothing beyond Add.",
+  },
 ] as const;
 
 interface OwnershipOverride {
