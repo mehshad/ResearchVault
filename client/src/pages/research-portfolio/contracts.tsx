@@ -28,6 +28,7 @@ import type { ResearchContract } from "@shared/schema";
 import { useCurrentUser } from "@/hooks/useCurrentUser";
 import { PermissionWrapper } from "@/components/PermissionWrapper";
 import { PortfolioScopeSelect } from "@/components/PortfolioScopeSelect";
+import { formatDateLong } from "@/lib/dates";
 import {
   matchesScope,
   scopeEmptyMessage,
@@ -43,11 +44,7 @@ type PortfolioContract = ResearchContract & {
 
 const formatDate = (date: string | Date | null | undefined) => {
   if (!date) return "—";
-  return new Date(date).toLocaleDateString("en-US", {
-    year: "numeric",
-    month: "short",
-    day: "numeric",
-  });
+  return formatDateLong(date);
 };
 
 const formatValue = (value: string | number | null | undefined, currency: string | null) => {

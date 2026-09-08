@@ -13,6 +13,7 @@ import {
 import { useQuery } from "@tanstack/react-query";
 import { useToast } from "@/hooks/use-toast";
 import type { Scientist } from "@shared/schema";
+import { formatDateLong } from "@/lib/dates";
 
 interface HistoryEvent {
   timestamp: string;
@@ -82,13 +83,7 @@ export default function PmoApplicationDetail() {
 
   const formatDate = (dateString: string | null | undefined) => {
     if (!dateString) return "—";
-    return new Date(dateString).toLocaleDateString('en-US', {
-      month: 'short',
-      day: 'numeric',
-      year: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit'
-    });
+    return formatDateLong(dateString);
   };
 
   const handleAddComment = async () => {

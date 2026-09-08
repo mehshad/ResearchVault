@@ -39,6 +39,7 @@ import { isRestrictedOnly } from "@shared/effectiveRoles";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ImpactFactorsReadOnly } from "@/components/ImpactFactorsReadOnly";
 import PublicationImport from "./import";
+import { formatDate } from "@/lib/dates";
 
 export default function PublicationsList() {
   const [searchQuery, setSearchQuery] = useState("");

@@ -519,7 +519,7 @@ export default function EditScientist() {
                     </FormItem>
                   )}
                 />
-                
+
                 {!isRestrictedUser && <FormField
                   control={form.control}
                   name="departmentId"

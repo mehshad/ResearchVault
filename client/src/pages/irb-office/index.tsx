@@ -18,6 +18,7 @@ import {
 } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
 import { IrbApplication } from "@shared/schema";
+import { formatDateLong } from "@/lib/dates";
 
 interface EnhancedIrbApplication extends IrbApplication {
   researchActivity?: {
@@ -44,11 +45,7 @@ export default function IrbOfficePortal() {
 
   const formatDate = (date: string | Date | undefined) => {
     if (!date) return "—";
-    return new Date(date).toLocaleDateString('en-US', { 
-      year: 'numeric', 
-      month: 'short',
-      day: 'numeric'
-    });
+    return formatDateLong(date);
   };
 
   const getDaysSince = (date: string | Date | undefined) => {

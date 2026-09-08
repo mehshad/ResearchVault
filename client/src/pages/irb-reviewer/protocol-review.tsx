@@ -26,6 +26,7 @@ import {
   Eye
 } from "lucide-react";
 import { IrbApplication, ResearchActivity, Scientist } from "@shared/schema";
+import { formatDateLong } from "@/lib/dates";
 
 export default function IrbProtocolReview() {
   const params = useParams<{ id: string }>();
@@ -127,13 +128,7 @@ export default function IrbProtocolReview() {
   };
 
   const formatDate = (dateStr: string) => {
-    return new Date(dateStr).toLocaleDateString('en-US', {
-      year: 'numeric',
-      month: 'short',
-      day: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit'
-    });
+    return formatDateLong(dateStr);
   };
 
   if (isLoading) {

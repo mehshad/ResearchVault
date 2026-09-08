@@ -17,6 +17,7 @@ import {
   Eye
 } from "lucide-react";
 import type { IbcApplication } from "@shared/schema";
+import { formatDate } from "@/lib/dates";
 
 const IBC_WORKFLOW_STATUSES = [
   { value: "submitted", label: "New Submission", color: "bg-blue-100 text-blue-800 dark:bg-blue-950 dark:text-blue-300", icon: FileText },
@@ -137,7 +138,7 @@ export default function IbcReviewerPage() {
                                 {app.submissionDate && (
                                   <span className="flex items-center space-x-1">
                                     <Calendar className="h-3 w-3" />
-                                    <span>Submitted: {new Date(app.submissionDate).toLocaleDateString()}</span>
+                                    <span>Submitted: {formatDate(app.submissionDate)}</span>
                                   </span>
                                 )}
                               </div>

@@ -350,6 +350,9 @@ export default function PublicationOffice({ embeddedTab }: PublicationOfficeProp
   
   // Impact Factor CSV import loading state
   const [csvImporting, setCsvImporting] = useState(false);
+  // How far a batched import has got, so a twenty-thousand-row file does
+  // not sit behind an unmoving spinner for minutes.
+  const [csvImportProgress, setCsvImportProgress] = useState<{ done: number; total: number } | null>(null);
   const [csvFileName, setCsvFileName] = useState("");
 
   // Impact Factor tab state
@@ -1428,23 +1431,58 @@ export default function PublicationOffice({ embeddedTab }: PublicationOfficeProp
       return;
     }
 
+    // Sent in batches rather than as one request.
+    //
+    // A full Journal Citation Reports year is around 22,000 rows, and the
+    // server writes them one at a time -- find or create the journal, then
+    // upsert the metric. One request holding that open ran for minutes and the
+    // connection was reset partway, which left thousands of rows loaded, no
+    // count of them, and "Failed to import CSV data" on screen. The office
+    // could not tell whether to run it again or what it would duplicate.
+    //
+    // Batching keeps every request short. Re-running is safe either way: the
+    // server upserts on journal and year, so a batch that lands twice writes
+    // the same values twice.
+    const BATCH = 500;
+    let imported = 0;
+    let sent = 0;
     try {
-      const response = await fetch('/api/journal-impact-factors/import-csv', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ csvData: data })
-      });
-      const result = await response.json();
+      for (let start = 0; start < data.length; start += BATCH) {
+        const batch = data.slice(start, start + BATCH);
+        const response = await fetch('/api/journal-impact-factors/import-csv', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ csvData: batch })
+        });
+        if (!response.ok) {
+          throw new Error(`Server returned ${response.status}`);
+        }
+        const result = await response.json();
+        imported += result.imported ?? 0;
+        sent += batch.length;
+        setCsvImportProgress({ done: sent, total: data.length });
+      }
       queryClient.invalidateQueries({ queryKey: ['/api/journal-impact-factors'] });
       queryClient.invalidateQueries({ queryKey: ['/api/journal-impact-factors/years'] });
       queryClient.invalidateQueries({ queryKey: ['/api/journal-impact-factors/fields'] });
       toast({
-        description: `Imported ${result.imported} of ${result.total} records${skipped > 0 ? ` (${skipped} skipped — missing required fields)` : ''}`,
+        description: `Imported ${imported} of ${data.length} records${skipped > 0 ? ` (${skipped} skipped — missing required fields)` : ''}`,
       });
     } catch (error) {
-      toast({ description: "Failed to import CSV data", variant: "destructive" });
+      // Says how far it got, because the rows already written are still there
+      // and the office needs to know the year is half loaded.
+      queryClient.invalidateQueries({ queryKey: ['/api/journal-impact-factors'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/journal-impact-factors/years'] });
+      toast({
+        title: "Import stopped partway",
+        description:
+          `${imported} of ${data.length} records were saved before it failed. ` +
+          `Running the same file again is safe -- it overwrites rather than duplicates.`,
+        variant: "destructive",
+      });
     } finally {
       setCsvImporting(false);
+      setCsvImportProgress(null);
       event.target.value = '';
     }
   };
@@ -1586,7 +1624,11 @@ export default function PublicationOffice({ embeddedTab }: PublicationOfficeProp
     <UploadingModal
       open={csvImporting}
       label="Importing Impact Factors…"
-      sublabel={csvFileName}
+      sublabel={
+        csvImportProgress
+          ? `${csvFileName} — ${csvImportProgress.done.toLocaleString()} of ${csvImportProgress.total.toLocaleString()} rows`
+          : csvFileName
+      }
     />
     <div className="space-y-6">
       {!isEmbedded && (

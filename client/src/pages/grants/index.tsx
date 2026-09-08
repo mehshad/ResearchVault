@@ -26,7 +26,7 @@ import {
 } from "@/components/ui/select";
 import { Grant } from "@shared/schema";
 import { Plus, Search, MoreHorizontal, Download, Filter, DollarSign, Calendar, ArrowUpDown, Link as LinkIcon, Upload, FileSpreadsheet, Loader2, AlertTriangle, Trash2, HelpCircle } from "lucide-react";
-import { GRANT_STATUS_OPTIONS } from "@shared/grantLifecycle";
+import { useGrantStatuses } from "@/hooks/useGrantStatuses";
 import { summariseGrantSkips } from "@shared/grantImportReasons";
 import type { GrantSubmissionSummary } from "@shared/grantSubmission";
 import {
@@ -52,6 +52,7 @@ import { usePermissions } from "@/hooks/usePermissions";
 import { PermissionWrapper, useElementPermissions } from "@/components/PermissionWrapper";
 import { GrantCleanupDialog } from "@/components/GrantCleanupDialog";
 import { GrantRulesDialog } from "@/components/GrantRulesDialog";
+import { formatDateLong } from "@/lib/dates";
 
 type EnhancedGrant = Grant & {
   lpi?: {
@@ -77,6 +78,7 @@ export default function GrantsList() {
   const { toast } = useToast();
   const [, navigate] = useLocation();
   const { currentUser } = useCurrentUser();
+  const { all: allStatuses } = useGrantStatuses();
 
   const { data: grants, isLoading } = useQuery<EnhancedGrant[]>({
     queryKey: ['/api/grants'],
@@ -121,11 +123,7 @@ export default function GrantsList() {
 
   const formatDate = (date: string | Date | null | undefined) => {
     if (!date) return "—";
-    return new Date(date).toLocaleDateString('en-US', { 
-      year: 'numeric', 
-      month: 'short',
-      day: 'numeric'
-    });
+    return formatDateLong(date);
   };
 
   const statusColors: Record<string, string> = {
@@ -148,8 +146,10 @@ export default function GrantsList() {
     return statusColors[status.toLowerCase() as keyof typeof statusColors] || "bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-300";
   };
 
+  // Retired statuses included: a grant that still carries one has to keep
+  // showing its name rather than falling back to the stored value.
   const getStatusLabel = (status: string) =>
-    GRANT_STATUS_OPTIONS.find((option) => option.value === status)?.label ?? status;
+    allStatuses.find((option) => option.value === status)?.label ?? status;
 
   const getGrantType = (grant: EnhancedGrant) => {
     return grant.grantType || "Local";
@@ -309,7 +309,9 @@ export default function GrantsList() {
 
   // Get unique years and statuses for filters
   const years = [...new Set(grants?.map(g => g.submittedYear).filter(Boolean))].sort((a, b) => (b || 0) - (a || 0));
-  const statuses = GRANT_STATUS_OPTIONS;
+  // The filter offers retired statuses too, because grants still carry them and
+  // an unfilterable status is worse than a long list.
+  const statuses = allStatuses;
 
   if (isLoading) {
     return (

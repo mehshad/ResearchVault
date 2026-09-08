@@ -94,6 +94,8 @@ export const scientists = pgTable("scientists", {
   profileImageInitials: text("profile_image_initials"), // Storing initials for avatar
   supervisorId: integer("supervisor_id"), // Line manager, references scientists.id (optional)
   staffType: text("staff_type").notNull().default("scientific"), // scientific, administrative
+  // No investigatorType column here on purpose: researcher or clinician is
+  // read off jobTitle. See shared/investigatorType.ts.
   // External profile links
   orcidId: text("orcid_id"), // ORCID identifier (e.g., 0000-0002-1234-5678)
   linkedInUrl: text("linkedin_url"), // LinkedIn profile URL

@@ -11,6 +11,7 @@ import { Badge } from "@/components/ui/badge";
 import { format } from "date-fns";
 import { usePublicationCount } from "@/hooks/use-publication-count";
 import StatusActions from "@/components/irb/StatusActions";
+import { formatDateLong } from "@/lib/dates";
 
 export default function IrbApplicationDetail() {
   const params = useParams<{ id: string }>();
@@ -59,13 +60,7 @@ export default function IrbApplicationDetail() {
 
   const formatDate = (date: string | Date | undefined) => {
     if (!date) return "—";
-    return new Date(date).toLocaleDateString('en-US', { 
-      year: 'numeric', 
-      month: 'long',
-      day: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit'
-    });
+    return formatDateLong(date);
   };
 
   const renderProtocolHistory = () => {

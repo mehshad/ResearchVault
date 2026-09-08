@@ -19,6 +19,7 @@ import { formatFullName } from "@/utils/nameUtils";
 import { useCurrentUser } from "@/hooks/useCurrentUser";
 import { PermissionWrapper } from "@/components/PermissionWrapper";
 import { usePermissions } from "@/hooks/usePermissions";
+import { formatDateLong } from "@/lib/dates";
 
 export default function ContractsList() {
   const [searchQuery, setSearchQuery] = useState("");
@@ -30,11 +31,7 @@ export default function ContractsList() {
 
   const formatDate = (date: string | Date | undefined) => {
     if (!date) return "—";
-    return new Date(date).toLocaleDateString('en-US', { 
-      year: 'numeric', 
-      month: 'short',
-      day: 'numeric'
-    });
+    return formatDateLong(date);
   };
 
   const statusColors = {
