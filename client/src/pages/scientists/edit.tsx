@@ -53,6 +53,9 @@ const editScientistSchema = insertScientistSchema.extend({
   departmentId: z.number().nullable().optional(),
   sectionId: z.number().nullable().optional(),
   staffType: z.enum(["scientific", "administrative"]).default("scientific"),
+  // Null is a real answer here: nobody has said yet. Not defaulted to
+  // Researcher, which would put words in somebody's mouth on every save.
+  investigatorType: z.enum(["Researcher", "Clinician"]).nullable().optional(),
 });
 
 type EditScientistFormValues = z.infer<typeof editScientistSchema>;
@@ -115,6 +118,7 @@ export default function EditScientist() {
       profileImageInitials: "",
       supervisorId: null,
       staffType: "scientific",
+      investigatorType: null,
       orcidId: "",
       linkedInUrl: "",
       googleScholarUrl: "",
@@ -140,6 +144,7 @@ export default function EditScientist() {
         profileImageInitials: scientist.profileImageInitials || "",
         supervisorId: scientist.supervisorId || null,
         staffType: (scientist.staffType as "scientific" | "administrative") || "scientific",
+        investigatorType: (scientist.investigatorType as "Researcher" | "Clinician" | null) ?? null,
         orcidId: scientist.orcidId || "",
         linkedInUrl: scientist.linkedInUrl || "",
         googleScholarUrl: scientist.googleScholarUrl || "",
@@ -519,7 +524,37 @@ export default function EditScientist() {
                     </FormItem>
                   )}
                 />
-                
+
+                <FormField
+                  control={form.control}
+                  name="investigatorType"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Investigator Type</FormLabel>
+                      <Select
+                        onValueChange={(value) => field.onChange(value === "unset" ? null : value)}
+                        value={field.value ?? "unset"}
+                      >
+                        <FormControl>
+                          <SelectTrigger>
+                            <SelectValue placeholder="Not set" />
+                          </SelectTrigger>
+                        </FormControl>
+                        <SelectContent>
+                          <SelectItem value="unset">Not set</SelectItem>
+                          <SelectItem value="Researcher">Researcher</SelectItem>
+                          <SelectItem value="Clinician">Clinician</SelectItem>
+                        </SelectContent>
+                      </Select>
+                      <FormDescription>
+                        Asked once here rather than on every grant. Grants show it read-only
+                        from whoever is set as the Sidra Lead PI.
+                      </FormDescription>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+
                 {!isRestrictedUser && <FormField
                   control={form.control}
                   name="departmentId"

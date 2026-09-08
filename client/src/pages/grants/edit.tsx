@@ -45,6 +45,7 @@ import {
   evaluateGrantIssues,
   type GrantIssueCode,
 } from "@shared/grantIssues";
+import { formatDate } from "@/lib/dates";
 
 const GRANT_ISSUE_TARGETS: Record<GrantIssueCode, string> = {
   missing_project_number: "grant-field-project-number",
@@ -576,10 +577,9 @@ export default function EditGrant() {
   // Shown as the placeholder on our own grants, where the lead is our own
   // person. Left as a placeholder rather than written into the field: storing
   // a copy would mean two places to correct when the Sidra Lead PI changes.
-  const sidraLpiName = (() => {
-    const lpi = (scientists as any[]).find((s) => s.id === selectedLpiId);
-    return lpi ? formatFullName(lpi) : null;
-  })();
+  const selectedLpi = (scientists as any[]).find((s) => s.id === selectedLpiId) ?? null;
+  const sidraLpiName = selectedLpi ? formatFullName(selectedLpi) : null;
+  const sidraLpiInvestigatorType: string | null = selectedLpi?.investigatorType ?? null;
   const knownGrantLpiNames = Array.from(
     new Set(
       (allGrants ?? [])
@@ -653,7 +653,7 @@ export default function EditGrant() {
           */}
         {grant && (
           <p className="mt-1 text-xs text-muted-foreground" data-testid="text-grant-provenance">
-            {`Added${grant.createdAt ? ` on ${new Date(grant.createdAt).toLocaleDateString()}` : ""}`}
+            {`Added${grant.createdAt ? ` on ${formatDate(grant.createdAt)}` : ""}`}
             {grant.createdByName
               ? ` by ${grant.createdByName}`
               : " · added before this was recorded, so by whom is unknown"}
@@ -810,8 +810,8 @@ export default function EditGrant() {
               />
             </div>
 
-            {/* Third Row: Sidra Lead PI, Running Time, Current Year */}
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mt-4">
+            {/* Third Row: Sidra Lead PI, Investigator Type, Running Time, Current Year */}
+            <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mt-4">
               <div id="grant-field-lpi" className={issueFieldClass("missing_lpi")}>
                 <label className="text-sm font-medium text-gray-700 mb-2 block dark:text-gray-300">
                   Sidra Lead PI
@@ -838,13 +838,27 @@ export default function EditGrant() {
                 </Select>
               </div>
 
-              {/* Investigator Type is no longer asked here. Whether somebody
-                  is a researcher or a clinician is a fact about the person, not
+              {/* Read-only, from the staff record. Whether somebody is a
+                  researcher or a clinician is a fact about the person, not
                   about each grant they hold, so answering it once per grant was
-                  272 chances to disagree with itself. The column and its
-                  import/export column stay, so the existing values and any file
-                  carrying them are untouched -- it is only the question that is
-                  gone. */}
+                  272 chances to disagree with itself. Changed on their profile;
+                  shown here because it is worth seeing while reading a grant. */}
+              <div>
+                <label className="text-sm font-medium text-gray-700 mb-2 block dark:text-gray-300">
+                  Investigator Type
+                </label>
+                <p className="text-sm py-2" data-testid="text-investigator-type">
+                  {!selectedLpiId ? (
+                    <span className="text-muted-foreground">Select a Sidra Lead PI</span>
+                  ) : sidraLpiInvestigatorType ? (
+                    sidraLpiInvestigatorType
+                  ) : (
+                    <span className="text-muted-foreground">
+                      Not set on this person's staff profile
+                    </span>
+                  )}
+                </p>
+              </div>
 
               <div>
                 <label className="text-sm font-medium text-gray-700 mb-2 block dark:text-gray-300">
@@ -1230,11 +1244,11 @@ export default function EditGrant() {
                       <div className="flex gap-6 text-sm text-gray-600 dark:text-gray-300">
                         <div>
                           <span className="font-medium">Submitted: </span>
-                          {report.submissionDate ? new Date(report.submissionDate).toLocaleDateString() : 'N/A'}
+                          {report.submissionDate ? formatDate(report.submissionDate) : 'N/A'}
                         </div>
                         <div>
                           <span className="font-medium">Accepted: </span>
-                          {report.acceptanceDate ? new Date(report.acceptanceDate).toLocaleDateString() : 'Pending'}
+                          {report.acceptanceDate ? formatDate(report.acceptanceDate) : 'Pending'}
                         </div>
                       </div>
                       {report.notes && (

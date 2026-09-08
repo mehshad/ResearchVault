@@ -116,10 +116,9 @@ export default function CreateGrant() {
   // Shown as the placeholder on our own grants, where the lead is our own
   // person. Left as a placeholder rather than written into the field: storing
   // a copy would mean two places to correct when the Sidra Lead PI changes.
-  const sidraLpiName = (() => {
-    const lpi = (scientists as any[]).find((s) => s.id === watchedLpiId);
-    return lpi ? formatFullName(lpi) : null;
-  })();
+  const selectedLpi = (scientists as any[]).find((s) => s.id === watchedLpiId) ?? null;
+  const sidraLpiName = selectedLpi ? formatFullName(selectedLpi) : null;
+  const sidraLpiInvestigatorType: string | null = selectedLpi?.investigatorType ?? null;
   const knownGrantLpiNames = Array.from(
     new Set(
       ((allGrants as any[]) ?? [])
@@ -484,6 +483,25 @@ export default function CreateGrant() {
                       </FormItem>
                     )}
                   />
+                  {/* Read-only, from the staff record. It is a fact about the
+                      person, not about this grant, so it is shown here and
+                      changed on their profile. */}
+                  <div className="mt-4">
+                    <span className="text-sm font-medium text-gray-700 mb-2 block dark:text-gray-300">
+                      Investigator Type
+                    </span>
+                    <p className="text-sm" data-testid="text-investigator-type">
+                      {!watchedLpiId ? (
+                        <span className="text-muted-foreground">Select a Sidra Lead PI</span>
+                      ) : sidraLpiInvestigatorType ? (
+                        sidraLpiInvestigatorType
+                      ) : (
+                        <span className="text-muted-foreground">
+                          Not set on this person's staff profile
+                        </span>
+                      )}
+                    </p>
+                  </div>
                 </div>
 
                 <div className="mt-4">

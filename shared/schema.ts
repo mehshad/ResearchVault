@@ -94,6 +94,15 @@ export const scientists = pgTable("scientists", {
   profileImageInitials: text("profile_image_initials"), // Storing initials for avatar
   supervisorId: integer("supervisor_id"), // Line manager, references scientists.id (optional)
   staffType: text("staff_type").notNull().default("scientific"), // scientific, administrative
+  /**
+   * Researcher or Clinician, as a fact about the person.
+   *
+   * Was asked once per grant, which duplicated something that does not vary by
+   * grant and gave 272 chances for one person to be described two ways. The
+   * grant form now shows this read-only from the selected Sidra Lead PI.
+   * Null means nobody has said yet; it is not a default of "Researcher".
+   */
+  investigatorType: text("investigator_type"), // "Researcher" or "Clinician"
   // External profile links
   orcidId: text("orcid_id"), // ORCID identifier (e.g., 0000-0002-1234-5678)
   linkedInUrl: text("linkedin_url"), // LinkedIn profile URL
