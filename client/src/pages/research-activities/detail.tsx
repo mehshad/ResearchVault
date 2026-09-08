@@ -7,7 +7,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Project, Scientist, ResearchActivity, IrbApplication, IbcApplication, DataManagementPlan, Publication } from "@shared/schema";
 import { useMemo } from "react";
 import { orderPublicationsForActivity } from "@shared/publicationOrdering";
-import { GRANT_STATUS_OPTIONS } from "@shared/grantLifecycle";
+import { useGrantStatuses } from "@/hooks/useGrantStatuses";
 import { ArrowLeft, Banknote, Calendar, FileText, Layers, Users, Building, Beaker, FileCheck, FileSpreadsheet, Edit } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Badge } from "@/components/ui/badge";
@@ -24,6 +24,7 @@ export default function ResearchActivityDetail() {
   const params = useParams<{ id: string }>();
   const [, navigate] = useLocation();
   const id = parseInt(params.id);
+  const { all: allStatuses } = useGrantStatuses();
 
   const { data: activity, isLoading: activityLoading } = useQuery<ResearchActivityDetail>({
     queryKey: ['/api/research-activities', id],
@@ -101,7 +102,7 @@ export default function ResearchActivityDetail() {
   // everything still in progress from the most advanced down to Concept.
   // The label the Grants Office uses, not the stored value.
   const getStatusLabel = (status: string) =>
-    GRANT_STATUS_OPTIONS.find((option) => option.value === status)?.label ?? status;
+    allStatuses.find((option) => option.value === status)?.label ?? status;
 
   const orderedPublications = useMemo(
     () => orderPublicationsForActivity(publications ?? []),

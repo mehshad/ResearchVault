@@ -9,11 +9,11 @@ import { Badge } from "@/components/ui/badge";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { AlertTriangle, Check, Minus } from "lucide-react";
 import {
-  GRANT_STATUS_OPTIONS,
   grantStatusRequiresAward,
   grantStatusRequiresStartDate,
   grantStatusAllowsProgressTracking,
 } from "@shared/grantLifecycle";
+import { useGrantStatuses } from "@/hooks/useGrantStatuses";
 import {
   GRANT_ISSUE_DEFINITIONS,
   GRANT_ISSUE_WHEN_LABELS,
@@ -30,16 +30,21 @@ interface GrantRulesDialogProps {
  * What the system checks on a grant, and when.
  *
  * Generated from the same constants and predicates the validation runs on --
- * GRANT_STATUS_OPTIONS with grantStatusRequiresAward and friends, and
+ * the office's own status list with grantStatusRequiresAward and friends, and
  * GRANT_ISSUE_DEFINITIONS with each check's `when`. Nothing here is written out
  * by hand, because a page describing rules in prose drifts from the rules the
  * moment either changes, and a confidently wrong rules page is worse than none.
+ *
+ * The statuses come from the configured list rather than the built-in thirteen
+ * for that same reason: a rules page that omits the status somebody was
+ * actually refused on cannot answer the question they opened it with.
  *
  * It exists so the office can see why a row was refused or flagged without
  * asking, and can argue with a specific line of it.
  */
 export function GrantRulesDialog({ open, onOpenChange }: GrantRulesDialogProps) {
   const minimumCodes = new Set<string>(GRANT_MINIMUM_ISSUE_CODES);
+  const { options: statusOptions } = useGrantStatuses();
 
   const byWhen = (when: GrantIssueWhen) =>
     GRANT_ISSUE_DEFINITIONS.filter((definition) => definition.when === when);
@@ -73,7 +78,7 @@ export function GrantRulesDialog({ open, onOpenChange }: GrantRulesDialogProps) 
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {GRANT_STATUS_OPTIONS.map((option) => {
+                {statusOptions.map((option) => {
                   const needsAward = grantStatusRequiresAward(option.value);
                   const needsStart = grantStatusRequiresStartDate(option.value);
                   const reports = grantStatusAllowsProgressTracking(option.value);

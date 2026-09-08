@@ -27,13 +27,13 @@ import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Label } from "@/components/ui/label";
 import { formatFullName } from "@/utils/nameUtils";
 import {
-  GRANT_STATUS_OPTIONS,
   grantStatusAllowsProgressTracking,
   grantStatusImpliesAward,
   grantStatusRequiresStartDate,
   canGrantSetSchedule,
   canGrantLinkSdrs,
 } from "@shared/grantLifecycle";
+import { useGrantStatuses } from "@/hooks/useGrantStatuses";
 import { GRANT_CURRENCY_VALUES } from "@shared/schema";
 import {
   getGrantSdrCandidates,
@@ -214,6 +214,8 @@ export default function EditGrant() {
     }
   }, [grant]);
 
+  const { options: statusOptions, all: allStatuses } = useGrantStatuses();
+
   const handleStatusChange = (value: string) => {
     if (
       formData.awarded &&
@@ -315,7 +317,7 @@ export default function EditGrant() {
     if (grantStatusRequiresStartDate(formData.status) && !formData.startDate) {
       toast({
         title: "Validation Error",
-        description: `${GRANT_STATUS_OPTIONS.find(o => o.value === formData.status)?.label} grants require a start date.`,
+        description: `${allStatuses.find(o => o.value === formData.status)?.label} grants require a start date.`,
         variant: "destructive",
       });
       return;
@@ -719,7 +721,7 @@ export default function EditGrant() {
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    {GRANT_STATUS_OPTIONS.map((opt) => (
+                    {statusOptions.map((opt) => (
                       <SelectItem key={opt.value} value={opt.value}>
                         {opt.label}
                       </SelectItem>

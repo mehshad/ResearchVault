@@ -34,12 +34,12 @@ import { InstitutionCombobox } from "@/components/InstitutionCombobox";
 import { formatFullName } from "@/utils/nameUtils";
 import { GRANT_CURRENCY_VALUES, insertGrantSchema, type InsertGrant } from "@shared/schema";
 import {
-  GRANT_STATUS_OPTIONS,
   grantStatusAllowsProgressTracking,
   grantStatusImpliesAward,
   grantStatusRequiresStartDate,
   canGrantSetSchedule,
 } from "@shared/grantLifecycle";
+import { useGrantStatuses } from "@/hooks/useGrantStatuses";
 
 type CreateGrantForm = InsertGrant;
 
@@ -148,6 +148,7 @@ export default function CreateGrant() {
   });
 
   const currentStatus = form.watch("status");
+  const { options: statusOptions, all: allStatuses } = useGrantStatuses();
 
   const handleStatusChange = (value: string) => {
     form.setValue("status", value as any);
@@ -179,7 +180,7 @@ export default function CreateGrant() {
     if (grantStatusRequiresStartDate(currentStatus) && !startDate) {
       toast({
         title: "Validation Error",
-        description: `${GRANT_STATUS_OPTIONS.find(o => o.value === currentStatus)?.label} grants require a start date.`,
+        description: `${allStatuses.find(o => o.value === currentStatus)?.label} grants require a start date.`,
         variant: "destructive",
       });
       return;
@@ -305,7 +306,7 @@ export default function CreateGrant() {
                             </SelectTrigger>
                           </FormControl>
                           <SelectContent>
-                            {GRANT_STATUS_OPTIONS.map((opt) => (
+                            {statusOptions.map((opt) => (
                               <SelectItem key={opt.value} value={opt.value}>
                                 {opt.label}
                               </SelectItem>

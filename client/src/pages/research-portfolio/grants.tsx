@@ -35,7 +35,7 @@ import {
 import { Skeleton } from "@/components/ui/skeleton";
 import { Search, Users, User, Info } from "lucide-react";
 import type { Grant } from "@shared/schema";
-import { GRANT_STATUS_OPTIONS } from "@shared/grantLifecycle";
+import { useGrantStatuses } from "@/hooks/useGrantStatuses";
 import { statusesVisibleOutsideSection } from "@shared/researchPortfolioScope";
 import { useCurrentUser } from "@/hooks/useCurrentUser";
 import { PermissionWrapper } from "@/components/PermissionWrapper";
@@ -52,10 +52,6 @@ type PortfolioGrant = Grant & {
   coInvestigatorNames: string[];
   involvement: "mine" | "team" | null;
 };
-
-const statusLabels = new Map<string, string>(
-  GRANT_STATUS_OPTIONS.map((option) => [option.value, option.label]),
-);
 
 const formatCurrency = (amount: string | number | null | undefined, currency = "USD") => {
   if (!amount) return "—";
@@ -83,6 +79,12 @@ export default function PortfolioGrants() {
   const [scope, setScope] = useState<PortfolioScope>("all");
   const [statusFilter, setStatusFilter] = useState<string>("all");
   const [searchQuery, setSearchQuery] = useState("");
+  const { options: statusOptions, all: allStatuses } = useGrantStatuses();
+
+  const statusLabels = useMemo(
+    () => new Map<string, string>(allStatuses.map((option) => [option.value, option.label])),
+    [allStatuses],
+  );
 
   const { data, isLoading } = useQuery<PortfolioResponse<{ grants: PortfolioGrant[] }>>({
     queryKey: ["/api/research-portfolio/grants"],
@@ -98,11 +100,11 @@ export default function PortfolioGrants() {
   const sectionOnlyStatuses = useMemo(() => {
     if (viewer?.seesEverything) return new Set<string>();
     return new Set(
-      GRANT_STATUS_OPTIONS.map((option) => option.value).filter(
-        (value) => !statusesVisibleOutsideSection().includes(value),
-      ),
+      statusOptions
+        .map((option) => option.value)
+        .filter((value) => !statusesVisibleOutsideSection().includes(value)),
     );
-  }, [viewer?.seesEverything]);
+  }, [viewer?.seesEverything, statusOptions]);
 
   const restrictionApplies = sectionOnlyStatuses.size > 0;
   const selectedStatusIsSectionOnly = restrictionApplies && sectionOnlyStatuses.has(statusFilter);
@@ -177,7 +179,7 @@ export default function PortfolioGrants() {
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="all">Any status</SelectItem>
-                    {GRANT_STATUS_OPTIONS.map((option) => (
+                    {statusOptions.map((option) => (
                       <SelectItem key={option.value} value={option.value}>
                         {/*
                           Marked in the list itself, not only in a note below
