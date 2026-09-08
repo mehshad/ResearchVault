@@ -2945,6 +2945,13 @@ export default function PublicationOffice({ embeddedTab }: PublicationOfficeProp
                       {impactFactorYear === "publication" && "Uses impact factor from the same year as publication"}
                       {impactFactorYear === "latest" && "Uses the most recent impact factor available for the journal"}
                     </p>
+                    {/* Which "year" is meant is not obvious, and getting it
+                        wrong shifts every score by one edition. */}
+                    <p className="text-xs text-muted-foreground">
+                      Years mean the Journal Impact Factor year — the year the citations are
+                      from. The 2025 factors are the ones published in Journal Citation Reports
+                      2026.
+                    </p>
                   </div>
 
                   {/* When the impact-factor year rolls over. JCR publishes a
@@ -3271,6 +3278,23 @@ export default function PublicationOffice({ embeddedTab }: PublicationOfficeProp
 
         {/* Impact Factors Tab */}
         <TabsContent value="impact-factors" className="space-y-6">
+          {/* Clarivate names the same release two ways, one year apart, and a
+              set loaded under the wrong one is invisible until somebody
+              spot-checks a journal. That is what happened to the set loaded as
+              2026, which was the JCR 2026 edition holding 2025 factors. Said
+              here because this is the screen somebody is looking at while
+              deciding what to type. */}
+          <div className="rounded-md border bg-muted/40 p-3 text-sm">
+            <p className="font-medium mb-1">Year here means the Journal Impact Factor year</p>
+            <p className="text-muted-foreground">
+              That is the year whose citations the factor is computed from — not the year the
+              file was released. Clarivate publishes the <strong>2025</strong> Journal Impact
+              Factors in <strong>Journal Citation Reports 2026</strong>, released June 2026, so
+              that download belongs under <strong>2025</strong> here. A set filed under the
+              edition year is one year out and will be matched to the wrong publications.
+            </p>
+          </div>
+
           <div className="flex justify-between items-center">
             <div></div>
             <div className="flex gap-2">

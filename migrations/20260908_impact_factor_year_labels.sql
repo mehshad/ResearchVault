@@ -3,10 +3,21 @@
 -- Three sets were loaded together on 2 September, labelled 2022, 2024 and
 -- 2026. Two of those are right; the third cannot be.
 --
--- The convention the other two follow is the JCR **data year** — the year whose
--- citations the factor is computed from, which is the year Clarivate names the
--- edition after, and which is released the following June. Spot-checking well
--- known journals against that convention:
+-- Clarivate uses two names for the same release, one year apart, and this
+-- column has to pick one:
+--
+--   * the **JCR edition**, named for the year it is released — "Journal
+--     Citation Reports 2026", published June 2026;
+--   * the **JIF year**, named for the year whose citations the factor is
+--     computed from — the 2025 Journal Impact Factor, which is the metric
+--     inside that 2026 edition.
+--
+-- This column holds an impact factor, so `year` is the **JIF year**: it
+-- describes the metric in the row rather than the file it arrived in. It is
+-- also what the scorer means when it matches a manuscript published in 2024 to
+-- the 2024 factor.
+--
+-- Spot-checking well known journals against that convention:
 --
 --     Nature   2022 = 64.8    2024 = 48.5
 --     Science  2022 = 56.9    2024 = 45.8
@@ -16,10 +27,13 @@
 -- Those are the published 2022 and 2024 JCR figures, so both sets are labelled
 -- correctly and are left alone.
 --
--- The set labelled 2026 cannot be a 2026 edition: the 2026 JCR is computed from
--- 2026 citations and is not released until mid-2027. The newest edition that
--- can exist as this is written is 2025, published around June 2026. Two further
--- things agree with it being that edition rather than an older one:
+-- The set labelled 2026 is the odd one out: there is no 2026 JIF, because it
+-- would be computed from 2026 citations and published in mid-2027. 2026 is a
+-- JCR *edition* name — the release of June 2026 — and the metric inside that
+-- edition is the 2025 JIF. So whoever loaded it labelled this one set by the
+-- file it came from while the other two were labelled by the metric.
+--
+-- Two further things agree that it is the 2025 JIF rather than an older one:
 --
 --   * its values sit above the 2024 set for 915 of the 1,286 journals present
 --     in all three, which is the direction of a later edition, not an earlier

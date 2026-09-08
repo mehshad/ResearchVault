@@ -1266,6 +1266,19 @@ export const journals = pgTable("journals", {
 export const journalImpactFactorMetrics = pgTable("journal_impact_factor_metrics", {
   id: serial("id").primaryKey(),
   journalId: integer("journal_id").notNull().references(() => journals.id, { onDelete: "cascade" }),
+  /**
+   * The **Journal Impact Factor year**, not the JCR edition year.
+   *
+   * Clarivate names the same release both ways, one year apart: the 2025
+   * Journal Impact Factors are published in "Journal Citation Reports 2026",
+   * released June 2026. This column describes the metric in the row, so that
+   * download belongs under 2025 — and it is what the scorer means when it
+   * matches a manuscript published in 2024 to the 2024 factor.
+   *
+   * A set loaded under the edition year is one year out and silently scores
+   * against the wrong publications. One already was: see
+   * migrations/20260908_impact_factor_year_labels.sql.
+   */
   year: integer("year").notNull(),
   totalCites: integer("total_cites"),
   totalArticles: integer("total_articles"),
