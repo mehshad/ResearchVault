@@ -9,6 +9,7 @@ import {
   normalizeJournalName,
 } from "./databaseStorage";
 import { resolveAuthorCheckSubject } from "./authorCheckSubject";
+import { normaliseQuartile } from "@shared/journalQuartile";
 import {
   canViewPublication,
   canViewUnpublishedScientistPublications,
@@ -9449,7 +9450,13 @@ function writeFailureDetail(error: unknown): string {
             fiveYearJif: row.fiveYearJif || null,
             jifWithoutSelfCites: row.jifWithoutSelfCites || null,
             jci: row.jci || null,
-            quartile: row.quartile,
+            // Normalised, not trusted. This route used to store whatever the
+            // file said, which is how a quartile of "N/A" reached production
+            // and blocked the Research Output restore -- the bulk importer
+            // refuses that value, so the database could not be reloaded from
+            // its own export. Anything that is not Q1-Q4 becomes null, which
+            // is a valid state and blocks nothing.
+            quartile: normaliseQuartile(row.quartile),
             rank: row.rank,
             totalCitations: row.totalCitations || null // Keep for backward compatibility
           };
