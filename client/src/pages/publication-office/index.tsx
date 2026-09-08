@@ -3480,88 +3480,6 @@ export default function PublicationOffice({ embeddedTab }: PublicationOfficeProp
             </div>
           )}
 
-          <div className="flex justify-between items-center">
-            <div></div>
-            <div className="flex gap-2">
-              <Label htmlFor="csv-upload" className="cursor-pointer">
-                <Button variant="outline" asChild>
-                  <span>
-                    <Upload className="h-4 w-4 mr-2" />
-                    Import CSV
-                  </span>
-                </Button>
-                <Input
-                  id="csv-upload"
-                  type="file"
-                  accept=".csv"
-                  onChange={handleCSVImport}
-                  className="hidden"
-                />
-              </Label>
-              <Dialog open={exportDialogOpen} onOpenChange={setExportDialogOpen}>
-                <DialogTrigger asChild>
-                  <Button variant="outline" data-testid="button-open-export-dialog">
-                    <Download className="h-4 w-4 mr-2" />
-                    Export CSV
-                  </Button>
-                </DialogTrigger>
-                <DialogContent className="max-w-md">
-                  <DialogHeader>
-                    <DialogTitle>Export Impact Factors</DialogTitle>
-                    <DialogDescription>
-                      Exports one row per journal for the selected year. The current search, field, and impact-factor-range filters are applied.
-                    </DialogDescription>
-                  </DialogHeader>
-                  <div className="space-y-4 py-2">
-                    <div>
-                      <Label htmlFor="export-year">Year</Label>
-                      <Select value={exportYear} onValueChange={setExportYear}>
-                        <SelectTrigger id="export-year" data-testid="select-export-year">
-                          <SelectValue placeholder="Select a year" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {availableYears.map((y) => (
-                            <SelectItem key={y} value={String(y)} data-testid={`option-export-year-${y}`}>
-                              {/* Both names: a bare year here is what let a
-                                  JCR 2026 download be filed as 2026. */}
-                              {formatImpactFactorYear(y)}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    </div>
-                    <div className="text-xs text-muted-foreground space-y-1">
-                      <div>Filters that will be applied:</div>
-                      <ul className="list-disc pl-5">
-                        <li>Search: {debouncedSearchTerm ? <span className="font-mono">{debouncedSearchTerm}</span> : <span className="italic">none</span>}</li>
-                        <li>
-                          Fields: {fieldFilter.length === 0
-                            ? <span className="italic">all</span>
-                            : fieldFilter.length <= 2
-                              ? fieldFilter.join(', ')
-                              : `${fieldFilter.length} selected`}
-                        </li>
-                        <li>
-                          Impact factor:{' '}
-                          {debouncedIfRange[0] === IF_SLIDER_MIN && debouncedIfRange[1] >= IF_SLIDER_MAX
-                            ? <span className="italic">any</span>
-                            : <span className="tabular-nums">{debouncedIfRange[0].toFixed(1)} – {debouncedIfRange[1] >= IF_SLIDER_MAX ? `${IF_SLIDER_MAX}+` : debouncedIfRange[1].toFixed(1)}</span>}
-                        </li>
-                      </ul>
-                    </div>
-                  </div>
-                  <div className="flex justify-end gap-2">
-                    <Button variant="outline" onClick={() => setExportDialogOpen(false)} data-testid="button-cancel-export">Cancel</Button>
-                    <Button onClick={handleExportImpactFactors} disabled={!exportYear} data-testid="button-confirm-export">
-                      <Download className="h-4 w-4 mr-2" />
-                      Download CSV
-                    </Button>
-                  </div>
-                </DialogContent>
-              </Dialog>
-            </div>
-          </div>
-
           <Card>
             <CardHeader>
               <CardTitle>Search & Filter</CardTitle>
@@ -3696,10 +3614,92 @@ export default function PublicationOffice({ embeddedTab }: PublicationOfficeProp
       </Card>
 
       <Card>
-        <CardHeader>
+        {/* Import and Export sit on the table they act on, rather than at the
+            top of the page above the summary and the filters -- from there it
+            was not obvious what they would export, and the filters that narrow
+            the export were between the button and the table. */}
+        <CardHeader className="flex flex-row flex-wrap items-center justify-between gap-2 space-y-0">
           <CardTitle>
             Impact Factors ({totalRecords.toLocaleString()} journals, showing page {currentPage} of {totalPages})
           </CardTitle>
+          <div className="flex gap-2">
+              <Label htmlFor="csv-upload" className="cursor-pointer">
+                <Button variant="outline" asChild>
+                  <span>
+                    <Upload className="h-4 w-4 mr-2" />
+                    Import CSV
+                  </span>
+                </Button>
+                <Input
+                  id="csv-upload"
+                  type="file"
+                  accept=".csv"
+                  onChange={handleCSVImport}
+                  className="hidden"
+                />
+              </Label>
+              <Dialog open={exportDialogOpen} onOpenChange={setExportDialogOpen}>
+                <DialogTrigger asChild>
+                  <Button variant="outline" data-testid="button-open-export-dialog">
+                    <Download className="h-4 w-4 mr-2" />
+                    Export CSV
+                  </Button>
+                </DialogTrigger>
+                <DialogContent className="max-w-md">
+                  <DialogHeader>
+                    <DialogTitle>Export Impact Factors</DialogTitle>
+                    <DialogDescription>
+                      Exports one row per journal for the selected year. The current search, field, and impact-factor-range filters are applied.
+                    </DialogDescription>
+                  </DialogHeader>
+                  <div className="space-y-4 py-2">
+                    <div>
+                      <Label htmlFor="export-year">Year</Label>
+                      <Select value={exportYear} onValueChange={setExportYear}>
+                        <SelectTrigger id="export-year" data-testid="select-export-year">
+                          <SelectValue placeholder="Select a year" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {availableYears.map((y) => (
+                            <SelectItem key={y} value={String(y)} data-testid={`option-export-year-${y}`}>
+                              {/* Both names: a bare year here is what let a
+                                  JCR 2026 download be filed as 2026. */}
+                              {formatImpactFactorYear(y)}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="text-xs text-muted-foreground space-y-1">
+                      <div>Filters that will be applied:</div>
+                      <ul className="list-disc pl-5">
+                        <li>Search: {debouncedSearchTerm ? <span className="font-mono">{debouncedSearchTerm}</span> : <span className="italic">none</span>}</li>
+                        <li>
+                          Fields: {fieldFilter.length === 0
+                            ? <span className="italic">all</span>
+                            : fieldFilter.length <= 2
+                              ? fieldFilter.join(', ')
+                              : `${fieldFilter.length} selected`}
+                        </li>
+                        <li>
+                          Impact factor:{' '}
+                          {debouncedIfRange[0] === IF_SLIDER_MIN && debouncedIfRange[1] >= IF_SLIDER_MAX
+                            ? <span className="italic">any</span>
+                            : <span className="tabular-nums">{debouncedIfRange[0].toFixed(1)} – {debouncedIfRange[1] >= IF_SLIDER_MAX ? `${IF_SLIDER_MAX}+` : debouncedIfRange[1].toFixed(1)}</span>}
+                        </li>
+                      </ul>
+                    </div>
+                  </div>
+                  <div className="flex justify-end gap-2">
+                    <Button variant="outline" onClick={() => setExportDialogOpen(false)} data-testid="button-cancel-export">Cancel</Button>
+                    <Button onClick={handleExportImpactFactors} disabled={!exportYear} data-testid="button-confirm-export">
+                      <Download className="h-4 w-4 mr-2" />
+                      Download CSV
+                    </Button>
+                  </div>
+                </DialogContent>
+              </Dialog>
+          </div>
         </CardHeader>
         <CardContent>
           {/* Top horizontal scrollbar synced with the table below, so users
