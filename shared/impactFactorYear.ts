@@ -92,6 +92,22 @@ export function impactFactorLookupYear(
 export const EARLIEST_IMPACT_FACTOR_YEAR = 2020;
 
 /**
+ * A JIF year written with the edition it was published in.
+ *
+ * Neither name alone is enough on a screen. "2025 impact factor" reads as
+ * out-of-date to somebody who has just downloaded Journal Citation Reports
+ * 2026; "2026 not loaded" reads as plainly false to the same person, because
+ * they loaded JCR 2026 last week. Both were reported as confusing, and both
+ * were describing the right thing under a name the reader did not have.
+ *
+ * A JIF year is published in the edition named for the following year: the
+ * 2025 Journal Impact Factors are in Journal Citation Reports 2026.
+ */
+export function formatImpactFactorYear(jifYear: number): string {
+  return `${jifYear} JIF (JCR ${jifYear + 1})`;
+}
+
+/**
  * The year an impact factor would be read from, given which editions exist.
  *
  * Asking for a year is not the same as finding one. The scorer falls back to

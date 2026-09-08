@@ -3,6 +3,7 @@
 import { useState, useEffect, useRef, useLayoutEffect, useMemo } from "react";
 import {
   DEFAULT_IMPACT_FACTOR_CUTOFF,
+  formatImpactFactorYear,
   impactFactorExamples,
   isValidImpactFactorCutoff,
 } from "@shared/impactFactorYear";
@@ -3006,31 +3007,59 @@ export default function PublicationOffice({ embeddedTab }: PublicationOfficeProp
                               availableYears,
                             ).map((example) => (
                               <tr key={example.publishedOn} data-testid={`if-example-${example.publishedOn}`}>
-                                {/* Day-month-year, matching the cut-off field
+                                {/* Two columns, not three: this card is a
+                                    narrow side panel, and a third column made
+                                    the dates wrap mid-number. Where the date
+                                    sits relative to the cut-off goes under it
+                                    as a quieter line instead.
+
+                                    Day-month-year, matching the cut-off field
                                     above. The stored value stays ISO; only the
                                     display is reordered. */}
-                                <td className="py-0.5 pr-3 font-mono">
-                                  {example.publishedOn.split("-").reverse().join("-")}
+                                <td className="py-1 pr-3 align-top whitespace-nowrap">
+                                  <div className="font-mono">
+                                    {example.publishedOn.split("-").reverse().join("-")}
+                                  </div>
+                                  {example.situation && (
+                                    <div className="text-[11px] text-muted-foreground leading-tight">
+                                      {example.situation}
+                                    </div>
+                                  )}
                                 </td>
-                                <td className="py-0.5 pr-3 text-muted-foreground">{example.situation}</td>
-                                <td className="py-0.5 font-medium">
+                                <td className="py-1 align-top">
                                   {/* The year asked for and the year found are
                                       not always the same. Naming only the first
                                       described a lookup that cannot succeed:
                                       a 2026 manuscript wanting "the 2026
                                       impact factor", which is not published
                                       until mid-2027. */}
-                                  {example.resolvedYear === example.usesYear ? (
-                                    <>{example.usesYear} impact factor</>
-                                  ) : example.resolvedYear === null ? (
-                                    <span className="text-amber-700 dark:text-amber-400">
-                                      {example.usesYear} — nothing loaded, no score
-                                    </span>
+                                  {/* Both names are needed — "2026 not loaded"
+                                      reads as false to somebody who loaded JCR
+                                      2026 last week — but spelling both out in
+                                      one sentence made the row unreadable. So
+                                      the year actually used leads, and the
+                                      substitution is a second, quieter line. */}
+                                  {example.resolvedYear === null ? (
+                                    <>
+                                      <div className="font-medium text-amber-700 dark:text-amber-400">
+                                        No score
+                                      </div>
+                                      <div className="text-[11px] text-muted-foreground leading-tight">
+                                        {formatImpactFactorYear(example.usesYear)} not loaded
+                                      </div>
+                                    </>
                                   ) : (
-                                    <span className="text-amber-700 dark:text-amber-400">
-                                      {example.usesYear} not loaded → falls back to{" "}
-                                      {example.resolvedYear}
-                                    </span>
+                                    <>
+                                      <div className="font-medium">
+                                        {formatImpactFactorYear(example.resolvedYear)}
+                                      </div>
+                                      {example.resolvedYear !== example.usesYear && (
+                                        <div className="text-[11px] text-amber-700 dark:text-amber-400 leading-tight">
+                                          substituted; {formatImpactFactorYear(example.usesYear)} not
+                                          loaded
+                                        </div>
+                                      )}
+                                    </>
                                   )}
                                 </td>
                               </tr>
@@ -3337,7 +3366,9 @@ export default function PublicationOffice({ embeddedTab }: PublicationOfficeProp
                         <SelectContent>
                           {availableYears.map((y) => (
                             <SelectItem key={y} value={String(y)} data-testid={`option-export-year-${y}`}>
-                              {y}
+                              {/* Both names: a bare year here is what let a
+                                  JCR 2026 download be filed as 2026. */}
+                              {formatImpactFactorYear(y)}
                             </SelectItem>
                           ))}
                         </SelectContent>
