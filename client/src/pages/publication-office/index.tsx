@@ -1147,6 +1147,53 @@ export default function PublicationOffice({ embeddedTab }: PublicationOfficeProp
     },
   });
 
+  /** The settings as both the save and the calculate call send them. */
+  const currentSidraSettings = () => ({
+    years: sidraYears,
+    ...(sidraRangeMode === "custom" && sidraStartMonth && sidraEndMonth
+      ? { startMonth: sidraStartMonth, endMonth: sidraEndMonth }
+      : {}),
+    impactFactorYear,
+    impactFactorCutoff,
+    includeNonVetted: sidraIncludeNonVetted,
+    multipliers: {
+      'First Author': firstAuthorMultiplier,
+      'Last Author': lastAuthorMultiplier,
+      'Second or Second Last Author': secondAuthorMultiplier,
+      'Corresponding Author': correspondingAuthorMultiplier,
+    },
+  });
+
+  /**
+   * Save the settings without recalculating.
+   *
+   * There was no way to do this: the settings were persisted only as a side
+   * effect of "Calculate and save official scores", so changing the cut-off and
+   * leaving the page lost it, which reads exactly like a field that does not
+   * save. The endpoint existed already and nothing called it.
+   */
+  const saveSidraSettingsMutation = useMutation({
+    mutationFn: async () => {
+      const response = await fetch('/api/sidra-score/settings', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify(currentSidraSettings()),
+      });
+      if (!response.ok) {
+        const body = await response.json().catch(() => null);
+        throw new Error(body?.message || 'Failed to save settings');
+      }
+      return response.json();
+    },
+    onSuccess: () => {
+      toast({ title: "Settings saved", description: "Scores calculated from now on will use them." });
+    },
+    onError: (error: any) => {
+      toast({ title: "Could not save settings", description: error?.message, variant: "destructive" });
+    },
+  });
+
   const handleCalculateSidraScores = () => {
     calculateSidraScoresMutation.mutate();
   };
@@ -2935,7 +2982,7 @@ export default function PublicationOffice({ embeddedTab }: PublicationOfficeProp
                     {isValidImpactFactorCutoff(impactFactorCutoff) && (
                       <div className="rounded-md border bg-muted/40 p-3 mt-2">
                         <p className="text-xs font-medium mb-2">
-                          With these settings, three manuscripts would be scored on:
+                          Manuscripts across the period above would be scored on:
                         </p>
                         <table className="w-full text-xs">
                           <tbody>
@@ -2943,13 +2990,42 @@ export default function PublicationOffice({ embeddedTab }: PublicationOfficeProp
                               {
                                 impactFactorYear: impactFactorYear as "prior" | "publication" | "latest",
                                 impactFactorCutoff,
+                                years: sidraYears,
+                                ...(sidraRangeMode === "custom" && sidraStartMonth && sidraEndMonth
+                                  ? { startMonth: sidraStartMonth, endMonth: sidraEndMonth }
+                                  : {}),
                               },
-                              new Date().getFullYear(),
+                              new Date(),
+                              availableYears,
                             ).map((example) => (
                               <tr key={example.publishedOn} data-testid={`if-example-${example.publishedOn}`}>
-                                <td className="py-0.5 pr-3 font-mono">{example.publishedOn}</td>
+                                {/* Day-month-year, matching the cut-off field
+                                    above. The stored value stays ISO; only the
+                                    display is reordered. */}
+                                <td className="py-0.5 pr-3 font-mono">
+                                  {example.publishedOn.split("-").reverse().join("-")}
+                                </td>
                                 <td className="py-0.5 pr-3 text-muted-foreground">{example.situation}</td>
-                                <td className="py-0.5 font-medium">{example.usesYear} impact factor</td>
+                                <td className="py-0.5 font-medium">
+                                  {/* The year asked for and the year found are
+                                      not always the same. Naming only the first
+                                      described a lookup that cannot succeed:
+                                      a 2026 manuscript wanting "the 2026
+                                      impact factor", which is not published
+                                      until mid-2027. */}
+                                  {example.resolvedYear === example.usesYear ? (
+                                    <>{example.usesYear} impact factor</>
+                                  ) : example.resolvedYear === null ? (
+                                    <span className="text-amber-700 dark:text-amber-400">
+                                      {example.usesYear} — nothing loaded, no score
+                                    </span>
+                                  ) : (
+                                    <span className="text-amber-700 dark:text-amber-400">
+                                      {example.usesYear} not loaded → falls back to{" "}
+                                      {example.resolvedYear}
+                                    </span>
+                                  )}
+                                </td>
                               </tr>
                             ))}
                           </tbody>
@@ -3023,13 +3099,33 @@ export default function PublicationOffice({ embeddedTab }: PublicationOfficeProp
                     </div>
                   </div>
 
-                  <Button 
-                    className="w-full flex items-center gap-2" 
+                  {/* Saving settings used to be possible only as a side effect
+                      of recalculating every score, which is why a changed
+                      cut-off appeared not to save: nothing on this card wrote
+                      it, and leaving the page lost it. */}
+                  <Button
+                    className="w-full flex items-center gap-2"
+                    onClick={() => saveSidraSettingsMutation.mutate()}
+                    disabled={
+                      sidraSettingsLoading ||
+                      saveSidraSettingsMutation.isPending ||
+                      !isValidImpactFactorCutoff(impactFactorCutoff) ||
+                      (sidraRangeMode === "custom" &&
+                        (!sidraStartMonth || !sidraEndMonth || sidraStartMonth > sidraEndMonth))
+                    }
+                    data-testid="button-save-sidra-settings"
+                  >
+                    {saveSidraSettingsMutation.isPending ? 'Saving...' : 'Save settings'}
+                  </Button>
+
+                  <Button
+                    className="w-full flex items-center gap-2 mt-2"
                     variant="outline"
                     onClick={handleCalculateSidraScores}
                     disabled={
                       sidraSettingsLoading ||
                       calculateSidraScoresMutation.isPending ||
+                      !isValidImpactFactorCutoff(impactFactorCutoff) ||
                       (sidraRangeMode === "custom" &&
                         (!sidraStartMonth || !sidraEndMonth || sidraStartMonth > sidraEndMonth))
                     }

@@ -6,6 +6,7 @@ import {
   impactFactorExamples,
   impactFactorLookupYear,
   isValidImpactFactorCutoff,
+  resolveImpactFactorYear,
 } from "./impactFactorYear";
 
 const on = (iso: string) => new Date(`${iso}T00:00:00Z`);
@@ -89,49 +90,141 @@ test("a cut-off must be a real day of a real month, written DD-MM", () => {
 
 // ── The worked examples ─────────────────────────────────────────────────────
 
-test("the examples straddle the cut-off and show the jump", () => {
+const TODAY = new Date("2026-09-08T00:00:00Z");
+
+test("there are eight of them by default", () => {
   const examples = impactFactorExamples(
-    { impactFactorYear: "publication", impactFactorCutoff: "30-06" },
-    2026,
+    { impactFactorYear: "publication", impactFactorCutoff: "30-06", years: 5 },
+    TODAY,
   );
-  assert.equal(examples.length, 3);
-  assert.deepEqual(
-    examples.map((e) => e.publishedOn),
-    ["2026-04-30", "2026-06-29", "2026-06-30"],
-  );
-  // The point of showing them: the last two are a day apart and differ.
-  assert.deepEqual(examples.map((e) => e.usesYear), [2025, 2025, 2026]);
+  assert.equal(examples.length, 8);
 });
 
-test("with the default cut-off every example uses the same year", () => {
-  // Nothing surprising to show, which is itself the right thing to show.
+test("they span the scoring period rather than clustering on one date", () => {
+  // The question the office is asking is what a setting does to the
+  // manuscripts they are scoring, and those are spread across the period.
   const examples = impactFactorExamples(
-    { impactFactorYear: "publication", impactFactorCutoff: "01-01" },
-    2026,
+    { impactFactorYear: "publication", impactFactorCutoff: "30-06", years: 5 },
+    TODAY,
   );
-  assert.deepEqual(examples.map((e) => e.usesYear), [2025, 2025, 2026]);
+  assert.equal(examples[0].publishedOn, "2021-09-08");
+  assert.equal(examples[examples.length - 1].publishedOn, "2026-09-08");
+  // Oldest first, and strictly increasing.
+  for (let i = 1; i < examples.length; i++) {
+    assert.ok(examples[i].publishedOn > examples[i - 1].publishedOn, examples[i].publishedOn);
+  }
 });
 
-test("the examples follow the prior-year setting too", () => {
-  const examples = impactFactorExamples(
-    { impactFactorYear: "prior", impactFactorCutoff: "30-06" },
-    2026,
+test("a shorter period gives closer-spaced examples", () => {
+  const oneYear = impactFactorExamples(
+    { impactFactorYear: "publication", impactFactorCutoff: "30-06", years: 1 },
+    TODAY,
   );
-  assert.deepEqual(examples.map((e) => e.usesYear), [2024, 2024, 2025]);
+  assert.equal(oneYear.length, 8);
+  assert.equal(oneYear[0].publishedOn, "2025-09-08");
+  assert.equal(oneYear[7].publishedOn, "2026-09-08");
 });
 
-test("with latest, every example uses the current year", () => {
+test("a custom range is honoured", () => {
   const examples = impactFactorExamples(
-    { impactFactorYear: "latest", impactFactorCutoff: "30-06" },
-    2026,
+    {
+      impactFactorYear: "publication",
+      impactFactorCutoff: "30-06",
+      startMonth: "2023-01",
+      endMonth: "2023-12",
+    },
+    TODAY,
   );
-  assert.deepEqual(examples.map((e) => e.usesYear), [2026, 2026, 2026]);
+  assert.equal(examples[0].publishedOn, "2023-01-01");
+  assert.equal(examples[examples.length - 1].publishedOn, "2023-12-31");
+});
+
+test("the cut-off shows up repeatedly across the period", () => {
+  // Eight points over five years crosses every year boundary in it, so the
+  // rollover is demonstrated several times rather than asserted once.
+  const examples = impactFactorExamples(
+    { impactFactorYear: "publication", impactFactorCutoff: "30-06", years: 5 },
+    TODAY,
+  );
+  const years = new Set(examples.map((e) => e.usesYear));
+  assert.ok(years.size >= 4, `expected several distinct years, saw ${[...years].join(", ")}`);
 });
 
 test("the examples are computed, not written down", () => {
   // They must move with the settings, or they will eventually describe a rule
   // the code no longer follows.
-  const june = impactFactorExamples({ impactFactorYear: "publication", impactFactorCutoff: "30-06" }, 2026);
-  const march = impactFactorExamples({ impactFactorYear: "publication", impactFactorCutoff: "01-03" }, 2026);
-  assert.notDeepEqual(june.map((e) => e.publishedOn), march.map((e) => e.publishedOn));
+  const june = impactFactorExamples(
+    { impactFactorYear: "publication", impactFactorCutoff: "30-06", years: 5 },
+    TODAY,
+  );
+  const prior = impactFactorExamples(
+    { impactFactorYear: "prior", impactFactorCutoff: "30-06", years: 5 },
+    TODAY,
+  );
+  assert.notDeepEqual(june.map((e) => e.usesYear), prior.map((e) => e.usesYear));
+});
+
+test("with latest, every example uses the current year", () => {
+  const examples = impactFactorExamples(
+    { impactFactorYear: "latest", impactFactorCutoff: "30-06", years: 5 },
+    TODAY,
+  );
+  assert.deepEqual(new Set(examples.map((e) => e.usesYear)), new Set([2026]));
+});
+
+// ── Flagging an edition that is not loaded ──────────────────────────────────
+
+test("with no year list the examples name the year asked for", () => {
+  // The settings screen is describing a rule, so with nothing to check
+  // against it says what the rule asks for and claims nothing more.
+  const examples = impactFactorExamples(
+    { impactFactorYear: "publication", impactFactorCutoff: "01-01", years: 5 },
+    TODAY,
+  );
+  assert.deepEqual(examples.map((e) => e.resolvedYear), examples.map((e) => e.usesYear));
+});
+
+test("an edition that is not loaded is flagged, not silently renamed", () => {
+  // A manuscript published in 2026 asks for the 2026 impact factor, which is
+  // computed from 2026 citations and not published until mid-2027.
+  const examples = impactFactorExamples(
+    { impactFactorYear: "publication", impactFactorCutoff: "01-01", years: 5 },
+    TODAY,
+    [2022, 2024, 2025],
+  );
+  const newest = examples[examples.length - 1];
+  assert.equal(newest.usesYear, 2026, "still says what the settings ask for");
+  assert.equal(newest.resolvedYear, 2025, "and what would actually be read");
+});
+
+test("a year that is loaded resolves to itself", () => {
+  const examples = impactFactorExamples(
+    { impactFactorYear: "publication", impactFactorCutoff: "01-01", years: 5 },
+    TODAY,
+    [2021, 2022, 2023, 2024, 2025, 2026],
+  );
+  for (const example of examples) {
+    assert.equal(example.resolvedYear, example.usesYear, example.publishedOn);
+  }
+});
+
+test("nothing close enough resolves to nothing at all", () => {
+  // Better than naming a year twenty years away as though it were a match.
+  assert.deepEqual(resolveImpactFactorYear(2026, [2005], "publication"), {
+    year: null,
+    fellBack: false,
+  });
+});
+
+test("the fallback prefers a newer edition at the same distance", () => {
+  // The missing year is usually the most recent one, so reaching forward
+  // first lands on the edition the office actually has.
+  assert.deepEqual(resolveImpactFactorYear(2024, [2023, 2025], "publication"), {
+    year: 2025,
+    fellBack: true,
+  });
+});
+
+test("the fallback will not reach back before the earliest edition", () => {
+  assert.equal(resolveImpactFactorYear(2021, [2019], "publication").year, null);
 });

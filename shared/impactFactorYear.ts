@@ -88,13 +88,58 @@ export function impactFactorLookupYear(
   return settings.impactFactorYear === "prior" ? effective - 1 : effective;
 }
 
+/** The earliest edition the scorer will reach for. */
+export const EARLIEST_IMPACT_FACTOR_YEAR = 2020;
+
+/**
+ * The year an impact factor would be read from, given which editions exist.
+ *
+ * Asking for a year is not the same as finding one. The scorer falls back to
+ * nearby editions when the year it wants is missing, and this reproduces that
+ * order: one year later, one earlier, two later, two earlier — preferring a
+ * newer edition to an older one at the same distance, which matters because the
+ * missing year is usually the most recent.
+ *
+ * **An approximation of what the scorer does, on purpose.** The scorer asks
+ * whether *that journal* has a factor in each year; this asks whether the
+ * edition was loaded at all. So it answers "which edition would be reached for"
+ * rather than "what will this particular manuscript score", which is the right
+ * granularity for a settings screen describing a rule rather than a record.
+ */
+export function resolveImpactFactorYear(
+  targetYear: number,
+  availableYears: readonly number[],
+  mode: "prior" | "publication" | "latest" = "publication",
+): { year: number | null; fellBack: boolean } {
+  const available = new Set(availableYears);
+  if (available.has(targetYear)) return { year: targetYear, fellBack: false };
+
+  const candidates =
+    mode === "latest"
+      ? [...availableYears].sort((a, b) => b - a)
+      : [targetYear + 1, targetYear - 1, targetYear + 2, targetYear - 2].filter(
+          (year) => year >= EARLIEST_IMPACT_FACTOR_YEAR,
+        );
+
+  for (const year of candidates) {
+    if (available.has(year)) return { year, fellBack: true };
+  }
+  return { year: null, fellBack: false };
+}
+
 export interface ImpactFactorExample {
   /** ISO date of the imaginary manuscript. */
   publishedOn: string;
   /** Human description of where it falls relative to the cut-off. */
   situation: string;
-  /** The year whose impact factor would be used. */
+  /** The year the settings ask for. */
   usesYear: number;
+  /**
+   * The year an impact factor would actually be read from, or null when
+   * nothing loaded is close enough. Differs from usesYear when the wanted
+   * edition has not been loaded.
+   */
+  resolvedYear: number | null;
 }
 
 /**
@@ -112,34 +157,95 @@ export interface ImpactFactorExample {
  * different years is the surprising part, and seeing it is the whole reason to
  * show examples.
  */
+export interface ScoreWindow {
+  /** Rolling window: this many years back from today. */
+  years?: number;
+  /** Custom window, YYYY-MM. Both or neither. */
+  startMonth?: string;
+  endMonth?: string;
+}
+
+/** The window the score covers, matching how the scorer computes it. */
+export function scoreWindow(window: ScoreWindow, today: Date): { from: Date; to: Date } {
+  if (typeof window.startMonth === "string" && typeof window.endMonth === "string") {
+    const [sy, sm] = window.startMonth.split("-").map(Number);
+    const [ey, em] = window.endMonth.split("-").map(Number);
+    return {
+      from: new Date(Date.UTC(sy, sm - 1, 1)),
+      // Last day of the end month.
+      to: new Date(Date.UTC(ey, em, 0)),
+    };
+  }
+  const from = new Date(today.getTime());
+  from.setUTCFullYear(from.getUTCFullYear() - (window.years ?? 5));
+  return { from, to: today };
+}
+
 export function impactFactorExamples(
   settings: {
     impactFactorYear: "prior" | "publication" | "latest";
     impactFactorCutoff?: ImpactFactorCutoff;
-  },
-  referenceYear: number,
+  } & ScoreWindow,
+  today: Date,
+  /**
+   * The editions actually loaded. Without them an example can name a year that
+   * does not exist -- a manuscript published in January 2026 wanting "the 2026
+   * impact factor", which is computed from 2026 citations and is not published
+   * until mid-2027. Naming it made the screen describe a lookup that could
+   * never succeed.
+   */
+  availableYears: readonly number[] = [],
+  count = 8,
 ): ImpactFactorExample[] {
+  const { from, to } = scoreWindow(settings, today);
+  const currentYear = today.getUTCFullYear();
+
   const cutoff = isValidImpactFactorCutoff(settings.impactFactorCutoff)
     ? settings.impactFactorCutoff
     : DEFAULT_IMPACT_FACTOR_CUTOFF;
+
+  const describe = (date: Date): ImpactFactorExample => {
+    const usesYear = impactFactorLookupYear(date, settings, currentYear);
+    const { year: resolvedYear } = availableYears.length
+      ? resolveImpactFactorYear(usesYear, availableYears, settings.impactFactorYear)
+      : { year: usesYear };
+    return {
+      publishedOn: date.toISOString().slice(0, 10),
+      situation: situationOf(date, cutoff),
+      usesYear,
+      resolvedYear,
+    };
+  };
+
+  /**
+   * Dates spread evenly across the window, oldest first.
+   *
+   * Spread rather than clustered around one cut-off, because the question the
+   * office is actually asking is "what will this setting do to the manuscripts
+   * I am scoring", and those are spread across the whole period. Eight points
+   * over a five-year window is roughly one every seven months, which crosses
+   * every year boundary in it -- so the rollover shows up several times rather
+   * than being asserted once.
+   */
+  const span = to.getTime() - from.getTime();
+  if (span <= 0) return [describe(to)];
+
+  const dates: Date[] = [];
+  for (let i = 0; i < count; i++) {
+    // Spaced across the window inclusive of both ends.
+    dates.push(new Date(from.getTime() + (span * i) / (count - 1)));
+  }
+  return dates.map(describe);
+}
+
+/** Where a date sits relative to the cut-off in its own year. */
+function situationOf(date: Date, cutoff: ImpactFactorCutoff): string {
   const [day, month] = cutoff.split("-").map(Number);
-
-  const onCutoff = new Date(Date.UTC(referenceYear, month - 1, day));
-  const dayBefore = new Date(onCutoff.getTime() - 24 * 60 * 60 * 1000);
-  // Comfortably before: two months earlier, which for a 1 January cut-off
-  // lands in the previous year and still reads correctly.
-  const wellBefore = new Date(Date.UTC(referenceYear, month - 1, day));
-  wellBefore.setUTCMonth(wellBefore.getUTCMonth() - 2);
-
-  const describe = (date: Date, situation: string): ImpactFactorExample => ({
-    publishedOn: date.toISOString().slice(0, 10),
-    situation,
-    usesYear: impactFactorLookupYear(date, settings, referenceYear),
-  });
-
-  return [
-    describe(wellBefore, "Two months before the cut-off"),
-    describe(dayBefore, "The day before the cut-off"),
-    describe(onCutoff, "On the cut-off"),
-  ];
+  const dateMonth = date.getUTCMonth() + 1;
+  const dateDay = date.getUTCDate();
+  const before = dateMonth < month || (dateMonth === month && dateDay < day);
+  // With a 1 January cut-off nothing is ever before it, so saying so every time
+  // would be noise on the default setting.
+  if (cutoff === DEFAULT_IMPACT_FACTOR_CUTOFF) return "";
+  return before ? "before the cut-off" : "on or after the cut-off";
 }
