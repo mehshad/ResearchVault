@@ -34,6 +34,7 @@ import {
   canGrantLinkSdrs,
 } from "@shared/grantLifecycle";
 import { useGrantStatuses } from "@/hooks/useGrantStatuses";
+import { GrantStatusCombobox } from "@/components/GrantStatusCombobox";
 import { GRANT_CURRENCY_VALUES } from "@shared/schema";
 import {
   getGrantSdrCandidates,
@@ -88,7 +89,7 @@ export default function EditGrant() {
     submittingInstitution: "",
     grantLpiName: "",
     coInvestigators: "",
-    investigatorType: "Researcher",
+    investigatorType: "",
     lpiId: "",
     requestedAmount: "",
     awardedAmount: "",
@@ -183,7 +184,10 @@ export default function EditGrant() {
         submittingInstitution: grant.submittingInstitution || "",
         grantLpiName: grant.grantLpiName || "",
         coInvestigators: Array.isArray(grant.coInvestigators) ? grant.coInvestigators.join('\n') : "",
-        investigatorType: grant.investigatorType || "Researcher",
+        // Carried through untouched rather than defaulted. The form no longer
+        // asks, so defaulting an empty one to "Researcher" would write an
+        // answer nobody gave.
+        investigatorType: grant.investigatorType || "",
         lpiId: grant.lpiId?.toString() || "",
         requestedAmount: grant.requestedAmount?.toString() || "",
         awardedAmount: grant.awardedAmount?.toString() || "",
@@ -214,7 +218,9 @@ export default function EditGrant() {
     }
   }, [grant]);
 
-  const { options: statusOptions, all: allStatuses } = useGrantStatuses();
+  // The combobox fetches its own options; this is only for naming the status
+  // in a validation message.
+  const { all: allStatuses } = useGrantStatuses();
 
   const handleStatusChange = (value: string) => {
     if (
@@ -713,21 +719,11 @@ export default function EditGrant() {
                 <label className="text-sm font-medium text-gray-700 mb-2 block dark:text-gray-300">
                   Project Status
                 </label>
-                <Select
+                <GrantStatusCombobox
                   value={formData.status}
-                  onValueChange={handleStatusChange}
-                >
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {statusOptions.map((opt) => (
-                      <SelectItem key={opt.value} value={opt.value}>
-                        {opt.label}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                  onChange={handleStatusChange}
+                  data-testid="select-grant-status"
+                />
               </div>
 
               <div>
@@ -814,8 +810,8 @@ export default function EditGrant() {
               />
             </div>
 
-            {/* Third Row: Lead Investigator, Investigator Type, Running Time, Current Year */}
-            <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mt-4">
+            {/* Third Row: Sidra Lead PI, Running Time, Current Year */}
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mt-4">
               <div id="grant-field-lpi" className={issueFieldClass("missing_lpi")}>
                 <label className="text-sm font-medium text-gray-700 mb-2 block dark:text-gray-300">
                   Sidra Lead PI
@@ -842,23 +838,13 @@ export default function EditGrant() {
                 </Select>
               </div>
 
-              <div>
-                <label className="text-sm font-medium text-gray-700 mb-2 block dark:text-gray-300">
-                  Investigator Type
-                </label>
-                <Select
-                  value={formData.investigatorType}
-                  onValueChange={(value) => setFormData({...formData, investigatorType: value})}
-                >
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="Researcher">Researcher</SelectItem>
-                    <SelectItem value="Clinician">Clinician</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
+              {/* Investigator Type is no longer asked here. Whether somebody
+                  is a researcher or a clinician is a fact about the person, not
+                  about each grant they hold, so answering it once per grant was
+                  272 chances to disagree with itself. The column and its
+                  import/export column stay, so the existing values and any file
+                  carrying them are untouched -- it is only the question that is
+                  gone. */}
 
               <div>
                 <label className="text-sm font-medium text-gray-700 mb-2 block dark:text-gray-300">
