@@ -98,20 +98,11 @@ export class GrantSdrLifecycleStorageError extends Error {
 }
 import { isPreprintRecord, preprintServerName, preprintLink, normalizeDoi, classifyResolvedPublication, preprintRepairEvidence } from "@shared/publicationDeduplication";
 
-/**
- * Normalize a journal name for tolerant matching across the slightly different
- * spellings used by publication sources vs. the impact-factor dataset.
- * Lowercases, drops a leading "The ", and collapses all punctuation/whitespace
- * to single spaces. e.g. "The Lancet. Oncology" -> "lancet oncology" which then
- * matches the dataset's "LANCET ONCOLOGY".
- */
-export function normalizeJournalName(name: string | null | undefined): string {
-  return (name ?? "")
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, " ")
-    .replace(/^the\s+/, "")
-    .trim();
-}
+// Re-exported so the existing importers here and in sidraScoreService keep
+// working; the definition lives in shared/ so the Impact Factors summary can
+// ask the same question this does.
+export { normalizeJournalName } from "@shared/journalName";
+import { normalizeJournalName } from "@shared/journalName";
 
 // SQL expression mirroring normalizeJournalName for a given column.
 const normalizedJournalSql = (col: any) =>

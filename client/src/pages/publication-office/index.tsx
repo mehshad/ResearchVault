@@ -36,6 +36,12 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Pencil, Save, X, Upload, Search, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, ChevronDown, ArrowUpDown, ArrowUp, ArrowDown, Star, Shield, FileText, BarChart3, Download, Calendar, User, Users, BookOpen, Award, TrendingUp, CopyCheck, AlertTriangle, UserX, Unlink, CheckCircle2, Sparkles, Loader2, Globe, Plus, RefreshCw, Info, ExternalLink } from "lucide-react";
 import { UploadingModal } from "@/components/ui/upload-modal";
+import { displayJournalName } from "@shared/journalName";
+import {
+  MISSING_REASON_LABELS,
+  shortYears,
+  type ImpactFactorSummary,
+} from "@shared/impactFactorSummary";
 import { PublicationDuplicates } from "@/components/PublicationDuplicates";
 import { useToast } from "@/hooks/use-toast";
 import { Link, useLocation, useSearch } from "wouter";
@@ -560,6 +566,20 @@ export default function PublicationOffice({ embeddedTab }: PublicationOfficeProp
     setIsJournalModalOpen(false);
     navigate(`/publications?journal=${encodeURIComponent(name)}`);
   };
+
+  // What is loaded and what is missing, for the card above the table.
+  const { data: summary } = useQuery<ImpactFactorSummary>({
+    queryKey: ['/api/journal-impact-factors/summary'],
+    queryFn: async () => {
+      const response = await fetch('/api/journal-impact-factors/summary');
+      if (!response.ok) throw new Error('Failed to fetch impact factor summary');
+      return response.json();
+    },
+  });
+  const shortYearSet = useMemo(
+    () => new Set(shortYears(summary?.years ?? [])),
+    [summary?.years],
+  );
 
   // Available metric years for the export-year picker
   const { data: availableYears = [] } = useQuery<number[]>({
@@ -3366,6 +3386,100 @@ export default function PublicationOffice({ embeddedTab }: PublicationOfficeProp
             </p>
           </div>
 
+          {/* What is loaded, and what is not.
+              The years arrive as separate files years apart, so a short year is
+              invisible until somebody adds them up -- the 2024 set sat at 1,758
+              against 21,787 for 2023 for weeks and nothing said so. And the
+              journals we publish in are held as free text on the publication,
+              so a missing factor is usually a name that does not match rather
+              than a factor that does not exist, which makes the second half a
+              worklist rather than a statistic. */}
+          {summary && (
+            <div className="rounded-md border">
+              <div className="flex flex-wrap items-baseline justify-between gap-2 border-b px-4 py-3">
+                <h3 className="font-medium">Impact factor summary</h3>
+                <p className="text-sm text-muted-foreground" data-testid="text-if-coverage">
+                  {summary.publishedIn.covered} of {summary.publishedIn.total} journals we
+                  publish in have an impact factor
+                </p>
+              </div>
+
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b text-left text-muted-foreground">
+                      <th className="px-4 py-2 font-medium">Year</th>
+                      <th className="px-4 py-2 font-medium text-right">Journals</th>
+                      <th className="px-4 py-2 font-medium text-right">With quartile</th>
+                      <th className="px-4 py-2 font-medium text-right">Covers ours</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {summary.years.map((year) => {
+                      const short = shortYearSet.has(year.year);
+                      return (
+                        <tr key={year.year} className="border-b last:border-0">
+                          <td className="px-4 py-2 whitespace-nowrap">
+                            {formatImpactFactorYear(year.year)}
+                          </td>
+                          <td className="px-4 py-2 text-right tabular-nums">
+                            {year.factors.toLocaleString()}
+                            {/* Named rather than left for somebody to notice:
+                                a third of the largest year is a part-loaded
+                                file, not a quiet year in publishing. */}
+                            {short && (
+                              <span className="ml-2 text-xs text-amber-700 dark:text-amber-400">
+                                looks part-loaded
+                              </span>
+                            )}
+                          </td>
+                          <td className="px-4 py-2 text-right tabular-nums">
+                            {year.withQuartile === 0 ? (
+                              <span className="text-amber-700 dark:text-amber-400">none</span>
+                            ) : (
+                              year.withQuartile.toLocaleString()
+                            )}
+                          </td>
+                          <td className="px-4 py-2 text-right tabular-nums">
+                            {year.coversPublishedIn} of {summary.publishedIn.total}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+
+              {summary.publishedIn.missing.length > 0 && (
+                <div className="border-t px-4 py-3">
+                  <p className="text-sm font-medium mb-1">
+                    No impact factor in any year ({summary.publishedIn.missing.length})
+                  </p>
+                  <p className="text-xs text-muted-foreground mb-2">
+                    Journal names taken from the publications themselves. Most are a spelling
+                    the impact factor list does not carry rather than a journal without one.
+                  </p>
+                  <ul className="space-y-1 text-sm">
+                    {summary.publishedIn.missing.map((row) => (
+                      <li key={row.journal} className="flex flex-wrap items-baseline gap-x-2">
+                        <span className="font-mono text-xs">{row.journal}</span>
+                        <span className="text-xs text-muted-foreground">
+                          {row.publications} publication{row.publications === 1 ? "" : "s"}
+                        </span>
+                        {row.suggestion && (
+                          <span className="text-xs text-emerald-700 dark:text-emerald-400">
+                            &rarr; {displayJournalName(row.suggestion)}
+                            {row.reason ? ` (${MISSING_REASON_LABELS[row.reason]})` : ""}
+                          </span>
+                        )}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+            </div>
+          )}
+
           <div className="flex justify-between items-center">
             <div></div>
             <div className="flex gap-2">
@@ -3658,7 +3772,7 @@ export default function PublicationOffice({ embeddedTab }: PublicationOfficeProp
                           className="w-full"
                         />
                       ) : (
-                        <span className="font-medium">{factor.journalName}</span>
+                        <span className="font-medium">{displayJournalName(factor.journalName)}</span>
                       )}
                     </TableCell>
                     <TableCell onClick={(e) => e.stopPropagation()}>
@@ -4263,7 +4377,7 @@ export default function PublicationOffice({ embeddedTab }: PublicationOfficeProp
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <TrendingUp className="h-5 w-5" />
-              {selectedJournal?.journalName}
+              {displayJournalName(selectedJournal?.journalName)}
             </DialogTitle>
             <DialogDescription>
               Impact factor trend analysis and journal details
@@ -4522,7 +4636,7 @@ export default function PublicationOffice({ embeddedTab }: PublicationOfficeProp
                     <>
                       {Number.isFinite(currentIf) && percentile != null && (
                         <p className="text-sm text-muted-foreground mb-2" data-testid="text-field-percentile">
-                          <span className="font-medium text-foreground">{selectedJournal.journalName}</span>
+                          <span className="font-medium text-foreground">{displayJournalName(selectedJournal.journalName)}</span>
                           {' '}has IF <span className="font-medium text-foreground">{currentIf.toFixed(3)}</span>,
                           ranking in the <span className="font-medium text-foreground">{percentile}th percentile</span> of its field.
                         </p>

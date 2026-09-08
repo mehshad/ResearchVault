@@ -10,6 +10,7 @@ import {
 } from "./databaseStorage";
 import { resolveAuthorCheckSubject } from "./authorCheckSubject";
 import { normaliseQuartile } from "@shared/journalQuartile";
+import { registerImpactFactorSummaryRoutes } from "./impactFactorSummaryRoutes";
 import {
   canViewPublication,
   canViewUnpublishedScientistPublications,
@@ -9299,6 +9300,9 @@ function writeFailureDetail(error: unknown): string {
       res.status(500).json({ message: "Failed to fetch journal fields" });
     }
   });
+
+  // Before /:id, or "summary" is parsed as a journal id and this never runs.
+  registerImpactFactorSummaryRoutes(app);
 
   app.get('/api/journal-impact-factors/:id', async (req: Request, res: Response) => {
     try {
