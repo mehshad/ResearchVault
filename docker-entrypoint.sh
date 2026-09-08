@@ -144,7 +144,8 @@ for migration in \
     "migrations/20260907_grant_statuses.sql" \
     "migrations/20260908_impact_factor_year_labels.sql" \
     "migrations/20260908_office_grant_statuses.sql" \
-    "migrations/20260908_quartile_must_be_valid.sql"; do
+    "migrations/20260908_quartile_must_be_valid.sql" \
+    "migrations/20260908_clear_preprint_server_from_journal.sql"; do
   if [ -f "/app/$migration" ]; then
     echo "  Applying $migration..."
     if [ "$migration" = "migrations/20260820_grant_lifecycle_consistency.sql" ] || \
