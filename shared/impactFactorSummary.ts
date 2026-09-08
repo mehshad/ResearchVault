@@ -32,8 +32,6 @@ export interface ImpactFactorYearSummary {
   year: number;
   /** Journals carrying a factor for that year. */
   factors: number;
-  /** How many of those also carry a quartile. */
-  withQuartile: number;
   /** How many of the journals we publish in are covered by that year. */
   coversPublishedIn: number;
 }

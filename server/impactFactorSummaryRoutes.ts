@@ -24,7 +24,7 @@ import {
 } from "@shared/impactFactorSummary";
 
 export interface SummaryDependencies {
-  yearRows: () => Promise<Array<{ year: number; factors: number; withQuartile: number }>>;
+  yearRows: () => Promise<Array<{ year: number; factors: number }>>;
   publicationJournals: () => Promise<Array<{ journal: string; publications: number }>>;
   knownJournals: () => Promise<Array<{ name: string; abbreviated: string | null; years: number[] }>>;
 }
@@ -33,8 +33,7 @@ const defaultDependencies: SummaryDependencies = {
   async yearRows() {
     const result = await db.execute(sql`
       SELECT year,
-             count(*) FILTER (WHERE impact_factor IS NOT NULL)::int AS factors,
-             count(quartile)::int AS with_quartile
+             count(*) FILTER (WHERE impact_factor IS NOT NULL)::int AS factors
       FROM journal_impact_factor_metrics
       GROUP BY year
       ORDER BY year
@@ -42,7 +41,6 @@ const defaultDependencies: SummaryDependencies = {
     return (result.rows as any[]).map((r) => ({
       year: Number(r.year),
       factors: Number(r.factors),
-      withQuartile: Number(r.with_quartile),
     }));
   },
   async publicationJournals() {

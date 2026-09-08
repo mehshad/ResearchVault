@@ -3404,13 +3404,16 @@ export default function PublicationOffice({ embeddedTab }: PublicationOfficeProp
                 </p>
               </div>
 
+              {/* Side by side: the counts are short and the worklist is short,
+                  and stacked they pushed the filters and the table itself off
+                  the screen. */}
+              <div className="grid gap-0 md:grid-cols-2 md:divide-x">
               <div className="overflow-x-auto">
                 <table className="w-full text-sm">
                   <thead>
                     <tr className="border-b text-left text-muted-foreground">
                       <th className="px-4 py-2 font-medium">Year</th>
                       <th className="px-4 py-2 font-medium text-right">Journals</th>
-                      <th className="px-4 py-2 font-medium text-right">With quartile</th>
                       <th className="px-4 py-2 font-medium text-right">Covers ours</th>
                     </tr>
                   </thead>
@@ -3434,13 +3437,6 @@ export default function PublicationOffice({ embeddedTab }: PublicationOfficeProp
                             )}
                           </td>
                           <td className="px-4 py-2 text-right tabular-nums">
-                            {year.withQuartile === 0 ? (
-                              <span className="text-amber-700 dark:text-amber-400">none</span>
-                            ) : (
-                              year.withQuartile.toLocaleString()
-                            )}
-                          </td>
-                          <td className="px-4 py-2 text-right tabular-nums">
                             {year.coversPublishedIn} of {summary.publishedIn.total}
                           </td>
                         </tr>
@@ -3451,7 +3447,7 @@ export default function PublicationOffice({ embeddedTab }: PublicationOfficeProp
               </div>
 
               {summary.publishedIn.missing.length > 0 && (
-                <div className="border-t px-4 py-3">
+                <div className="border-t px-4 py-3 md:border-t-0">
                   <p className="text-sm font-medium mb-1">
                     No impact factor in any year ({summary.publishedIn.missing.length})
                   </p>
@@ -3477,6 +3473,7 @@ export default function PublicationOffice({ embeddedTab }: PublicationOfficeProp
                   </ul>
                 </div>
               )}
+              </div>
             </div>
           )}
 
@@ -3893,14 +3890,12 @@ export default function PublicationOffice({ embeddedTab }: PublicationOfficeProp
                           className="w-16"
                         />
                       ) : factor.quartile ? (
-                        <span className={`px-2 py-1 rounded text-xs font-semibold ${
-                          factor.quartile === 'Q1' ? 'bg-green-100 text-green-800' :
-                          factor.quartile === 'Q2' ? 'bg-blue-100 text-blue-800' :
-                          factor.quartile === 'Q3' ? 'bg-yellow-100 text-yellow-800' :
-                          'bg-red-100 text-red-800'
-                        }`}>
-                          {factor.quartile}
-                        </span>
+                        // Plain text on purpose. A green Q1 against a red Q4
+                        // reads as good against bad, which is not what a
+                        // quartile says -- it is the journal's rank within its
+                        // own subject category, and a Q4 statistics journal is
+                        // not a worse place to publish statistics.
+                        <span>{factor.quartile}</span>
                       ) : null}
                     </TableCell>
                     <TableCell>
@@ -4488,16 +4483,7 @@ export default function PublicationOffice({ embeddedTab }: PublicationOfficeProp
                         <div className="space-y-1">
                           <p><span className="font-medium">Impact Factor:</span> {latestData.impactFactor ?? 'N/A'}</p>
                           <p><span className="font-medium">5-Year JIF:</span> {latestData.fiveYearJif ?? 'N/A'}</p>
-                          <p><span className="font-medium">Quartile:</span> 
-                            <span className={`ml-2 px-2 py-1 rounded text-xs font-semibold ${
-                              latestData.quartile === 'Q1' ? 'bg-green-100 text-green-800' :
-                              latestData.quartile === 'Q2' ? 'bg-blue-100 text-blue-800' :
-                              latestData.quartile === 'Q3' ? 'bg-yellow-100 text-yellow-800' :
-                              'bg-red-100 text-red-800'
-                            }`}>
-                              {latestData.quartile ?? 'N/A'}
-                            </span>
-                          </p>
+                          <p><span className="font-medium">Quartile:</span> {latestData.quartile ?? 'N/A'}</p>
                           <p><span className="font-medium">Rank:</span> {latestData.rank ?? 'N/A'}</p>
                         </div>
                       </>

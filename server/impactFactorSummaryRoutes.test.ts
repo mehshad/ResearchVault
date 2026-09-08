@@ -9,18 +9,18 @@ const deps = (over: Partial<SummaryDependencies> = {}): SummaryDependencies => (
   ...over,
 });
 
-test("each year reports its factors and how many carry a quartile", async () => {
+test("each year reports how many journals carry a factor", async () => {
   const summary = await buildImpactFactorSummary(
     deps({
       yearRows: async () => [
-        { year: 2023, factors: 21787, withQuartile: 19374 },
-        { year: 2024, factors: 1758, withQuartile: 1757 },
+        { year: 2023, factors: 21787 },
+        { year: 2024, factors: 1758 },
       ],
     }),
   );
   assert.deepEqual(
-    summary.years.map((y) => [y.year, y.factors, y.withQuartile]),
-    [[2023, 21787, 19374], [2024, 1758, 1757]],
+    summary.years.map((y) => [y.year, y.factors]),
+    [[2023, 21787], [2024, 1758]],
   );
 });
 
@@ -29,8 +29,8 @@ test("a year counts only the journals we actually publish in", async () => {
   const summary = await buildImpactFactorSummary(
     deps({
       yearRows: async () => [
-        { year: 2023, factors: 21787, withQuartile: 0 },
-        { year: 2024, factors: 1758, withQuartile: 0 },
+        { year: 2023, factors: 21787 },
+        { year: 2024, factors: 1758 },
       ],
       publicationJournals: async () => [
         { journal: "NATURE", publications: 4 },
