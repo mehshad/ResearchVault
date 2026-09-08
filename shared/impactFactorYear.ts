@@ -18,15 +18,36 @@
  * over when the calendar does. Nothing changes for anybody who does not set it.
  */
 
-/** MM-DD. Validated at the edges; assumed well-formed here. */
+/**
+ * DD-MM, the way dates are written here. "30-06" is 30 June.
+ *
+ * Day first rather than month first because that is how the office writes a
+ * date, and a format that reads as a date but means something else is worse
+ * than one that is obviously unfamiliar: "06-07" is a valid date under both
+ * readings and means two different days.
+ */
 export type ImpactFactorCutoff = string;
 
+/** 1 January: the year turns over with the calendar, as it always did. */
 export const DEFAULT_IMPACT_FACTOR_CUTOFF: ImpactFactorCutoff = "01-01";
 
-export const IMPACT_FACTOR_CUTOFF_PATTERN = /^(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])$/;
+export const IMPACT_FACTOR_CUTOFF_PATTERN = /^(0[1-9]|[12]\d|3[01])-(0[1-9]|1[0-2])$/;
 
+/** Days in each month, ignoring leap years -- 29 February is allowed. */
+const DAYS_IN_MONTH = [31, 29, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+
+/**
+ * A cut-off has to be a day that exists.
+ *
+ * The shape check alone would accept "31-02", which is not a date. It would not
+ * throw -- the comparison below would quietly behave as though the cut-off were
+ * 1 March -- and a setting that silently means a different day than it says is
+ * worse than one that is refused.
+ */
 export function isValidImpactFactorCutoff(value: unknown): value is ImpactFactorCutoff {
-  return typeof value === "string" && IMPACT_FACTOR_CUTOFF_PATTERN.test(value);
+  if (typeof value !== "string" || !IMPACT_FACTOR_CUTOFF_PATTERN.test(value)) return false;
+  const [day, month] = value.split("-").map(Number);
+  return day <= DAYS_IN_MONTH[month - 1];
 }
 
 /**
@@ -44,7 +65,7 @@ export function effectiveImpactFactorYear(
   const year = publicationDate.getUTCFullYear();
   if (!isValidImpactFactorCutoff(cutoff)) return year;
 
-  const [month, day] = cutoff.split("-").map(Number);
+  const [day, month] = cutoff.split("-").map(Number);
   const publishedMonth = publicationDate.getUTCMonth() + 1;
   const publishedDay = publicationDate.getUTCDate();
 
@@ -101,7 +122,7 @@ export function impactFactorExamples(
   const cutoff = isValidImpactFactorCutoff(settings.impactFactorCutoff)
     ? settings.impactFactorCutoff
     : DEFAULT_IMPACT_FACTOR_CUTOFF;
-  const [month, day] = cutoff.split("-").map(Number);
+  const [day, month] = cutoff.split("-").map(Number);
 
   const onCutoff = new Date(Date.UTC(referenceYear, month - 1, day));
   const dayBefore = new Date(onCutoff.getTime() - 24 * 60 * 60 * 1000);

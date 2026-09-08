@@ -48,7 +48,7 @@ export const sidraScoreSettingsSchema = z
       .enum(["prior", "publication", "latest"])
       .default("publication"),
     /**
-     * The day of the year the impact-factor year rolls over, as MM-DD.
+     * The day of the year the impact-factor year rolls over, as DD-MM.
      *
      * Journal Citation Reports publishes a year's factors in the middle of the
      * following year, so for several months of every calendar year the
@@ -60,7 +60,7 @@ export const sidraScoreSettingsSchema = z
      */
     impactFactorCutoff: z
       .string()
-      .regex(IMPACT_FACTOR_CUTOFF_PATTERN, "Must be MM-DD")
+      .regex(IMPACT_FACTOR_CUTOFF_PATTERN, "Must be DD-MM, such as 30-06")
       .default(DEFAULT_IMPACT_FACTOR_CUTOFF),
     /** Override any of the four canonical role multipliers. */
     multipliers: z

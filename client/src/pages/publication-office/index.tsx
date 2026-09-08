@@ -311,7 +311,7 @@ export default function PublicationOffice({ embeddedTab }: PublicationOfficeProp
   const [secondAuthorMultiplier, setSecondAuthorMultiplier] = useState(1.5);
   const [correspondingAuthorMultiplier, setCorrespondingAuthorMultiplier] = useState(2);
   const [impactFactorYear, setImpactFactorYear] = useState("publication"); // "prior", "publication", "latest"
-  // MM-DD. 01-01 is the old behaviour: the year turns over with the calendar.
+  // DD-MM. 01-01 is the old behaviour: the year turns over with the calendar.
   const [impactFactorCutoff, setImpactFactorCutoff] = useState(DEFAULT_IMPACT_FACTOR_CUTOFF);
   const [sidraIncludeNonVetted, setSidraIncludeNonVetted] = useState(false);
   const [sidraRankings, setSidraRankings] = useState<SidraRanking[]>([]);
@@ -2911,7 +2911,7 @@ export default function PublicationOffice({ embeddedTab }: PublicationOfficeProp
                       id="if-cutoff"
                       value={impactFactorCutoff}
                       onChange={(e) => setImpactFactorCutoff(e.target.value)}
-                      placeholder="MM-DD"
+                      placeholder="DD-MM"
                       className="w-32"
                       data-testid="input-if-cutoff"
                       disabled={impactFactorYear === "latest"}
@@ -2923,7 +2923,7 @@ export default function PublicationOffice({ embeddedTab }: PublicationOfficeProp
                     </p>
                     {!isValidImpactFactorCutoff(impactFactorCutoff) && (
                       <p className="text-xs text-red-600 dark:text-red-400">
-                        Must be MM-DD, such as 06-30.
+                        Must be DD-MM, such as 30-06.
                       </p>
                     )}
 
