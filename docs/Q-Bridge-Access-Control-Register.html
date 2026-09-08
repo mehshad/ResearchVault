@@ -1160,16 +1160,16 @@
     </p>
 
     <div class="stats">
-      <div class="stat"><div class="v">324</div><div class="l">API routes</div></div>
-      <div class="stat"><div class="v">314</div><div class="l">Reach a guard</div></div>
-      <div class="stat"><div class="v">96.9%</div><div class="l">Covered</div></div>
-      <div class="stat"><div class="v">10</div><div class="l">Open before sign-in</div></div>
+      <div class="stat"><div class="v">332</div><div class="l">API routes</div></div>
+      <div class="stat"><div class="v">323</div><div class="l">Reach a guard</div></div>
+      <div class="stat"><div class="v">97.3%</div><div class="l">Covered</div></div>
+      <div class="stat"><div class="v">9</div><div class="l">Open before sign-in</div></div>
     </div>
 
     <p>
-      The ten that reach no guard are the ones that cannot: the seven
+      The nine that reach no guard are the ones that cannot: the seven
       <span class="mono">/api/auth</span> routes &mdash; sign-in, sign-out, the session read, the
-      two OIDC legs and the demo role selector &mdash; and three liveness probes. All ten are
+      two OIDC legs and the demo role selector &mdash; and two liveness probes. All nine are
       reached before a role exists, or must answer without one, and guarding them would lock
       everyone out. Every one is listed in
       <span class="mono">UNMAPPED_API_PREFIXES</span> beside the reason it is excluded, and
@@ -1190,7 +1190,7 @@
       <p>
         <strong>Being on the exclusion list is not the same as being open.</strong>
         <span class="mono">/api/register</span> sits in
-        <span class="mono">UNMAPPED_API_PREFIXES</span> and is nonetheless counted among the 314
+        <span class="mono">UNMAPPED_API_PREFIXES</span> and is nonetheless counted among the 323
         guarded above: it carries <span class="mono">requireAuth</span> and
         <span class="mono">requireInvestigatorDesignationManager</span>, so a caller is
         authenticated before it answers &mdash; they simply hold no role yet, which is why no
@@ -1213,7 +1213,7 @@
       </p>
       <p>
         <strong>Not re-run at this revision.</strong> The counts above were re-derived from source
-        at the stated commit; this no-cookie sweep was not, and there are now 149 GET routes
+        at the stated commit; this no-cookie sweep was not, and there are now 151 GET routes
         against the 127 swept then. The routes added since are covered by the static analysis but
         have not been fired at a live server without a session. Re-run it before the next review
         period relies on this paragraph.
@@ -1329,9 +1329,11 @@
 
     <h3>Route coverage — the split in section&nbsp;07</h3>
     <div class="evidence"># Routes are registered across server/*.ts, not only routes.ts, so counting
-# one file understates the total: routes.ts alone holds 281 of the 324.
-grep -rhoE "app\.(get|post|patch|put|delete)\(\s*['\"]/api/[^'\"]+['\"]" server/*.ts \
-  | grep -v '\.test\.ts' | wc -l</div>
+# one file understates the total: routes.ts alone holds 296 of the 332.
+# Flatten each file first: a line-based grep misses the registrations whose
+# path sits on the line after app.get(, and reports 316 rather than 332.
+for f in server/*.ts; do case "$f" in *.test.ts) continue;; esac; tr '\n' ' ' &lt; "$f"; echo; done \
+  | grep -oE "(app|router)\.(get|post|patch|put|delete)\( *[\"'`]/api/" | wc -l</div>
     <p>
       Guards are the harder half, because several are written across lines &mdash;
       <span class="mono">app.get(</span>, then the path, then
@@ -1362,7 +1364,7 @@ grep -oE 'navigationItem: "[^"]+"' server/navigationAccess.ts | sort -u</div>
 
     <h3>Which routes still reach no guard</h3>
     <div class="evidence"># every app.get/post/put/patch/delete, against NAVIGATION_ROUTE_RULES
-# and the route-level guards; expect 10, all in UNMAPPED_API_PREFIXES
+# and the route-level guards; expect 9, all in UNMAPPED_API_PREFIXES
 # and the unexplained count zero -- a route reaching no guard that is
 # absent from that list is the finding this check exists to produce.</div>
 
