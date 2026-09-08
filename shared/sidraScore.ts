@@ -3,6 +3,10 @@
  * Used by both server (service + routes) and client.
  */
 import { z } from "zod";
+import {
+  DEFAULT_IMPACT_FACTOR_CUTOFF,
+  IMPACT_FACTOR_CUTOFF_PATTERN,
+} from "./impactFactorYear";
 
 // ── Canonical multiplier keys ──────────────────────────────────────────────────
 export const CANONICAL_MULTIPLIER_KEYS = [
@@ -43,6 +47,21 @@ export const sidraScoreSettingsSchema = z
     impactFactorYear: z
       .enum(["prior", "publication", "latest"])
       .default("publication"),
+    /**
+     * The day of the year the impact-factor year rolls over, as MM-DD.
+     *
+     * Journal Citation Reports publishes a year's factors in the middle of the
+     * following year, so for several months of every calendar year the
+     * "current" factor does not exist yet. Until this date a manuscript counts
+     * as the previous year's.
+     *
+     * Defaults to 01-01, which is the behaviour before this existed: the year
+     * turns over when the calendar does.
+     */
+    impactFactorCutoff: z
+      .string()
+      .regex(IMPACT_FACTOR_CUTOFF_PATTERN, "Must be MM-DD")
+      .default(DEFAULT_IMPACT_FACTOR_CUTOFF),
     /** Override any of the four canonical role multipliers. */
     multipliers: z
       .object({
@@ -79,6 +98,7 @@ export const DEFAULT_SIDRA_SCORE_SETTINGS: SidraScoreSettings = {
   startMonth: undefined,
   endMonth: undefined,
   impactFactorYear: "publication",
+  impactFactorCutoff: DEFAULT_IMPACT_FACTOR_CUTOFF,
   multipliers: { ...DEFAULT_MULTIPLIERS },
   includeNonVetted: false,
 };

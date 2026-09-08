@@ -306,6 +306,8 @@ export default function PublicationOffice({ embeddedTab }: PublicationOfficeProp
   const [secondAuthorMultiplier, setSecondAuthorMultiplier] = useState(1.5);
   const [correspondingAuthorMultiplier, setCorrespondingAuthorMultiplier] = useState(2);
   const [impactFactorYear, setImpactFactorYear] = useState("publication"); // "prior", "publication", "latest"
+  // MM-DD. 01-01 is the old behaviour: the year turns over with the calendar.
+  const [impactFactorCutoff, setImpactFactorCutoff] = useState(DEFAULT_IMPACT_FACTOR_CUTOFF);
   const [sidraIncludeNonVetted, setSidraIncludeNonVetted] = useState(false);
   const [sidraRankings, setSidraRankings] = useState<SidraRanking[]>([]);
   const [selectedScientistDetails, setSelectedScientistDetails] = useState<SidraRanking | null>(null);
@@ -324,6 +326,7 @@ export default function PublicationOffice({ embeddedTab }: PublicationOfficeProp
         setSidraStartMonth(settings.startMonth || "");
         setSidraEndMonth(settings.endMonth || "");
         setImpactFactorYear(settings.impactFactorYear);
+        if (settings.impactFactorCutoff) setImpactFactorCutoff(settings.impactFactorCutoff);
         setSidraIncludeNonVetted(settings.includeNonVetted);
         setFirstAuthorMultiplier(settings.multipliers["First Author"]);
         setSecondAuthorMultiplier(settings.multipliers["Second or Second Last Author"]);
@@ -1111,6 +1114,7 @@ export default function PublicationOffice({ embeddedTab }: PublicationOfficeProp
           ? { startMonth: sidraStartMonth, endMonth: sidraEndMonth }
           : {}),
         impactFactorYear: impactFactorYear,
+        impactFactorCutoff: impactFactorCutoff,
         includeNonVetted: sidraIncludeNonVetted,
         multipliers: {
           'First Author': firstAuthorMultiplier,
@@ -2889,6 +2893,64 @@ export default function PublicationOffice({ embeddedTab }: PublicationOfficeProp
                       {impactFactorYear === "publication" && "Uses impact factor from the same year as publication"}
                       {impactFactorYear === "latest" && "Uses the most recent impact factor available for the journal"}
                     </p>
+                  </div>
+
+                  {/* When the impact-factor year rolls over. JCR publishes a
+                      year's factors partway through the following year, so
+                      until this date a manuscript counts as the previous
+                      year's — otherwise a January paper is scored against a
+                      factor nobody had released yet. */}
+                  <div className="space-y-2">
+                    <Label htmlFor="if-cutoff">Impact Factor cut-off date</Label>
+                    <Input
+                      id="if-cutoff"
+                      value={impactFactorCutoff}
+                      onChange={(e) => setImpactFactorCutoff(e.target.value)}
+                      placeholder="MM-DD"
+                      className="w-32"
+                      data-testid="input-if-cutoff"
+                      disabled={impactFactorYear === "latest"}
+                    />
+                    <p className="text-xs text-gray-500 dark:text-gray-400">
+                      {impactFactorYear === "latest"
+                        ? "Not used: “Latest available” does not look at the publication date."
+                        : "The day the impact factor year rolls over. Journal Citation Reports publishes a year's factors partway through the following year, so before this date a manuscript is scored on the previous year's. 01-01 means the calendar year."}
+                    </p>
+                    {!isValidImpactFactorCutoff(impactFactorCutoff) && (
+                      <p className="text-xs text-red-600 dark:text-red-400">
+                        Must be MM-DD, such as 06-30.
+                      </p>
+                    )}
+
+                    {/* Worked examples, computed from the settings above rather
+                        than written out, so they cannot describe a rule the
+                        code stopped following. The pair a day apart is the
+                        point: that is the part nobody predicts from the date
+                        alone. */}
+                    {isValidImpactFactorCutoff(impactFactorCutoff) && (
+                      <div className="rounded-md border bg-muted/40 p-3 mt-2">
+                        <p className="text-xs font-medium mb-2">
+                          With these settings, three manuscripts would be scored on:
+                        </p>
+                        <table className="w-full text-xs">
+                          <tbody>
+                            {impactFactorExamples(
+                              {
+                                impactFactorYear: impactFactorYear as "prior" | "publication" | "latest",
+                                impactFactorCutoff,
+                              },
+                              new Date().getFullYear(),
+                            ).map((example) => (
+                              <tr key={example.publishedOn} data-testid={`if-example-${example.publishedOn}`}>
+                                <td className="py-0.5 pr-3 font-mono">{example.publishedOn}</td>
+                                <td className="py-0.5 pr-3 text-muted-foreground">{example.situation}</td>
+                                <td className="py-0.5 font-medium">{example.usesYear} impact factor</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    )}
                   </div>
 
                   <div className="space-y-2 border-t pt-4">
