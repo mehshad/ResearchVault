@@ -21,13 +21,25 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Badge } from "@/components/ui/badge";
 import { format } from "date-fns";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { useToast } from "@/hooks/use-toast";
+import {
+  DEFAULT_SIDRA_SCORE_SETTINGS,
+  IMPACT_FACTOR_YEAR_LABELS,
+  type SidraScoreSettings,
+} from "@shared/sidraScore";
+import {
+  DEFAULT_IMPACT_FACTOR_CUTOFF,
+  describeImpactFactorYearUsed,
+  formatImpactFactorYear,
+  impactFactorLookupYear,
+  resolveImpactFactorYear,
+} from "@shared/impactFactorYear";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Textarea } from "@/components/ui/textarea";
@@ -162,11 +174,68 @@ export default function PublicationDetail() {
     retry: false
   });
 
-  // Query for most current year impact factor (2024)
+  /**
+   * The most recent year we actually hold, rather than a year written into the
+   * page. This said 2024 in the markup and in the query, so it stopped being
+   * "most current" the moment 2025 was loaded and quietly showed a stale
+   * figure under a label promising the opposite.
+   */
+  const { data: availableIfYears = [] } = useQuery<number[]>({
+    queryKey: ["/api/journal-impact-factors/years"],
+    queryFn: async () => {
+      const response = await fetch("/api/journal-impact-factors/years", { credentials: "include" });
+      if (!response.ok) throw new Error("Failed to fetch impact factor years");
+      return response.json();
+    },
+  });
+  const mostCurrentIfYear = availableIfYears.length ? Math.max(...availableIfYears) : null;
+
   const { data: currentYearImpactFactor } = useQuery({
-    queryKey: [`/api/journal-impact-factors/journal/${publication?.journal}/year/2024`],
-    enabled: !!publication?.journal,
+    queryKey: [`/api/journal-impact-factors/journal/${publication?.journal}/year/${mostCurrentIfYear ?? ''}`],
+    enabled: !!publication?.journal && mostCurrentIfYear != null,
     retry: false
+  });
+
+  /**
+   * Every year we hold a factor for *this journal*.
+   *
+   * The scorer's fallback is per journal, not per edition: when the year it
+   * wants has no value for this journal it tries one year later, one earlier,
+   * two later, two earlier, and if none of those has a value the publication is
+   * dropped from the score with "No impact factor on record". Asking only
+   * whether the edition was loaded -- which is what the summary screen asks --
+   * would let this panel claim a year the journal has nothing in.
+   */
+  const { data: journalHistory = [] } = useQuery<Array<{ year: number; impactFactor: string | null }>>({
+    queryKey: [`/api/journal-impact-factors/historical/${publication?.journal}`],
+    enabled: !!publication?.journal,
+    retry: false,
+  });
+  const journalYearsWithFactor = useMemo(
+    () =>
+      (journalHistory ?? [])
+        .filter((row) => row.impactFactor != null && row.impactFactor !== "")
+        .map((row) => Number(row.year))
+        .filter((year) => Number.isFinite(year)),
+    [journalHistory],
+  );
+
+  /**
+   * The office's scoring settings, so this panel can say which of the three
+   * figures the Sidra Score actually uses.
+   *
+   * It always emphasised the publication year, which is only right on the
+   * default settings. With "the year before publication" chosen, or with a
+   * mid-year cut-off, the score reads a different column from the one the page
+   * was pointing at -- and nothing on the page said so.
+   */
+  const { data: sidraSettings } = useQuery<SidraScoreSettings>({
+    queryKey: ["/api/sidra-score/settings"],
+    queryFn: async () => {
+      const response = await fetch("/api/sidra-score/settings", { credentials: "include" });
+      if (!response.ok) throw new Error("Failed to fetch Sidra Score settings");
+      return response.json();
+    },
   });
 
   const { data: publicationAuthors = [], isLoading: authorsLoading } = useQuery<(PublicationAuthor & { scientist: Scientist })[]>({
@@ -633,100 +702,175 @@ export default function PublicationDetail() {
                     )}
                   </p>
                   
-                  {/* Impact Factor Display */}
-                  {publication.journal && (
+                  {/* Impact Factor Display
+                      Driven from a list rather than three copies of the same
+                      markup, so "the one the score uses" is decided once. */}
+                  {publication.journal && (() => {
+                    const publishedOn = publication.publicationDate
+                      ? new Date(publication.publicationDate)
+                      : null;
+                    const publicationYear = publishedOn ? publishedOn.getUTCFullYear() : null;
+                    const settings = sidraSettings ?? DEFAULT_SIDRA_SCORE_SETTINGS;
+
+                    // What the settings ask for, and what would actually be
+                    // read once the missing years are stepped over.
+                    const wantedYear = publishedOn
+                      ? impactFactorLookupYear(publishedOn, settings, new Date().getFullYear())
+                      : null;
+                    // Against this journal's own years, which is what the
+                    // scorer walks. A year the journal has nothing in is not a
+                    // year the score can use, however well loaded the edition.
+                    const resolved = wantedYear != null
+                      ? resolveImpactFactorYear(
+                          wantedYear,
+                          journalYearsWithFactor,
+                          settings.impactFactorYear,
+                        )
+                      : { year: null, fellBack: false };
+                    const usedYear = resolved.year;
+                    // Whether the record is scored at all -- the period, the
+                    // status, the vetted flag -- is decided elsewhere and is
+                    // not this panel's business. It says which impact factor
+                    // the scoring would use, and nothing more.
+                    const hasUsableFactor = usedYear != null;
+
+                    const columns = [
+                      {
+                        key: "prior",
+                        label: "Year Before Publication",
+                        year: publicationYear != null ? publicationYear - 1 : null,
+                        metric: previousYearImpactFactor,
+                      },
+                      {
+                        key: "publication",
+                        label: "Publication Year",
+                        year: publicationYear,
+                        metric: impactFactor,
+                      },
+                      {
+                        key: "current",
+                        label: "Most Current",
+                        year: mostCurrentIfYear,
+                        metric: currentYearImpactFactor,
+                      },
+                    ];
+                    // Two columns can name the same year -- the year before a
+                    // 2026 publication and the most current year are both 2025
+                    // today -- and two "used" badges read as two factors being
+                    // used. Mark the first.
+                    const usedColumnKey =
+                      usedYear != null
+                        ? (columns.find((c) => c.year === usedYear)?.key ?? null)
+                        : null;
+                    const usedShown = usedColumnKey != null;
+
+                    return (
                     <div className="mt-2 p-3 bg-gray-50 rounded-lg dark:bg-gray-900">
                       <h4 className="text-sm font-medium text-gray-700 mb-3 dark:text-gray-300">Journal Impact Factor</h4>
                       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                        {/* Year Before Publication */}
-                        <div className="text-center">
-                          <div className="text-xs text-gray-500 mb-1 dark:text-gray-400">Year Before Publication</div>
-                          <div className="text-sm font-medium text-gray-700 dark:text-gray-300">
-                            {new Date(publication.publicationDate).getFullYear() - 1}
-                          </div>
-                          {previousYearImpactFactor ? (
-                            <>
-                              <div className="text-lg font-semibold text-blue-600 dark:text-blue-400">
-                                {previousYearImpactFactor.impactFactor}
+                        {columns.map((column) => {
+                          const isUsed = column.key === usedColumnKey;
+                          return (
+                            <div
+                              key={column.key}
+                              className={`rounded-md p-2 text-center ${
+                                isUsed ? "bg-primary/10 ring-1 ring-primary" : "opacity-70"
+                              }`}
+                              data-testid={`if-column-${column.key}`}
+                            >
+                              <div className="text-xs text-gray-500 mb-1 dark:text-gray-400">
+                                {column.label}
+                                {isUsed && (
+                                  <span className="ml-1 font-semibold text-primary">· used</span>
+                                )}
                               </div>
-                              {previousYearImpactFactor.quartile && (
-                                <span className={`inline-block px-2 py-1 rounded text-xs font-semibold mt-1 ${
-                                  previousYearImpactFactor.quartile === 'Q1' ? 'bg-green-100 text-green-800' :
-                                  previousYearImpactFactor.quartile === 'Q2' ? 'bg-blue-100 text-blue-800' :
-                                  previousYearImpactFactor.quartile === 'Q3' ? 'bg-yellow-100 text-yellow-800' :
-                                  'bg-red-100 text-red-800'
-                                }`}>
-                                  {previousYearImpactFactor.quartile}
-                                </span>
-                              )}
-                            </>
-                          ) : (
-                            <div className="text-lg text-gray-400 italic dark:text-gray-500">
-                              Not Available
-                            </div>
-                          )}
-                        </div>
-                        
-                        {/* Publication Year (Bold and Larger) */}
-                        <div className="text-center">
-                          <div className="text-xs text-gray-500 mb-1 dark:text-gray-400">Publication Year</div>
-                          <div className="text-lg font-bold text-gray-700 dark:text-gray-300">
-                            {new Date(publication.publicationDate).getFullYear()}
-                          </div>
-                          {impactFactor ? (
-                            <>
-                              <div className="text-2xl font-bold text-blue-600 dark:text-blue-400">
-                                {impactFactor.impactFactor}
+                              <div className={`text-sm ${isUsed ? "font-bold" : "font-medium"} text-gray-700 dark:text-gray-300`}>
+                                {column.year ?? "—"}
                               </div>
-                              {impactFactor.quartile && (
-                                <span className={`inline-block px-3 py-1 rounded text-sm font-bold mt-2 ${
-                                  impactFactor.quartile === 'Q1' ? 'bg-green-100 text-green-800' :
-                                  impactFactor.quartile === 'Q2' ? 'bg-blue-100 text-blue-800' :
-                                  impactFactor.quartile === 'Q3' ? 'bg-yellow-100 text-yellow-800' :
-                                  'bg-red-100 text-red-800'
-                                }`}>
-                                  {impactFactor.quartile}
-                                </span>
+                              {column.metric ? (
+                                <>
+                                  <div className={`${isUsed ? "text-2xl" : "text-lg"} font-semibold text-blue-600 dark:text-blue-400`}>
+                                    {column.metric.impactFactor}
+                                  </div>
+                                  {/* Plain text: a coloured quartile competes with
+                                      the figure the score actually uses, which is
+                                      what this panel is for. */}
+                                  {column.metric.quartile && (
+                                    <span className="mt-1 inline-block text-xs text-muted-foreground">
+                                      {column.metric.quartile}
+                                    </span>
+                                  )}
+                                </>
+                              ) : (
+                                <div className="text-lg text-gray-400 italic dark:text-gray-500">
+                                  Not Available
+                                </div>
                               )}
-                            </>
-                          ) : (
-                            <div className="text-xl font-bold text-gray-400 italic dark:text-gray-500">
-                              Not Available
                             </div>
-                          )}
-                        </div>
-                        
-                        {/* Most Current Year */}
-                        <div className="text-center">
-                          <div className="text-xs text-gray-500 mb-1 dark:text-gray-400">Most Current</div>
-                          <div className="text-sm font-medium text-gray-700 dark:text-gray-300">
-                            2024
-                          </div>
-                          {currentYearImpactFactor ? (
-                            <>
-                              <div className="text-lg font-semibold text-blue-600 dark:text-blue-400">
-                                {currentYearImpactFactor.impactFactor}
-                              </div>
-                              {currentYearImpactFactor.quartile && (
-                                <span className={`inline-block px-2 py-1 rounded text-xs font-semibold mt-1 ${
-                                  currentYearImpactFactor.quartile === 'Q1' ? 'bg-green-100 text-green-800' :
-                                  currentYearImpactFactor.quartile === 'Q2' ? 'bg-blue-100 text-blue-800' :
-                                  currentYearImpactFactor.quartile === 'Q3' ? 'bg-yellow-100 text-yellow-800' :
-                                  'bg-red-100 text-red-800'
-                                }`}>
-                                  {currentYearImpactFactor.quartile}
-                                </span>
-                              )}
-                            </>
-                          ) : (
-                            <div className="text-lg text-gray-400 italic dark:text-gray-500">
-                              Not Available
-                            </div>
-                          )}
-                        </div>
+                          );
+                        })}
                       </div>
+
+                      {/* Which one counts, and why. Without this the panel shows
+                          three numbers and leaves the reader to guess. */}
+                      <p className="mt-3 text-xs text-muted-foreground" data-testid="text-if-setting-note">
+                        {publishedOn == null ? (
+                          <span className="text-amber-700 dark:text-amber-400">
+                            No publication date, so no impact factor year applies.
+                          </span>
+                        ) : !hasUsableFactor ? (
+                          <span className="text-amber-700 dark:text-amber-400">
+                            {journalYearsWithFactor.length === 0
+                              ? `No impact factor is on record for ${publication.journal} in any year.`
+                              : `No impact factor is on record for ${publication.journal} within two years of ${wantedYear}.`}
+                          </span>
+                        ) : (
+                          <>
+                            The Sidra Score uses the{" "}
+                            <span className="font-medium text-foreground">
+                              {formatImpactFactorYear(usedYear)}
+                            </span>{" "}
+                            — {describeImpactFactorYearUsed(usedYear, publicationYear)}.
+                            {" "}
+                            {/* The rule as the reason, not as the description:
+                                saying "the publication year" while pointing at
+                                the year before it is a contradiction on screen,
+                                and the cut-off is what moved it. */}
+                            <span className="opacity-80">
+                              Impact Factor Year is set to{" "}
+                              {IMPACT_FACTOR_YEAR_LABELS[settings.impactFactorYear]}
+                              {settings.impactFactorCutoff &&
+                              settings.impactFactorCutoff !== DEFAULT_IMPACT_FACTOR_CUTOFF ? (
+                                <>
+                                  , and the year turns over on{" "}
+                                  {settings.impactFactorCutoff.split("-").join("/")}
+                                </>
+                              ) : null}
+                              .
+                            </span>
+                            {resolved.fellBack && wantedYear != null && (
+                              <>
+                                {" "}
+                                <span className="text-amber-700 dark:text-amber-400">
+                                  No {formatImpactFactorYear(wantedYear)} is on record for this
+                                  journal, so the nearest year was used instead.
+                                </span>
+                              </>
+                            )}
+                            {!usedShown && (
+                              <>
+                                {" "}
+                                <span className="text-amber-700 dark:text-amber-400">
+                                  That year is not one of the three shown here.
+                                </span>
+                              </>
+                            )}
+                          </>
+                        )}
+                      </p>
                     </div>
-                  )}
+                    );
+                  })()}
                 </div>
               )}
               

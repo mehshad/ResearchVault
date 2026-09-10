@@ -141,10 +141,29 @@ export const PUBLICATION_WORKFLOW_STAGES: PublicationWorkflowStage[] = [
 ];
 
 /**
+ * Outcomes drawn beside the sequence, as cards rather than as steps.
+ *
+ * Published - Invalid is where a published record goes when the office sends it
+ * back. The office selects it every day, and as a muted chip below the stage
+ * cards it did not read as something you could click -- but it is not a stage
+ * either: staff say "return to 7. Published", and there is no 9 in that
+ * vocabulary. So it sits in the row, drawn like a stage, carrying no number.
+ *
+ * Still listed in PUBLICATION_OFF_FLOW_STATES, which is what the coverage test
+ * and any other caller reads to mean "a status the flow can reach".
+ */
+export const PUBLICATION_OUTCOME_STATES: Array<{ label: string; statuses: string[] }> = [
+  { label: PUBLISHED_INVALID_LABEL, statuses: [PUBLISHED_INVALID_STATUS] },
+];
+
+/**
  * States that sit outside the linear progression. They are reachable from
  * several stages and are shown apart from the flow rather than inside it.
  */
 export const PUBLICATION_OFF_FLOW_STATES: Array<{ label: string; statuses: string[] }> = [
+  // Published - Invalid is here as a matter of fact -- it is off the flow --
+  // and is additionally in PUBLICATION_OUTCOME_STATES, which is only about
+  // where the filter draws it.
   { label: PUBLISHED_INVALID_LABEL, statuses: [PUBLISHED_INVALID_STATUS] },
   { label: "Rejected", statuses: ["Rejected"] },
   { label: "Withdrawn", statuses: [WITHDRAWN_STATUS] },

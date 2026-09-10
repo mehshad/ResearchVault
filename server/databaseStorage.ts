@@ -1,6 +1,7 @@
 // @ts-nocheck — Pre-existing TypeScript errors in this file are suppressed so `npx tsc --noEmit` runs clean and new code in other files gets reliable type-checking feedback.
 // Most errors here stem from untyped `useQuery` results (data inferred as `unknown`), drifted shared/schema field renames, and form values typed as `unknown`. They are not known runtime bugs but should be fixed file-by-file as each is next touched: remove this directive, run `npx tsc --noEmit`, and resolve what surfaces.
 import { eq, and, desc, asc, or, sql, inArray, notInArray, gte, ilike } from "drizzle-orm";
+import { normaliseQuartile } from "@shared/journalQuartile";
 import { ACCESS_ROLES, BUILT_IN_ASSIGNABLE_ROLES } from "@shared/constants";
 import {
   isGrantIncomplete,
@@ -97,20 +98,11 @@ export class GrantSdrLifecycleStorageError extends Error {
 }
 import { isPreprintRecord, preprintServerName, preprintLink, normalizeDoi, classifyResolvedPublication, preprintRepairEvidence } from "@shared/publicationDeduplication";
 
-/**
- * Normalize a journal name for tolerant matching across the slightly different
- * spellings used by publication sources vs. the impact-factor dataset.
- * Lowercases, drops a leading "The ", and collapses all punctuation/whitespace
- * to single spaces. e.g. "The Lancet. Oncology" -> "lancet oncology" which then
- * matches the dataset's "LANCET ONCOLOGY".
- */
-export function normalizeJournalName(name: string | null | undefined): string {
-  return (name ?? "")
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, " ")
-    .replace(/^the\s+/, "")
-    .trim();
-}
+// Re-exported so the existing importers here and in sidraScoreService keep
+// working; the definition lives in shared/ so the Impact Factors summary can
+// ask the same question this does.
+export { normalizeJournalName } from "@shared/journalName";
+import { normalizeJournalName } from "@shared/journalName";
 
 // SQL expression mirroring normalizeJournalName for a given column.
 const normalizedJournalSql = (col: any) =>
@@ -2593,7 +2585,12 @@ export class DatabaseStorage implements IStorage {
     setIfPresent('fiveYearJif', factor.fiveYearJif, true);
     setIfPresent('jifWithoutSelfCites', factor.jifWithoutSelfCites, true);
     setIfPresent('jci', factor.jci, true);
-    setIfPresent('quartile', factor.quartile);
+    // The last door before the column. The CSV import, the single-record
+    // POST and the PATCH all arrive here, so normalising once covers every
+    // one of them and nothing can write a value the restore would refuse.
+    if (factor.quartile !== undefined) {
+      providedMetric['quartile'] = normaliseQuartile(factor.quartile);
+    }
     setIfPresent('rank', factor.rank);
     setIfPresent('totalCitations', factor.totalCitations);
 

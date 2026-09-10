@@ -265,3 +265,30 @@ function situationOf(date: Date, cutoff: ImpactFactorCutoff): string {
   if (cutoff === DEFAULT_IMPACT_FACTOR_CUTOFF) return "";
   return before ? "before the cut-off" : "on or after the cut-off";
 }
+
+/**
+ * The year actually used, described against the year of publication.
+ *
+ * The settings name a rule ("the publication year"); the cut-off can move the
+ * answer off it. A note that read "uses the 2023 JIF — the publication year"
+ * beside a highlighted "Year Before Publication" column, on a paper published
+ * in February 2024, was describing the setting while pointing at the outcome,
+ * and the two disagreed on screen.
+ *
+ * So this describes the outcome. The rule that produced it is worth saying too,
+ * but as the reason rather than as the description.
+ */
+export function describeImpactFactorYearUsed(
+  usedYear: number,
+  publicationYear: number | null | undefined,
+): string {
+  if (publicationYear == null || !Number.isFinite(publicationYear)) {
+    return `the ${usedYear} impact factor`;
+  }
+  const offset = publicationYear - usedYear;
+  if (offset === 0) return "the publication year";
+  if (offset === 1) return "the year before publication";
+  if (offset === -1) return "the year after publication";
+  if (offset > 1) return `${offset} years before publication`;
+  return `${-offset} years after publication`;
+}

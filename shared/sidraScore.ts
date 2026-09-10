@@ -93,6 +93,22 @@ export const sidraScoreSettingsSchema = z
 
 export type SidraScoreSettings = z.infer<typeof sidraScoreSettingsSchema>;
 
+/**
+ * What each impactFactorYear choice means, in words a reader recognises.
+ *
+ * Shown on the publication detail panel beside the three impact factors, so a
+ * reader can see which of them the score is using and why. The setting name
+ * alone ("prior") explains nothing on a screen showing three years.
+ */
+export const IMPACT_FACTOR_YEAR_LABELS: Record<
+  SidraScoreSettings["impactFactorYear"],
+  string
+> = {
+  prior: "the year before publication",
+  publication: "the publication year",
+  latest: "the most recent year loaded",
+};
+
 export const DEFAULT_SIDRA_SCORE_SETTINGS: SidraScoreSettings = {
   years: 5,
   startMonth: undefined,

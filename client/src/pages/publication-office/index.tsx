@@ -36,6 +36,12 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Pencil, Save, X, Upload, Search, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, ChevronDown, ArrowUpDown, ArrowUp, ArrowDown, Star, Shield, FileText, BarChart3, Download, Calendar, User, Users, BookOpen, Award, TrendingUp, CopyCheck, AlertTriangle, UserX, Unlink, CheckCircle2, Sparkles, Loader2, Globe, Plus, RefreshCw, Info, ExternalLink } from "lucide-react";
 import { UploadingModal } from "@/components/ui/upload-modal";
+import { displayJournalName } from "@shared/journalName";
+import {
+  MISSING_REASON_LABELS,
+  shortYears,
+  type ImpactFactorSummary,
+} from "@shared/impactFactorSummary";
 import { PublicationDuplicates } from "@/components/PublicationDuplicates";
 import { useToast } from "@/hooks/use-toast";
 import { Link, useLocation, useSearch } from "wouter";
@@ -46,16 +52,23 @@ import type { SidraScoreResult, SidraScoreSettings } from "@shared/sidraScore";
 import {
   IP_VETTING_READY_STATUS,
   PUBLISHED_STATUS,
+  PUBLISHED_FINAL_STATUS,
   PUBLICATION_WORKFLOW_STAGES,
   PUBLICATION_OFF_FLOW_STATES,
   isReadyForIpVetting,
 } from "@shared/publicationWorkflow";
 import { PublicationWorkflowFilter, ALL_STATES } from "@/components/PublicationWorkflowFilter";
+import {
+  DEFAULT_VETTING_FILTERS,
+  readVettingFilters,
+  writeVettingFilters,
+  type VettingFilters,
+} from "@/lib/publicationVettingFilters";
 import { SidraScoreDetails } from "@/components/SidraScoreDetails";
 import { classifyAuthorEntries, type ClassifiedAuthorEntry } from "@shared/authorMatching";
 
 /**
- * Quick year ranges on the New Publications queue, counted in calendar years
+ * Quick year ranges on the Publication vetting queue, counted in calendar years
  * including the current one -- "3 years" is this year and the two before it,
  * which is what someone reading the label expects rather than a rolling window
  * ending on today's date in 2023.
@@ -162,17 +175,24 @@ export default function PublicationOffice({ embeddedTab }: PublicationOfficeProp
     embeddedTab ?? getPublicationOfficeTab(window.location.search)
   );
 
-  // New Publications tab filters (issue/tag, scientist, publication date range)
+  // Publication vetting filters (issue/tag, scientist, publication date range)
   // Defaults to records with no outstanding issues: those are the ones the
   // office can actually act on. Anything with a missing SDR, missing internal
   // authors or missing data needs fixing before it can be sealed or sent back.
-  const [npTagFilter, setNpTagFilter] = useState<string>("no-issues");
+  //
+  // All six are remembered per browser: an officer works the same slice every
+  // day and was re-choosing it on every visit, including after following a
+  // publication and coming back. See lib/publicationVettingFilters.ts.
+  const [npFilters] = useState<VettingFilters>(() =>
+    readVettingFilters(DEFAULT_VETTING_FILTERS),
+  );
+  const [npTagFilter, setNpTagFilter] = useState<string>(npFilters.tag);
   // Workflow-state filter. Defaults to Published: those are the records awaiting
   // an office decision (seal, or send back for correction).
-  const [npStatusFilter, setNpStatusFilter] = useState<string>(PUBLISHED_STATUS);
-  const [npScientistId, setNpScientistId] = useState<string>("all");
-  const [npDateFrom, setNpDateFrom] = useState<string>("");
-  const [npDateTo, setNpDateTo] = useState<string>("");
+  const [npStatusFilter, setNpStatusFilter] = useState<string>(npFilters.status);
+  const [npScientistId, setNpScientistId] = useState<string>(npFilters.scientistId);
+  const [npDateFrom, setNpDateFrom] = useState<string>(npFilters.dateFrom);
+  const [npDateTo, setNpDateTo] = useState<string>(npFilters.dateTo);
   /**
    * Quick year range, alongside the explicit From/To dates rather than instead
    * of them: both apply, so a narrower hand-typed range still narrows.
@@ -180,7 +200,21 @@ export default function PublicationOffice({ embeddedTab }: PublicationOfficeProp
    * Defaults to this year -- the queue an officer works is the current year's
    * output, and the full history was in the way of it.
    */
-  const [npYearRange, setNpYearRange] = useState<NpYearRange>("this-year");
+  const [npYearRange, setNpYearRange] = useState<NpYearRange>(npFilters.yearRange);
+
+  // Written on every change rather than on leaving the page: there is no
+  // reliable "leaving" for a tab somebody closes, and the write is a few
+  // hundred bytes.
+  useEffect(() => {
+    writeVettingFilters({
+      status: npStatusFilter,
+      tag: npTagFilter,
+      scientistId: npScientistId,
+      dateFrom: npDateFrom,
+      dateTo: npDateTo,
+      yearRange: npYearRange,
+    });
+  }, [npStatusFilter, npTagFilter, npScientistId, npDateFrom, npDateTo, npYearRange]);
 
   // IP Vetting defaults to the actual workflow stage. The wider unvetted
   // backlog is available for review by publication year when needed.
@@ -561,6 +595,20 @@ export default function PublicationOffice({ embeddedTab }: PublicationOfficeProp
     navigate(`/publications?journal=${encodeURIComponent(name)}`);
   };
 
+  // What is loaded and what is missing, for the card above the table.
+  const { data: summary } = useQuery<ImpactFactorSummary>({
+    queryKey: ['/api/journal-impact-factors/summary'],
+    queryFn: async () => {
+      const response = await fetch('/api/journal-impact-factors/summary');
+      if (!response.ok) throw new Error('Failed to fetch impact factor summary');
+      return response.json();
+    },
+  });
+  const shortYearSet = useMemo(
+    () => new Set(shortYears(summary?.years ?? [])),
+    [summary?.years],
+  );
+
   // Available metric years for the export-year picker
   const { data: availableYears = [] } = useQuery<number[]>({
     queryKey: ['/api/journal-impact-factors/years'],
@@ -727,24 +775,42 @@ export default function PublicationOffice({ embeddedTab }: PublicationOfficeProp
   // A record is finalized when EITHER the vetted flag is set OR its status
   // already carries the "*" (Published *) final marker — some records have the
   // final status without the flag, and those must not reappear here.
-  const newPublications = useMemo(
+  const workingPublications = useMemo(
     () => officePublications.filter((pub: Publication) =>
       pub.vettedForSubmissionByIpOffice !== true &&
       !pub.status?.includes('*')
     ),
     [officePublications],
   );
+  const sealedQueuePublications = useMemo(
+    () => officePublications.filter((pub: Publication) => !!pub.status?.includes('*')),
+    [officePublications],
+  );
+  /**
+   * What the queue lists.
+   *
+   * Sealed records are kept out of the working queue -- they need no decision,
+   * and 101 of them would bury the handful that do. But they used to be
+   * unreachable from this screen entirely, so an officer wanting to look at a
+   * finished record had nowhere to go. Selecting the sealed stage now brings
+   * them in, and All states means all states.
+   */
+  const newPublications = useMemo(() => {
+    if (npStatusFilter === PUBLISHED_FINAL_STATUS) return sealedQueuePublications;
+    if (npStatusFilter === ALL_STATES) return officePublications;
+    return workingPublications;
+  }, [npStatusFilter, officePublications, sealedQueuePublications, workingPublications]);
   const newPublicationsLoading = officePublicationsLoading;
 
   // Per-publication internal author counts, used to flag publications with no
-  // linked internal scientist/author records on the New Publications tab.
+  // linked internal scientist/author records on the Publication vetting tab.
   const { data: authorCounts = {} } = useQuery<Record<number, number>>({
     queryKey: ['/api/publications/author-counts'],
     enabled: activeTab === "new-publications"
   });
 
   // Per-publication linked internal scientists, used to power the "filter by
-  // scientist" control on the New Publications tab.
+  // scientist" control on the Publication vetting tab.
   const { data: authorMap = {} } = useQuery<Record<number, Array<{ id: number; name: string }>>>({
     queryKey: ['/api/publications/author-map'],
     enabled: activeTab === "new-publications"
@@ -965,22 +1031,24 @@ export default function PublicationOffice({ embeddedTab }: PublicationOfficeProp
   // Counts per stored status across everything the office can act on, so the
   // workflow strip reflects this list rather than a separate query.
   const npCountsByStatus = useMemo(() => {
+    // From the working set, not from whatever is currently listed: a count
+    // that moved when you clicked a stage would be describing your filter
+    // rather than the queue.
     const counts: Record<string, number> = {};
-    for (const pub of newPublications) {
+    for (const pub of workingPublications) {
       const status = pub.status ?? "";
       if (status) counts[status] = (counts[status] ?? 0) + 1;
     }
     return counts;
-  }, [newPublications]);
+  }, [workingPublications]);
 
   // Sealed records are excluded from the list by design, so the terminal stage
   // count is derived from the same office set rather than fetched again.
-  const sealedCount = useMemo(
-    () => officePublications.filter((pub: Publication) => pub.status?.includes('*')).length,
-    [officePublications],
-  );
+  // Named for the queue: Publication Tools has its own sealedPublications,
+  // which is a search result rather than the whole set.
+  const sealedCount = sealedQueuePublications.length;
 
-  // Apply the New Publications filters (workflow state, issue/tag, scientist, dates).
+  // Apply the Publication vetting filters (workflow state, issue/tag, scientist, dates).
   const filteredNewPublications = useMemo(() => {
     return newPublications.filter((pub) => {
       const { missingFields, hasInternalAuthors, hasSdr, hasSdrExemption, isVetted, hasIssues } = getPubIssues(pub);
@@ -1662,7 +1730,7 @@ export default function PublicationOffice({ embeddedTab }: PublicationOfficeProp
             {/* Counts what the list actually shows. The list opens filtered to a
                 workflow state, so counting the unfiltered set here would make the
                 tab and the list disagree the moment the tab is opened. */}
-            New Publications ({filteredNewPublications.length})
+            Publication vetting ({filteredNewPublications.length})
           </TabsTrigger>
           <TabsTrigger value="find-papers" className="flex items-center gap-2" data-testid="tab-find-papers">
             <Globe className="h-4 w-4" />
@@ -1789,14 +1857,14 @@ export default function PublicationOffice({ embeddedTab }: PublicationOfficeProp
           </Card>
         </TabsContent>
 
-        {/* New Publications Tab */}
+        {/* Publication vetting tab */}
         <TabsContent value="new-publications" className="space-y-6">
           <Card>
             <CardHeader>
               <div className="flex items-center justify-between gap-2">
                 <CardTitle className="flex items-center gap-2">
                   <FileText className="h-5 w-5" />
-                  New Publications
+                  Publication vetting
                 </CardTitle>
                 <Button
                   variant="outline"
@@ -1817,7 +1885,7 @@ export default function PublicationOffice({ embeddedTab }: PublicationOfficeProp
                     sealedCount={sealedCount}
                     selected={npStatusFilter}
                     onSelect={setNpStatusFilter}
-                    total={newPublications.length}
+                    total={officePublications.length}
                   />
                 </div>
               )}
@@ -1904,20 +1972,25 @@ export default function PublicationOffice({ embeddedTab }: PublicationOfficeProp
                         ))}
                       </div>
                     </div>
-                    {(npTagFilter !== "no-issues" || npScientistId !== "all" || npDateFrom || npDateTo
-                      || npStatusFilter !== PUBLISHED_STATUS || npYearRange !== "this-year") && (
+                    {/* Compared against the one definition of the defaults, so
+                        Clear cannot drift from what the queue opens on. */}
+                    {(npTagFilter !== DEFAULT_VETTING_FILTERS.tag
+                      || npScientistId !== DEFAULT_VETTING_FILTERS.scientistId
+                      || npDateFrom || npDateTo
+                      || npStatusFilter !== DEFAULT_VETTING_FILTERS.status
+                      || npYearRange !== DEFAULT_VETTING_FILTERS.yearRange) && (
                       <Button
                         variant="ghost"
                         size="sm"
                         onClick={() => {
-                          setNpTagFilter("no-issues");
-                          setNpScientistId("all");
-                          setNpDateFrom("");
-                          setNpDateTo("");
-                          setNpYearRange("this-year");
-                          // Back to the office default rather than "all": Published
-                          // is the state awaiting a decision.
-                          setNpStatusFilter(PUBLISHED_STATUS);
+                          setNpTagFilter(DEFAULT_VETTING_FILTERS.tag);
+                          setNpScientistId(DEFAULT_VETTING_FILTERS.scientistId);
+                          setNpDateFrom(DEFAULT_VETTING_FILTERS.dateFrom);
+                          setNpDateTo(DEFAULT_VETTING_FILTERS.dateTo);
+                          setNpYearRange(DEFAULT_VETTING_FILTERS.yearRange);
+                          // Back to the office default rather than "all":
+                          // Published is the state awaiting a decision.
+                          setNpStatusFilter(DEFAULT_VETTING_FILTERS.status);
                         }}
                         data-testid="button-np-clear-filters"
                       >
@@ -1931,7 +2004,36 @@ export default function PublicationOffice({ embeddedTab }: PublicationOfficeProp
                   </div>
                   {filteredNewPublications.length === 0 ? (
                     <div className="text-center py-8 text-muted-foreground">
-                      No publications match the current filters
+                      {/* Which filter emptied it, not just that it is empty.
+                          Selecting a stage while the issue filter still says
+                          "no issues" shows "0 of 1", and without this the stage
+                          looks broken rather than filtered. */}
+                      {newPublications.length > 0 ? (
+                        <>
+                          <p>
+                            No publications match the current filters — {newPublications.length}{" "}
+                            {newPublications.length === 1 ? "record is" : "records are"} in this
+                            stage, filtered out by the others.
+                          </p>
+                          <Button
+                            variant="link"
+                            size="sm"
+                            className="mt-1"
+                            onClick={() => {
+                              setNpTagFilter("all");
+                              setNpScientistId(DEFAULT_VETTING_FILTERS.scientistId);
+                              setNpDateFrom("");
+                              setNpDateTo("");
+                              setNpYearRange("all");
+                            }}
+                            data-testid="button-np-widen-filters"
+                          >
+                            Show them
+                          </Button>
+                        </>
+                      ) : (
+                        <p>No publications match the current filters</p>
+                      )}
                     </div>
                   ) : (
                 <div className="space-y-4">
@@ -3366,87 +3468,96 @@ export default function PublicationOffice({ embeddedTab }: PublicationOfficeProp
             </p>
           </div>
 
-          <div className="flex justify-between items-center">
-            <div></div>
-            <div className="flex gap-2">
-              <Label htmlFor="csv-upload" className="cursor-pointer">
-                <Button variant="outline" asChild>
-                  <span>
-                    <Upload className="h-4 w-4 mr-2" />
-                    Import CSV
-                  </span>
-                </Button>
-                <Input
-                  id="csv-upload"
-                  type="file"
-                  accept=".csv"
-                  onChange={handleCSVImport}
-                  className="hidden"
-                />
-              </Label>
-              <Dialog open={exportDialogOpen} onOpenChange={setExportDialogOpen}>
-                <DialogTrigger asChild>
-                  <Button variant="outline" data-testid="button-open-export-dialog">
-                    <Download className="h-4 w-4 mr-2" />
-                    Export CSV
-                  </Button>
-                </DialogTrigger>
-                <DialogContent className="max-w-md">
-                  <DialogHeader>
-                    <DialogTitle>Export Impact Factors</DialogTitle>
-                    <DialogDescription>
-                      Exports one row per journal for the selected year. The current search, field, and impact-factor-range filters are applied.
-                    </DialogDescription>
-                  </DialogHeader>
-                  <div className="space-y-4 py-2">
-                    <div>
-                      <Label htmlFor="export-year">Year</Label>
-                      <Select value={exportYear} onValueChange={setExportYear}>
-                        <SelectTrigger id="export-year" data-testid="select-export-year">
-                          <SelectValue placeholder="Select a year" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {availableYears.map((y) => (
-                            <SelectItem key={y} value={String(y)} data-testid={`option-export-year-${y}`}>
-                              {/* Both names: a bare year here is what let a
-                                  JCR 2026 download be filed as 2026. */}
-                              {formatImpactFactorYear(y)}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    </div>
-                    <div className="text-xs text-muted-foreground space-y-1">
-                      <div>Filters that will be applied:</div>
-                      <ul className="list-disc pl-5">
-                        <li>Search: {debouncedSearchTerm ? <span className="font-mono">{debouncedSearchTerm}</span> : <span className="italic">none</span>}</li>
-                        <li>
-                          Fields: {fieldFilter.length === 0
-                            ? <span className="italic">all</span>
-                            : fieldFilter.length <= 2
-                              ? fieldFilter.join(', ')
-                              : `${fieldFilter.length} selected`}
-                        </li>
-                        <li>
-                          Impact factor:{' '}
-                          {debouncedIfRange[0] === IF_SLIDER_MIN && debouncedIfRange[1] >= IF_SLIDER_MAX
-                            ? <span className="italic">any</span>
-                            : <span className="tabular-nums">{debouncedIfRange[0].toFixed(1)} – {debouncedIfRange[1] >= IF_SLIDER_MAX ? `${IF_SLIDER_MAX}+` : debouncedIfRange[1].toFixed(1)}</span>}
-                        </li>
-                      </ul>
-                    </div>
-                  </div>
-                  <div className="flex justify-end gap-2">
-                    <Button variant="outline" onClick={() => setExportDialogOpen(false)} data-testid="button-cancel-export">Cancel</Button>
-                    <Button onClick={handleExportImpactFactors} disabled={!exportYear} data-testid="button-confirm-export">
-                      <Download className="h-4 w-4 mr-2" />
-                      Download CSV
-                    </Button>
-                  </div>
-                </DialogContent>
-              </Dialog>
+          {/* What is loaded, and what is not.
+              The years arrive as separate files years apart, so a short year is
+              invisible until somebody adds them up -- the 2024 set sat at 1,758
+              against 21,787 for 2023 for weeks and nothing said so. And the
+              journals we publish in are held as free text on the publication,
+              so a missing factor is usually a name that does not match rather
+              than a factor that does not exist, which makes the second half a
+              worklist rather than a statistic. */}
+          {summary && (
+            <div className="rounded-md border">
+              <div className="flex flex-wrap items-baseline justify-between gap-2 border-b px-4 py-3">
+                <h3 className="font-medium">Impact factor summary</h3>
+                <p className="text-sm text-muted-foreground" data-testid="text-if-coverage">
+                  {summary.publishedIn.covered} of {summary.publishedIn.total} journals we
+                  publish in have an impact factor
+                </p>
+              </div>
+
+              {/* Side by side: the counts are short and the worklist is short,
+                  and stacked they pushed the filters and the table itself off
+                  the screen. */}
+              <div className="grid gap-0 md:grid-cols-2 md:divide-x">
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b text-left text-muted-foreground">
+                      <th className="px-4 py-2 font-medium">Year</th>
+                      <th className="px-4 py-2 font-medium text-right">Journals</th>
+                      <th className="px-4 py-2 font-medium text-right">Covers ours</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {summary.years.map((year) => {
+                      const short = shortYearSet.has(year.year);
+                      return (
+                        <tr key={year.year} className="border-b last:border-0">
+                          <td className="px-4 py-2 whitespace-nowrap">
+                            {formatImpactFactorYear(year.year)}
+                          </td>
+                          <td className="px-4 py-2 text-right tabular-nums">
+                            {year.factors.toLocaleString()}
+                            {/* Named rather than left for somebody to notice:
+                                a third of the largest year is a part-loaded
+                                file, not a quiet year in publishing. */}
+                            {short && (
+                              <span className="ml-2 text-xs text-amber-700 dark:text-amber-400">
+                                looks part-loaded
+                              </span>
+                            )}
+                          </td>
+                          <td className="px-4 py-2 text-right tabular-nums">
+                            {year.coversPublishedIn} of {summary.publishedIn.total}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+
+              {summary.publishedIn.missing.length > 0 && (
+                <div className="border-t px-4 py-3 md:border-t-0">
+                  <p className="text-sm font-medium mb-1">
+                    No impact factor in any year ({summary.publishedIn.missing.length})
+                  </p>
+                  <p className="text-xs text-muted-foreground mb-2">
+                    Journal names taken from the publications themselves. Most are a spelling
+                    the impact factor list does not carry rather than a journal without one.
+                  </p>
+                  <ul className="space-y-1 text-sm">
+                    {summary.publishedIn.missing.map((row) => (
+                      <li key={row.journal} className="flex flex-wrap items-baseline gap-x-2">
+                        <span className="font-mono text-xs">{row.journal}</span>
+                        <span className="text-xs text-muted-foreground">
+                          {row.publications} publication{row.publications === 1 ? "" : "s"}
+                        </span>
+                        {row.suggestion && (
+                          <span className="text-xs text-emerald-700 dark:text-emerald-400">
+                            &rarr; {displayJournalName(row.suggestion)}
+                            {row.reason ? ` (${MISSING_REASON_LABELS[row.reason]})` : ""}
+                          </span>
+                        )}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+              </div>
             </div>
-          </div>
+          )}
 
           <Card>
             <CardHeader>
@@ -3582,10 +3693,101 @@ export default function PublicationOffice({ embeddedTab }: PublicationOfficeProp
       </Card>
 
       <Card>
-        <CardHeader>
-          <CardTitle>
-            Impact Factors ({totalRecords.toLocaleString()} journals, showing page {currentPage} of {totalPages})
-          </CardTitle>
+        {/* Import and Export sit on the table they act on, rather than at the
+            top of the page above the summary and the filters -- from there it
+            was not obvious what they would export, and the filters that narrow
+            the export were between the button and the table. */}
+        <CardHeader className="flex flex-row items-start justify-between gap-4 space-y-0">
+          <div className="min-w-0 flex-1">
+            <CardTitle>
+              Impact Factors ({totalRecords.toLocaleString()} journals, showing page {currentPage} of {totalPages})
+            </CardTitle>
+            {/* Said here because the Year column changes from row to row and
+                nothing else explains why: each journal is shown at whatever
+                year we last hold for it, not at a year the reader chose. */}
+            <CardDescription className="mt-1">
+              One row per journal, at the most recent year on record for that journal — so the
+              Year column varies. Select a journal to see every year we hold for it.
+            </CardDescription>
+          </div>
+          <div className="flex shrink-0 gap-2">
+              <Label htmlFor="csv-upload" className="cursor-pointer">
+                <Button variant="outline" asChild>
+                  <span>
+                    <Upload className="h-4 w-4 mr-2" />
+                    Import CSV
+                  </span>
+                </Button>
+                <Input
+                  id="csv-upload"
+                  type="file"
+                  accept=".csv"
+                  onChange={handleCSVImport}
+                  className="hidden"
+                />
+              </Label>
+              <Dialog open={exportDialogOpen} onOpenChange={setExportDialogOpen}>
+                <DialogTrigger asChild>
+                  <Button variant="outline" data-testid="button-open-export-dialog">
+                    <Download className="h-4 w-4 mr-2" />
+                    Export CSV
+                  </Button>
+                </DialogTrigger>
+                <DialogContent className="max-w-md">
+                  <DialogHeader>
+                    <DialogTitle>Export Impact Factors</DialogTitle>
+                    <DialogDescription>
+                      Exports one row per journal for the selected year. The current search, field, and impact-factor-range filters are applied.
+                    </DialogDescription>
+                  </DialogHeader>
+                  <div className="space-y-4 py-2">
+                    <div>
+                      <Label htmlFor="export-year">Year</Label>
+                      <Select value={exportYear} onValueChange={setExportYear}>
+                        <SelectTrigger id="export-year" data-testid="select-export-year">
+                          <SelectValue placeholder="Select a year" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {availableYears.map((y) => (
+                            <SelectItem key={y} value={String(y)} data-testid={`option-export-year-${y}`}>
+                              {/* Both names: a bare year here is what let a
+                                  JCR 2026 download be filed as 2026. */}
+                              {formatImpactFactorYear(y)}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="text-xs text-muted-foreground space-y-1">
+                      <div>Filters that will be applied:</div>
+                      <ul className="list-disc pl-5">
+                        <li>Search: {debouncedSearchTerm ? <span className="font-mono">{debouncedSearchTerm}</span> : <span className="italic">none</span>}</li>
+                        <li>
+                          Fields: {fieldFilter.length === 0
+                            ? <span className="italic">all</span>
+                            : fieldFilter.length <= 2
+                              ? fieldFilter.join(', ')
+                              : `${fieldFilter.length} selected`}
+                        </li>
+                        <li>
+                          Impact factor:{' '}
+                          {debouncedIfRange[0] === IF_SLIDER_MIN && debouncedIfRange[1] >= IF_SLIDER_MAX
+                            ? <span className="italic">any</span>
+                            : <span className="tabular-nums">{debouncedIfRange[0].toFixed(1)} – {debouncedIfRange[1] >= IF_SLIDER_MAX ? `${IF_SLIDER_MAX}+` : debouncedIfRange[1].toFixed(1)}</span>}
+                        </li>
+                      </ul>
+                    </div>
+                  </div>
+                  <div className="flex justify-end gap-2">
+                    <Button variant="outline" onClick={() => setExportDialogOpen(false)} data-testid="button-cancel-export">Cancel</Button>
+                    <Button onClick={handleExportImpactFactors} disabled={!exportYear} data-testid="button-confirm-export">
+                      <Download className="h-4 w-4 mr-2" />
+                      Download CSV
+                    </Button>
+                  </div>
+                </DialogContent>
+              </Dialog>
+          </div>
         </CardHeader>
         <CardContent>
           {/* Top horizontal scrollbar synced with the table below, so users
@@ -3658,7 +3860,7 @@ export default function PublicationOffice({ embeddedTab }: PublicationOfficeProp
                           className="w-full"
                         />
                       ) : (
-                        <span className="font-medium">{factor.journalName}</span>
+                        <span className="font-medium">{displayJournalName(factor.journalName)}</span>
                       )}
                     </TableCell>
                     <TableCell onClick={(e) => e.stopPropagation()}>
@@ -3770,14 +3972,12 @@ export default function PublicationOffice({ embeddedTab }: PublicationOfficeProp
                           className="w-16"
                         />
                       ) : factor.quartile ? (
-                        <span className={`px-2 py-1 rounded text-xs font-semibold ${
-                          factor.quartile === 'Q1' ? 'bg-green-100 text-green-800' :
-                          factor.quartile === 'Q2' ? 'bg-blue-100 text-blue-800' :
-                          factor.quartile === 'Q3' ? 'bg-yellow-100 text-yellow-800' :
-                          'bg-red-100 text-red-800'
-                        }`}>
-                          {factor.quartile}
-                        </span>
+                        // Plain text on purpose. A green Q1 against a red Q4
+                        // reads as good against bad, which is not what a
+                        // quartile says -- it is the journal's rank within its
+                        // own subject category, and a Q4 statistics journal is
+                        // not a worse place to publish statistics.
+                        <span>{factor.quartile}</span>
                       ) : null}
                     </TableCell>
                     <TableCell>
@@ -4263,7 +4463,7 @@ export default function PublicationOffice({ embeddedTab }: PublicationOfficeProp
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <TrendingUp className="h-5 w-5" />
-              {selectedJournal?.journalName}
+              {displayJournalName(selectedJournal?.journalName)}
             </DialogTitle>
             <DialogDescription>
               Impact factor trend analysis and journal details
@@ -4365,16 +4565,7 @@ export default function PublicationOffice({ embeddedTab }: PublicationOfficeProp
                         <div className="space-y-1">
                           <p><span className="font-medium">Impact Factor:</span> {latestData.impactFactor ?? 'N/A'}</p>
                           <p><span className="font-medium">5-Year JIF:</span> {latestData.fiveYearJif ?? 'N/A'}</p>
-                          <p><span className="font-medium">Quartile:</span> 
-                            <span className={`ml-2 px-2 py-1 rounded text-xs font-semibold ${
-                              latestData.quartile === 'Q1' ? 'bg-green-100 text-green-800' :
-                              latestData.quartile === 'Q2' ? 'bg-blue-100 text-blue-800' :
-                              latestData.quartile === 'Q3' ? 'bg-yellow-100 text-yellow-800' :
-                              'bg-red-100 text-red-800'
-                            }`}>
-                              {latestData.quartile ?? 'N/A'}
-                            </span>
-                          </p>
+                          <p><span className="font-medium">Quartile:</span> {latestData.quartile ?? 'N/A'}</p>
                           <p><span className="font-medium">Rank:</span> {latestData.rank ?? 'N/A'}</p>
                         </div>
                       </>
@@ -4522,7 +4713,7 @@ export default function PublicationOffice({ embeddedTab }: PublicationOfficeProp
                     <>
                       {Number.isFinite(currentIf) && percentile != null && (
                         <p className="text-sm text-muted-foreground mb-2" data-testid="text-field-percentile">
-                          <span className="font-medium text-foreground">{selectedJournal.journalName}</span>
+                          <span className="font-medium text-foreground">{displayJournalName(selectedJournal.journalName)}</span>
                           {' '}has IF <span className="font-medium text-foreground">{currentIf.toFixed(3)}</span>,
                           ranking in the <span className="font-medium text-foreground">{percentile}th percentile</span> of its field.
                         </p>
