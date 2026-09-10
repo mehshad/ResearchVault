@@ -2,6 +2,7 @@ import { ChevronRight, Star, Lock } from "lucide-react";
 import {
   PUBLICATION_WORKFLOW_STAGES,
   PUBLICATION_OFF_FLOW_STATES,
+  PUBLICATION_OUTCOME_STATES,
 } from "@shared/publicationWorkflow";
 import { cn } from "@/lib/utils";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
@@ -64,20 +65,21 @@ export function PublicationWorkflowFilter({
           {PUBLICATION_WORKFLOW_STAGES.map((stage, index) => {
             const isSealed = stage.sealed === true;
             const count = isSealed ? (sealedCount ?? 0) : sumFor(stage.statuses, countsByStatus);
-            const isSelected = !isSealed && stage.statuses.includes(selected);
+            // Sealed records are selectable now: the list fetches them when
+            // this stage is chosen. They were unreachable from here, so an
+            // officer wanting to look at a finished record had nowhere to go.
+            const isSelected = stage.statuses.includes(selected);
             const isEmpty = count === 0;
 
             const node = (
               <button
                 type="button"
-                disabled={isSealed}
-                onClick={() => !isSealed && onSelect(stage.statuses[0])}
+                onClick={() => onSelect(stage.statuses[0])}
                 className={cn(
                   "flex min-w-[104px] flex-col items-start rounded-lg border px-2.5 py-2 text-left transition-colors",
                   isSelected
                     ? "border-primary bg-primary/10 ring-1 ring-primary"
                     : "border-border hover:bg-muted",
-                  isSealed && "cursor-default opacity-70 hover:bg-transparent",
                   isEmpty && !isSelected && "opacity-60",
                 )}
                 data-testid={`filter-stage-${stage.stage}`}
@@ -105,8 +107,8 @@ export function PublicationWorkflowFilter({
                   <Tooltip>
                     <TooltipTrigger asChild>{node}</TooltipTrigger>
                     <TooltipContent>
-                      Sealed records are not listed here. Revert a final approval from
-                      Publication Tools.
+                      Sealed and read-only. Select to review them; revert a final approval
+                      from Publication Tools.
                     </TooltipContent>
                   </Tooltip>
                 ) : (
@@ -118,6 +120,46 @@ export function PublicationWorkflowFilter({
               </div>
             );
           })}
+
+          {/* Outcomes, drawn like stages but carrying no number: staff say
+              "return to 7. Published", and there is no 9 in that vocabulary.
+              Separated by a rule rather than an arrow, because an outcome is
+              reached from several stages and not from the one before it. */}
+          {PUBLICATION_OUTCOME_STATES.map((state) => {
+            const count = sumFor(state.statuses, countsByStatus);
+            const isSelected = state.statuses.includes(selected);
+            const isEmpty = count === 0;
+            return (
+              <div key={state.label} className="flex items-center gap-1">
+                <span className="mx-1 h-10 w-px shrink-0 bg-border" aria-hidden />
+                <button
+                  type="button"
+                  onClick={() => onSelect(state.statuses[0])}
+                  className={cn(
+                    "flex min-w-[104px] flex-col items-start rounded-lg border border-dashed px-2.5 py-2 text-left transition-colors",
+                    isSelected
+                      ? "border-primary bg-primary/10 ring-1 ring-primary"
+                      : "border-border hover:bg-muted",
+                    isEmpty && !isSelected && "opacity-60",
+                  )}
+                  data-testid={`filter-outcome-${state.statuses[0]}`}
+                >
+                  <span className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+                    Outcome
+                  </span>
+                  <span className="mt-0.5 text-[11px] font-medium leading-tight">{state.label}</span>
+                  <span
+                    className={cn(
+                      "mt-1 text-lg font-semibold leading-none",
+                      isSelected ? "text-primary" : isEmpty ? "text-muted-foreground" : "",
+                    )}
+                  >
+                    {count}
+                  </span>
+                </button>
+              </div>
+            );
+          })}
         </div>
 
         {/* Off-flow states are reachable from several stages, so they sit apart
@@ -126,7 +168,10 @@ export function PublicationWorkflowFilter({
           <span className="text-[10px] uppercase tracking-wide text-muted-foreground">
             Off flow
           </span>
-          {PUBLICATION_OFF_FLOW_STATES.map((state) => {
+          {PUBLICATION_OFF_FLOW_STATES.filter(
+            (state) =>
+              !PUBLICATION_OUTCOME_STATES.some((o) => o.statuses[0] === state.statuses[0]),
+          ).map((state) => {
             const count = sumFor(state.statuses, countsByStatus);
             const isSelected = state.statuses.includes(selected);
             return (

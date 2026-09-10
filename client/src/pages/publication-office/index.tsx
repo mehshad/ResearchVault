@@ -52,16 +52,23 @@ import type { SidraScoreResult, SidraScoreSettings } from "@shared/sidraScore";
 import {
   IP_VETTING_READY_STATUS,
   PUBLISHED_STATUS,
+  PUBLISHED_FINAL_STATUS,
   PUBLICATION_WORKFLOW_STAGES,
   PUBLICATION_OFF_FLOW_STATES,
   isReadyForIpVetting,
 } from "@shared/publicationWorkflow";
 import { PublicationWorkflowFilter, ALL_STATES } from "@/components/PublicationWorkflowFilter";
+import {
+  DEFAULT_VETTING_FILTERS,
+  readVettingFilters,
+  writeVettingFilters,
+  type VettingFilters,
+} from "@/lib/publicationVettingFilters";
 import { SidraScoreDetails } from "@/components/SidraScoreDetails";
 import { classifyAuthorEntries, type ClassifiedAuthorEntry } from "@shared/authorMatching";
 
 /**
- * Quick year ranges on the New Publications queue, counted in calendar years
+ * Quick year ranges on the Publication vetting queue, counted in calendar years
  * including the current one -- "3 years" is this year and the two before it,
  * which is what someone reading the label expects rather than a rolling window
  * ending on today's date in 2023.
@@ -168,17 +175,24 @@ export default function PublicationOffice({ embeddedTab }: PublicationOfficeProp
     embeddedTab ?? getPublicationOfficeTab(window.location.search)
   );
 
-  // New Publications tab filters (issue/tag, scientist, publication date range)
+  // Publication vetting filters (issue/tag, scientist, publication date range)
   // Defaults to records with no outstanding issues: those are the ones the
   // office can actually act on. Anything with a missing SDR, missing internal
   // authors or missing data needs fixing before it can be sealed or sent back.
-  const [npTagFilter, setNpTagFilter] = useState<string>("no-issues");
+  //
+  // All six are remembered per browser: an officer works the same slice every
+  // day and was re-choosing it on every visit, including after following a
+  // publication and coming back. See lib/publicationVettingFilters.ts.
+  const [npFilters] = useState<VettingFilters>(() =>
+    readVettingFilters(DEFAULT_VETTING_FILTERS),
+  );
+  const [npTagFilter, setNpTagFilter] = useState<string>(npFilters.tag);
   // Workflow-state filter. Defaults to Published: those are the records awaiting
   // an office decision (seal, or send back for correction).
-  const [npStatusFilter, setNpStatusFilter] = useState<string>(PUBLISHED_STATUS);
-  const [npScientistId, setNpScientistId] = useState<string>("all");
-  const [npDateFrom, setNpDateFrom] = useState<string>("");
-  const [npDateTo, setNpDateTo] = useState<string>("");
+  const [npStatusFilter, setNpStatusFilter] = useState<string>(npFilters.status);
+  const [npScientistId, setNpScientistId] = useState<string>(npFilters.scientistId);
+  const [npDateFrom, setNpDateFrom] = useState<string>(npFilters.dateFrom);
+  const [npDateTo, setNpDateTo] = useState<string>(npFilters.dateTo);
   /**
    * Quick year range, alongside the explicit From/To dates rather than instead
    * of them: both apply, so a narrower hand-typed range still narrows.
@@ -186,7 +200,21 @@ export default function PublicationOffice({ embeddedTab }: PublicationOfficeProp
    * Defaults to this year -- the queue an officer works is the current year's
    * output, and the full history was in the way of it.
    */
-  const [npYearRange, setNpYearRange] = useState<NpYearRange>("this-year");
+  const [npYearRange, setNpYearRange] = useState<NpYearRange>(npFilters.yearRange);
+
+  // Written on every change rather than on leaving the page: there is no
+  // reliable "leaving" for a tab somebody closes, and the write is a few
+  // hundred bytes.
+  useEffect(() => {
+    writeVettingFilters({
+      status: npStatusFilter,
+      tag: npTagFilter,
+      scientistId: npScientistId,
+      dateFrom: npDateFrom,
+      dateTo: npDateTo,
+      yearRange: npYearRange,
+    });
+  }, [npStatusFilter, npTagFilter, npScientistId, npDateFrom, npDateTo, npYearRange]);
 
   // IP Vetting defaults to the actual workflow stage. The wider unvetted
   // backlog is available for review by publication year when needed.
@@ -747,24 +775,42 @@ export default function PublicationOffice({ embeddedTab }: PublicationOfficeProp
   // A record is finalized when EITHER the vetted flag is set OR its status
   // already carries the "*" (Published *) final marker — some records have the
   // final status without the flag, and those must not reappear here.
-  const newPublications = useMemo(
+  const workingPublications = useMemo(
     () => officePublications.filter((pub: Publication) =>
       pub.vettedForSubmissionByIpOffice !== true &&
       !pub.status?.includes('*')
     ),
     [officePublications],
   );
+  const sealedQueuePublications = useMemo(
+    () => officePublications.filter((pub: Publication) => !!pub.status?.includes('*')),
+    [officePublications],
+  );
+  /**
+   * What the queue lists.
+   *
+   * Sealed records are kept out of the working queue -- they need no decision,
+   * and 101 of them would bury the handful that do. But they used to be
+   * unreachable from this screen entirely, so an officer wanting to look at a
+   * finished record had nowhere to go. Selecting the sealed stage now brings
+   * them in, and All states means all states.
+   */
+  const newPublications = useMemo(() => {
+    if (npStatusFilter === PUBLISHED_FINAL_STATUS) return sealedQueuePublications;
+    if (npStatusFilter === ALL_STATES) return officePublications;
+    return workingPublications;
+  }, [npStatusFilter, officePublications, sealedQueuePublications, workingPublications]);
   const newPublicationsLoading = officePublicationsLoading;
 
   // Per-publication internal author counts, used to flag publications with no
-  // linked internal scientist/author records on the New Publications tab.
+  // linked internal scientist/author records on the Publication vetting tab.
   const { data: authorCounts = {} } = useQuery<Record<number, number>>({
     queryKey: ['/api/publications/author-counts'],
     enabled: activeTab === "new-publications"
   });
 
   // Per-publication linked internal scientists, used to power the "filter by
-  // scientist" control on the New Publications tab.
+  // scientist" control on the Publication vetting tab.
   const { data: authorMap = {} } = useQuery<Record<number, Array<{ id: number; name: string }>>>({
     queryKey: ['/api/publications/author-map'],
     enabled: activeTab === "new-publications"
@@ -985,22 +1031,24 @@ export default function PublicationOffice({ embeddedTab }: PublicationOfficeProp
   // Counts per stored status across everything the office can act on, so the
   // workflow strip reflects this list rather than a separate query.
   const npCountsByStatus = useMemo(() => {
+    // From the working set, not from whatever is currently listed: a count
+    // that moved when you clicked a stage would be describing your filter
+    // rather than the queue.
     const counts: Record<string, number> = {};
-    for (const pub of newPublications) {
+    for (const pub of workingPublications) {
       const status = pub.status ?? "";
       if (status) counts[status] = (counts[status] ?? 0) + 1;
     }
     return counts;
-  }, [newPublications]);
+  }, [workingPublications]);
 
   // Sealed records are excluded from the list by design, so the terminal stage
   // count is derived from the same office set rather than fetched again.
-  const sealedCount = useMemo(
-    () => officePublications.filter((pub: Publication) => pub.status?.includes('*')).length,
-    [officePublications],
-  );
+  // Named for the queue: Publication Tools has its own sealedPublications,
+  // which is a search result rather than the whole set.
+  const sealedCount = sealedQueuePublications.length;
 
-  // Apply the New Publications filters (workflow state, issue/tag, scientist, dates).
+  // Apply the Publication vetting filters (workflow state, issue/tag, scientist, dates).
   const filteredNewPublications = useMemo(() => {
     return newPublications.filter((pub) => {
       const { missingFields, hasInternalAuthors, hasSdr, hasSdrExemption, isVetted, hasIssues } = getPubIssues(pub);
@@ -1682,7 +1730,7 @@ export default function PublicationOffice({ embeddedTab }: PublicationOfficeProp
             {/* Counts what the list actually shows. The list opens filtered to a
                 workflow state, so counting the unfiltered set here would make the
                 tab and the list disagree the moment the tab is opened. */}
-            New Publications ({filteredNewPublications.length})
+            Publication vetting ({filteredNewPublications.length})
           </TabsTrigger>
           <TabsTrigger value="find-papers" className="flex items-center gap-2" data-testid="tab-find-papers">
             <Globe className="h-4 w-4" />
@@ -1809,14 +1857,14 @@ export default function PublicationOffice({ embeddedTab }: PublicationOfficeProp
           </Card>
         </TabsContent>
 
-        {/* New Publications Tab */}
+        {/* Publication vetting tab */}
         <TabsContent value="new-publications" className="space-y-6">
           <Card>
             <CardHeader>
               <div className="flex items-center justify-between gap-2">
                 <CardTitle className="flex items-center gap-2">
                   <FileText className="h-5 w-5" />
-                  New Publications
+                  Publication vetting
                 </CardTitle>
                 <Button
                   variant="outline"
@@ -1837,7 +1885,7 @@ export default function PublicationOffice({ embeddedTab }: PublicationOfficeProp
                     sealedCount={sealedCount}
                     selected={npStatusFilter}
                     onSelect={setNpStatusFilter}
-                    total={newPublications.length}
+                    total={officePublications.length}
                   />
                 </div>
               )}
@@ -1924,20 +1972,25 @@ export default function PublicationOffice({ embeddedTab }: PublicationOfficeProp
                         ))}
                       </div>
                     </div>
-                    {(npTagFilter !== "no-issues" || npScientistId !== "all" || npDateFrom || npDateTo
-                      || npStatusFilter !== PUBLISHED_STATUS || npYearRange !== "this-year") && (
+                    {/* Compared against the one definition of the defaults, so
+                        Clear cannot drift from what the queue opens on. */}
+                    {(npTagFilter !== DEFAULT_VETTING_FILTERS.tag
+                      || npScientistId !== DEFAULT_VETTING_FILTERS.scientistId
+                      || npDateFrom || npDateTo
+                      || npStatusFilter !== DEFAULT_VETTING_FILTERS.status
+                      || npYearRange !== DEFAULT_VETTING_FILTERS.yearRange) && (
                       <Button
                         variant="ghost"
                         size="sm"
                         onClick={() => {
-                          setNpTagFilter("no-issues");
-                          setNpScientistId("all");
-                          setNpDateFrom("");
-                          setNpDateTo("");
-                          setNpYearRange("this-year");
-                          // Back to the office default rather than "all": Published
-                          // is the state awaiting a decision.
-                          setNpStatusFilter(PUBLISHED_STATUS);
+                          setNpTagFilter(DEFAULT_VETTING_FILTERS.tag);
+                          setNpScientistId(DEFAULT_VETTING_FILTERS.scientistId);
+                          setNpDateFrom(DEFAULT_VETTING_FILTERS.dateFrom);
+                          setNpDateTo(DEFAULT_VETTING_FILTERS.dateTo);
+                          setNpYearRange(DEFAULT_VETTING_FILTERS.yearRange);
+                          // Back to the office default rather than "all":
+                          // Published is the state awaiting a decision.
+                          setNpStatusFilter(DEFAULT_VETTING_FILTERS.status);
                         }}
                         data-testid="button-np-clear-filters"
                       >
@@ -1951,7 +2004,36 @@ export default function PublicationOffice({ embeddedTab }: PublicationOfficeProp
                   </div>
                   {filteredNewPublications.length === 0 ? (
                     <div className="text-center py-8 text-muted-foreground">
-                      No publications match the current filters
+                      {/* Which filter emptied it, not just that it is empty.
+                          Selecting a stage while the issue filter still says
+                          "no issues" shows "0 of 1", and without this the stage
+                          looks broken rather than filtered. */}
+                      {newPublications.length > 0 ? (
+                        <>
+                          <p>
+                            No publications match the current filters — {newPublications.length}{" "}
+                            {newPublications.length === 1 ? "record is" : "records are"} in this
+                            stage, filtered out by the others.
+                          </p>
+                          <Button
+                            variant="link"
+                            size="sm"
+                            className="mt-1"
+                            onClick={() => {
+                              setNpTagFilter("all");
+                              setNpScientistId(DEFAULT_VETTING_FILTERS.scientistId);
+                              setNpDateFrom("");
+                              setNpDateTo("");
+                              setNpYearRange("all");
+                            }}
+                            data-testid="button-np-widen-filters"
+                          >
+                            Show them
+                          </Button>
+                        </>
+                      ) : (
+                        <p>No publications match the current filters</p>
+                      )}
                     </div>
                   ) : (
                 <div className="space-y-4">
