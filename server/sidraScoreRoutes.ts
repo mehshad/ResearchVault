@@ -101,20 +101,46 @@ export function canEditPublicationForLinkedScientists(
 }
 
 /**
- * A researcher may add/update only their own internal-author link. A new
- * self-link additionally requires a matching name in the publication's author
- * text; an existing self-link may still be corrected when the text is wrong.
+ * Who may add, change or remove an internal-author link.
+ *
+ * An author on the paper may manage any of its links, not only their own.
+ *
+ * It used to be self-only, and that made the correction loop unusable for the
+ * error it most often has to fix. A publication is marked Published - Invalid
+ * and handed back to a linked author; when the fault is a mislabelled
+ * corresponding author, correcting it means editing somebody else's link -- and
+ * the author could only delete herself. She had no way to make the correction
+ * she had been asked for. This happened in production.
+ *
+ * The obvious objection is that authorship type feeds the score, so this lets
+ * one author alter another's credit. Two things bound that. Every change is
+ * recorded against the person who made it, so an alteration is attributable
+ * rather than anonymous. And a corrected record returns to Published, not to
+ * Published * -- only the Outcome Office seals it, and by default only sealed
+ * records score, so nothing an author changes reaches the score without the
+ * office looking at it.
+ *
+ * Someone with no link to the paper is still refused. A brand-new self-link
+ * still needs a matching name in the publication's author text, which is the
+ * check that stops a person adding themselves to somebody else's work.
  */
 export function canManagePublicationAuthorLink(
   req: Request,
   targetScientistId: number,
   hasExistingLink: boolean,
-  authorNameMatches: boolean
+  authorNameMatches: boolean,
+  /** Scientist ids already linked to this publication. */
+  linkedScientistIds: Iterable<number> = []
 ): boolean {
   if (hasPublicationOfficerRole(req)) return true;
   const scientistId = req.session?.user?.scientistId;
+  if (scientistId == null) return false;
+
+  // An author of the paper, correcting the paper's links.
+  if (new Set(linkedScientistIds).has(scientistId)) return true;
+
+  // Otherwise only themselves, and only where the author text bears them out.
   return (
-    scientistId != null &&
     scientistId === targetScientistId &&
     (hasExistingLink || authorNameMatches)
   );

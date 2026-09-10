@@ -5788,9 +5788,9 @@ function writeFailureDetail(error: unknown): string {
         return res.status(403).json({ message: "This publication is sealed (Published *). Revert the final approval before changing author links." });
       }
 
-      // Check if scientist is already an author before authorizing the action.
-      // Researchers may manage only their own link; new self-links must also
-      // match the free-text author list. Outcome Office may manage any link.
+      // An author of the paper may manage any of its links; anyone else may
+      // manage only their own, and a new self-link must also match the
+      // free-text author list. Outcome Office may manage any link.
       const existingAuthors = await storage.getPublicationAuthors(publicationId);
       const existingAuthor = existingAuthors.find(author => author.scientistId === validateData.scientistId);
       const targetScientist = existingAuthor?.scientist ?? await storage.getScientist(validateData.scientistId);
@@ -5807,12 +5807,13 @@ function writeFailureDetail(error: unknown): string {
           req,
           validateData.scientistId,
           Boolean(existingAuthor),
-          authorNameMatches
+          authorNameMatches,
+          existingAuthors.map((author) => author.scientistId)
         )
       ) {
         return res.status(403).json({
           message:
-            "You may only add or update your own matching internal-author link. Ask Outcome Office to correct other author links.",
+            "You may only manage internal-author links on a publication you are an author of. Ask Outcome Office to correct links elsewhere.",
         });
       }
 
@@ -5839,6 +5840,23 @@ function writeFailureDetail(error: unknown): string {
             linkedByUserId: actorId,
           }
         );
+        // Recorded because an author may now change a co-author's link, and
+        // a change to somebody else's authorship credit has to be
+        // attributable rather than anonymous. linkedByUserId alone says who
+        // created a link, not who last altered one.
+        await req.audit.logUpdate(
+          "publication_authors",
+          existingAuthor.id,
+          {
+            authorshipType: existingAuthor.authorshipType,
+            authorPosition: existingAuthor.authorPosition,
+          },
+          {
+            authorshipType: updatedAuthor?.authorshipType ?? null,
+            authorPosition: updatedAuthor?.authorPosition ?? null,
+          },
+          `Internal-author link updated on publication ${publicationId}`,
+        );
         res.status(200).json(updatedAuthor);
       } else {
         // Add new author
@@ -5847,6 +5865,12 @@ function writeFailureDetail(error: unknown): string {
           linkMethod: "manual",
           linkedByUserId: actorId,
         });
+        await req.audit.logInsert(
+          "publication_authors",
+          author.id,
+          author as unknown as Record<string, unknown>,
+          `Internal author linked to publication ${publicationId}`,
+        );
         res.status(201).json(author);
       }
     } catch (error) {
@@ -5879,12 +5903,13 @@ function writeFailureDetail(error: unknown): string {
           req,
           scientistId,
           Boolean(existingAuthor),
-          false
+          false,
+          existingAuthors.map((author) => author.scientistId)
         )
       ) {
         return res.status(403).json({
           message:
-            "You may only remove your own internal-author link. Ask Outcome Office to correct other author links.",
+            "You may only remove internal-author links on a publication you are an author of. Ask Outcome Office to correct links elsewhere.",
         });
       }
 
@@ -5894,6 +5919,22 @@ function writeFailureDetail(error: unknown): string {
         return res.status(404).json({ message: "Publication author not found" });
       }
       
+      // A removal leaves nothing behind to show who did it, which is the
+      // whole reason an author may now remove somebody else's link.
+      if (existingAuthor) {
+        await req.audit.logDelete(
+          "publication_authors",
+          existingAuthor.id,
+          {
+            publicationId,
+            scientistId,
+            authorshipType: existingAuthor.authorshipType,
+            authorPosition: existingAuthor.authorPosition,
+          },
+          `Internal-author link removed from publication ${publicationId}`,
+        );
+      }
+
       res.status(204).send();
     } catch (error) {
       res.status(500).json({ message: "Failed to remove publication author" });

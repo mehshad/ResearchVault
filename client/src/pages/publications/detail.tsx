@@ -445,10 +445,11 @@ export default function PublicationDetail() {
 
   const availableScientists = scientists
     .filter(scientist => {
-      if (
-        !canManageAllPublications &&
-        scientist.id !== effectiveScientistId
-      ) {
+      // An author of this paper may link any colleague to it, not only
+      // themselves: re-adding a co-author is the second half of correcting a
+      // mislabelled one, and without it the delete above is a dead end.
+      // Someone with no link to the paper is still limited to themselves.
+      if (!canEditPublication && scientist.id !== effectiveScientistId) {
         return false;
       }
 
@@ -459,7 +460,10 @@ export default function PublicationDetail() {
         return isCorrespondingAuthor && !existingAuthor.authorshipType.includes('Corresponding Author');
       }
       
-      return canManageAllPublications
+      // A looser name match for somebody already on the paper: they are
+      // correcting a list they are part of, not claiming a place in it. The
+      // strict unambiguous match stays for anyone adding themselves.
+      return canEditPublication
         ? matchesAuthorName(
             publication?.authors,
             scientist.firstName,
@@ -1063,8 +1067,15 @@ export default function PublicationDetail() {
                               </div>
                             </TableCell>
                             <TableCell>
-                              {publication.status !== 'Published *' &&
-                                (canManageAllPublications || author.scientistId === effectiveScientistId) && (
+                              {/* Any author of the paper may correct any of
+                                  its links. Self-only made the correction loop
+                                  unusable for the error it most often has to
+                                  fix -- a mislabelled corresponding author is
+                                  somebody else's row. Every change is recorded
+                                  against whoever made it, and the Outcome
+                                  Office still seals the record before it
+                                  scores. */}
+                              {publication.status !== 'Published *' && canEditPublication && (
                                   <Button
                                     variant="ghost"
                                     size="sm"
