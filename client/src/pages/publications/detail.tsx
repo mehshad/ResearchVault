@@ -21,7 +21,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Badge } from "@/components/ui/badge";
 import { format } from "date-fns";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Input } from "@/components/ui/input";
@@ -35,6 +35,7 @@ import {
 } from "@shared/sidraScore";
 import {
   DEFAULT_IMPACT_FACTOR_CUTOFF,
+  describeImpactFactorYearUsed,
   formatImpactFactorYear,
   impactFactorLookupYear,
   resolveImpactFactorYear,
@@ -194,6 +195,30 @@ export default function PublicationDetail() {
     enabled: !!publication?.journal && mostCurrentIfYear != null,
     retry: false
   });
+
+  /**
+   * Every year we hold a factor for *this journal*.
+   *
+   * The scorer's fallback is per journal, not per edition: when the year it
+   * wants has no value for this journal it tries one year later, one earlier,
+   * two later, two earlier, and if none of those has a value the publication is
+   * dropped from the score with "No impact factor on record". Asking only
+   * whether the edition was loaded -- which is what the summary screen asks --
+   * would let this panel claim a year the journal has nothing in.
+   */
+  const { data: journalHistory = [] } = useQuery<Array<{ year: number; impactFactor: string | null }>>({
+    queryKey: [`/api/journal-impact-factors/historical/${publication?.journal}`],
+    enabled: !!publication?.journal,
+    retry: false,
+  });
+  const journalYearsWithFactor = useMemo(
+    () =>
+      (journalHistory ?? [])
+        .filter((row) => row.impactFactor != null && row.impactFactor !== "")
+        .map((row) => Number(row.year))
+        .filter((year) => Number.isFinite(year)),
+    [journalHistory],
+  );
 
   /**
    * The office's scoring settings, so this panel can say which of the three
@@ -692,10 +717,18 @@ export default function PublicationDetail() {
                     const wantedYear = publishedOn
                       ? impactFactorLookupYear(publishedOn, settings, new Date().getFullYear())
                       : null;
-                    const resolved = wantedYear != null && availableIfYears.length
-                      ? resolveImpactFactorYear(wantedYear, availableIfYears, settings.impactFactorYear)
-                      : { year: wantedYear, fellBack: false };
+                    // Against this journal's own years, which is what the
+                    // scorer walks. A year the journal has nothing in is not a
+                    // year the score can use, however well loaded the edition.
+                    const resolved = wantedYear != null
+                      ? resolveImpactFactorYear(
+                          wantedYear,
+                          journalYearsWithFactor,
+                          settings.impactFactorYear,
+                        )
+                      : { year: null, fellBack: false };
                     const usedYear = resolved.year;
+                    const scored = usedYear != null;
 
                     const columns = [
                       {
@@ -717,14 +750,22 @@ export default function PublicationDetail() {
                         metric: currentYearImpactFactor,
                       },
                     ];
-                    const usedShown = usedYear != null && columns.some((c) => c.year === usedYear);
+                    // Two columns can name the same year -- the year before a
+                    // 2026 publication and the most current year are both 2025
+                    // today -- and two "used" badges read as two factors being
+                    // used. Mark the first.
+                    const usedColumnKey =
+                      usedYear != null
+                        ? (columns.find((c) => c.year === usedYear)?.key ?? null)
+                        : null;
+                    const usedShown = usedColumnKey != null;
 
                     return (
                     <div className="mt-2 p-3 bg-gray-50 rounded-lg dark:bg-gray-900">
                       <h4 className="text-sm font-medium text-gray-700 mb-3 dark:text-gray-300">Journal Impact Factor</h4>
                       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                         {columns.map((column) => {
-                          const isUsed = usedYear != null && column.year === usedYear;
+                          const isUsed = column.key === usedColumnKey;
                           return (
                             <div
                               key={column.key}
@@ -769,25 +810,44 @@ export default function PublicationDetail() {
                       {/* Which one counts, and why. Without this the panel shows
                           three numbers and leaves the reader to guess. */}
                       <p className="mt-3 text-xs text-muted-foreground" data-testid="text-if-setting-note">
-                        {usedYear == null ? (
-                          <>No impact factor year applies: this record has no publication date.</>
+                        {!scored ? (
+                          <span className="text-amber-700 dark:text-amber-400">
+                            {publishedOn == null
+                              ? "This record has no publication date, so no impact factor year applies."
+                              : journalYearsWithFactor.length === 0
+                                ? `No impact factor is on record for ${publication.journal} in any year, so this publication is excluded from the Sidra Score.`
+                                : `No impact factor is on record for ${publication.journal} near ${wantedYear}, so this publication is excluded from the Sidra Score.`}
+                          </span>
                         ) : (
                           <>
                             The Sidra Score uses the{" "}
                             <span className="font-medium text-foreground">
                               {formatImpactFactorYear(usedYear)}
                             </span>{" "}
-                            — {IMPACT_FACTOR_YEAR_LABELS[settings.impactFactorYear]}
-                            {settings.impactFactorCutoff &&
-                              settings.impactFactorCutoff !== DEFAULT_IMPACT_FACTOR_CUTOFF && (
-                                <>, with the year turning over on {settings.impactFactorCutoff.split("-").join("/")}</>
-                              )}
-                            .
+                            — {describeImpactFactorYearUsed(usedYear, publicationYear)}.
+                            {" "}
+                            {/* The rule as the reason, not as the description:
+                                saying "the publication year" while pointing at
+                                the year before it is a contradiction on screen,
+                                and the cut-off is what moved it. */}
+                            <span className="opacity-80">
+                              Impact Factor Year is set to{" "}
+                              {IMPACT_FACTOR_YEAR_LABELS[settings.impactFactorYear]}
+                              {settings.impactFactorCutoff &&
+                              settings.impactFactorCutoff !== DEFAULT_IMPACT_FACTOR_CUTOFF ? (
+                                <>
+                                  , and the year turns over on{" "}
+                                  {settings.impactFactorCutoff.split("-").join("/")}
+                                </>
+                              ) : null}
+                              .
+                            </span>
                             {resolved.fellBack && wantedYear != null && (
                               <>
                                 {" "}
                                 <span className="text-amber-700 dark:text-amber-400">
-                                  {formatImpactFactorYear(wantedYear)} is not loaded, so the nearest year was used instead.
+                                  No {formatImpactFactorYear(wantedYear)} is on record for this
+                                  journal, so the nearest year was used instead.
                                 </span>
                               </>
                             )}

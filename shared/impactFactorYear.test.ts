@@ -7,6 +7,7 @@ import {
   impactFactorLookupYear,
   isValidImpactFactorCutoff,
   resolveImpactFactorYear,
+  describeImpactFactorYearUsed,
 } from "./impactFactorYear";
 
 const on = (iso: string) => new Date(`${iso}T00:00:00Z`);
@@ -227,4 +228,24 @@ test("the fallback prefers a newer edition at the same distance", () => {
 
 test("the fallback will not reach back before the earliest edition", () => {
   assert.equal(resolveImpactFactorYear(2021, [2019], "publication").year, null);
+});
+
+// ── Describing the year that was actually used ──────────────────────────────
+
+test("the used year is described against the publication year, not the setting", () => {
+  // The contradiction this replaces: a note reading "the publication year"
+  // beside a highlighted "Year Before Publication" column.
+  assert.equal(describeImpactFactorYearUsed(2024, 2024), "the publication year");
+  assert.equal(describeImpactFactorYearUsed(2023, 2024), "the year before publication");
+  assert.equal(describeImpactFactorYearUsed(2025, 2024), "the year after publication");
+});
+
+test("a bigger gap is counted rather than named", () => {
+  assert.equal(describeImpactFactorYearUsed(2022, 2024), "2 years before publication");
+  assert.equal(describeImpactFactorYearUsed(2026, 2024), "2 years after publication");
+});
+
+test("with no publication year there is nothing to describe it against", () => {
+  assert.equal(describeImpactFactorYearUsed(2024, null), "the 2024 impact factor");
+  assert.equal(describeImpactFactorYearUsed(2024, undefined), "the 2024 impact factor");
 });
