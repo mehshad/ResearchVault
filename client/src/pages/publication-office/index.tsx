@@ -54,6 +54,7 @@ import {
   PUBLISHED_STATUS,
   PUBLISHED_FINAL_STATUS,
   PUBLICATION_WORKFLOW_STAGES,
+  publicationStatusesInGroup,
   PUBLICATION_OFF_FLOW_STATES,
   isReadyForIpVetting,
 } from "@shared/publicationWorkflow";
@@ -1048,12 +1049,20 @@ export default function PublicationOffice({ embeddedTab }: PublicationOfficeProp
   // which is a search result rather than the whole set.
   const sealedCount = sealedQueuePublications.length;
 
+  const npStatusGroup = useMemo(
+    () => new Set(publicationStatusesInGroup(npStatusFilter)),
+    [npStatusFilter],
+  );
+
   // Apply the Publication vetting filters (workflow state, issue/tag, scientist, dates).
   const filteredNewPublications = useMemo(() => {
     return newPublications.filter((pub) => {
       const { missingFields, hasInternalAuthors, hasSdr, hasSdrExemption, isVetted, hasIssues } = getPubIssues(pub);
 
-      if (npStatusFilter !== ALL_STATES && (pub.status ?? "") !== npStatusFilter) return false;
+      // By stage, not by the one status the card happens to be keyed on:
+      // "Submitted for review" is two stored statuses, the card counted both
+      // and this compared against one.
+      if (npStatusFilter !== ALL_STATES && !npStatusGroup.has(pub.status ?? "")) return false;
 
       if (npTagFilter !== "all") {
         if (npTagFilter === "missing-data" && missingFields.length === 0) return false;
@@ -1094,7 +1103,7 @@ export default function PublicationOffice({ embeddedTab }: PublicationOfficeProp
       return true;
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [newPublications, authorCounts, authorMap, npStatusFilter, npTagFilter, npScientistId, npDateFrom, npDateTo, npYearRange]);
+  }, [newPublications, authorCounts, authorMap, npStatusFilter, npStatusGroup, npTagFilter, npScientistId, npDateFrom, npDateTo, npYearRange]);
 
   // Export functionality
   const searchExportMutation = useMutation({

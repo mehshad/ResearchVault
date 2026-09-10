@@ -177,3 +177,29 @@ export function publicationStageOf(status: string | null | undefined): number | 
     stage.statuses.some((value) => value.toLowerCase() === normalized),
   )?.stage;
 }
+
+/**
+ * Every stored status that filtering by `status` should match.
+ *
+ * A stage can hold more than one stored status: "Submitted for review" is both
+ * "Submitted for review with pre-publication" and "...without pre-publication",
+ * because whether a preprint exists is not a different step of the workflow.
+ *
+ * The workflow filter selects a stage by its first status, and the queue then
+ * compared that one string against each publication -- so the card counted
+ * both and the list showed one, and the papers filed under the other spelling
+ * were invisible from a control that claimed to have counted them.
+ *
+ * Returns the status itself for anything the model does not group, so a status
+ * the office invents still filters to exactly itself.
+ */
+export function publicationStatusesInGroup(
+  status: string | null | undefined,
+): string[] {
+  if (!status) return [];
+  const stage = PUBLICATION_WORKFLOW_STAGES.find((s) => s.statuses.includes(status));
+  if (stage) return [...stage.statuses];
+  const offFlow = PUBLICATION_OFF_FLOW_STATES.find((s) => s.statuses.includes(status));
+  if (offFlow) return [...offFlow.statuses];
+  return [status];
+}
