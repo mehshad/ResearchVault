@@ -2002,6 +2002,58 @@ export default function PublicationOffice({ embeddedTab }: PublicationOfficeProp
                   <div className="text-sm text-muted-foreground mb-3" data-testid="text-np-result-count">
                     Showing {filteredNewPublications.length} of {newPublications.length} publications
                   </div>
+
+                  {/* What the colours on the author list mean.
+                      They were explained only by a title attribute, which a
+                      reader has to already suspect is there before they hover
+                      it -- and the confident wording hid how the match is
+                      actually made. It is a guess from a name, and one of them
+                      reported a missing author who does not work here. */}
+                  <details className="mb-4 rounded-md border bg-muted/30 px-3 py-2 text-xs">
+                    <summary className="cursor-pointer font-medium text-foreground">
+                      What the highlighted author names mean
+                    </summary>
+                    <div className="mt-2 space-y-2 text-muted-foreground">
+                      <p>
+                        Each name in a publication's author list is compared against the staff
+                        directory. Three outcomes:
+                      </p>
+                      <ul className="space-y-1">
+                        <li>
+                          <span className="rounded bg-green-100 px-1 text-green-800 dark:bg-green-950 dark:text-green-300">
+                            Green
+                          </span>{" "}
+                          — matched to a staff member who is already linked as an internal author
+                          on this publication. Nothing to do.
+                        </li>
+                        <li>
+                          <span className="rounded bg-red-100 px-1 font-medium text-red-800 dark:bg-red-950 dark:text-red-300">
+                            Red
+                          </span>{" "}
+                          — looks like a staff member, but no internal-author link exists yet.
+                          Worth a look: it is usually a link somebody forgot to make.
+                        </li>
+                        <li>
+                          <span className="px-1">Not highlighted</span> — no match in the staff
+                          directory. Most names on most papers are external co-authors and belong
+                          here.
+                        </li>
+                      </ul>
+                      <p>
+                        <strong className="text-foreground">The match is a guess from the name
+                        alone</strong>, tolerant of the ways journals abbreviate one:
+                        "Hendrickx W", "W. Hendrickx" and "Wouter Hendrickx" all count as the same
+                        person. That tolerance costs accuracy — a short surname can match an
+                        unrelated name, and a red name can be somebody who has never worked here.
+                        Treat red as a prompt to check, not as a finding.
+                      </p>
+                      <p>
+                        Nothing here blocks anything. A publication can be sealed with names still
+                        red, and the score counts the internal authors actually linked, never the
+                        highlighting.
+                      </p>
+                    </div>
+                  </details>
                   {filteredNewPublications.length === 0 ? (
                     <div className="text-center py-8 text-muted-foreground">
                       {/* Which filter emptied it, not just that it is empty.
@@ -2081,8 +2133,8 @@ export default function PublicationOffice({ embeddedTab }: PublicationOfficeProp
                                           entry.status === "linked"
                                             ? "Linked as an internal author"
                                             : entry.status === "missed"
-                                            ? "On staff, but not linked to this publication"
-                                            : "Not on staff"
+                                            ? "Looks like a staff member, but no internal-author link exists. Matched on name, so check before acting."
+                                            : "No match in the staff directory"
                                         }
                                       >
                                         {entry.text}
