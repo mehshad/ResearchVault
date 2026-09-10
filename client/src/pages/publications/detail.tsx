@@ -39,6 +39,7 @@ import {
   formatImpactFactorYear,
   impactFactorLookupYear,
   resolveImpactFactorYear,
+  scoreWindow,
 } from "@shared/impactFactorYear";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -728,6 +729,15 @@ export default function PublicationDetail() {
                         )
                       : { year: null, fellBack: false };
                     const usedYear = resolved.year;
+
+                    // The scorer checks the scoring period *before* it looks up
+                    // an impact factor, so a 2015 paper never reaches the
+                    // lookup at all. Saying "excluded for want of an impact
+                    // factor" about one was naming a gate it never got to.
+                    const window = scoreWindow(settings, new Date());
+                    const outOfPeriod =
+                      publishedOn != null &&
+                      (publishedOn < window.from || publishedOn > window.to);
                     const scored = usedYear != null;
 
                     const columns = [
@@ -810,13 +820,25 @@ export default function PublicationDetail() {
                       {/* Which one counts, and why. Without this the panel shows
                           three numbers and leaves the reader to guess. */}
                       <p className="mt-3 text-xs text-muted-foreground" data-testid="text-if-setting-note">
-                        {!scored ? (
+                        {publishedOn == null ? (
                           <span className="text-amber-700 dark:text-amber-400">
-                            {publishedOn == null
-                              ? "This record has no publication date, so no impact factor year applies."
-                              : journalYearsWithFactor.length === 0
-                                ? `No impact factor is on record for ${publication.journal} in any year, so this publication is excluded from the Sidra Score.`
-                                : `No impact factor is on record for ${publication.journal} near ${wantedYear}, so this publication is excluded from the Sidra Score.`}
+                            This record has no publication date, so no impact factor year applies.
+                          </span>
+                        ) : outOfPeriod ? (
+                          <>
+                            {/* Said first because it is what the scorer checks
+                                first: the impact factor is irrelevant to a
+                                record outside the period. */}
+                            Published outside the current scoring period
+                            {" "}({window.from.getUTCFullYear()}–{window.to.getUTCFullYear()}), so
+                            the Sidra Score does not include it. The figures above are for
+                            reference.
+                          </>
+                        ) : !scored ? (
+                          <span className="text-amber-700 dark:text-amber-400">
+                            {journalYearsWithFactor.length === 0
+                              ? `No impact factor is on record for ${publication.journal} in any year, so this publication cannot be scored on one.`
+                              : `No impact factor is on record for ${publication.journal} within two years of ${wantedYear}, so this publication cannot be scored on one.`}
                           </span>
                         ) : (
                           <>
