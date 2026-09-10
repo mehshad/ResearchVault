@@ -36,6 +36,7 @@ import { PermissionWrapper } from "@/components/PermissionWrapper";
 import { usePermissions } from "@/hooks/usePermissions";
 import { useCurrentUser } from "@/hooks/useCurrentUser";
 import { isRestrictedOnly } from "@shared/effectiveRoles";
+import { FULL_PUBLICATION_VISIBILITY_ROLES } from "@shared/publicationVisibility";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ImpactFactorsReadOnly } from "@/components/ImpactFactorsReadOnly";
 import PublicationImport from "./import";
@@ -160,6 +161,13 @@ export default function PublicationsList() {
     const journal = params.get('journal');
     setFilterJournal(journal ? journal : null);
   }, [location]);
+
+  // The roles the server treats as seeing everything. Compared against the
+  // primary role alone, because that is what getScientistPublicationViewer
+  // sends and therefore what the filtering actually uses.
+  const seesEveryPublication = FULL_PUBLICATION_VISIBILITY_ROLES.includes(
+    currentUser.role as (typeof FULL_PUBLICATION_VISIBILITY_ROLES)[number],
+  );
 
   const { data: publications, isLoading } = useQuery<EnhancedPublication[]>({
     queryKey: ['/api/publications', 'visible', currentUser.role, currentUser.id],
@@ -341,6 +349,29 @@ export default function PublicationsList() {
       <div className="flex items-center justify-between flex-wrap gap-4">
         <div>
           <h1 className="text-2xl font-semibold text-foreground">Publications</h1>
+          {/* What this list contains, said rather than inferred.
+              A researcher seeing a colleague's paper here but not their own
+              draft has no way to tell whether the draft is hidden or missing.
+              Mirrors canViewPublication in
+              server/scientistPublicationVisibility.ts -- if that rule changes,
+              this sentence is wrong and has to change with it. */}
+          <p className="mt-1 max-w-3xl text-sm text-muted-foreground" data-testid="text-publication-visibility">
+            {seesEveryPublication ? (
+              <>
+                You have Outcome Office access, so this list shows{" "}
+                <strong className="text-foreground">every publication in the system</strong>,
+                published or not.
+              </>
+            ) : (
+              <>
+                This list shows{" "}
+                <strong className="text-foreground">every published paper in the system</strong>,
+                plus unpublished work that is yours — where you are a linked author, where you
+                created the record, or where you supervise one of its authors. Other people's
+                drafts, submissions and records under review are not listed.
+              </>
+            )}
+          </p>
           {filterResearchActivityId && researchActivity && (
             <div className="mt-1 flex items-center">
               <Badge variant="outline" className="mr-2 bg-blue-50 text-blue-700 border-blue-200 dark:bg-blue-950 dark:text-blue-300 dark:border-blue-800">
