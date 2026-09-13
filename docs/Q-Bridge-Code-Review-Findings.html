@@ -74,12 +74,12 @@
   <aside class="rail">
     <div>
       <div class="label">Areas</div>
-      <nav><a href="#security">Security and authorization<span>10</span></a><a href="#data-model">Data model and storage<span>11</span></a><a href="#client">Client and user experience<span>8</span></a><a href="#operations">Data operations and deployment<span>12</span></a><a href="#ci-dx">Testing, CI and maintainability<span>11</span></a></nav>
+      <nav><a href="#security">Security and authorization<span>10</span></a><a href="#data-model">Data model and storage<span>11</span></a><a href="#client">Client and user experience<span>2</span></a><a href="#operations">Data operations and deployment<span>12</span></a><a href="#ci-dx">Testing, CI and maintainability<span>12</span></a></nav>
     </div>
     <div>
       <div class="label">Show</div>
       <div class="filters" role="group" aria-label="Filter by priority">
-        <button type="button" data-filter="all" aria-pressed="true">All 52</button>
+        <button type="button" data-filter="all" aria-pressed="true">All 47</button>
         <button type="button" data-filter="critical" aria-pressed="false">Critical</button>
         <button type="button" data-filter="high" aria-pressed="false">High</button>
         <button type="button" data-filter="medium" aria-pressed="false">Medium</button>
@@ -91,12 +91,12 @@
     <header class="top">
       <div class="label">ResearchVault · branch phase2 · 13 September 2026</div>
       <h1>Q-BRIDGE Code Review</h1>
-      <p class="sub">52 open findings from a read of the server, shared modules, client, migrations and CI on 13 September 2026, each verified against the code or the dev database. This page lists what is still to do; a finding that is fixed is removed from it, not marked closed. The dev database (Settings → Feature Requests, requester "Claude code review, 13 Sep 2026") is the record, with the same numbers.</p>
+      <p class="sub">47 open findings from a read of the server, shared modules, client, migrations and CI on 13 September 2026, each verified against the code or the dev database. This page lists what is still to do; a finding that is fixed is removed from it, not marked closed. The dev database (Settings → Feature Requests, requester "Claude code review, 13 Sep 2026") is the record, with the same numbers.</p>
       <div class="summary">
-        <div class="critical"><b>2</b><span>Critical</span></div>
-        <div class="high"><b>16</b><span>High</span></div>
-        <div class="medium"><b>23</b><span>Medium</span></div>
-        <div class="low"><b>11</b><span>Low</span></div>
+        <div class="critical"><b>3</b><span>Critical</span></div>
+        <div class="high"><b>14</b><span>High</span></div>
+        <div class="medium"><b>21</b><span>Medium</span></div>
+        <div class="low"><b>9</b><span>Low</span></div>
       </div>
       <p class="where">To close one: fix it on the audit-fixes branch, mark the request implemented in the dev database with the commit, and regenerate this page from the database so it drops out.</p>
     </header>
@@ -306,78 +306,24 @@
         <header class="area-head">
           <h2>Client and user experience</h2>
           <p class="lede">What a user sees when something is denied, missing or slow, and the front-end code health behind it.</p>
-          <div class="chips"><span class="mini high">3 high</span><span class="mini medium">3 medium</span><span class="mini low">2 low</span></div>
-        </header><p class="empty">Nothing at this priority in this area.</p><article class="finding" data-priority="high" id="fr-10">
+          <div class="chips"><span class="mini critical">1 critical</span><span class="mini high">1 high</span></div>
+        </header><p class="empty">Nothing at this priority in this area.</p><article class="finding" data-priority="critical" id="fr-61">
+          <div class="finding-head">
+            <span class="sev critical">critical</span>
+            <h3>Make the RA-200 / RA-205A application flow work end to end</h3>
+            <span class="meta"><span class="id">#61</span> · bugfix · effort medium</span>
+          </div>
+          <p>The PMO application pages cannot complete a round trip. <code>client/src/pages/pmo/applications/edit-ra200.tsx</code> and edit-ra205a.tsx fetch [&quot;<code>/api/ra200-applications</code>&quot;, id] and [&quot;<code>/api/ra205a-applications</code>&quot;, id] and PUT to the same paths, and create-ra205a.tsx POSTs to <code>/api/pmo-applications</code>; none of those routes exist in <code>server/routes.ts</code> (only GET <code>/api/pmo-applications</code> and GET/PUT/DELETE <code>/api/pmo-applications/:id</code>, and the latter three call storage.getPmoApplication / updatePmoApplication / deletePmoApplication, which DatabaseStorage never implemented -- see the critical finding about them). edit-ra205a also reads selectedSdrId, newTitle and approvals, which are not columns of ra205a_applications, so they are stripped on save and fall back to defaults on load. Found while removing @ts-nocheck from these pages, which also fixed a useRoute destructuring that meant the edit pages never had an id, and a create page that navigated to /undefined after saving. Fix: implement the three storage methods, add GET/PUT for the two form types under <code>/api/pmo-applications</code> (dispatching on form_type), add the POST the RA-205A create needs, and either add the three RA-205A columns or drop those fields from the form.</p>
+          <div class="tags"><span>backend</span><span>bugfix</span><span>pmo</span></div>
+        </article>
+        <article class="finding" data-priority="high" id="fr-59">
           <div class="finding-head">
             <span class="sev high">high</span>
-            <h3>Replace the remaining 48 unchecked fetch().then(res =&gt; res.json()) call sites</h3>
-            <span class="meta"><span class="id">#10</span> · bugfix · effort medium</span>
+            <h3>Patent routes refuse any JSON date, and two forms send fields the tables lack</h3>
+            <span class="meta"><span class="id">#59</span> · bugfix · effort low</span>
           </div>
-          <p><code>client/src/lib/fetchList.ts</code> exists precisely because a 403 body ({message: ...}) handed to code expecting an array throws during render and blanks the page, but it is used in only 18 places while 48 raw fetch(url).then(res =&gt; res.json()) sites remain across 22 files. The densest are pages/scientists/edit.tsx:79-99 (4), pages/facilities/rooms/edit.tsx:86-102 (4), pages/scientists/create.tsx:62-72 (3), pages/facilities/index.tsx:40-50 (3), pages/programs/edit.tsx:39-50 (3), pages/facilities/organization.tsx:84-92 (3), plus every entity edit page (projects, publications, patents, irb-applications, ibc-applications, research-contracts, data-management-plans, buildings). Any of these pages goes fully white for a user whose access matrix denies one of the fetched areas, with nothing to act on. Switch list fetches to fetchList and single-record fetches to the default queryFn in lib/queryClient.ts (which throws on !ok so react-query reports an error).</p>
-          <div class="tags"><span>ux</span><span>reliability</span><span>access-control</span></div>
-        </article>
-        <article class="finding" data-priority="high" id="fr-11">
-          <div class="finding-head">
-            <span class="sev high">high</span>
-            <h3>Retire @ts-nocheck from the 55 client files it currently covers</h3>
-            <span class="meta"><span class="id">#11</span> · enhancement · effort high</span>
-          </div>
-          <p>55 files under client/src carry // @ts-nocheck, totalling 43,253 of the client's 84,359 lines (51%). They include the most edited and most user-facing pages: pages/grants/index.tsx, grants/create.tsx, grants/edit.tsx, publications/index.tsx, publications/detail.tsx, publications/edit.tsx, publications/import.tsx, research-activities/detail.tsx, scientists/detail.tsx, projects/create.tsx, projects/edit.tsx, reports/index.tsx, publication-office/index.tsx, plus all IRB/IBC/PMO office and reviewer pages and 6 components. A green tsc says nothing about half the front end; field renames in <code>shared/schema</code> will not be caught until a user hits them (a missing useMutation import already blanked every staff profile once). The header comment in each file already prescribes the fix (remove the directive, run tsc, resolve); do it per file as each is touched, starting with the grants and publications pages.</p>
-          <div class="tags"><span>code-health</span><span>typescript</span></div>
-        </article>
-        <article class="finding" data-priority="high" id="fr-12">
-          <div class="finding-head">
-            <span class="sev high">high</span>
-            <h3>Stop the research activity detail page downloading every publication, DMP and IRB application</h3>
-            <span class="meta"><span class="id">#12</span> · backend · effort medium</span>
-          </div>
-          <p>pages/research-activities/detail.tsx fetches the entire <code>/api/publications</code> collection (lines 90-101), the entire <code>/api/data-management-plans</code> collection (117-127) and the entire <code>/api/irb-applications</code> collection (131-141), then discards everything but this activity's rows in a select filter. Opening one SDR transfers the whole publication table, and because the IRB query throws on a non-OK response and the page has no error branch, a user without IRB access sees the same 'nothing here' as a user whose activity truly has no IRB application. The page already uses per-activity endpoints for grants (line 146) and IBC applications (line 159); add the matching /publications, /data-management-plans and /irb-applications sub-resources and drop the client-side filters. pages/teams/index.tsx:34 does the same with <code>/api/research-activities.</code></p>
-          <div class="tags"><span>performance</span><span>ux</span><span>api</span></div>
-        </article>
-        <article class="finding" data-priority="medium" id="fr-34">
-          <div class="finding-head">
-            <span class="sev medium">medium</span>
-            <h3>Give the 35 pages that ignore query errors an error state</h3>
-            <span class="meta"><span class="id">#34</span> · ui · effort medium</span>
-          </div>
-          <p>35 page files call useQuery and never reference an error (no isError, no error branch), including pages/grants/index.tsx, publications/index.tsx, projects/index.tsx, programs/index.tsx, contracts/index.tsx, irb/index.tsx, ibc/index.tsx, patents/index.tsx, dashboard/index.tsx, reports/index.tsx, research-portfolio/grants.tsx and /contracts.tsx, and most detail pages. queryClient.ts sets retry:false and the default queryFn throws on any non-OK status, so a 500 or an expired session leaves data undefined and the page renders as if empty: grants/index.tsx:532 only shows its 'No grants found' message when length === 0, so undefined data yields a silent empty table with no message at all. Add a small shared QueryState wrapper (loading / error with retry / empty) and use it on list and detail pages.</p>
-          <div class="tags"><span>ux</span><span>reliability</span></div>
-        </article>
-        <article class="finding" data-priority="medium" id="fr-35">
-          <div class="finding-head">
-            <span class="sev medium">medium</span>
-            <h3>Paginate or virtualise the grants, scientists and publications tables</h3>
-            <span class="meta"><span class="id">#35</span> · enhancement · effort medium</span>
-          </div>
-          <p>pages/grants/index.tsx renders every grant (272 in production) in a 12-column table in one pass (line 541), each row rendering issue badges and collaborating-institution chips; there is no page size, offset or slice anywhere in the file, nor in pages/scientists/index.tsx (862 lines) or pages/publications/index.tsx (807 lines). The impact factor table already does this correctly (components/ImpactFactorsReadOnly.tsx uses PAGE_SIZE and a server-side limit, lines 88-114), so the pattern exists in the codebase. Apply the same server-side page/limit pattern, or at minimum client-side pagination with a fixed page size, to these three lists.</p>
-          <div class="tags"><span>performance</span><span>ux</span><span>tables</span></div>
-        </article>
-        <article class="finding" data-priority="medium" id="fr-36">
-          <div class="finding-head">
-            <span class="sev medium">medium</span>
-            <h3>Share one status colour map and one date formatter across pages</h3>
-            <span class="meta"><span class="id">#36</span> · ui · effort medium</span>
-          </div>
-          <p>17 files define their own status colour map (getStatusColor/getStatusBadge/statusColors) and they disagree: under_review is purple on /irb (irb/index.tsx:33) but yellow on /irb-reviewer (irb-reviewer/index.tsx:45) and on the IRB office protocol page (irb-office/protocol-detail.tsx:263), so the same protocol changes colour as a user moves between pages. 20 files also define a local formatDate despite lib/dates.ts exporting formatDate/formatDateLong; publications/index.tsx:213 formats as en-US 'Mon YYYY' while grants/index.tsx:124 and irb/index.tsx:25 wrap formatDateLong. Move status colours into a single lib/statusStyles.ts keyed by status value and delete the local formatDate copies in favour of lib/dates.ts.</p>
-          <div class="tags"><span>consistency</span><span>ux</span><span>refactor</span></div>
-        </article>
-        <article class="finding" data-priority="low" id="fr-51">
-          <div class="finding-head">
-            <span class="sev low">low</span>
-            <h3>Replace hardcoded 'Sidra' wording with the institution name from the theme</h3>
-            <span class="meta"><span class="id">#51</span> · ui · effort low</span>
-          </div>
-          <p>contexts/ThemeContext.tsx supports three institutions (sidra, hbku, wcmq) with per-institution tier labels and colour palettes, yet 51 'Sidra' strings remain in non-public UI: 'Sidra Lead PI' (grants/create.tsx:468, grants/edit.tsx:820), 'Select a Sidra Lead PI', 'Sidra Medicine co-investigators' (components/GrantCoInvestigators.tsx:48), 'Sidra Branch' (projects/create.tsx:326), 'Sidra budget' (all four PMO application forms), and 'Sidra IRB' (irb/document-templates.tsx:48). Under the HBKU or WCM-Q theme these labels are simply wrong. Add an institution short name to the theme config (the themes map already has a full name) and interpolate it in these labels.</p>
-          <div class="tags"><span>branding</span><span>multi-tenant</span><span>ux</span></div>
-        </article>
-        <article class="finding" data-priority="low" id="fr-53">
-          <div class="finding-head">
-            <span class="sev low">low</span>
-            <h3>Add inline validation to the grant edit and PMO application forms</h3>
-            <span class="meta"><span class="id">#53</span> · ui · effort medium</span>
-          </div>
-          <p>pages/grants/create.tsx validates with zodResolver and shows per-field FormMessage errors, but pages/grants/edit.tsx (the form users spend most time in, 1,200+ lines) has no zodResolver, no useForm and no FormMessage; the only feedback is server-side rejection surfaced as toasts (lines 233, 258, 313, 326, 334). pages/pmo/applications/create.tsx and edit.tsx are the same. A user who leaves a required field blank or types a malformed date learns about it only after submitting, from a toast that does not point at the field. Reuse the create form's schema in edit.tsx and render FormMessage under each field.</p>
-          <div class="tags"><span>forms</span><span>ux</span><span>validation</span></div>
+          <p>POST and PATCH <code>/api/patents</code> (<code>server/routes.ts</code>) validate the body with a schema whose filingDate and grantDate are z.date(), so a date that arrives as a JSON string is refused with 400; the client can only send strings, so creating or editing a patent with a date cannot succeed. The same route checks validateData.projectId, a column patents does not have. Separately, <code>client/src/pages/programs/create.tsx</code> sends a category field the programs table lacks (stripped server-side, so the choice is silently discarded). Found while removing @ts-nocheck from the patent and program pages (commit on audit-fixes). Fix: coerce the two patent dates with z.coerce.date() or z.preprocess as insertPublicationSchema does, drop the projectId check, and either add category to programs or remove it from the form.</p>
+          <div class="tags"><span>backend</span><span>bugfix</span><span>patents</span><span>programs</span></div>
         </article>
       </section>
       <section class="area" id="operations">
@@ -498,7 +444,7 @@
         <header class="area-head">
           <h2>Testing, CI and maintainability</h2>
           <p class="lede">What the checks actually exercise, and what makes the codebase harder to change than it needs to be.</p>
-          <div class="chips"><span class="mini high">4 high</span><span class="mini medium">4 medium</span><span class="mini low">3 low</span></div>
+          <div class="chips"><span class="mini high">4 high</span><span class="mini medium">5 medium</span><span class="mini low">3 low</span></div>
         </header><p class="empty">Nothing at this priority in this area.</p><article class="finding" data-priority="high" id="fr-17">
           <div class="finding-head">
             <span class="sev high">high</span>
@@ -570,6 +516,15 @@
           </div>
           <p>performance.yml defaults BASE_URL to http://172.32.79.20/demo, a private address GitHub-hosted runners cannot reach, so the nightly k6 job fails whenever PERF_TARGET_URL is not set. sonarqube.yml runs the tests with || true and continue-on-error: true, security.yml runs semgrep with || true, and review.yml's pr-hygiene step only emits a warning, so none of them can turn a PR red, while the ESLint job always does. With one job permanently red and several that cannot fail, the checks list carries no signal. Gate the perf job on the secret being present (or a self-hosted runner), make semgrep fail on ERROR-severity findings, and keep only the checks that are expected to pass.</p>
           <div class="tags"><span>ci</span><span>dx</span></div>
+        </article>
+        <article class="finding" data-priority="medium" id="fr-60">
+          <div class="finding-head">
+            <span class="sev medium">medium</span>
+            <h3>Keep the dev server up when a client file fails to parse</h3>
+            <span class="meta"><span class="id">#60</span> · backend · effort low</span>
+          </div>
+          <p>In development the Express process hosts Vite in middleware mode, and a syntax error in any client file while it is being edited (an unbalanced JSX tag, a duplicate identifier) is thrown from Vite's transform as an uncaught error that ends the whole Node process, not just the one HMR update. It happened twice on 13 September 2026 while files were mid-edit; each time the API went down with it and had to be restarted by hand, and there is no watcher to bring it back. Vite on its own reports such errors in the browser overlay and keeps serving. Fix: catch transform errors in the middleware path (<code>server/vite.ts</code> or wherever createViteServer is wired) and answer the request with the error rather than letting it propagate, or run Vite as its own process in development and proxy to it, so an editing mistake in the client never stops the API.</p>
+          <div class="tags"><span>dx</span><span>dev-server</span></div>
         </article>
         <article class="finding" data-priority="low" id="fr-56">
           <div class="finding-head">
