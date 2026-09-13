@@ -1,7 +1,3 @@
-// @ts-nocheck — This shared read-only protocol view relies on untyped useQuery
-// results (data inferred as `unknown`) and reads many dynamic `application.*`
-// fields that have drifted from the typed shared/schema. These are not known
-// runtime bugs; suppressing keeps `npx tsc --noEmit` clean for typed files.
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -15,7 +11,6 @@ import {
   Home,
   ChevronDown,
   ChevronRight,
-  FlaskConical,
   Dna,
   Trash2,
   Truck,
@@ -29,6 +24,27 @@ import { format, differenceInDays, parseISO } from "date-fns";
 import IbcFacilitiesTab from "@/components/IbcFacilitiesTab";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { formatFullName } from "@/utils/nameUtils";
+import type { IbcApplication, Scientist, ResearchActivity, CertificationModule } from "@shared/schema";
+
+/** One entry of GET /api/ibc-applications/:id/personnel: a protocolTeamMembers item joined with its scientist. */
+interface ProtocolTeamMember {
+  scientistId?: number;
+  role?: string;
+  scientist?: Pick<Scientist, "id" | "honorificTitle" | "firstName" | "lastName" | "email" | "jobTitle"> | null;
+}
+
+/** One row of GET /api/certifications/matrix (assembled ad hoc on the server; no shared type). */
+interface CertificationMatrixRow {
+  scientistId: number;
+  scientistName: string;
+  moduleId: number;
+  moduleName: string;
+  certificationId: number | null;
+  startDate: string | null;
+  endDate: string | null;
+  certificateFilePath: string | null;
+  reportFilePath: string | null;
+}
 
 // Helper function to get certification color based on expiry date
 function getCertificationColor(expiryDate: string | null): string {
@@ -292,41 +308,41 @@ export default function IbcProtocolView({ applicationId, sidebar, printMode = fa
     document.getElementById(id)?.scrollIntoView({ behavior: "smooth", block: "start" });
   };
 
-  const { data: application } = useQuery({
+  const { data: application } = useQuery<IbcApplication>({
     queryKey: [`/api/ibc-applications/${applicationId}`],
     enabled: !!applicationId,
   });
 
-  const { data: scientist } = useQuery({
+  const { data: scientist } = useQuery<Scientist>({
     queryKey: [`/api/scientists/${application?.principalInvestigatorId}`],
     enabled: !!application?.principalInvestigatorId,
     staleTime: 0,
     refetchOnMount: true,
   });
 
-  const { data: researchActivities = [] } = useQuery({
+  const { data: researchActivities = [] } = useQuery<ResearchActivity[]>({
     queryKey: [`/api/ibc-applications/${applicationId}/research-activities`],
     enabled: !!applicationId,
     staleTime: 0,
     refetchOnMount: true,
   });
 
-  const { data: personnelData = [], isLoading: personnelLoading } = useQuery({
+  const { data: personnelData = [], isLoading: personnelLoading } = useQuery<ProtocolTeamMember[]>({
     queryKey: [`/api/ibc-applications/${applicationId}/personnel`],
     enabled: !!applicationId,
     staleTime: 0,
     refetchOnMount: true,
   });
 
-  const { data: certificationModules = [] } = useQuery({
+  const { data: certificationModules = [] } = useQuery<CertificationModule[]>({
     queryKey: ["/api/certification-modules"],
   });
 
-  const { data: certificationMatrix = [] } = useQuery({
+  const { data: certificationMatrix = [] } = useQuery<CertificationMatrixRow[]>({
     queryKey: ["/api/certifications/matrix"],
   });
 
-  const teamCertifications = certificationMatrix.reduce((acc: any, cert: any) => {
+  const teamCertifications = certificationMatrix.reduce((acc: Record<number, CertificationMatrixRow[]>, cert) => {
     if (!acc[cert.scientistId]) {
       acc[cert.scientistId] = [];
     }
@@ -341,7 +357,7 @@ export default function IbcProtocolView({ applicationId, sidebar, printMode = fa
   // ---- Section visibility flags (hide sections whose trigger was not selected) ----
   const showSummary = !!(application.description || application.protocolSummary);
   const showActivities = Array.isArray(researchActivities) && researchActivities.length > 0;
-  const scopeItems = [
+  const scopeOptions: [keyof IbcApplication, string][] = [
     ["recombinantSyntheticNucleicAcid", "Recombinant or Synthetic Nucleic Acids"],
     ["wholeAnimalsAnimalMaterial", "Whole Animals / Animal Material"],
     ["humanNonHumanPrimateMaterial", "Human / Non-Human Primate Material"],
@@ -350,7 +366,8 @@ export default function IbcProtocolView({ applicationId, sidebar, printMode = fa
     ["nanoparticles", "Nanoparticles"],
     ["arthropods", "Arthropods"],
     ["plants", "Plants"],
-  ].filter(([k]) => application[k]);
+  ];
+  const scopeItems = scopeOptions.filter(([k]) => application[k]);
 
   const showNucleic = !!application.recombinantSyntheticNucleicAcid;
   const showHuman = !!application.humanNonHumanPrimateMaterial;
@@ -377,23 +394,10 @@ export default function IbcProtocolView({ applicationId, sidebar, printMode = fa
     !!application.transportingBioHazardousToOffCampusDetails;
 
   const showDualUse =
-    (application.dualUseAgentsAndToxins?.length > 0) ||
+    (Array.isArray(application.dualUseAgentsAndToxins) && application.dualUseAgentsAndToxins.length > 0) ||
     application.dualUseCategoriesApply === true ||
-    (application.dualUseExperimentCategories?.length > 0) ||
+    (Array.isArray(application.dualUseExperimentCategories) && application.dualUseExperimentCategories.length > 0) ||
     !!application.dualUseCategoriesExplanation;
-
-  const showMethods = !!(
-    application.materialAndMethods ||
-    application.proceduresInvolvingInfectiousAgents ||
-    application.cellCultureProcedures ||
-    application.animalProcedures ||
-    application.laboratoryEquipment ||
-    application.containmentProcedures ||
-    application.emergencyProcedures ||
-    application.ppeRequirements ||
-    application.wasteSterilizationProcedures ||
-    application.agents
-  );
 
   const agentsBlocks = [
     ["Biological Agents", buildDataBlock(application.biologicalAgents)],
@@ -411,7 +415,6 @@ export default function IbcProtocolView({ applicationId, sidebar, printMode = fa
     { id: "sec-personnel", label: "Personnel & Training" },
     showNucleic && { id: "sec-nucleic", label: "Recombinant / Synthetic Nucleic Acids" },
     showHuman && { id: "sec-human", label: "Human / NHP Material" },
-    showMethods && { id: "sec-methods", label: "Methods & Safety" },
     showAgents && { id: "sec-agents", label: "Hazardous Agents" },
     { id: "sec-facilities", label: "Facilities & Rooms" },
     inactivationBlock && { id: "sec-inactivation", label: "Inactivation & Decontamination" },
@@ -597,14 +600,14 @@ export default function IbcProtocolView({ applicationId, sidebar, printMode = fa
               </div>
             ) : personnelData && personnelData.length > 0 ? (
               <div className="space-y-3">
-                {personnelData.map((member: any, index: number) => {
+                {personnelData.map((member, index) => {
                   const memberCerts = member.scientistId ? teamCertifications[member.scientistId] || [] : [];
-                  const citiCerts = memberCerts.filter((cert: any) => {
-                    const module = certificationModules.find((m: any) => m.id === cert.moduleId);
+                  const citiCerts = memberCerts.filter((cert) => {
+                    const module = certificationModules.find((m) => m.id === cert.moduleId);
                     return module && module.name !== "Lab Safety";
                   });
-                  const labSafetyCert = memberCerts.find((cert: any) => {
-                    const module = certificationModules.find((m: any) => m.id === cert.moduleId);
+                  const labSafetyCert = memberCerts.find((cert) => {
+                    const module = certificationModules.find((m) => m.id === cert.moduleId);
                     return module && module.name === "Lab Safety";
                   });
 
@@ -651,8 +654,8 @@ export default function IbcProtocolView({ applicationId, sidebar, printMode = fa
                             <div className="flex gap-1 flex-wrap">
                               <TooltipProvider>
                                 {citiCerts.length > 0 ? (
-                                  citiCerts.map((cert: any, idx: number) => {
-                                    const module = certificationModules.find((m: any) => m.id === cert.moduleId);
+                                  citiCerts.map((cert, idx) => {
+                                    const module = certificationModules.find((m) => m.id === cert.moduleId);
                                     return (
                                       <Tooltip key={idx}>
                                         <TooltipTrigger>
@@ -689,12 +692,12 @@ export default function IbcProtocolView({ applicationId, sidebar, printMode = fa
                                       className={`${getCertificationColor(labSafetyCert.endDate)} cursor-help transition-colors text-xs`}
                                       variant="outline"
                                     >
-                                      {labSafetyCert.certificateName || "Certified"}
+                                      Certified
                                     </Badge>
                                   </TooltipTrigger>
                                   <TooltipContent>
                                     <p>
-                                      {labSafetyCert.certificateName || "Lab Safety"} - Expires:{" "}
+                                      Lab Safety - Expires:{" "}
                                       {labSafetyCert.endDate || "N/A"}
                                     </p>
                                   </TooltipContent>
@@ -778,7 +781,6 @@ export default function IbcProtocolView({ applicationId, sidebar, printMode = fa
             {/* Additional details */}
             <div className="space-y-3 pt-2 border-t">
               <p className="text-sm font-semibold">Additional Details</p>
-              <Field label="Nucleic acid extraction methods" value={application.nucleicAcidExtractionMethods} />
               <ChipList label="Proposed biosafety levels" values={application.proposedBiosafetyLevels} />
               <Field label="Host organism for DNA propagation" value={application.hostOrganismDnaPropagation} />
               <Field label="Purification measures (avoid aerosols)" value={application.purificationMeasures} />
@@ -862,22 +864,6 @@ export default function IbcProtocolView({ applicationId, sidebar, printMode = fa
               <Field label="Material treatment details" value={application.materialTreatmentDetails} />
               <Field label="Signs & symptoms of infection from exposure" value={application.infectionSymptoms} />
             </div>
-          </Section>
-        )}
-
-        {/* Methods & Safety (legacy free-text fields, only if present) */}
-        {showMethods && (
-          <Section id="sec-methods" title="Methods & Safety" icon={FlaskConical}>
-            <Field label="Materials and Methods" value={application.materialAndMethods} />
-            <Field label="Procedures Involving Infectious Agents" value={application.proceduresInvolvingInfectiousAgents} />
-            <Field label="Cell Culture Procedures" value={application.cellCultureProcedures} />
-            <Field label="Animal Procedures" value={application.animalProcedures} />
-            <Field label="Laboratory Equipment" value={application.laboratoryEquipment} />
-            <Field label="Containment Procedures" value={application.containmentProcedures} />
-            <Field label="Emergency Procedures" value={application.emergencyProcedures} />
-            <Field label="PPE Requirements" value={application.ppeRequirements} />
-            <Field label="Waste Sterilization" value={application.wasteSterilizationProcedures} />
-            <Field label="Agents Description" value={application.agents} />
           </Section>
         )}
 

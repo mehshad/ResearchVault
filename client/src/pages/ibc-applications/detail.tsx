@@ -1,5 +1,3 @@
-// @ts-nocheck — Pre-existing TypeScript errors in this file are suppressed so `npx tsc --noEmit` runs clean and new code in other files gets reliable type-checking feedback.
-// Most errors here stem from untyped `useQuery` results (data inferred as `unknown`), drifted shared/schema field renames, and form values typed as `unknown`. They are not known runtime bugs but should be fixed file-by-file as each is next touched: remove this directive, run `npx tsc --noEmit`, and resolve what surfaces.
 import { useQuery } from "@tanstack/react-query";
 import { useParams, useLocation } from "wouter";
 import { Button } from "@/components/ui/button";
@@ -8,8 +6,24 @@ import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import { ArrowLeft, User, Calendar, Building, Beaker, AlertTriangle, FileText, Shield, Eye, Edit, ExternalLink, Users, CheckCircle, XCircle, Printer } from "lucide-react";
 import { format } from "date-fns";
-import type { IbcApplication, Scientist, ResearchActivity } from "@shared/schema";
+import type { ComponentProps } from "react";
+import type { IbcApplication, Scientist, ResearchActivity, CertificationModule } from "@shared/schema";
 import TimelineComments from "@/components/TimelineComments";
+
+/** One entry of GET /api/ibc-applications/:id/personnel: a protocolTeamMembers item joined with its scientist. */
+interface ProtocolTeamMember {
+  scientistId?: number;
+  role?: string;
+  scientist?: Pick<Scientist, "id" | "honorificTitle" | "firstName" | "lastName" | "email" | "jobTitle"> | null;
+}
+
+/** One row of GET /api/certifications/matrix (assembled ad hoc on the server; no shared type). */
+interface CertificationMatrixRow {
+  scientistId: number;
+  moduleId: number;
+  certificationId: number | null;
+  endDate: string | null;
+}
 import { Skeleton } from "@/components/ui/skeleton";
 import { formatNameWithJobTitle, formatFullName } from "@/utils/nameUtils";
 
@@ -76,7 +90,7 @@ export default function IbcApplicationDetail() {
   // Use full activities if available, otherwise fall back to basic embedded data
   const researchActivities = fullResearchActivities || ibcApplication?.researchActivities;
 
-  const { data: comments = [] } = useQuery({
+  const { data: comments = [] } = useQuery<ComponentProps<typeof TimelineComments>["comments"]>({
     queryKey: [`/api/ibc-applications/${id}/comments`],
     enabled: !!id,
     staleTime: 0,
@@ -84,18 +98,18 @@ export default function IbcApplicationDetail() {
   });
 
   // Fetch personnel/team members
-  const { data: personnelData = [] } = useQuery({
+  const { data: personnelData = [] } = useQuery<ProtocolTeamMember[]>({
     queryKey: [`/api/ibc-applications/${id}/personnel`],
     enabled: !!id,
   });
 
   // Fetch certification modules
-  const { data: certificationModules = [] } = useQuery({
+  const { data: certificationModules = [] } = useQuery<CertificationModule[]>({
     queryKey: ["/api/certification-modules"],
   });
 
   // Fetch certification matrix
-  const { data: certificationMatrix = [] } = useQuery({
+  const { data: certificationMatrix = [] } = useQuery<CertificationMatrixRow[]>({
     queryKey: ["/api/certifications/matrix"],
   });
 
@@ -562,9 +576,9 @@ export default function IbcApplicationDetail() {
               vettedDate: typeof ibcApplication.vettedDate === 'string' ? ibcApplication.vettedDate : ibcApplication.vettedDate?.toISOString(),
               underReviewDate: typeof ibcApplication.underReviewDate === 'string' ? ibcApplication.underReviewDate : ibcApplication.underReviewDate?.toISOString(),
               approvalDate: typeof ibcApplication.approvalDate === 'string' ? ibcApplication.approvalDate : ibcApplication.approvalDate?.toISOString(),
-              expirationDate: typeof ibcApplication.expirationDate === 'string' ? ibcApplication.expirationDate : ibcApplication.expirationDate?.toISOString(),
-            }} 
-            comments={comments as any} 
+              expirationDate: ibcApplication.expirationDate ?? undefined,
+            }}
+            comments={comments}
           />
 
           {/* Important Dates */}
