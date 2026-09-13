@@ -1,5 +1,3 @@
-// @ts-nocheck — Pre-existing TypeScript errors in this file are suppressed so `npx tsc --noEmit` runs clean and new code in other files gets reliable type-checking feedback.
-// Most errors here stem from untyped `useQuery` results (data inferred as `unknown`), drifted shared/schema field renames, and form values typed as `unknown`. They are not known runtime bugs but should be fixed file-by-file as each is next touched: remove this directive, run `npx tsc --noEmit`, and resolve what surfaces.
 import { useState, useMemo } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -29,6 +27,7 @@ import { ObjectUploader } from "@/components/ObjectUploader";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
 import { formatFullName } from "@/utils/nameUtils";
+import type { Scientist, SystemConfiguration } from "@shared/schema";
 
 interface CertificationMatrixItem {
   scientistId: number;
@@ -73,7 +72,7 @@ interface DetectedCertificate {
 }
 
 interface PendingCertification extends DetectedCertificate {
-  scientistId?: number;
+  scientistId?: number | null;
   startDate?: string;
   endDate?: string;
   notes?: string;
@@ -83,6 +82,33 @@ interface PendingCertification extends DetectedCertificate {
   newModuleExpirationMonths?: number;
 }
 
+// One row of the upload tab's confirm-batch request.
+interface ConfirmCertificationPayload {
+  fileName: string;
+  scientistId?: number | null;
+  startDate?: string;
+  endDate?: string;
+  certificateFilePath: string;
+  notes: string;
+  moduleId?: number;
+  newModule?: { name: string; expirationMonths: number; isCore: boolean };
+}
+
+// What OCR pulled out of one certificate (pdf_import_history.parsed_data).
+interface ParsedCertificateData {
+  name?: string;
+  courseName?: string;
+  completionDate?: string;
+  expirationDate?: string;
+}
+
+// system_configurations.value under the ocr_service key.
+interface OcrServiceConfig {
+  provider?: 'ocr_space' | 'tesseract';
+  ocrSpaceApiKey?: string;
+  tesseractOptions?: { language?: string };
+}
+
 interface PdfImportHistoryEntry {
   id: number;
   fileName: string;
@@ -90,8 +116,9 @@ interface PdfImportHistoryEntry {
   uploadedBy: number;
   assignedScientistId?: number;
   extractedText?: string;
-  extractedData?: any;
-  processingStatus: 'processing' | 'completed' | 'failed';
+  parsedData?: ParsedCertificateData | null;
+  processingStatus: 'processing' | 'completed' | 'failed' | 'ocr_failed';
+  saveStatus?: string | null;
   ocrProvider: string;
   documentType?: string; // certificate, report, unknown
   errorMessage?: string;
@@ -225,24 +252,24 @@ export default function CertificationsPage() {
     },
   });
 
-  const { data: matrixData = [], isLoading: matrixLoading } = useQuery({
+  const { data: matrixData = [], isLoading: matrixLoading } = useQuery<CertificationMatrixItem[]>({
     queryKey: ['/api/certifications/matrix'],
   });
 
-  const { data: modules = [], isLoading: modulesLoading } = useQuery({
+  const { data: modules = [], isLoading: modulesLoading } = useQuery<CertificationModule[]>({
     queryKey: ['/api/certification-modules'],
   });
 
-  const { data: scientists = [] } = useQuery({
+  const { data: scientists = [] } = useQuery<Scientist[]>({
     queryKey: ['/api/scientists'],
   });
 
-  const { data: ocrConfig } = useQuery({
+  const { data: ocrConfig } = useQuery<Omit<SystemConfiguration, 'value'> & { value: OcrServiceConfig | null }>({
     queryKey: ['/api/system-configurations/ocr_service'],
   });
 
   // PDF import history query
-  const { data: pdfHistory = [], isLoading: historyLoading, refetch: refetchHistory } = useQuery({
+  const { data: pdfHistory = [], isLoading: historyLoading, refetch: refetchHistory } = useQuery<PdfImportHistoryEntry[]>({
     queryKey: ['/api/pdf-import-history', {
       scientistName: historySearchTerm,
       status: historyStatusFilter === 'all' ? '' : historyStatusFilter,
@@ -272,7 +299,7 @@ export default function CertificationsPage() {
       }
       
       // Transform the results to match the frontend PendingCertification structure
-      const processedFiles = data.results.map((result: any) => {
+      const processedFiles: PendingCertification[] = data.results.map((result: any) => {
         // Check if we actually got data or just an error
         if (!result.name && !result.courseName && !result.completionDate) {
           return {
@@ -379,7 +406,7 @@ export default function CertificationsPage() {
   });
 
   const confirmCertificationsMutation = useMutation({
-    mutationFn: async (certifications: PendingCertification[]) => {
+    mutationFn: async (certifications: ConfirmCertificationPayload[]) => {
       const response = await apiRequest('POST', '/api/certificates/confirm-batch', { certifications });
       return response.json();
     },

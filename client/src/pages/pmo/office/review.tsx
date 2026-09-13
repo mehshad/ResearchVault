@@ -1,5 +1,3 @@
-// @ts-nocheck — Pre-existing TypeScript errors in this file are suppressed so `npx tsc --noEmit` runs clean and new code in other files gets reliable type-checking feedback.
-// Most errors here stem from untyped `useQuery` results (data inferred as `unknown`), drifted shared/schema field renames, and form values typed as `unknown`. They are not known runtime bugs but should be fixed file-by-file as each is next touched: remove this directive, run `npx tsc --noEmit`, and resolve what surfaces.
 import { useState } from "react";
 import { useLocation, useRoute } from "wouter";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -53,7 +51,7 @@ const mockApplication = {
 
 export default function PmoOfficeReviewDetail() {
   const [, setLocation] = useLocation();
-  const [match] = useRoute("/pmo/office/review/:id");
+  const [, params] = useRoute("/pmo/office/review/:id");
   const { toast } = useToast();
   const queryClient = useQueryClient();
   
@@ -61,7 +59,7 @@ export default function PmoOfficeReviewDetail() {
   const [isProcessing, setIsProcessing] = useState(false);
 
   // TODO: Connect to real API using the id from match.id
-  const applicationId = match?.id;
+  const applicationId = params?.id;
   
   const handleStatusChange = async (newStatus: string, comment: string) => {
     if (!comment.trim()) {

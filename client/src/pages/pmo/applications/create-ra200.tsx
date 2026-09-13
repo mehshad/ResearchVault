@@ -1,5 +1,3 @@
-// @ts-nocheck — Pre-existing TypeScript errors in this file are suppressed so `npx tsc --noEmit` runs clean and new code in other files gets reliable type-checking feedback.
-// Most errors here stem from untyped `useQuery` results (data inferred as `unknown`), drifted shared/schema field renames, and form values typed as `unknown`. They are not known runtime bugs but should be fixed file-by-file as each is next touched: remove this directive, run `npx tsc --noEmit`, and resolve what surfaces.
 import { useState, useEffect } from "react";
 import { useLocation } from "wouter";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
@@ -16,6 +14,7 @@ import { FieldError } from "@/components/FieldError";
 import { ra200RequiredFieldErrors, stillFailing } from "@/lib/formValidation";
 import { apiRequest } from "@/lib/queryClient";
 import { InstitutionName } from "@/components/InstitutionName";
+import type { Ra200Application } from "@shared/schema";
 
 interface Ra200Form {
   // Header Information
@@ -127,7 +126,8 @@ export default function CreateRa200() {
   });
 
   const createApplicationMutation = useMutation({
-    mutationFn: (data: any) => apiRequest('POST', '/api/ra200-applications', data),
+    mutationFn: (data: any) =>
+      apiRequest('POST', '/api/ra200-applications', data).then((res) => res.json() as Promise<Ra200Application>),
     onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ['/api/pmo-applications'] });
       toast({ title: "RA-200 application created successfully!" });

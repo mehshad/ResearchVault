@@ -1,5 +1,3 @@
-// @ts-nocheck — Pre-existing TypeScript errors in this file are suppressed so `npx tsc --noEmit` runs clean and new code in other files gets reliable type-checking feedback.
-// Most errors here stem from untyped `useQuery` results (data inferred as `unknown`), drifted shared/schema field renames, and form values typed as `unknown`. They are not known runtime bugs but should be fixed file-by-file as each is next touched: remove this directive, run `npx tsc --noEmit`, and resolve what surfaces.
 import { useState } from "react";
 import { useLocation } from "wouter";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -721,7 +719,7 @@ export default function CreateRA205AApplication() {
                         />
                         <FormField
                           control={form.control}
-                          name="approvals.stakeholders.researchGrants.name"
+                          name="approvals.stakeholders.grants.name"
                           render={({ field }) => (
                             <FormItem>
                               <FormLabel>Research Grants Manager</FormLabel>
@@ -733,7 +731,7 @@ export default function CreateRA205AApplication() {
                         />
                         <FormField
                           control={form.control}
-                          name="approvals.stakeholders.researchContracts.name"
+                          name="approvals.stakeholders.contracts.name"
                           render={({ field }) => (
                             <FormItem>
                               <FormLabel>Research Contract Specialist</FormLabel>
@@ -745,7 +743,7 @@ export default function CreateRA205AApplication() {
                         />
                         <FormField
                           control={form.control}
-                          name="approvals.stakeholders.researchGovernance.name"
+                          name="approvals.stakeholders.governance.name"
                           render={({ field }) => (
                             <FormItem>
                               <FormLabel>Research Governance Manager</FormLabel>

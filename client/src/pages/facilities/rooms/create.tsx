@@ -1,5 +1,3 @@
-// @ts-nocheck — Pre-existing TypeScript errors in this file are suppressed so `npx tsc --noEmit` runs clean and new code in other files gets reliable type-checking feedback.
-// Most errors here stem from untyped `useQuery` results (data inferred as `unknown`), drifted shared/schema field renames, and form values typed as `unknown`. They are not known runtime bugs but should be fixed file-by-file as each is next touched: remove this directive, run `npx tsc --noEmit`, and resolve what surfaces.
 import { useState, useEffect } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -40,6 +38,8 @@ const roomFormSchema = insertRoomSchema.extend({
   floor: z.coerce.number().min(1).optional(),
   capacity: z.coerce.number().min(1).optional(),
   area: z.coerce.number().positive().optional(),
+  certifications: z.array(z.string()).optional(),
+  availablePpe: z.array(z.string()).optional(),
 });
 
 type RoomFormData = z.infer<typeof roomFormSchema>;
@@ -221,7 +221,7 @@ export default function CreateRoom() {
                       <FormLabel>Building *</FormLabel>
                       <Select onValueChange={(value) => field.onChange(parseInt(value))} value={field.value?.toString()}>
                         <FormControl>
-                          <SelectTrigger autoComplete="off" data-lpignore="true">
+                          <SelectTrigger data-lpignore="true">
                             <SelectValue placeholder="Select a building" />
                           </SelectTrigger>
                         </FormControl>
@@ -289,9 +289,9 @@ export default function CreateRoom() {
                   render={({ field }) => (
                     <FormItem>
                       <FormLabel>Room Type</FormLabel>
-                      <Select onValueChange={field.onChange} value={field.value}>
+                      <Select onValueChange={field.onChange} value={field.value ?? undefined}>
                         <FormControl>
-                          <SelectTrigger autoComplete="off" data-lpignore="true">
+                          <SelectTrigger data-lpignore="true">
                             <SelectValue placeholder="Select type" />
                           </SelectTrigger>
                         </FormControl>
@@ -317,9 +317,9 @@ export default function CreateRoom() {
                   render={({ field }) => (
                     <FormItem>
                       <FormLabel>Biosafety Level</FormLabel>
-                      <Select onValueChange={field.onChange} value={field.value}>
+                      <Select onValueChange={field.onChange} value={field.value ?? undefined}>
                         <FormControl>
-                          <SelectTrigger autoComplete="off" data-lpignore="true">
+                          <SelectTrigger data-lpignore="true">
                             <SelectValue placeholder="Select BSL" />
                           </SelectTrigger>
                         </FormControl>
@@ -489,6 +489,7 @@ export default function CreateRoom() {
                         placeholder="List major equipment in this room"
                         rows={3}
                         {...field}
+                        value={field.value ?? ""}
                       />
                     </FormControl>
                     <FormMessage />
@@ -507,6 +508,7 @@ export default function CreateRoom() {
                         placeholder="Special features or capabilities of this room"
                         rows={2}
                         {...field}
+                        value={field.value ?? ""}
                       />
                     </FormControl>
                     <FormMessage />
@@ -526,6 +528,7 @@ export default function CreateRoom() {
                           placeholder="Access requirements or restrictions"
                           rows={2}
                           {...field}
+                          value={field.value ?? ""}
                         />
                       </FormControl>
                       <FormMessage />
@@ -544,6 +547,7 @@ export default function CreateRoom() {
                           placeholder="Maintenance requirements or notes"
                           rows={2}
                           {...field}
+                          value={field.value ?? ""}
                         />
                       </FormControl>
                       <FormMessage />
