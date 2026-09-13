@@ -3879,7 +3879,7 @@ function writeFailureDetail(error: unknown): string {
           ...member,
           scientist: scientist ? {
             id: scientist.id,
-            name: `-e `,
+            name: [scientist.honorificTitle, scientist.firstName, scientist.lastName].filter(Boolean).join(" "),
             title: scientist.jobTitle,
             profileImageInitials: scientist.profileImageInitials
           } : null
@@ -4012,7 +4012,7 @@ function writeFailureDetail(error: unknown): string {
             researchActivityTitle: activity.title,
             scientist: scientist ? {
               id: scientist.id,
-              name: `-e `,
+              name: [scientist.honorificTitle, scientist.firstName, scientist.lastName].filter(Boolean).join(" "),
               title: scientist.jobTitle,
               profileImageInitials: scientist.profileImageInitials
             } : null
@@ -4091,7 +4091,7 @@ function writeFailureDetail(error: unknown): string {
         researchActivityTitle: researchActivity.title,
         scientist: {
           id: scientist.id,
-          name: `-e `,
+          name: [scientist.honorificTitle, scientist.firstName, scientist.lastName].filter(Boolean).join(" "),
           title: scientist.jobTitle,
           profileImageInitials: scientist.profileImageInitials
         }
@@ -4244,7 +4244,7 @@ function writeFailureDetail(error: unknown): string {
         ...member,
         scientist: {
           id: scientist.id,
-          name: `-e `,
+          name: [scientist.honorificTitle, scientist.firstName, scientist.lastName].filter(Boolean).join(" "),
           title: scientist.jobTitle,
           email: scientist.email,
           staffId: scientist.staffId,
@@ -7387,7 +7387,7 @@ function writeFailureDetail(error: unknown): string {
                   honorificTitle: scientist.honorificTitle,
                   firstName: scientist.firstName,
                   lastName: scientist.lastName,
-                  name: `-e `,
+                  name: [scientist.honorificTitle, scientist.firstName, scientist.lastName].filter(Boolean).join(" "),
                   email: scientist.email,
                   department: scientist.department,
                   jobTitle: scientist.jobTitle,
