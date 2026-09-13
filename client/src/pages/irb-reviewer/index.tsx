@@ -17,6 +17,7 @@ import {
 } from "lucide-react";
 import { IrbApplication } from "@shared/schema";
 import { formatDateOrDash as formatDate } from "@/lib/dates";
+import { statusBadgeClass } from "@/lib/statusStyles";
 
 export default function IrbReviewerDashboard() {
   const [, navigate] = useLocation();
@@ -32,19 +33,6 @@ export default function IrbReviewerDashboard() {
     app.workflowStatus === 'triage_complete' ||
     (app.reviewerAssignments && app.reviewerAssignments !== '{}')
   );
-
-  const getStatusBadge = (status: string) => {
-    switch (status) {
-      case 'triage_complete':
-        return 'bg-cyan-100 text-cyan-800 dark:bg-cyan-950 dark:text-cyan-300';
-      case 'under_review':
-        return 'bg-yellow-100 text-yellow-800 dark:bg-yellow-950 dark:text-yellow-300';
-      case 'ready_for_decision':
-        return 'bg-purple-100 text-purple-800 dark:bg-purple-950 dark:text-purple-300';
-      default:
-        return 'bg-gray-100 text-gray-800 dark:bg-gray-800 dark:text-gray-200';
-    }
-  };
 
   const getPriorityIcon = (status: string) => {
     if (status === 'triage_complete') return <AlertCircle className="h-4 w-4 text-orange-500" />;
@@ -165,7 +153,7 @@ export default function IrbReviewerDashboard() {
                         <h3 className="font-medium">{application.title}</h3>
                         <Badge 
                           variant="outline"
-                          className={getStatusBadge(application.workflowStatus)}
+                          className={statusBadgeClass("irb", application.workflowStatus)}
                         >
                           {application.workflowStatus === 'triage_complete' ? 'Ready for Review' :
                            application.workflowStatus === 'under_review' ? 'Under Review' :

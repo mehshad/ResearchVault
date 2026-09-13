@@ -20,6 +20,7 @@ import { useCurrentUser } from "@/hooks/useCurrentUser";
 import { PermissionWrapper } from "@/components/PermissionWrapper";
 import { usePermissions } from "@/hooks/usePermissions";
 import { formatDateOrDash as formatDate } from "@/lib/dates";
+import { statusBadgeClass } from "@/lib/statusStyles";
 
 export default function ContractsList() {
   const [searchQuery, setSearchQuery] = useState("");
@@ -28,15 +29,6 @@ export default function ContractsList() {
   const { data: contracts, isLoading } = useQuery<EnhancedResearchContract[]>({
     queryKey: ['/api/research-contracts'],
   });
-
-  const statusColors = {
-    draft: "bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-300",
-    active: "bg-green-100 text-green-700 dark:bg-green-950 dark:text-green-300",
-    pending: "bg-yellow-100 text-yellow-700 dark:bg-yellow-950 dark:text-yellow-300",
-    completed: "bg-blue-100 text-blue-600 dark:bg-blue-950 dark:text-blue-400",
-    terminated: "bg-red-100 text-red-600 dark:bg-red-950 dark:text-red-400",
-    "under review": "bg-purple-100 text-purple-600 dark:bg-purple-950 dark:text-purple-400"
-  };
 
   const typeColors = {
     collaboration: "bg-indigo-50 text-indigo-600 dark:bg-indigo-950 dark:text-indigo-400",
@@ -202,7 +194,7 @@ export default function ContractsList() {
                       {contract.status && (
                         <Badge 
                           variant="outline"
-                          className={`capitalize ${statusColors[contract.status.toLowerCase() as keyof typeof statusColors] || "bg-gray-100 text-gray-600"}`}
+                          className={`capitalize ${statusBadgeClass("contract", contract.status)}`}
                         >
                           {contract.status}
                         </Badge>

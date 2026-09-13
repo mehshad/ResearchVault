@@ -17,6 +17,7 @@ import {
 import { IrbApplication, ResearchActivity, Scientist } from "@shared/schema";
 import TimelineComments from "@/components/TimelineComments";
 import { formatDateOrDash as formatDate } from "@/lib/dates";
+import { statusBadgeClass } from "@/lib/statusStyles";
 
 interface ReviewAction {
   action: 'approve' | 'reject' | 'request_revisions' | 'assign_reviewer' | 'assign_reviewers';
@@ -248,27 +249,6 @@ export default function IrbOfficeProtocolDetail(
     }
   };
 
-  const getStatusBadge = (status: string) => {
-    switch (status) {
-      case 'submitted':
-        return 'bg-blue-100 text-blue-800 dark:bg-blue-950 dark:text-blue-300';
-      case 'triage_complete':
-        return 'bg-cyan-100 text-cyan-800 dark:bg-cyan-950 dark:text-cyan-300';
-      case 'under_review':
-        return 'bg-yellow-100 text-yellow-800 dark:bg-yellow-950 dark:text-yellow-300';
-      case 'approved':
-        return 'bg-green-100 text-green-800 dark:bg-green-950 dark:text-green-300';
-      case 'rejected':
-        return 'bg-red-100 text-red-800 dark:bg-red-950 dark:text-red-300';
-      case 'revisions_requested':
-        return 'bg-orange-100 text-orange-800 dark:bg-orange-950 dark:text-orange-300';
-      case 'resubmitted':
-        return 'bg-purple-100 text-purple-800 dark:bg-purple-950 dark:text-purple-300';
-      default:
-        return 'bg-gray-100 text-gray-800 dark:bg-gray-800 dark:text-gray-200';
-    }
-  };
-
   const renderReviewHistory = () => {
     return (
       <TimelineComments 
@@ -331,7 +311,7 @@ export default function IrbOfficeProtocolDetail(
           )}
           <Badge 
             variant="outline"
-            className={`capitalize ${getStatusBadge(application.workflowStatus || 'submitted')}`}
+            className={`capitalize ${statusBadgeClass("irb", application.workflowStatus || 'submitted')}`}
           >
             {application.workflowStatus === 'revisions_requested' ? 'revisions requested' :
              application.workflowStatus === 'triage_complete' ? 'triage complete' :

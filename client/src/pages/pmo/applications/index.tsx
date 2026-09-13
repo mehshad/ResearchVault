@@ -10,14 +10,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ClipboardList, Plus, Search, FileText, Eye, Edit, Filter } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import type { Scientist } from "@shared/schema";
-
-const statusColors = {
-  draft: "bg-gray-100 text-gray-800 dark:bg-gray-800 dark:text-gray-200",
-  submitted: "bg-blue-100 text-blue-800 dark:bg-blue-950 dark:text-blue-300", 
-  under_review: "bg-yellow-100 text-yellow-800 dark:bg-yellow-950 dark:text-yellow-300",
-  approved: "bg-green-100 text-green-800 dark:bg-green-950 dark:text-green-300",
-  rejected: "bg-red-100 text-red-800 dark:bg-red-950 dark:text-red-300"
-};
+import { statusBadgeClass } from "@/lib/statusStyles";
 
 export default function PmoApplicationsList() {
   const [searchTerm, setSearchTerm] = useState("");
@@ -210,7 +203,7 @@ export default function PmoApplicationsList() {
                     <div className="flex-1">
                       <div className="flex items-center gap-3 mb-2">
                         <h3 className="font-medium text-lg">{application.title}</h3>
-                        <Badge className={statusColors[application.status as keyof typeof statusColors]}>
+                        <Badge className={statusBadgeClass("pmo", application.status)}>
                           {application.status.replace('_', ' ').toUpperCase()}
                         </Badge>
                         <Badge variant="outline">{application.form_type}</Badge>
@@ -288,7 +281,7 @@ export default function PmoApplicationsList() {
                     <div className="flex-1">
                       <div className="flex items-center gap-3 mb-2">
                         <h3 className="font-medium text-lg">{application.title}</h3>
-                        <Badge className={statusColors[application.status as keyof typeof statusColors]}>
+                        <Badge className={statusBadgeClass("pmo", application.status)}>
                           {application.status.replace('_', ' ').toUpperCase()}
                         </Badge>
                         <Badge variant="outline">{application.form_type}</Badge>

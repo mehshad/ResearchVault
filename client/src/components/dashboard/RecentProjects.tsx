@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/button";
 import { MoreVertical, ChevronLeft, ChevronRight } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
 import { formatFullName, getInitials } from "@/utils/nameUtils";
+import { statusBadgeClass } from "@/lib/statusStyles";
 
 interface PersonInfo {
   id: number;
@@ -29,14 +30,6 @@ export default function RecentProjects({ limit = 5 }: RecentProjectsProps) {
   const { data: activities, isLoading, error } = useQuery<EnhancedResearchActivity[]>({
     queryKey: ['/api/dashboard/recent-projects', { limit }],
   });
-
-  const statusColors = {
-    active: "bg-green-100 text-green-700 dark:bg-green-950 dark:text-green-300",
-    pending: "bg-yellow-100 text-yellow-700 dark:bg-yellow-950 dark:text-yellow-300",
-    planning: "bg-blue-100 text-blue-600 dark:bg-blue-950 dark:text-blue-400",
-    completed: "bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-300",
-    on_hold: "bg-red-100 text-red-600 dark:bg-red-950 dark:text-red-400"
-  };
 
   const formatDate = (dateString: string) => {
     const date = new Date(dateString);
@@ -134,7 +127,7 @@ export default function RecentProjects({ limit = 5 }: RecentProjectsProps) {
                       {renderPerson(activity.leadScientist, "Lead Scientist")}
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap">
-                      <span className={`px-2 py-1 text-xs rounded-full capitalize ${statusColors[activity.status.toLowerCase() as keyof typeof statusColors] || "bg-gray-100 text-gray-600"}`}>
+                      <span className={`px-2 py-1 text-xs rounded-full capitalize ${statusBadgeClass("project", activity.status)}`}>
                         {activity.status}
                       </span>
                     </td>

@@ -15,6 +15,7 @@ import {
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useToast } from "@/hooks/use-toast";
 import { formatDateOrDash as formatDate } from "@/lib/dates";
+import { statusBadgeClass } from "@/lib/statusStyles";
 
 // Mock application data - will connect to API later
 const mockApplication = {
@@ -48,14 +49,6 @@ const mockApplication = {
   ],
   officeComments: [],
   piComments: []
-};
-
-const statusColors = {
-  submitted: "bg-blue-100 text-blue-800 dark:bg-blue-950 dark:text-blue-300",
-  under_review: "bg-yellow-100 text-yellow-800 dark:bg-yellow-950 dark:text-yellow-300", 
-  revision_requested: "bg-orange-100 text-orange-800 dark:bg-orange-950 dark:text-orange-300",
-  approved: "bg-green-100 text-green-800 dark:bg-green-950 dark:text-green-300",
-  rejected: "bg-red-100 text-red-800 dark:bg-red-950 dark:text-red-300"
 };
 
 export default function PmoOfficeReviewDetail() {
@@ -124,7 +117,7 @@ export default function PmoOfficeReviewDetail() {
         <div className="flex-1">
           <div className="flex items-center gap-3 mb-2">
             <h1 className="text-3xl font-bold">{mockApplication.title}</h1>
-            <Badge className={statusColors[mockApplication.status as keyof typeof statusColors]}>
+            <Badge className={statusBadgeClass("pmo", mockApplication.status)}>
               {mockApplication.status.replace('_', ' ').toUpperCase()}
             </Badge>
             <Badge variant="outline">{mockApplication.formType}</Badge>

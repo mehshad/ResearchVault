@@ -53,6 +53,7 @@ import { PermissionWrapper, useElementPermissions } from "@/components/Permissio
 import { GrantCleanupDialog } from "@/components/GrantCleanupDialog";
 import { GrantRulesDialog } from "@/components/GrantRulesDialog";
 import { formatDateOrDash as formatDate } from "@/lib/dates";
+import { statusBadgeClass } from "@/lib/statusStyles";
 
 type EnhancedGrant = Grant & {
   lpi?: {
@@ -119,26 +120,6 @@ export default function GrantsList() {
         maximumFractionDigits: 0,
       }).format(numAmount)}`;
     }
-  };
-
-  const statusColors: Record<string, string> = {
-    submitted: "bg-yellow-100 text-yellow-700 dark:bg-yellow-950 dark:text-yellow-300",
-    pending: "bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-300",
-    in_review: "bg-purple-100 text-purple-700 dark:bg-purple-950 dark:text-purple-300",
-    awarded: "bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300",
-    active: "bg-green-100 text-green-700 dark:bg-green-950 dark:text-green-300",
-    completed: "bg-blue-100 text-blue-700 dark:bg-blue-950 dark:text-blue-300",
-    not_awarded: "bg-orange-100 text-orange-700 dark:bg-orange-950 dark:text-orange-300",
-    rejected: "bg-orange-100 text-orange-700 dark:bg-orange-950 dark:text-orange-300",
-    cancelled: "bg-red-100 text-red-600 dark:bg-red-950 dark:text-red-400",
-    withdrawn: "bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300",
-    terminated: "bg-red-100 text-red-600 dark:bg-red-950 dark:text-red-400",
-    transferred: "bg-sky-100 text-sky-700 dark:bg-sky-950 dark:text-sky-300",
-    suspended: "bg-amber-100 text-amber-700 dark:bg-amber-950 dark:text-amber-300",
-  };
-
-  const getStatusColor = (status: string) => {
-    return statusColors[status.toLowerCase() as keyof typeof statusColors] || "bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-300";
   };
 
   // Retired statuses included: a grant that still carries one has to keep
@@ -674,7 +655,7 @@ export default function GrantsList() {
                         </div>
                       </TableCell>
                       <TableCell className="text-right">
-                        <Badge variant="secondary" className={getStatusColor(grant.status)}>
+                        <Badge variant="secondary" className={statusBadgeClass("grant", grant.status)}>
                           {getStatusLabel(grant.status)}
                         </Badge>
                       </TableCell>

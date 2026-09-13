@@ -42,6 +42,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ImpactFactorsReadOnly } from "@/components/ImpactFactorsReadOnly";
 import PublicationImport from "./import";
 import { formatMonthYear } from "@/lib/dates";
+import { statusBadgeClass } from "@/lib/statusStyles";
 
 export default function PublicationsList() {
   const [searchQuery, setSearchQuery] = useState("");
@@ -210,16 +211,6 @@ export default function PublicationsList() {
     enabled: !isRestrictedOnly(currentUser) && !!filterResearchActivityId,
   });
 
-
-  const statusColors = {
-    published: "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400",
-    "published - invalid": "bg-red-100 text-red-700 dark:bg-red-950 dark:text-red-300",
-    "published *": "bg-green-600 text-white dark:bg-green-700 dark:text-green-100",
-    submitted: "bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400",
-    "in preparation": "bg-blue-100 text-blue-600 dark:bg-blue-900/30 dark:text-blue-400",
-    rejected: "bg-red-100 text-red-600 dark:bg-red-900/30 dark:text-red-400",
-    "under review": "bg-purple-100 text-purple-600 dark:bg-purple-900/30 dark:text-purple-400"
-  };
 
   const filteredPublications = publications?.filter(publication => {
     // First apply research activity filter
@@ -735,7 +726,7 @@ export default function PublicationsList() {
                       {publication.status && (
                         <Badge 
                           variant={publication.status.includes('*') ? 'default' : 'outline'}
-                          className={`capitalize ${statusColors[publication.status.toLowerCase() as keyof typeof statusColors] || "bg-gray-100 text-gray-600"}`}
+                          className={`capitalize ${statusBadgeClass("publication", publication.status)}`}
                         >
                           {publication.status.includes('*') ? (
                             <div className="flex items-center gap-1">

@@ -17,6 +17,7 @@ import {
 import { Skeleton } from "@/components/ui/skeleton";
 import { formatNameWithJobTitle } from "@/utils/nameUtils";
 import { formatDateOrDash as formatDate } from "@/lib/dates";
+import { statusBadgeClass } from "@/lib/statusStyles";
 
 export default function IbcList() {
   const [searchQuery, setSearchQuery] = useState("");
@@ -25,15 +26,6 @@ export default function IbcList() {
   const { data: applications, isLoading } = useQuery<EnhancedIbcApplication[]>({
     queryKey: ['/api/ibc-applications'],
   });
-
-  const statusColors = {
-    draft: "bg-gray-100 text-gray-800 dark:bg-gray-800 dark:text-gray-200",
-    submitted: "bg-blue-100 text-blue-800 dark:bg-blue-950 dark:text-blue-300",
-    vetted: "bg-purple-100 text-purple-800 dark:bg-purple-950 dark:text-purple-300",
-    under_review: "bg-yellow-100 text-yellow-800 dark:bg-yellow-950 dark:text-yellow-300",
-    active: "bg-green-100 text-green-800 dark:bg-green-950 dark:text-green-300",
-    expired: "bg-red-100 text-red-800 dark:bg-red-950 dark:text-red-300"
-  };
 
   const biosafetyLevelColors = {
     "bsl-1": "bg-green-50 text-green-600 dark:bg-green-950 dark:text-green-400",
@@ -161,7 +153,7 @@ export default function IbcList() {
                       {application.status && (
                         <Badge 
                           variant="outline"
-                          className={`capitalize ${statusColors[application.status.toLowerCase() as keyof typeof statusColors] || "bg-gray-100 text-gray-600"}`}
+                          className={`capitalize ${statusBadgeClass("ibc", application.status)}`}
                         >
                           {application.status}
                         </Badge>

@@ -12,6 +12,7 @@ import { useQuery } from "@tanstack/react-query";
 import type { Scientist } from "@shared/schema";
 import { OfficeDashboard } from "@/components/office-dashboard";
 import { formatDateOrDash as formatDate } from "@/lib/dates";
+import { statusBadgeClass } from "@/lib/statusStyles";
 
 interface PmoApplication {
   id: number;
@@ -24,15 +25,6 @@ interface PmoApplication {
   durationMonths: number | null;
   createdAt: string | null;
 }
-
-const statusColors: Record<string, string> = {
-  draft: "bg-gray-100 text-gray-800 dark:bg-gray-800 dark:text-gray-200",
-  submitted: "bg-blue-100 text-blue-800 dark:bg-blue-950 dark:text-blue-300",
-  under_review: "bg-yellow-100 text-yellow-800 dark:bg-yellow-950 dark:text-yellow-300",
-  revision_requested: "bg-orange-100 text-orange-800 dark:bg-orange-950 dark:text-orange-300",
-  approved: "bg-green-100 text-green-800 dark:bg-green-950 dark:text-green-300",
-  rejected: "bg-red-100 text-red-800 dark:bg-red-950 dark:text-red-300"
-};
 
 const statusIcons: Record<string, typeof Clock> = {
   draft: Clock,
@@ -219,7 +211,7 @@ export default function PmoOfficeReview() {
                       <div className="flex-1">
                         <div className="flex items-center gap-3 mb-2">
                           <h3 className="font-medium text-lg">{application.title}</h3>
-                          <Badge className={statusColors[application.status]}>
+                          <Badge className={statusBadgeClass("pmo", application.status)}>
                             <StatusIcon className="h-3 w-3 mr-1" />
                             {application.status.replace('_', ' ').toUpperCase()}
                           </Badge>
