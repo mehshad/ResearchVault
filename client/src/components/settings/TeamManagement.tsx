@@ -469,6 +469,8 @@ export default function TeamManagement() {
             <Button
               variant="ghost"
               size="icon"
+              aria-label="Edit team member"
+              title="Edit team member"
               onClick={() => handleEdit(member)}
               data-testid={`button-edit-member-${member.id}`}
             >
@@ -477,6 +479,8 @@ export default function TeamManagement() {
             <Button
               variant="ghost"
               size="icon"
+              aria-label="Delete team member"
+              title="Delete team member"
               onClick={() => handleDelete(member)}
               data-testid={`button-delete-member-${member.id}`}
             >

@@ -142,7 +142,7 @@ export default function RecentProjects({ limit = 5 }: RecentProjectsProps) {
                       {formatDate(activity.updatedAt.toString())}
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-right text-sm">
-                      <Button variant="ghost" size="icon" className="text-muted-foreground hover:text-primary-500">
+                      <Button variant="ghost" size="icon" aria-label="More actions" title="More actions" className="text-muted-foreground hover:text-primary-500">
                         <MoreVertical className="h-4 w-4" />
                       </Button>
                     </td>
