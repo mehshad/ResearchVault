@@ -12,6 +12,8 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { ArrowLeft, Save, Send, FileCheck, Clock, Users, MessageSquare, History } from "lucide-react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useToast } from "@/hooks/use-toast";
+import { FieldError } from "@/components/FieldError";
+import { ra200RequiredFieldErrors, stillFailing } from "@/lib/formValidation";
 import { apiRequest } from "@/lib/queryClient";
 import { formatDate } from "@/lib/dates";
 import { InstitutionName } from "@/components/InstitutionName";
@@ -79,6 +81,8 @@ export default function EditRa200() {
 
   const applicationId = match?.id;
 
+  // Per-field messages for a submission; a draft may be saved half-filled.
+  const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const [formData, setFormData] = useState<Ra200Form>({
     title: "",
     leadScientistId: null,
@@ -187,7 +191,21 @@ export default function EditRa200() {
     }
   });
 
+  useEffect(() => {
+    setFieldErrors((current) =>
+      Object.keys(current).length === 0 ? current : stillFailing(current, ra200RequiredFieldErrors(formData)),
+    );
+  }, [formData]);
+
   const handleSave = (status?: 'draft' | 'submitted') => {
+    // The five fields marked with an asterisk were never enforced. A
+    // submission now names each one it lacks under its own box.
+    const errors = status === 'submitted' ? ra200RequiredFieldErrors(formData) : {};
+    setFieldErrors(errors);
+    if (Object.keys(errors).length > 0) {
+      toast({ title: "Check the highlighted fields", description: Object.values(errors)[0], variant: "destructive" });
+      return;
+    }
     const submitData = {
       ...formData,
       status: status || application?.status || 'draft'
@@ -287,6 +305,7 @@ export default function EditRa200() {
                       placeholder="Enter the research activity title"
                       className="mt-1"
                     />
+                    <FieldError message={fieldErrors.title} />
                   </div>
 
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -307,6 +326,7 @@ export default function EditRa200() {
                           ))}
                         </SelectContent>
                       </Select>
+                      <FieldError message={fieldErrors.leadScientistId} />
                     </div>
 
                     <div>
@@ -326,6 +346,7 @@ export default function EditRa200() {
                           ))}
                         </SelectContent>
                       </Select>
+                      <FieldError message={fieldErrors.projectId} />
                     </div>
                   </div>
 
@@ -347,6 +368,7 @@ export default function EditRa200() {
                           ))}
                         </SelectContent>
                       </Select>
+                      <FieldError message={fieldErrors.budgetHolderId} />
                     </div>
 
                     <div>
@@ -377,6 +399,7 @@ export default function EditRa200() {
                       className="mt-1"
                       maxLength={5000}
                     />
+                    <FieldError message={fieldErrors.abstract} />
                     <div className="text-sm text-muted-foreground mt-1">
                       {formData.abstract.length}/5000 characters
                     </div>

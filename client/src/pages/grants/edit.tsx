@@ -36,6 +36,8 @@ import {
 } from "@shared/grantLifecycle";
 import { useGrantStatuses } from "@/hooks/useGrantStatuses";
 import { GrantStatusCombobox } from "@/components/GrantStatusCombobox";
+import { FieldError } from "@/components/FieldError";
+import { grantFormErrors, stillFailing } from "@/lib/formValidation";
 import { GRANT_CURRENCY_VALUES } from "@shared/schema";
 import {
   getGrantSdrCandidates,
@@ -224,6 +226,19 @@ export default function EditGrant() {
   // The combobox fetches its own options; this is only for naming the status
   // in a validation message.
   const { all: allStatuses } = useGrantStatuses();
+  const statusLabel = (status: string) =>
+    allStatuses.find((option) => option.value === status)?.label ?? status;
+
+  // Per-field messages, set on submit. They clear as the reader fixes each
+  // field, but no new ones appear until they submit again -- a form that
+  // scolds on every keystroke is worse than one that waits to be asked.
+  const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
+  useEffect(() => {
+    setFieldErrors((current) =>
+      Object.keys(current).length === 0 ? current : stillFailing(current, grantFormErrors(formData, statusLabel)),
+    );
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [formData]);
 
   const handleStatusChange = (value: string) => {
     if (
@@ -322,19 +337,14 @@ export default function EditGrant() {
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
 
-    // Client-side date validation
-    if (grantStatusRequiresStartDate(formData.status) && !formData.startDate) {
+    // Every failing field is named under its own box; the toast only says
+    // to look, since a toast cannot point at a field.
+    const errors = grantFormErrors(formData, statusLabel);
+    setFieldErrors(errors);
+    if (Object.keys(errors).length > 0) {
       toast({
-        title: "Validation Error",
-        description: `${allStatuses.find(o => o.value === formData.status)?.label} grants require a start date.`,
-        variant: "destructive",
-      });
-      return;
-    }
-    if (formData.startDate && formData.endDate && formData.endDate < formData.startDate) {
-      toast({
-        title: "Validation Error",
-        description: "End date cannot be before the start date.",
+        title: "Check the highlighted fields",
+        description: Object.values(errors)[0],
         variant: "destructive",
       });
       return;
@@ -717,6 +727,7 @@ export default function EditGrant() {
                   placeholder="e.g., NIH-R01-123456"
                   required
                 />
+                <FieldError message={fieldErrors.projectNumber} />
               </div>
 
               <div>
@@ -728,6 +739,7 @@ export default function EditGrant() {
                   onChange={handleStatusChange}
                   data-testid="select-grant-status"
                 />
+                <FieldError message={fieldErrors.status} />
               </div>
 
               <div>
@@ -812,6 +824,7 @@ export default function EditGrant() {
                 placeholder="Grant title"
                 required
               />
+              <FieldError message={fieldErrors.title} />
             </div>
 
             {/* Third Row: Sidra Lead PI, Investigator Type, Running Time, Current Year */}
@@ -907,6 +920,7 @@ export default function EditGrant() {
                       value={formData.startDate}
                       onChange={(e) => setFormData({...formData, startDate: e.target.value})}
                     />
+                    <FieldError message={fieldErrors.startDate} />
                   </div>
 
                   <div id="grant-field-end-date" className={issueFieldClass("missing_end_date")}>
@@ -918,6 +932,7 @@ export default function EditGrant() {
                       value={formData.endDate}
                       onChange={(e) => setFormData({...formData, endDate: e.target.value})}
                     />
+                    <FieldError message={fieldErrors.endDate} />
                   </div>
                 </>
               )}
@@ -1006,6 +1021,7 @@ export default function EditGrant() {
                   onChange={(e) => setFormData({...formData, requestedAmount: e.target.value})}
                   placeholder="$0.00"
                 />
+                <FieldError message={fieldErrors.requestedAmount} />
               </div>
 
               <div id="grant-field-awarded-budget" className={issueFieldClass("missing_awarded_budget")}>
@@ -1017,6 +1033,7 @@ export default function EditGrant() {
                   onChange={(e) => setFormData({...formData, awardedAmount: e.target.value})}
                   placeholder="$626,565.00"
                 />
+                <FieldError message={fieldErrors.awardedAmount} />
               </div>
 
               <div id="grant-field-currency" className={issueFieldClass("missing_currency")}>
@@ -1046,6 +1063,7 @@ export default function EditGrant() {
                   onChange={(e) => setFormData({...formData, submittedYear: e.target.value})}
                   placeholder="2024"
                 />
+                <FieldError message={fieldErrors.submittedYear} />
               </div>
 
               <div id="grant-field-awarded-year" className={issueFieldClass("missing_awarded_year")}>
@@ -1058,6 +1076,7 @@ export default function EditGrant() {
                   onChange={(e) => setFormData({...formData, awardedYear: e.target.value})}
                   placeholder="2024"
                 />
+                <FieldError message={fieldErrors.awardedYear} />
               </div>
             </div>
 
