@@ -255,6 +255,12 @@ export default function PublicationDetail() {
   >({
     queryKey: [`/api/publications/${id}/history`],
     enabled: !!publication,
+    // Always refetch on arrival. The steps that write history -- vetting,
+    // finalising, marking invalid -- happen on the Outcome Office page, whose
+    // refreshes reach the publication itself but not this key, so a reader
+    // coming straight back here saw the new status over the old history and
+    // the Published -> Published * step appeared to be missing.
+    staleTime: 0,
   });
 
   // Mutations for author management

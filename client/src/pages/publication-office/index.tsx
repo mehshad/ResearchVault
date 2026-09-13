@@ -1564,6 +1564,20 @@ export default function PublicationOffice({ embeddedTab }: PublicationOfficeProp
     }
   };
 
+  // Every office step below writes a manuscript history row, and the detail
+  // page caches history under its own key -- one that the '/api/publications'
+  // invalidation above does not reach, since react-query matches key prefixes
+  // element by element and '/api/publications/12/history' is a single element.
+  // Drop every cached history so a reader who goes straight to the paper sees
+  // the step that was just taken, not the status over yesterday's history.
+  const invalidateManuscriptHistories = () =>
+    queryClient.invalidateQueries({
+      predicate: (query) => {
+        const key = String(query.queryKey[0]);
+        return key.startsWith("/api/publications/") && key.endsWith("/history");
+      },
+    });
+
   const markAsVettedMutation = useMutation({
     mutationFn: async (id: number) => {
       const response = await fetch(`/api/publications/${id}/ip-vet`, {
@@ -1579,6 +1593,7 @@ export default function PublicationOffice({ embeddedTab }: PublicationOfficeProp
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['/api/publications'] });
+      invalidateManuscriptHistories();
       toast({
         title: "IP vetting complete",
         description: "Publication moved to Vetted for submission.",
@@ -1604,6 +1619,7 @@ export default function PublicationOffice({ embeddedTab }: PublicationOfficeProp
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['/api/publications'] });
+      invalidateManuscriptHistories();
       toast({
         title: "Publication finalized",
         description: "Publication marked as Published * and sealed.",
@@ -1635,6 +1651,7 @@ export default function PublicationOffice({ embeddedTab }: PublicationOfficeProp
       queryClient.invalidateQueries({
         predicate: (query) => String(query.queryKey[0]).startsWith("/api/publications/invalid-issues"),
       });
+      invalidateManuscriptHistories();
       setInvalidPublication(null);
       setInvalidReason("");
       toast({
@@ -1679,6 +1696,7 @@ export default function PublicationOffice({ embeddedTab }: PublicationOfficeProp
     onSuccess: () => {
       setRevertConfirmId(null);
       queryClient.invalidateQueries({ queryKey: ['/api/publications'] });
+      invalidateManuscriptHistories();
       toast({ title: "Reverted", description: "The publication is unsealed and back in Published status." });
     },
     onError: (error: Error) => {
