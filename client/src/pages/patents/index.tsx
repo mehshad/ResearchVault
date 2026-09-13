@@ -12,7 +12,7 @@ import { Badge } from "@/components/ui/badge";
 import { EnhancedPatent } from "@/lib/types";
 import { Plus, Search, MoreHorizontal, Calendar, Award } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
-import { formatDateLong } from "@/lib/dates";
+import { formatDateOrDash as formatDate } from "@/lib/dates";
 
 export default function PatentsList() {
   const [searchQuery, setSearchQuery] = useState("");
@@ -20,11 +20,6 @@ export default function PatentsList() {
   const { data: patents, isLoading } = useQuery<EnhancedPatent[]>({
     queryKey: ['/api/patents'],
   });
-
-  const formatDate = (date: string | Date | undefined) => {
-    if (!date) return "—";
-    return formatDateLong(date);
-  };
 
   const statusColors = {
     filed: "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400",

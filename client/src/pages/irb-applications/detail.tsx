@@ -11,7 +11,7 @@ import { Badge } from "@/components/ui/badge";
 import { format } from "date-fns";
 import { usePublicationCount } from "@/hooks/use-publication-count";
 import StatusActions from "@/components/irb/StatusActions";
-import { formatDateLong } from "@/lib/dates";
+import { formatDateOrDash as formatDate } from "@/lib/dates";
 
 export default function IrbApplicationDetail() {
   const params = useParams<{ id: string }>();
@@ -57,11 +57,6 @@ export default function IrbApplicationDetail() {
   
   // Get the number of publications linked to this research activity
   const { count: publicationCount } = usePublicationCount(irbApplication?.researchActivityId);
-
-  const formatDate = (date: string | Date | undefined) => {
-    if (!date) return "—";
-    return formatDateLong(date);
-  };
 
   const renderProtocolHistory = () => {
     try {

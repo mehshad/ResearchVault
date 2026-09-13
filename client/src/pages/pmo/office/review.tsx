@@ -14,7 +14,7 @@ import {
 } from "lucide-react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useToast } from "@/hooks/use-toast";
-import { formatDateLong } from "@/lib/dates";
+import { formatDateOrDash as formatDate } from "@/lib/dates";
 
 // Mock application data - will connect to API later
 const mockApplication = {
@@ -70,10 +70,6 @@ export default function PmoOfficeReviewDetail() {
   // TODO: Connect to real API using the id from match.id
   const applicationId = match?.id;
   
-  const formatDate = (dateString: string) => {
-    return formatDateLong(dateString);
-  };
-
   const handleStatusChange = async (newStatus: string, comment: string) => {
     if (!comment.trim()) {
       toast({ 

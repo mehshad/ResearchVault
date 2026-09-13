@@ -11,7 +11,7 @@ import {
 import { useQuery } from "@tanstack/react-query";
 import type { Scientist } from "@shared/schema";
 import { OfficeDashboard } from "@/components/office-dashboard";
-import { formatDateLong } from "@/lib/dates";
+import { formatDateOrDash as formatDate } from "@/lib/dates";
 
 interface PmoApplication {
   id: number;
@@ -77,11 +77,6 @@ export default function PmoOfficeReview() {
   });
 
   const countBy = (status: string) => applications.filter((a) => a.status === status).length;
-
-  const formatDate = (dateString: string | null) => {
-    if (!dateString) return "—";
-    return formatDateLong(dateString);
-  };
 
   return (
     <div className="p-4 md:p-6 space-y-6">

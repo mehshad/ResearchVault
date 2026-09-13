@@ -19,7 +19,7 @@ import { formatFullName } from "@/utils/nameUtils";
 import { useCurrentUser } from "@/hooks/useCurrentUser";
 import { PermissionWrapper } from "@/components/PermissionWrapper";
 import { usePermissions } from "@/hooks/usePermissions";
-import { formatDateLong } from "@/lib/dates";
+import { formatDateOrDash as formatDate } from "@/lib/dates";
 
 export default function ContractsList() {
   const [searchQuery, setSearchQuery] = useState("");
@@ -28,11 +28,6 @@ export default function ContractsList() {
   const { data: contracts, isLoading } = useQuery<EnhancedResearchContract[]>({
     queryKey: ['/api/research-contracts'],
   });
-
-  const formatDate = (date: string | Date | undefined) => {
-    if (!date) return "—";
-    return formatDateLong(date);
-  };
 
   const statusColors = {
     draft: "bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-300",

@@ -28,7 +28,7 @@ import type { ResearchContract } from "@shared/schema";
 import { useCurrentUser } from "@/hooks/useCurrentUser";
 import { PermissionWrapper } from "@/components/PermissionWrapper";
 import { PortfolioScopeSelect } from "@/components/PortfolioScopeSelect";
-import { formatDateLong } from "@/lib/dates";
+import { formatDateOrDash as formatDate } from "@/lib/dates";
 import {
   matchesScope,
   scopeEmptyMessage,
@@ -40,11 +40,6 @@ type PortfolioContract = ResearchContract & {
   leadPIName: string | null;
   requestedByScientistId: number | null;
   involvement: "mine" | "team";
-};
-
-const formatDate = (date: string | Date | null | undefined) => {
-  if (!date) return "—";
-  return formatDateLong(date);
 };
 
 const formatValue = (value: string | number | null | undefined, currency: string | null) => {

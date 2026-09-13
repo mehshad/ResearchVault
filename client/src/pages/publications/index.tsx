@@ -41,7 +41,7 @@ import { isLinkedToResearchActivity } from "@shared/publicationSdrLinks";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ImpactFactorsReadOnly } from "@/components/ImpactFactorsReadOnly";
 import PublicationImport from "./import";
-import { formatDate } from "@/lib/dates";
+import { formatMonthYear } from "@/lib/dates";
 
 export default function PublicationsList() {
   const [searchQuery, setSearchQuery] = useState("");
@@ -210,13 +210,6 @@ export default function PublicationsList() {
     enabled: !isRestrictedOnly(currentUser) && !!filterResearchActivityId,
   });
 
-  const formatDate = (date: string | Date | null | undefined) => {
-    if (!date) return "—";
-    return new Date(date).toLocaleDateString('en-US', { 
-      year: 'numeric', 
-      month: 'short'
-    });
-  };
 
   const statusColors = {
     published: "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400",
@@ -724,7 +717,7 @@ export default function PublicationsList() {
                     <TableCell>
                       <div className="flex items-center text-sm">
                         <CalendarRange className="h-4 w-4 mr-1 text-gray-600 dark:text-gray-300" />
-                        <span>{formatDate(publication.publicationDate)}</span>
+                        <span>{formatMonthYear(publication.publicationDate, "—")}</span>
                       </div>
                     </TableCell>
                     <TableCell>

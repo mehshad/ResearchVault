@@ -13,7 +13,7 @@ import { EnhancedIrbApplication } from "@/lib/types";
 import { Plus, Search, MoreHorizontal, CalendarRange, FileText, AlertCircle } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
 import { formatNameWithJobTitle } from "@/utils/nameUtils";
-import { formatDateLong } from "@/lib/dates";
+import { formatDateOrDash as formatDate } from "@/lib/dates";
 
 export default function IrbList() {
   const [searchQuery, setSearchQuery] = useState("");
@@ -21,11 +21,6 @@ export default function IrbList() {
   const { data: applications, isLoading } = useQuery<EnhancedIrbApplication[]>({
     queryKey: ['/api/irb-applications'],
   });
-
-  const formatDate = (date: string | Date | undefined) => {
-    if (!date) return "—";
-    return formatDateLong(date);
-  };
 
   const statusColors = {
     draft: "bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-300",

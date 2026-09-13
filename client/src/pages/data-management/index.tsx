@@ -17,7 +17,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { PermissionWrapper } from "@/components/PermissionWrapper";
 import { usePermissions } from "@/hooks/usePermissions";
 import { useCurrentUser } from "@/hooks/useCurrentUser";
-import { formatDateLong } from "@/lib/dates";
+import { formatDateOrDash as formatDate } from "@/lib/dates";
 
 export default function DataManagementList() {
   const [searchQuery, setSearchQuery] = useState("");
@@ -26,11 +26,6 @@ export default function DataManagementList() {
   const { data: plans, isLoading } = useQuery<EnhancedDataManagementPlan[]>({
     queryKey: ['/api/data-management-plans'],
   });
-
-  const formatDate = (date: string | Date | null | undefined) => {
-    if (!date) return "—";
-    return formatDateLong(date);
-  };
 
   const filteredPlans = plans?.filter(plan => {
     return (

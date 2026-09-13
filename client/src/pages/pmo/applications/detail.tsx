@@ -13,7 +13,7 @@ import {
 import { useQuery } from "@tanstack/react-query";
 import { useToast } from "@/hooks/use-toast";
 import type { Scientist } from "@shared/schema";
-import { formatDateLong } from "@/lib/dates";
+import { formatDateOrDash as formatDate } from "@/lib/dates";
 
 interface HistoryEvent {
   timestamp: string;
@@ -79,11 +79,6 @@ export default function PmoApplicationDetail() {
     if (!id) return "Unassigned";
     const s = scientists.find((sc) => sc.id === id);
     return s ? `${s.honorificTitle} ${s.firstName} ${s.lastName}` : "Unassigned";
-  };
-
-  const formatDate = (dateString: string | null | undefined) => {
-    if (!dateString) return "—";
-    return formatDateLong(dateString);
   };
 
   const handleAddComment = async () => {

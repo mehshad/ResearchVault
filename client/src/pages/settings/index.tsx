@@ -20,7 +20,7 @@ import BulkDataHub from "@/components/settings/BulkDataHub";
 import RoleAccessConfig from "@/pages/scientists/role-access-config";
 import { useCurrentUser } from "@/hooks/useCurrentUser";
 import { isAdministrator, hasAnyRole } from "@shared/effectiveRoles";
-import { formatDate, formatDateLong } from "@/lib/dates";
+import { formatDateOrDash as formatDate } from "@/lib/dates";
 
 // Types for feature requests
 interface FeatureRequest {
@@ -296,10 +296,6 @@ Q-BRIDGE is a research governance and information management platform built with
       newExpanded.add(requestId);
     }
     setExpandedRequests(newExpanded);
-  };
-
-  const formatDate = (date: Date) => {
-    return formatDateLong(date);
   };
 
   const themeOptions = [

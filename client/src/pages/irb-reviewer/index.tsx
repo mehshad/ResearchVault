@@ -16,7 +16,7 @@ import {
   Eye
 } from "lucide-react";
 import { IrbApplication } from "@shared/schema";
-import { formatDateLong } from "@/lib/dates";
+import { formatDateOrDash as formatDate } from "@/lib/dates";
 
 export default function IrbReviewerDashboard() {
   const [, navigate] = useLocation();
@@ -32,10 +32,6 @@ export default function IrbReviewerDashboard() {
     app.workflowStatus === 'triage_complete' ||
     (app.reviewerAssignments && app.reviewerAssignments !== '{}')
   );
-
-  const formatDate = (dateStr: string) => {
-    return formatDateLong(dateStr);
-  };
 
   const getStatusBadge = (status: string) => {
     switch (status) {

@@ -16,7 +16,7 @@ import {
 } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
 import { formatNameWithJobTitle } from "@/utils/nameUtils";
-import { formatDateLong } from "@/lib/dates";
+import { formatDateOrDash as formatDate } from "@/lib/dates";
 
 export default function IbcList() {
   const [searchQuery, setSearchQuery] = useState("");
@@ -25,11 +25,6 @@ export default function IbcList() {
   const { data: applications, isLoading } = useQuery<EnhancedIbcApplication[]>({
     queryKey: ['/api/ibc-applications'],
   });
-
-  const formatDate = (date: string | Date | undefined) => {
-    if (!date) return "—";
-    return formatDateLong(date);
-  };
 
   const statusColors = {
     draft: "bg-gray-100 text-gray-800 dark:bg-gray-800 dark:text-gray-200",

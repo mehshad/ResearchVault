@@ -52,7 +52,7 @@ import { usePermissions } from "@/hooks/usePermissions";
 import { PermissionWrapper, useElementPermissions } from "@/components/PermissionWrapper";
 import { GrantCleanupDialog } from "@/components/GrantCleanupDialog";
 import { GrantRulesDialog } from "@/components/GrantRulesDialog";
-import { formatDateLong } from "@/lib/dates";
+import { formatDateOrDash as formatDate } from "@/lib/dates";
 
 type EnhancedGrant = Grant & {
   lpi?: {
@@ -119,11 +119,6 @@ export default function GrantsList() {
         maximumFractionDigits: 0,
       }).format(numAmount)}`;
     }
-  };
-
-  const formatDate = (date: string | Date | null | undefined) => {
-    if (!date) return "—";
-    return formatDateLong(date);
   };
 
   const statusColors: Record<string, string> = {

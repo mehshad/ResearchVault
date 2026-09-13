@@ -26,7 +26,7 @@ import {
   Eye
 } from "lucide-react";
 import { IrbApplication, ResearchActivity, Scientist } from "@shared/schema";
-import { formatDateLong } from "@/lib/dates";
+import { formatDateOrDash as formatDate } from "@/lib/dates";
 
 export default function IrbProtocolReview() {
   const params = useParams<{ id: string }>();
@@ -125,10 +125,6 @@ export default function IrbProtocolReview() {
   const handleEmailQuestion = (subject: string, bodyTemplate: string) => {
     const protocolInfo = `Protocol: ${application?.title || 'N/A'}%0D%0AIRB Number: ${application?.irbNumber || 'N/A'}%0D%0A%0D%0A`;
     window.location.href = `mailto:irb-office@example.com?subject=${encodeURIComponent(subject)}&body=${protocolInfo}${encodeURIComponent(bodyTemplate)}`;
-  };
-
-  const formatDate = (dateStr: string) => {
-    return formatDateLong(dateStr);
   };
 
   if (isLoading) {
