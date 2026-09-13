@@ -1,5 +1,3 @@
-// @ts-nocheck — Pre-existing TypeScript errors in this file are suppressed so `npx tsc --noEmit` runs clean and new code in other files gets reliable type-checking feedback.
-// Most errors here stem from untyped `useQuery` results (data inferred as `unknown`), drifted shared/schema field renames, and form values typed as `unknown`. They are not known runtime bugs but should be fixed file-by-file as each is next touched: remove this directive, run `npx tsc --noEmit`, and resolve what surfaces.
 import { useState , useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { Link, useLocation } from "wouter";
@@ -655,7 +653,7 @@ export default function GrantsList() {
                       </TableCell>
                       <TableCell className="text-right font-mono text-sm">
                         <div className="flex items-center justify-end gap-2">
-                          {formatCurrency(grant.awardedAmount, grant.currency)}
+                          {formatCurrency(grant.awardedAmount, grant.currency ?? undefined)}
                           {grant.awarded === true && (grant.linkedSdrsCount ?? 0) > 0 && (
                             <div className="flex items-center gap-1" title={`${grant.linkedSdrsCount} linked SDR${grant.linkedSdrsCount! > 1 ? 's' : ''}`}>
                               <LinkIcon className="h-3 w-3 text-blue-600 dark:text-blue-400" />

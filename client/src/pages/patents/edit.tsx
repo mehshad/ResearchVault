@@ -1,5 +1,3 @@
-// @ts-nocheck — Pre-existing TypeScript errors in this file are suppressed so `npx tsc --noEmit` runs clean and new code in other files gets reliable type-checking feedback.
-// Most errors here stem from untyped `useQuery` results (data inferred as `unknown`), drifted shared/schema field renames, and form values typed as `unknown`. They are not known runtime bugs but should be fixed file-by-file as each is next touched: remove this directive, run `npx tsc --noEmit`, and resolve what surfaces.
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useLocation, useParams } from "wouter";
 import { Button } from "@/components/ui/button";
@@ -10,13 +8,22 @@ import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { insertPatentSchema, type InsertPatent, type Patent, type ResearchActivity } from "@shared/schema";
+import { z } from "zod";
+import { insertPatentSchema, type Patent, type ResearchActivity } from "@shared/schema";
 import { ArrowLeft, Loader2 } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
 import React from "react";
 import { fetchRecord } from "@/lib/fetchList";
+
+// The date inputs hold "yyyy-mm-dd" strings; the mutation turns them into
+// Dates before sending, so the form validates them as strings.
+const editPatentSchema = insertPatentSchema.extend({
+  filingDate: z.string().optional(),
+  grantDate: z.string().optional(),
+});
+type EditPatentFormValues = z.infer<typeof editPatentSchema>;
 
 export default function PatentEdit() {
   const { id } = useParams();
@@ -34,23 +41,16 @@ export default function PatentEdit() {
     queryKey: ['/api/research-activities'],
   });
 
-  const form = useForm<InsertPatent>({
-    resolver: zodResolver(insertPatentSchema),
+  const form = useForm<EditPatentFormValues>({
+    resolver: zodResolver(editPatentSchema),
     defaultValues: {
       researchActivityId: patent?.researchActivityId || 0,
       title: patent?.title || "",
       inventors: patent?.inventors || "",
       patentNumber: patent?.patentNumber || "",
-      applicationNumber: patent?.applicationNumber || "",
       filingDate: patent?.filingDate ? new Date(patent.filingDate).toISOString().split('T')[0] : "",
-      publicationDate: patent?.publicationDate ? new Date(patent.publicationDate).toISOString().split('T')[0] : "",
       grantDate: patent?.grantDate ? new Date(patent.grantDate).toISOString().split('T')[0] : "",
-      assignee: patent?.assignee || "",
-      abstract: patent?.abstract || "",
-      claims: patent?.claims || "",
-      patentType: patent?.patentType || "Utility",
       status: patent?.status || "Filed",
-      priority: patent?.priority || "Normal",
     },
   });
 
@@ -62,26 +62,18 @@ export default function PatentEdit() {
         title: patent.title,
         inventors: patent.inventors || "",
         patentNumber: patent.patentNumber || "",
-        applicationNumber: patent.applicationNumber || "",
         filingDate: patent.filingDate ? new Date(patent.filingDate).toISOString().split('T')[0] : "",
-        publicationDate: patent.publicationDate ? new Date(patent.publicationDate).toISOString().split('T')[0] : "",
         grantDate: patent.grantDate ? new Date(patent.grantDate).toISOString().split('T')[0] : "",
-        assignee: patent.assignee || "",
-        abstract: patent.abstract || "",
-        claims: patent.claims || "",
-        patentType: patent.patentType || "Utility",
         status: patent.status || "Filed",
-        priority: patent.priority || "Normal",
       });
     }
   }, [patent, form]);
 
   const updateMutation = useMutation({
-    mutationFn: (data: InsertPatent) => 
+    mutationFn: (data: EditPatentFormValues) => 
       apiRequest("PATCH", `/api/patents/${id}`, {
         ...data,
         filingDate: data.filingDate ? new Date(data.filingDate) : null,
-        publicationDate: data.publicationDate ? new Date(data.publicationDate) : null,
         grantDate: data.grantDate ? new Date(data.grantDate) : null,
       }),
     onSuccess: () => {
@@ -102,7 +94,7 @@ export default function PatentEdit() {
     },
   });
 
-  const onSubmit = (data: InsertPatent) => {
+  const onSubmit = (data: EditPatentFormValues) => {
     updateMutation.mutate(data);
   };
 
@@ -236,26 +228,13 @@ export default function PatentEdit() {
                     <FormItem>
                       <FormLabel>Patent Number</FormLabel>
                       <FormControl>
-                        <Input placeholder="e.g., US10123456B2" autoComplete="off" data-1p-ignore="true" data-lpignore="true" {...field} />
+                        <Input placeholder="e.g., US10123456B2" autoComplete="off" data-1p-ignore="true" data-lpignore="true" {...field} value={field.value ?? ""} />
                       </FormControl>
                       <FormMessage />
                     </FormItem>
                   )}
                 />
 
-                <FormField
-                  control={form.control}
-                  name="applicationNumber"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Application Number</FormLabel>
-                      <FormControl>
-                        <Input placeholder="e.g., US16/123,456" autoComplete="off" data-1p-ignore="true" data-lpignore="true" {...field} />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
               </div>
 
               <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
@@ -265,20 +244,6 @@ export default function PatentEdit() {
                   render={({ field }) => (
                     <FormItem>
                       <FormLabel>Filing Date</FormLabel>
-                      <FormControl>
-                        <Input type="date" {...field} />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-
-                <FormField
-                  control={form.control}
-                  name="publicationDate"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Publication Date</FormLabel>
                       <FormControl>
                         <Input type="date" {...field} />
                       </FormControl>
@@ -302,45 +267,7 @@ export default function PatentEdit() {
                 />
               </div>
 
-              <FormField
-                control={form.control}
-                name="assignee"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Assignee</FormLabel>
-                    <FormControl>
-                      <Input placeholder="Patent assignee organization" autoComplete="off" data-1p-ignore="true" data-lpignore="true" {...field} />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-
               <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                <FormField
-                  control={form.control}
-                  name="patentType"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Patent Type</FormLabel>
-                      <Select onValueChange={field.onChange} value={field.value}>
-                        <FormControl>
-                          <SelectTrigger>
-                            <SelectValue placeholder="Select patent type" />
-                          </SelectTrigger>
-                        </FormControl>
-                        <SelectContent>
-                          <SelectItem value="Utility">Utility</SelectItem>
-                          <SelectItem value="Design">Design</SelectItem>
-                          <SelectItem value="Plant">Plant</SelectItem>
-                          <SelectItem value="Provisional">Provisional</SelectItem>
-                        </SelectContent>
-                      </Select>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-
                 <FormField
                   control={form.control}
                   name="status"
@@ -367,68 +294,7 @@ export default function PatentEdit() {
                   )}
                 />
 
-                <FormField
-                  control={form.control}
-                  name="priority"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Priority</FormLabel>
-                      <Select onValueChange={field.onChange} value={field.value}>
-                        <FormControl>
-                          <SelectTrigger>
-                            <SelectValue placeholder="Select priority" />
-                          </SelectTrigger>
-                        </FormControl>
-                        <SelectContent>
-                          <SelectItem value="Low">Low</SelectItem>
-                          <SelectItem value="Normal">Normal</SelectItem>
-                          <SelectItem value="High">High</SelectItem>
-                          <SelectItem value="Critical">Critical</SelectItem>
-                        </SelectContent>
-                      </Select>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
               </div>
-
-              <FormField
-                control={form.control}
-                name="abstract"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Abstract</FormLabel>
-                    <FormControl>
-                      <Textarea 
-                        placeholder="Patent abstract..."
-                        className="min-h-[100px]"
-                        autoComplete="off" data-1p-ignore="true" data-lpignore="true"
-                        {...field}
-                      />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-
-              <FormField
-                control={form.control}
-                name="claims"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Claims</FormLabel>
-                    <FormControl>
-                      <Textarea 
-                        placeholder="Patent claims..."
-                        className="min-h-[150px]"
-                        autoComplete="off" data-1p-ignore="true" data-lpignore="true"
-                        {...field}
-                      />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
 
               <div className="flex gap-4">
                 <Button 

@@ -1,5 +1,3 @@
-// @ts-nocheck — Pre-existing TypeScript errors in this file are suppressed so `npx tsc --noEmit` runs clean and new code in other files gets reliable type-checking feedback.
-// Most errors here stem from untyped `useQuery` results (data inferred as `unknown`), drifted shared/schema field renames, and form values typed as `unknown`. They are not known runtime bugs but should be fixed file-by-file as each is next touched: remove this directive, run `npx tsc --noEmit`, and resolve what surfaces.
 import { useState, useEffect } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useLocation, useRoute } from "wouter";
@@ -11,7 +9,14 @@ import { Textarea } from "@/components/ui/textarea";
 import { GrantCollaborations } from "@/components/GrantCollaborations";
 import { InstitutionCombobox } from "@/components/InstitutionCombobox";
 import { GrantCoInvestigators } from "@/components/GrantCoInvestigators";
-import type { GrantCollaborationTree, GrantCoInvestigatorList } from "@shared/schema";
+import type {
+  Grant,
+  GrantCollaborationTree,
+  GrantCoInvestigatorList,
+  GrantProgressReport,
+  ResearchActivity,
+  Scientist,
+} from "@shared/schema";
 import { isHomeInstitution } from "@shared/grantSubmission";
 import { investigatorTypeOf } from "@shared/investigatorType";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -65,6 +70,50 @@ const GRANT_ISSUE_TARGETS: Record<GrantIssueCode, string> = {
   missing_sdr: "grant-field-sdrs",
 };
 
+// What GET /api/grants/:id returns: the row, its two link tables, and the
+// audit ids resolved to names (getGrant in server/databaseStorage.ts).
+type GrantDetail = Grant & {
+  collaboratingInstitutions?: GrantCollaborationTree;
+  coInvestigatorLinks?: GrantCoInvestigatorList;
+  createdByName?: string | null;
+  updatedByName?: string | null;
+};
+
+// Each column as the text in its input; only the award switch is a boolean.
+type GrantFormState = {
+  projectNumber: string;
+  title: string;
+  description: string;
+  cycle: string;
+  programId: string;
+  status: string;
+  grantType: string;
+  fundingAgency: string;
+  sourceCategory: string;
+  sourceRecordKey: string;
+  submittingInstitution: string;
+  grantLpiName: string;
+  coInvestigators: string;
+  investigatorType: string;
+  lpiId: string;
+  requestedAmount: string;
+  awardedAmount: string;
+  submittedYear: string;
+  awardedYear: string;
+  awarded: boolean;
+  runningTimeYears: string;
+  currentGrantYear: string;
+  startDate: string;
+  endDate: string;
+  reportingIntervalMonths: string;
+  collaborators: string;
+  subawardCompletedYear: string;
+  contributionType: string;
+  contributionDetails: string;
+  durationMonths: string;
+  currency: string;
+};
+
 export default function EditGrant() {
   const [, navigate] = useLocation();
   const [, params] = useRoute("/grants/:id/edit");
@@ -80,7 +129,7 @@ export default function EditGrant() {
   const [coInvestigatorLinks, setCoInvestigatorLinks] =
     useState<GrantCoInvestigatorList>([]);
 
-  const [formData, setFormData] = useState({
+  const [formData, setFormData] = useState<GrantFormState>({
     projectNumber: "",
     title: "",
     description: "",
@@ -127,7 +176,7 @@ export default function EditGrant() {
   const [uploadedFile, setUploadedFile] = useState<File | null>(null);
   const [isUploading, setIsUploading] = useState(false);
 
-  const { data: grant, isLoading: isLoadingGrant } = useQuery({
+  const { data: grant, isLoading: isLoadingGrant } = useQuery<GrantDetail>({
     queryKey: [`/api/grants/${grantId}`],
     enabled: !!grantId,
   });
@@ -136,7 +185,7 @@ export default function EditGrant() {
   // Only for the Grant LPI suggestions: names already recorded elsewhere.
   const { data: allGrants = [] } = useQuery<any[]>({ queryKey: ["/api/grants"] });
 
-  const { data: scientists = [] } = useQuery({
+  const { data: scientists = [] } = useQuery<Scientist[]>({
     queryKey: ['/api/scientists']
   });
 
@@ -154,12 +203,13 @@ export default function EditGrant() {
     queryKey: ['/api/projects']
   });
 
-  const { data: grantSdrs = [] } = useQuery({
+  // The four columns getGrantResearchActivities selects, not whole rows.
+  const { data: grantSdrs = [] } = useQuery<Pick<ResearchActivity, "id" | "sdrNumber" | "title" | "status">[]>({
     queryKey: [`/api/grants/${grantId}/research-activities`],
     enabled: !!grantId,
   });
 
-  const { data: progressReports = [] } = useQuery({
+  const { data: progressReports = [] } = useQuery<GrantProgressReport[]>({
     queryKey: [`/api/grants/${grantId}/progress-reports`],
     enabled: !!grantId && canManageProgressReports,
   });
@@ -167,7 +217,7 @@ export default function EditGrant() {
   // Load linked SDRs once when server data arrives
   useEffect(() => {
     if (grantSdrs && Array.isArray(grantSdrs)) {
-      const ids = grantSdrs.map((sdr: any) => sdr.id);
+      const ids = grantSdrs.map((sdr) => sdr.id);
       setLinkedSdrs(ids);
     }
   }, [grantSdrs?.length]);
@@ -846,7 +896,7 @@ export default function EditGrant() {
                     <SelectValue placeholder="Select scientist" />
                   </SelectTrigger>
                   <SelectContent>
-                    {scientists.map((scientist: any) => (
+                    {scientists.map((scientist) => (
                       <SelectItem key={scientist.id} value={scientist.id.toString()}>
                         {formatFullName(scientist)}
                       </SelectItem>
@@ -1257,7 +1307,7 @@ export default function EditGrant() {
           <CardContent>
             {progressReports && progressReports.length > 0 ? (
               <div className="space-y-4">
-                {progressReports.map((report: any) => (
+                {progressReports.map((report) => (
                   <div key={report.id} className="flex items-center justify-between p-4 border rounded-lg">
                     <div className="flex-1">
                       <div className="flex items-center gap-4 mb-2">
