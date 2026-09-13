@@ -47,6 +47,8 @@ import {
 } from "@shared/schema";
 import {
   grantInvolvement,
+  grantNamesSection,
+  grantRole,
   grantVisibleToViewer,
   sectionColleagueIds,
   visibleContracts,
@@ -168,6 +170,10 @@ export function createPortfolioGrantsHandler(
 
       const viewer = resolveViewer(req, staff);
       const colleagues = sectionColleagueIds(viewer, staff);
+      // The viewer's actual section, whatever their role. For Management
+      // `colleagues` is unbounded, but "my team's grants" still means the
+      // section their staff record sits in.
+      const ownSection = sectionColleagueIds({ ...viewer, seesEverything: false }, staff) ?? new Set<number>();
       const staffById = new Map(staff.map((person) => [person.id, person]));
 
       const coInvestigatorsByGrant = new Map<number, number[]>();
@@ -197,6 +203,11 @@ export function createPortfolioGrantsHandler(
             .map((id) => formatName(staffById.get(id)))
             .filter((name): name is string => name != null),
           involvement,
+          // Lead or co-investigator: the page keeps the grants the viewer
+          // holds apart from the ones they contribute to.
+          role: grantRole({ lpiId: grant.lpiId, coInvestigatorIds }, viewer),
+          // Somebody in the viewer's own section is on it.
+          inSection: grantNamesSection({ lpiId: grant.lpiId, coInvestigatorIds }, ownSection),
         });
       }
 

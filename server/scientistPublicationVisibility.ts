@@ -1,3 +1,5 @@
+import { FULL_PUBLICATION_VISIBILITY_ROLES } from "@shared/publicationVisibility";
+
 export interface ScientistPublicationViewer {
   userId?: number | null;
   role?: string | null;
@@ -19,12 +21,10 @@ export interface PublicationVisibilityAuthor {
   supervisorId?: number | null;
 }
 
-const FULL_VISIBILITY_ROLES = new Set([
-  "Outcome Officer",
-  "Management",
-  "admin",
-  "superadmin",
-]);
+// One definition, shared with the note on the publications list that describes
+// this rule to the reader. It lived only here, so any sentence on screen
+// describing it was a second hand-maintained copy.
+const FULL_VISIBILITY_ROLES = new Set<string>(FULL_PUBLICATION_VISIBILITY_ROLES);
 
 export function isPublicScientistProfilePublicationStatus(
   status: string | null | undefined,

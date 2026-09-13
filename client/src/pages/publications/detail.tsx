@@ -143,7 +143,9 @@ export default function PublicationDetail() {
   const [authorsValue, setAuthorsValue] = useState('');
   const [isWithdrawInvalidOpen, setIsWithdrawInvalidOpen] = useState(false);
 
-  const { data: publication, isLoading: publicationLoading } = useQuery<Publication>({
+  const { data: publication, isLoading: publicationLoading } = useQuery<
+    Publication & { additionalResearchActivities?: { id: number; sdrNumber: string; title: string }[] }
+  >({
     queryKey: [`/api/publications/${id}`, currentUser.role, currentUser.id],
     queryFn: async () => {
       const query = new URLSearchParams({
@@ -255,6 +257,12 @@ export default function PublicationDetail() {
   >({
     queryKey: [`/api/publications/${id}/history`],
     enabled: !!publication,
+    // Always refetch on arrival. The steps that write history -- vetting,
+    // finalising, marking invalid -- happen on the Outcome Office page, whose
+    // refreshes reach the publication itself but not this key, so a reader
+    // coming straight back here saw the new status over the old history and
+    // the Published -> Published * step appeared to be missing.
+    staleTime: 0,
   });
 
   // Mutations for author management
@@ -445,10 +453,11 @@ export default function PublicationDetail() {
 
   const availableScientists = scientists
     .filter(scientist => {
-      if (
-        !canManageAllPublications &&
-        scientist.id !== effectiveScientistId
-      ) {
+      // An author of this paper may link any colleague to it, not only
+      // themselves: re-adding a co-author is the second half of correcting a
+      // mislabelled one, and without it the delete above is a dead end.
+      // Someone with no link to the paper is still limited to themselves.
+      if (!canEditPublication && scientist.id !== effectiveScientistId) {
         return false;
       }
 
@@ -459,7 +468,10 @@ export default function PublicationDetail() {
         return isCorrespondingAuthor && !existingAuthor.authorshipType.includes('Corresponding Author');
       }
       
-      return canManageAllPublications
+      // A looser name match for somebody already on the paper: they are
+      // correcting a list they are part of, not claiming a place in it. The
+      // strict unambiguous match stays for anyone adding themselves.
+      return canEditPublication
         ? matchesAuthorName(
             publication?.authors,
             scientist.firstName,
@@ -590,30 +602,33 @@ export default function PublicationDetail() {
           </Button>
           <h1 className="text-2xl font-semibold text-foreground">{publication.title}</h1>
         </div>
-        {publication.status === 'Published *' ? (
-          <Badge className="bg-green-600 text-white hover:bg-green-700 px-3 py-1.5">
-            <CheckCircle className="h-4 w-4 mr-1.5" />
-            Sealed — contact the Outcome Office to edit
-          </Badge>
-        ) : canEditPublication ? (
-          <Button 
-            className="bg-sidra-teal hover:bg-sidra-teal-dark text-white font-medium px-4 py-2 shadow-sm"
-            onClick={() => navigate(`/publications/${publication.id}/edit${safeFrom ? `?from=${encodeURIComponent(safeFrom)}` : ''}`)}
-          >
-            <Edit className="h-4 w-4 mr-2" />
-            Edit
-          </Button>
-        ) : (
-          <Badge variant="outline" className="px-3 py-1.5 text-muted-foreground">
-            Link your profile or ask Outcome Office to edit
-          </Badge>
-        )}
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         <Card className="lg:col-span-2">
-          <CardHeader>
+          <CardHeader className="flex flex-row items-center justify-between gap-4 space-y-0">
             <CardTitle>Publication Details</CardTitle>
+            {/* The edit control sits on the card it edits, not on the page
+                header, so it is next to the fields it changes. */}
+            {publication.status === 'Published *' ? (
+              <Badge className="bg-green-600 text-white hover:bg-green-700 px-3 py-1.5">
+                <CheckCircle className="h-4 w-4 mr-1.5" />
+                Sealed — contact the Outcome Office to edit
+              </Badge>
+            ) : canEditPublication ? (
+              <Button
+                size="sm"
+                className="bg-sidra-teal hover:bg-sidra-teal-dark text-white font-medium shadow-sm"
+                onClick={() => navigate(`/publications/${publication.id}/edit${safeFrom ? `?from=${encodeURIComponent(safeFrom)}` : ''}`)}
+              >
+                <Edit className="h-4 w-4 mr-2" />
+                Edit
+              </Button>
+            ) : (
+              <Badge variant="outline" className="px-3 py-1.5 text-muted-foreground">
+                Link your profile or ask Outcome Office to edit
+              </Badge>
+            )}
           </CardHeader>
           <CardContent>
             <div className="space-y-4">
@@ -625,6 +640,18 @@ export default function PublicationDetail() {
                       {researchActivity.sdrNumber}
                     </Badge>
                   )}
+                  {/* Additional SDRs the paper also belongs to; the first badge is the one on the record. */}
+                  {(publication.additionalResearchActivities ?? []).map((activity) => (
+                    <Badge
+                      key={activity.id}
+                      variant="outline"
+                      title={`Also linked to ${activity.title}`}
+                      className="rounded-sm text-blue-700 border-blue-200 dark:text-blue-300 dark:border-blue-800"
+                      data-testid={`badge-additional-sdr-${activity.id}`}
+                    >
+                      + {activity.sdrNumber}
+                    </Badge>
+                  ))}
                   <Badge className={
                     publication.status === 'published' ? 'bg-green-100 text-green-800 dark:bg-green-950 dark:text-green-300' :
                     publication.status === 'in press' ? 'bg-blue-100 text-blue-800 dark:bg-blue-950 dark:text-blue-300' :
@@ -1063,8 +1090,15 @@ export default function PublicationDetail() {
                               </div>
                             </TableCell>
                             <TableCell>
-                              {publication.status !== 'Published *' &&
-                                (canManageAllPublications || author.scientistId === effectiveScientistId) && (
+                              {/* Any author of the paper may correct any of
+                                  its links. Self-only made the correction loop
+                                  unusable for the error it most often has to
+                                  fix -- a mislabelled corresponding author is
+                                  somebody else's row. Every change is recorded
+                                  against whoever made it, and the Outcome
+                                  Office still seals the record before it
+                                  scores. */}
+                              {publication.status !== 'Published *' && canEditPublication && (
                                   <Button
                                     variant="ghost"
                                     size="sm"
@@ -1225,6 +1259,21 @@ export default function PublicationDetail() {
                     </Badge>
                   )}
                 </Button>
+                {(publication.additionalResearchActivities ?? []).map((activity) => (
+                  <Button
+                    key={activity.id}
+                    variant="outline"
+                    className="w-full justify-start"
+                    onClick={() => navigate(`/research-activities/${activity.id}`)}
+                    data-testid={`button-additional-sdr-${activity.id}`}
+                  >
+                    <Layers className="h-4 w-4 mr-2" />
+                    <span className="flex-1 text-left truncate">Also under {activity.title}</span>
+                    <Badge variant="outline" className="ml-2 rounded-sm text-blue-700 border-blue-200 dark:text-blue-300 dark:border-blue-800">
+                      {activity.sdrNumber}
+                    </Badge>
+                  </Button>
+                ))}
                 {relatedPatents && relatedPatents.length > 0 ? (
                   <Button 
                     variant="outline" 

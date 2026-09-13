@@ -5,6 +5,8 @@ import {
   contractInvolvement,
   contractOwnerScientistId,
   grantInvolvement,
+  grantNamesSection,
+  grantRole,
   grantVisibleToViewer,
   sectionColleagueIds,
   visibleContracts,
@@ -58,6 +60,40 @@ test("a grant I am a co-investigator on is mine, not my team's", () => {
 test("being on it myself wins over my section also being on it", () => {
   const grant = { lpiId: 2, coInvestigatorIds: [1] };
   assert.equal(grantInvolvement(grant, researcher, colleagues), "mine");
+});
+
+// ── Which part I play ───────────────────────────────────────────────────────
+
+test("leading a grant and contributing to one are told apart", () => {
+  assert.equal(grantRole({ lpiId: 1 }, researcher), "lead");
+  assert.equal(grantRole({ lpiId: 3, coInvestigatorIds: [1] }, researcher), "co-investigator");
+  assert.equal(grantRole({ lpiId: 2, coInvestigatorIds: [3] }, researcher), null);
+});
+
+test("leading wins when a person is recorded as both", () => {
+  assert.equal(grantRole({ lpiId: 1, coInvestigatorIds: [1] }, researcher), "lead");
+});
+
+test("an account with no staff record plays no part on any grant", () => {
+  const unlinked: PortfolioViewer = { scientistId: null, sectionId: null, seesEverything: false };
+  assert.equal(grantRole({ lpiId: 1, coInvestigatorIds: [1] }, unlinked), null);
+});
+
+test("a grant names a section when its lead or any co-investigator sits in it", () => {
+  const section = new Set([1, 2]);
+  assert.equal(grantNamesSection({ lpiId: 2 }, section), true);
+  assert.equal(grantNamesSection({ lpiId: 3, coInvestigatorIds: [1] }, section), true);
+  assert.equal(grantNamesSection({ lpiId: 3, coInvestigatorIds: [4] }, section), false);
+  assert.equal(grantNamesSection({ lpiId: null }, section), false);
+});
+
+test("Management's own section is still their section, not the institution", () => {
+  // grantInvolvement widens to everything for them; the section question
+  // is asked of their staff record's section alone.
+  const own = sectionColleagueIds({ ...management, seesEverything: false }, staff);
+  assert.deepEqual([...(own ?? [])].sort(), [3]);
+  assert.equal(grantNamesSection({ lpiId: 3 }, own!), true);
+  assert.equal(grantNamesSection({ lpiId: 1 }, own!), false);
 });
 
 test("a colleague's grant is my team's", () => {

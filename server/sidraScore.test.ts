@@ -619,3 +619,48 @@ test("selected SIDRA calculation rejects publication scope beyond its resource e
   );
   assert.equal(downstreamLoads, 0, "oversize publication scope must stop before downstream loads");
 });
+
+test("publication author-link authorization: an author of the paper may correct any of its links", () => {
+  // The production failure this exists for: a publication was marked
+  // Published - Invalid over a mislabelled corresponding author, handed back to
+  // a linked author to fix, and she could only delete herself -- the row that
+  // was wrong belonged to somebody else.
+  const linkedAuthor = fakeReq("user", 42);
+  const onThePaper = [7, 42, 99];
+
+  // Somebody else's link, on a paper she is on.
+  assert.equal(
+    canManagePublicationAuthorLink(linkedAuthor, 99, true, false, onThePaper),
+    true,
+  );
+  // Adding a colleague back after removing them, name match or not: the
+  // server's name check is what stops a stranger adding themselves, and she is
+  // not a stranger here.
+  assert.equal(
+    canManagePublicationAuthorLink(linkedAuthor, 1234, false, false, onThePaper),
+    true,
+  );
+});
+
+test("publication author-link authorization: being on some other paper grants nothing", () => {
+  // The boundary that still holds: the list must be the list for *this*
+  // publication, or every researcher could edit every paper.
+  const outsider = fakeReq("user", 42);
+  assert.equal(
+    canManagePublicationAuthorLink(outsider, 99, true, false, [7, 8, 9]),
+    false,
+  );
+  // And with no linked ids at all it is the old self-only rule.
+  assert.equal(canManagePublicationAuthorLink(outsider, 99, true, true, []), false);
+  assert.equal(canManagePublicationAuthorLink(outsider, 42, false, true, []), true);
+  assert.equal(canManagePublicationAuthorLink(outsider, 42, false, false, []), false);
+});
+
+test("publication author-link authorization: a signed-in user with no scientist record is refused", () => {
+  // Nothing to compare against, so the linked-author branch must not open.
+  const noProfile = fakeReq("user", null);
+  assert.equal(
+    canManagePublicationAuthorLink(noProfile, 99, true, true, [7, 42]),
+    false,
+  );
+});

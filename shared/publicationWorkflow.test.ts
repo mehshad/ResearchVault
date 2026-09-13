@@ -85,3 +85,35 @@ test("stage numbers are sequential and each status maps to exactly one stage", a
   assert.equal(publicationStageOf("Published - Invalid"), undefined, "invalid sits off the flow");
   assert.equal(publicationStageOf(null), undefined);
 });
+
+test("filtering by a stage matches every status in it", async () => {
+  const { publicationStatusesInGroup, PUBLICATION_WORKFLOW_STAGES } =
+    await import("./publicationWorkflow.js");
+
+  // The reported failure: the Submitted for review card counted both
+  // spellings, and selecting it found only the first.
+  const submitted = PUBLICATION_WORKFLOW_STAGES.find((s) => s.stage === 4)!;
+  assert.equal(submitted.statuses.length, 2, "this stage is the reason the helper exists");
+  for (const status of submitted.statuses) {
+    assert.deepEqual(
+      publicationStatusesInGroup(status).sort(),
+      [...submitted.statuses].sort(),
+      status,
+    );
+  }
+});
+
+test("a single-status stage filters to just itself", async () => {
+  const { publicationStatusesInGroup } = await import("./publicationWorkflow.js");
+  assert.deepEqual(publicationStatusesInGroup("Published"), ["Published"]);
+  assert.deepEqual(publicationStatusesInGroup("Published *"), ["Published *"]);
+});
+
+test("off-flow statuses group too, and unknown ones stand alone", async () => {
+  const { publicationStatusesInGroup } = await import("./publicationWorkflow.js");
+  assert.deepEqual(publicationStatusesInGroup("Withdrawn"), ["Withdrawn"]);
+  // A status the office invents must filter to exactly itself, not to nothing.
+  assert.deepEqual(publicationStatusesInGroup("IRP RO Vetted"), ["IRP RO Vetted"]);
+  assert.deepEqual(publicationStatusesInGroup(null), []);
+  assert.deepEqual(publicationStatusesInGroup(""), []);
+});

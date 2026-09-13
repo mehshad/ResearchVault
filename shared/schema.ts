@@ -403,6 +403,30 @@ export const insertPublicationAuthorSchema = createInsertSchema(publicationAutho
   id: true,
 });
 
+// Additional SDRs a publication is linked to, beyond the one on the record.
+// publications.research_activity_id stays the primary link -- it is what the
+// score, the exemption rule and the finalise check read. A paper can belong
+// to more than one SDR, and each of them should list it, so these are the
+// others. Optional, and they carry no rule of their own.
+export const publicationResearchActivities = pgTable("publication_research_activities", {
+  id: serial("id").primaryKey(),
+  publicationId: integer("publication_id").notNull(), // references publications.id
+  researchActivityId: integer("research_activity_id").notNull(), // references researchActivities.id
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => {
+  return {
+    publicationResearchActivityIdx: uniqueIndex("publication_research_activity_idx")
+      .on(table.publicationId, table.researchActivityId),
+  };
+});
+
+export const insertPublicationResearchActivitySchema = createInsertSchema(publicationResearchActivities).omit({
+  id: true,
+  createdAt: true,
+});
+export type PublicationResearchActivity = typeof publicationResearchActivities.$inferSelect;
+export type InsertPublicationResearchActivity = z.infer<typeof insertPublicationResearchActivitySchema>;
+
 // Manuscript History - Track changes in title/authorship during status changes
 export const manuscriptHistory = pgTable("manuscript_history", {
   id: serial("id").primaryKey(),

@@ -54,6 +54,7 @@ import {
   PUBLISHED_STATUS,
   PUBLISHED_FINAL_STATUS,
   PUBLICATION_WORKFLOW_STAGES,
+  publicationStatusesInGroup,
   PUBLICATION_OFF_FLOW_STATES,
   isReadyForIpVetting,
 } from "@shared/publicationWorkflow";
@@ -1048,12 +1049,20 @@ export default function PublicationOffice({ embeddedTab }: PublicationOfficeProp
   // which is a search result rather than the whole set.
   const sealedCount = sealedQueuePublications.length;
 
+  const npStatusGroup = useMemo(
+    () => new Set(publicationStatusesInGroup(npStatusFilter)),
+    [npStatusFilter],
+  );
+
   // Apply the Publication vetting filters (workflow state, issue/tag, scientist, dates).
   const filteredNewPublications = useMemo(() => {
     return newPublications.filter((pub) => {
       const { missingFields, hasInternalAuthors, hasSdr, hasSdrExemption, isVetted, hasIssues } = getPubIssues(pub);
 
-      if (npStatusFilter !== ALL_STATES && (pub.status ?? "") !== npStatusFilter) return false;
+      // By stage, not by the one status the card happens to be keyed on:
+      // "Submitted for review" is two stored statuses, the card counted both
+      // and this compared against one.
+      if (npStatusFilter !== ALL_STATES && !npStatusGroup.has(pub.status ?? "")) return false;
 
       if (npTagFilter !== "all") {
         if (npTagFilter === "missing-data" && missingFields.length === 0) return false;
@@ -1094,7 +1103,7 @@ export default function PublicationOffice({ embeddedTab }: PublicationOfficeProp
       return true;
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [newPublications, authorCounts, authorMap, npStatusFilter, npTagFilter, npScientistId, npDateFrom, npDateTo, npYearRange]);
+  }, [newPublications, authorCounts, authorMap, npStatusFilter, npStatusGroup, npTagFilter, npScientistId, npDateFrom, npDateTo, npYearRange]);
 
   // Export functionality
   const searchExportMutation = useMutation({
@@ -1555,6 +1564,20 @@ export default function PublicationOffice({ embeddedTab }: PublicationOfficeProp
     }
   };
 
+  // Every office step below writes a manuscript history row, and the detail
+  // page caches history under its own key -- one that the '/api/publications'
+  // invalidation above does not reach, since react-query matches key prefixes
+  // element by element and '/api/publications/12/history' is a single element.
+  // Drop every cached history so a reader who goes straight to the paper sees
+  // the step that was just taken, not the status over yesterday's history.
+  const invalidateManuscriptHistories = () =>
+    queryClient.invalidateQueries({
+      predicate: (query) => {
+        const key = String(query.queryKey[0]);
+        return key.startsWith("/api/publications/") && key.endsWith("/history");
+      },
+    });
+
   const markAsVettedMutation = useMutation({
     mutationFn: async (id: number) => {
       const response = await fetch(`/api/publications/${id}/ip-vet`, {
@@ -1570,6 +1593,7 @@ export default function PublicationOffice({ embeddedTab }: PublicationOfficeProp
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['/api/publications'] });
+      invalidateManuscriptHistories();
       toast({
         title: "IP vetting complete",
         description: "Publication moved to Vetted for submission.",
@@ -1595,6 +1619,7 @@ export default function PublicationOffice({ embeddedTab }: PublicationOfficeProp
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['/api/publications'] });
+      invalidateManuscriptHistories();
       toast({
         title: "Publication finalized",
         description: "Publication marked as Published * and sealed.",
@@ -1626,6 +1651,7 @@ export default function PublicationOffice({ embeddedTab }: PublicationOfficeProp
       queryClient.invalidateQueries({
         predicate: (query) => String(query.queryKey[0]).startsWith("/api/publications/invalid-issues"),
       });
+      invalidateManuscriptHistories();
       setInvalidPublication(null);
       setInvalidReason("");
       toast({
@@ -1670,6 +1696,7 @@ export default function PublicationOffice({ embeddedTab }: PublicationOfficeProp
     onSuccess: () => {
       setRevertConfirmId(null);
       queryClient.invalidateQueries({ queryKey: ['/api/publications'] });
+      invalidateManuscriptHistories();
       toast({ title: "Reverted", description: "The publication is unsealed and back in Published status." });
     },
     onError: (error: Error) => {
@@ -2002,6 +2029,58 @@ export default function PublicationOffice({ embeddedTab }: PublicationOfficeProp
                   <div className="text-sm text-muted-foreground mb-3" data-testid="text-np-result-count">
                     Showing {filteredNewPublications.length} of {newPublications.length} publications
                   </div>
+
+                  {/* What the colours on the author list mean.
+                      They were explained only by a title attribute, which a
+                      reader has to already suspect is there before they hover
+                      it -- and the confident wording hid how the match is
+                      actually made. It is a guess from a name, and one of them
+                      reported a missing author who does not work here. */}
+                  <details className="mb-4 rounded-md border bg-muted/30 px-3 py-2 text-xs">
+                    <summary className="cursor-pointer font-medium text-foreground">
+                      What the highlighted author names mean
+                    </summary>
+                    <div className="mt-2 space-y-2 text-muted-foreground">
+                      <p>
+                        Each name in a publication's author list is compared against the staff
+                        directory. Three outcomes:
+                      </p>
+                      <ul className="space-y-1">
+                        <li>
+                          <span className="rounded bg-green-100 px-1 text-green-800 dark:bg-green-950 dark:text-green-300">
+                            Green
+                          </span>{" "}
+                          — matched to a staff member who is already linked as an internal author
+                          on this publication. Nothing to do.
+                        </li>
+                        <li>
+                          <span className="rounded bg-red-100 px-1 font-medium text-red-800 dark:bg-red-950 dark:text-red-300">
+                            Red
+                          </span>{" "}
+                          — looks like a staff member, but no internal-author link exists yet.
+                          Worth a look: it is usually a link somebody forgot to make.
+                        </li>
+                        <li>
+                          <span className="px-1">Not highlighted</span> — no match in the staff
+                          directory. Most names on most papers are external co-authors and belong
+                          here.
+                        </li>
+                      </ul>
+                      <p>
+                        <strong className="text-foreground">The match is a guess from the name
+                        alone</strong>, tolerant of the ways journals abbreviate one:
+                        "Hendrickx W", "W. Hendrickx" and "Wouter Hendrickx" all count as the same
+                        person. That tolerance costs accuracy — a short surname can match an
+                        unrelated name, and a red name can be somebody who has never worked here.
+                        Treat red as a prompt to check, not as a finding.
+                      </p>
+                      <p>
+                        Nothing here blocks anything. A publication can be sealed with names still
+                        red, and the score counts the internal authors actually linked, never the
+                        highlighting.
+                      </p>
+                    </div>
+                  </details>
                   {filteredNewPublications.length === 0 ? (
                     <div className="text-center py-8 text-muted-foreground">
                       {/* Which filter emptied it, not just that it is empty.
@@ -2081,8 +2160,8 @@ export default function PublicationOffice({ embeddedTab }: PublicationOfficeProp
                                           entry.status === "linked"
                                             ? "Linked as an internal author"
                                             : entry.status === "missed"
-                                            ? "On staff, but not linked to this publication"
-                                            : "Not on staff"
+                                            ? "Looks like a staff member, but no internal-author link exists. Matched on name, so check before acting."
+                                            : "No match in the staff directory"
                                         }
                                       >
                                         {entry.text}

@@ -138,6 +138,17 @@ test("the grants page marks each grant it lists", async () => {
       assert.equal(involvement.get(104), "mine");
       // Mine at a status that would be withheld if it were another section's.
       assert.equal(involvement.get(107), "mine");
+      // And which part the viewer plays, so the page can keep the grants they
+      // hold apart from the ones they contribute to.
+      const role = new Map(body.grants.map((g: any) => [g.id, g.role]));
+      assert.equal(role.get(101), "lead");
+      assert.equal(role.get(104), "co-investigator");
+      assert.equal(role.get(102), null);
+      // And whether the viewer's own section is on it, for the team list.
+      const inSection = new Map(body.grants.map((g: any) => [g.id, g.inSection]));
+      assert.equal(inSection.get(101), true);
+      assert.equal(inSection.get(102), true);
+      assert.equal(inSection.get(103), false);
     });
   });
 });
