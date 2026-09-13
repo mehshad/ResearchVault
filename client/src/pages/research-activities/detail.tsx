@@ -1,5 +1,3 @@
-// @ts-nocheck — Pre-existing TypeScript errors in this file are suppressed so `npx tsc --noEmit` runs clean and new code in other files gets reliable type-checking feedback.
-// Most errors here stem from untyped `useQuery` results (data inferred as `unknown`), drifted shared/schema field renames, and form values typed as `unknown`. They are not known runtime bugs but should be fixed file-by-file as each is next touched: remove this directive, run `npx tsc --noEmit`, and resolve what surfaces.
 import { useQuery } from "@tanstack/react-query";
 import { useLocation, useParams } from "wouter";
 import { Button } from "@/components/ui/button";
@@ -481,13 +479,9 @@ export default function ResearchActivityDetail() {
                           <span className="text-xs text-gray-600 truncate w-full dark:text-gray-300">{publication.title}</span>
                           <div className="flex items-center gap-2 mt-1">
                             <span className="text-xs text-gray-500 dark:text-gray-400">{publication.journal}</span>
-                            {publication.publicationDate ? (
+                            {publication.publicationDate && (
                               <span className="text-xs text-blue-600 font-medium dark:text-blue-400">
                                 {formatDateLong(publication.publicationDate)}
-                              </span>
-                            ) : publication.publicationYear && (
-                              <span className="text-xs text-blue-600 font-medium dark:text-blue-400">
-                                {publication.publicationYear}
                               </span>
                             )}
                           </div>

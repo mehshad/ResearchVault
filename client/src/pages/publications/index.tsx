@@ -1,5 +1,3 @@
-// @ts-nocheck — Pre-existing TypeScript errors in this file are suppressed so `npx tsc --noEmit` runs clean and new code in other files gets reliable type-checking feedback.
-// Most errors here stem from untyped `useQuery` results (data inferred as `unknown`), drifted shared/schema field renames, and form values typed as `unknown`. They are not known runtime bugs but should be fixed file-by-file as each is next touched: remove this directive, run `npx tsc --noEmit`, and resolve what surfaces.
 import { useState, useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Link, useLocation } from "wouter";
@@ -27,6 +25,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { EnhancedPublication } from "@/lib/types";
+import type { ResearchActivity } from "@shared/schema";
 import { formatFullName } from "@/utils/nameUtils";
 import { Plus, Search, MoreHorizontal, CalendarRange, Bookmark, FileText, Download, Star, ArrowUpDown, ArrowUp, ArrowDown, X, ChevronDown } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -210,7 +209,7 @@ export default function PublicationsList() {
   })();
 
   // Get research activity details if we're filtering by one
-  const { data: researchActivity } = useQuery({
+  const { data: researchActivity } = useQuery<ResearchActivity>({
     queryKey: ['/api/research-activities', filterResearchActivityId],
     enabled: !isRestrictedOnly(currentUser) && !!filterResearchActivityId,
   });
