@@ -4290,10 +4290,16 @@ function writeFailureDetail(error: unknown): string {
   app.get('/api/data-management-plans', async (req: Request, res: Response) => {
     try {
       const projectId = req.query.projectId ? parseInt(req.query.projectId as string) : undefined;
-      
+      const researchActivityId = req.query.researchActivityId ? parseInt(req.query.researchActivityId as string) : undefined;
+
       let plans;
       if (projectId && !isNaN(projectId)) {
         const plan = await storage.getDataManagementPlanForProject(projectId);
+        plans = plan ? [plan] : [];
+      } else if (researchActivityId && !isNaN(researchActivityId)) {
+        // The SDR page asks for its own plan; it used to download every plan
+        // and keep one.
+        const plan = await storage.getDataManagementPlanForResearchActivity(researchActivityId);
         plans = plan ? [plan] : [];
       } else {
         plans = await storage.getDataManagementPlans();

@@ -7,7 +7,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Project, Scientist, ResearchActivity, IrbApplication, IbcApplication, DataManagementPlan, Publication } from "@shared/schema";
 import { useMemo } from "react";
 import { orderPublicationsForActivity } from "@shared/publicationOrdering";
-import { isLinkedToResearchActivity } from "@shared/publicationSdrLinks";
+import { fetchList } from "@/lib/fetchList";
 import { useGrantStatuses } from "@/hooks/useGrantStatuses";
 import { ArrowLeft, Banknote, Calendar, FileText, Layers, Users, Building, Beaker, FileCheck, FileSpreadsheet, Edit } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -86,19 +86,13 @@ export default function ResearchActivityDetail() {
   );
   const leadScientist = leadScientistMember ? scientists?.find(s => s.id === leadScientistMember.scientistId) : null;
   
-  // Fetch publications for this research activity
+  // This activity's publications, primary or additional link alike; the
+  // server resolves both. The page used to download every publication in
+  // the system and keep the ones that matched. A refusal (no Publications
+  // area) reads as an empty list rather than an error that hides the card.
   const { data: publications, isLoading: publicationsLoading } = useQuery<Publication[]>({
-    queryKey: ['/api/publications'],
-    queryFn: async () => {
-      const response = await fetch('/api/publications');
-      if (!response.ok) {
-        throw new Error('Failed to fetch publications');
-      }
-      return response.json();
-    },
-    // Linked as the primary SDR or as an additional one: either way this
-    // activity lists the paper.
-    select: (data) => data.filter(pub => activity != null && isLinkedToResearchActivity(pub, activity.id)),
+    queryKey: ['/api/publications', { researchActivityId: activity?.id }],
+    queryFn: () => fetchList<Publication>(`/api/publications?researchActivityId=${activity!.id}`),
     enabled: !!activity?.id,
   });
 
@@ -113,31 +107,20 @@ export default function ResearchActivityDetail() {
     [publications],
   );
   
-  // Fetch Data Management Plan for this research activity
+  // This activity's data management plan, asked for by activity.
   const { data: dmpData } = useQuery<DataManagementPlan[]>({
-    queryKey: ['/api/data-management-plans'],
-    queryFn: async () => {
-      const response = await fetch('/api/data-management-plans');
-      if (!response.ok) {
-        throw new Error('Failed to fetch data management plans');
-      }
-      return response.json();
-    },
-    select: (data) => data.filter(dmp => dmp.researchActivityId === activity?.id),
+    queryKey: ['/api/data-management-plans', { researchActivityId: activity?.id }],
+    queryFn: () => fetchList<DataManagementPlan>(`/api/data-management-plans?researchActivityId=${activity!.id}`),
     enabled: !!activity?.id,
   });
-  
-  // Fetch IRB applications for this research activity
+
+  // This activity's IRB applications. Before, the query threw on a refused
+  // IRB area and the page showed the same nothing as an activity with no
+  // application at all; now a refusal is an empty list, and an error stays
+  // an error.
   const { data: irbApplications } = useQuery<IrbApplication[]>({
-    queryKey: ['/api/irb-applications'],
-    queryFn: async () => {
-      const response = await fetch('/api/irb-applications');
-      if (!response.ok) {
-        throw new Error('Failed to fetch IRB applications');
-      }
-      return response.json();
-    },
-    select: (data) => data.filter(irb => irb.researchActivityId === activity?.id),
+    queryKey: ['/api/irb-applications', { researchActivityId: activity?.id }],
+    queryFn: () => fetchList<IrbApplication>(`/api/irb-applications?researchActivityId=${activity!.id}`),
     enabled: !!activity?.id,
   });
   
