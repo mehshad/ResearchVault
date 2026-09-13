@@ -16,6 +16,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
 import React from "react";
+import { fetchRecord } from "@/lib/fetchList";
 
 export default function PatentEdit() {
   const { id } = useParams();
@@ -25,7 +26,7 @@ export default function PatentEdit() {
 
   const { data: patent, isLoading } = useQuery<Patent>({
     queryKey: ['/api/patents', id],
-    queryFn: () => fetch(`/api/patents/${id}`).then(res => res.json()),
+    queryFn: () => fetchRecord(`/api/patents/${id}`),
     enabled: !!id,
   });
 

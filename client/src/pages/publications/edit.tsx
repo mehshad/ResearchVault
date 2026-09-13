@@ -22,6 +22,7 @@ import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
 import { z } from "zod";
 import React from "react";
+import { fetchRecord } from "@/lib/fetchList";
 
 export default function PublicationEdit() {
   const { id } = useParams();
@@ -47,7 +48,7 @@ export default function PublicationEdit() {
     Publication & { additionalResearchActivities?: { id: number }[] }
   >({
     queryKey: ['/api/publications', id],
-    queryFn: () => fetch(`/api/publications/${id}`).then(res => res.json()),
+    queryFn: () => fetchRecord(`/api/publications/${id}`),
     enabled: !!id,
   });
 

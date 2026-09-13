@@ -21,6 +21,7 @@ import {
   FormLabel,
   FormMessage,
 } from "@/components/ui/form";
+import { fetchRecord } from "@/lib/fetchList";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Building2, ArrowLeft } from "lucide-react";
 import { insertBuildingSchema, Building } from "@shared/schema";
@@ -40,7 +41,7 @@ export default function EditBuilding() {
 
   const { data: building, isLoading } = useQuery<Building>({
     queryKey: ['/api/buildings', buildingId],
-    queryFn: () => fetch(`/api/buildings/${buildingId}`).then(res => res.json()),
+    queryFn: () => fetchRecord(`/api/buildings/${buildingId}`),
     enabled: !!buildingId,
   });
 

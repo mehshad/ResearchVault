@@ -14,6 +14,7 @@ import {
   FormLabel,
   FormMessage,
 } from "@/components/ui/form";
+import { fetchList } from "@/lib/fetchList";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
@@ -41,11 +42,11 @@ export default function CreateProgram() {
   // Fetch scientists for dropdowns
   const { data: scientists = [] } = useQuery<Scientist[]>({
     queryKey: ['/api/scientists'],
-    queryFn: () => fetch('/api/scientists').then(res => res.json()),
+    queryFn: () => fetchList('/api/scientists'),
   });
   const { data: principalInvestigators = [] } = useQuery<Scientist[]>({
     queryKey: ['/api/principal-investigators'],
-    queryFn: () => fetch('/api/principal-investigators').then(res => res.json()),
+    queryFn: () => fetchList('/api/principal-investigators'),
   });
 
   // Fetch existing programs so we can auto-assign the next PRM number

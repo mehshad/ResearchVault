@@ -35,3 +35,23 @@ export async function fetchList<T>(url: string): Promise<T[]> {
   // A success that is not a list is a contract change, not data.
   return Array.isArray(data) ? (data as T[]) : [];
 }
+
+/**
+ * Fetch one record, failing loudly when it cannot be had.
+ *
+ * The companion to fetchList for a single object. A list may honestly be
+ * empty for a viewer, so a refusal there becomes `[]`; a record either
+ * exists or it does not, and handing a `{ message }` body to a form that
+ * expects a publication is how an edit page comes to render blank fields
+ * over a 403. Any non-OK status throws with the status in the message, the
+ * same shape the default queryFn in lib/queryClient.ts produces, so
+ * react-query reports an error state the page can show.
+ */
+export async function fetchRecord<T>(url: string): Promise<T> {
+  const response = await fetch(url, { credentials: "include" });
+  if (!response.ok) {
+    const text = (await response.text()) || response.statusText;
+    throw new Error(`${response.status}: ${text}`);
+  }
+  return (await response.json()) as T;
+}

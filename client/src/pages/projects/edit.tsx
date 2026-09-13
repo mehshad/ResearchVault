@@ -18,6 +18,7 @@ import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
 import { useEffect } from "react";
 import React from "react";
+import { fetchRecord } from "@/lib/fetchList";
 
 export default function ProjectEdit() {
   const { id } = useParams();
@@ -27,7 +28,7 @@ export default function ProjectEdit() {
 
   const { data: project, isLoading } = useQuery<Project>({
     queryKey: ['/api/projects', id],
-    queryFn: () => fetch(`/api/projects/${id}`).then(res => res.json()),
+    queryFn: () => fetchRecord(`/api/projects/${id}`),
     enabled: !!id,
   });
 

@@ -16,6 +16,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
 import { useEffect } from "react";
+import { fetchRecord } from "@/lib/fetchList";
 
 export default function DataManagementPlanEdit() {
   const { id } = useParams();
@@ -25,7 +26,7 @@ export default function DataManagementPlanEdit() {
 
   const { data: plan, isLoading } = useQuery<DataManagementPlan>({
     queryKey: ['/api/data-management-plans', id],
-    queryFn: () => fetch(`/api/data-management-plans/${id}`).then(res => res.json()),
+    queryFn: () => fetchRecord(`/api/data-management-plans/${id}`),
     enabled: !!id,
   });
 

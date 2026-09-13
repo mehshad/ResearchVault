@@ -13,6 +13,7 @@ import { format } from "date-fns";
 import { usePublicationCount } from "@/hooks/use-publication-count";
 import { useCurrentUser } from "@/hooks/useCurrentUser";
 import { isAdministrator, hasAnyRole } from "@shared/effectiveRoles";
+import { fetchList } from "@/lib/fetchList";
 
 export default function ResearchContractDetail() {
   const params = useParams<{ id: string }>();
@@ -462,8 +463,7 @@ export default function ResearchContractDetail() {
                     className="w-full justify-start" 
                     onClick={() => {
                       // Find the IRB application ID from the protocol number and navigate to its details
-                      fetch(`/api/irb-applications`)
-                        .then(res => res.json())
+                      fetchList<{ id: number; irbNumber: string | null }>('/api/irb-applications')
                         .then(data => {
                           const irbApp = data.find(app => app.irbNumber === contract.irbProtocol);
                           if (irbApp) {
@@ -490,8 +490,7 @@ export default function ResearchContractDetail() {
                     className="w-full justify-start" 
                     onClick={() => {
                       // Find the IBC application ID from the protocol number and navigate to its details
-                      fetch(`/api/ibc-applications`)
-                        .then(res => res.json())
+                      fetchList<{ id: number; ibcNumber: string | null }>('/api/ibc-applications')
                         .then(data => {
                           const ibcApp = data.find(app => app.ibcNumber === contract.ibcProtocol);
                           if (ibcApp) {

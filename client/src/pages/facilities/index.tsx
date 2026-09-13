@@ -8,6 +8,7 @@ import {
   Table, TableBody, TableCell, TableHead, 
   TableHeader, TableRow 
 } from "@/components/ui/table";
+import { fetchList } from "@/lib/fetchList";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -37,17 +38,17 @@ export default function FacilitiesList() {
 
   const { data: buildings, isLoading: buildingsLoading } = useQuery<Building[]>({
     queryKey: ['/api/buildings'],
-    queryFn: () => fetch('/api/buildings').then(res => res.json()),
+    queryFn: () => fetchList('/api/buildings'),
   });
 
   const { data: allRooms, isLoading: roomsLoading } = useQuery<Room[]>({
     queryKey: ['/api/rooms'],
-    queryFn: () => fetch('/api/rooms').then(res => res.json()),
+    queryFn: () => fetchList('/api/rooms'),
   });
 
   const { data: scientists } = useQuery<Scientist[]>({
     queryKey: ['/api/scientists'],
-    queryFn: () => fetch('/api/scientists').then(res => res.json()),
+    queryFn: () => fetchList('/api/scientists'),
   });
 
   const getScientistInfo = (scientistId: number | null) => {

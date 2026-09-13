@@ -11,6 +11,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import {
   Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle,
 } from "@/components/ui/dialog";
+import { fetchList } from "@/lib/fetchList";
 import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
@@ -81,15 +82,15 @@ export default function OrganizationStructure() {
 
   const { data: branches, isLoading: branchesLoading } = useQuery<Branch[]>({
     queryKey: ["/api/branches"],
-    queryFn: () => fetch("/api/branches").then((r) => r.json()),
+    queryFn: () => fetchList("/api/branches"),
   });
   const { data: departments, isLoading: departmentsLoading } = useQuery<Department[]>({
     queryKey: ["/api/departments"],
-    queryFn: () => fetch("/api/departments").then((r) => r.json()),
+    queryFn: () => fetchList("/api/departments"),
   });
   const { data: sections, isLoading: sectionsLoading } = useQuery<Section[]>({
     queryKey: ["/api/sections"],
-    queryFn: () => fetch("/api/sections").then((r) => r.json()),
+    queryFn: () => fetchList("/api/sections"),
   });
 
   const [collapsedBranches, setCollapsedBranches] = useState<Set<number>>(new Set());

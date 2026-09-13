@@ -20,6 +20,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { fetchList } from "@/lib/fetchList";
 import {
   Form,
   FormControl,
@@ -85,17 +86,17 @@ export default function CreateRoom() {
 
   const { data: buildings, isLoading: buildingsLoading } = useQuery<Building[]>({
     queryKey: ['/api/buildings'],
-    queryFn: () => fetch('/api/buildings').then(res => res.json()),
+    queryFn: () => fetchList('/api/buildings'),
   });
 
   const { data: investigators } = useQuery<Scientist[]>({
     queryKey: ['/api/scientists/investigators'],
-    queryFn: () => fetch('/api/scientists/investigators').then(res => res.json()),
+    queryFn: () => fetchList('/api/scientists/investigators'),
   });
 
   const { data: scientificStaff } = useQuery<Scientist[]>({
     queryKey: ['/api/scientists/scientific-staff'],
-    queryFn: () => fetch('/api/scientists/scientific-staff').then(res => res.json()),
+    queryFn: () => fetchList('/api/scientists/scientific-staff'),
   });
 
   const form = useForm<RoomFormData>({

@@ -32,6 +32,7 @@ import TimelineComments from "@/components/TimelineComments";
 import { formatNameWithJobTitle } from "@/utils/nameUtils";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { differenceInDays, parseISO } from "date-fns";
+import { fetchList, fetchRecord } from "@/lib/fetchList";
 
 // Helper function to get certification color based on expiry date
 function getCertificationColor(expiryDate: string | null): string {
@@ -359,7 +360,7 @@ export default function IbcApplicationEdit() {
 
   const { data: ibcApplication, isLoading } = useQuery<IbcApplication>({
     queryKey: ['/api/ibc-applications', id],
-    queryFn: () => fetch(`/api/ibc-applications/${id}`).then(res => res.json()),
+    queryFn: () => fetchRecord(`/api/ibc-applications/${id}`),
     enabled: !!id,
   });
 
@@ -371,7 +372,7 @@ export default function IbcApplicationEdit() {
   // Fetch associated research activities for this IBC application
   const { data: associatedActivities } = useQuery<ResearchActivity[]>({
     queryKey: ['/api/ibc-applications', id, 'research-activities'],
-    queryFn: () => fetch(`/api/ibc-applications/${id}/research-activities`).then(res => res.json()),
+    queryFn: () => fetchList(`/api/ibc-applications/${id}/research-activities`),
     enabled: !!id,
   });
 

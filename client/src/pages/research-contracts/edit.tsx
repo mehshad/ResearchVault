@@ -23,6 +23,7 @@ import { cn } from "@/lib/utils";
 import { z } from "zod";
 import React from "react";
 import { useCurrentUser } from "@/hooks/useCurrentUser";
+import { fetchRecord } from "@/lib/fetchList";
 
 const countries = [
   "Afghanistan", "Albania", "Algeria", "Argentina", "Armenia", "Australia", "Austria", "Azerbaijan",
@@ -83,7 +84,7 @@ export default function ResearchContractEdit() {
 
   const { data: contract, isLoading } = useQuery<ResearchContract>({
     queryKey: ['/api/research-contracts', id],
-    queryFn: () => fetch(`/api/research-contracts/${id}`).then(res => res.json()),
+    queryFn: () => fetchRecord(`/api/research-contracts/${id}`),
     enabled: !!id,
   });
 

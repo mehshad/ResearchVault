@@ -185,7 +185,7 @@ export default function Settings() {
   });
 
   const deleteRequestMutation = useMutation({
-    mutationFn: (id: number) => fetch(`/api/feature-requests/${id}`, { method: 'DELETE' }).then(res => res.json()),
+    mutationFn: (id: number) => apiRequest("DELETE", `/api/feature-requests/${id}`).then((res) => res.json()),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['/api/feature-requests'] });
       toast({ title: "Feature request deleted successfully!" });

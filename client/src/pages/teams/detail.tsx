@@ -8,6 +8,7 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
+import { fetchList, fetchRecord } from "@/lib/fetchList";
 import { Button } from "@/components/ui/button";
 import {
   Table,
@@ -71,14 +72,14 @@ export default function TeamDetail(props: TeamDetailProps) {
   // Fetch research activity details
   const { data: activity, isLoading: activityLoading } = useQuery<ResearchActivity>({
     queryKey: ["/api/research-activities", id],
-    queryFn: () => fetch(`/api/research-activities/${id}`).then(res => res.json()),
+    queryFn: () => fetchRecord(`/api/research-activities/${id}`),
     enabled: !!id,
   });
   
   // Fetch team members for research activity
-  const { data: teamMembers, isLoading: teamMembersLoading } = useQuery({
+  const { data: teamMembers, isLoading: teamMembersLoading } = useQuery<ProjectMember[]>({
     queryKey: ["/api/research-activities", id, "members"],
-    queryFn: () => fetch(`/api/research-activities/${id}/members`).then(res => res.json()),
+    queryFn: () => fetchList(`/api/research-activities/${id}/members`),
     enabled: !!id,
   });
   
