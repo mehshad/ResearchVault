@@ -110,6 +110,7 @@ export interface IStorage {
   getPublications(): Promise<Publication[]>;
   getPublication(id: number): Promise<Publication | undefined>;
   getPublicationsForResearchActivity(researchActivityId: number): Promise<Publication[]>;
+  getPublicationsForProgram(programId: number): Promise<Publication[]>;
   createPublication(publication: InsertPublication): Promise<Publication>;
   createPublicationWithHistory(
     publication: InsertPublication & { createdByUserId?: number | null },

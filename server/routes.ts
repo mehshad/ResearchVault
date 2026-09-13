@@ -4507,6 +4507,7 @@ function writeFailureDetail(error: unknown): string {
   app.get('/api/publications', async (req: Request, res: Response) => {
     try {
       const researchActivityId = req.query.researchActivityId ? parseInt(req.query.researchActivityId as string) : undefined;
+      const programId = req.query.programId ? parseInt(req.query.programId as string) : undefined;
       const page = req.query.page ? parseInt(req.query.page as string) : undefined;
       const limit = req.query.limit ? parseInt(req.query.limit as string) : undefined;
       
@@ -4519,6 +4520,10 @@ function writeFailureDetail(error: unknown): string {
       let publications;
       if (researchActivityId && !isNaN(researchActivityId)) {
         publications = await storage.getPublicationsForResearchActivity(researchActivityId);
+      } else if (programId && !isNaN(programId)) {
+        // The SDRs of the program's projects, resolved on the server so the
+        // program page does not have to pull every publication to find its own.
+        publications = await storage.getPublicationsForProgram(programId);
       } else {
         publications = await storage.getPublications();
       }
@@ -4567,7 +4572,8 @@ function writeFailureDetail(error: unknown): string {
           researchActivity: researchActivity ? {
             id: researchActivity.id,
             sdrNumber: researchActivity.sdrNumber,
-            title: researchActivity.title
+            title: researchActivity.title,
+            projectId: researchActivity.projectId
           } : null
         };
       }));

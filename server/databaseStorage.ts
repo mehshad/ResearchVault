@@ -461,6 +461,19 @@ export class DatabaseStorage implements IStorage {
     return await db.select().from(publications).where(eq(publications.researchActivityId, researchActivityId));
   }
 
+  // Every publication whose SDR sits under one of the program's projects. The
+  // link runs publication -> research activity -> project -> program; a
+  // publication with no SDR (an exempted one) belongs to no program.
+  async getPublicationsForProgram(programId: number): Promise<Publication[]> {
+    return await db
+      .select({ publication: publications })
+      .from(publications)
+      .innerJoin(researchActivities, eq(publications.researchActivityId, researchActivities.id))
+      .innerJoin(projects, eq(researchActivities.projectId, projects.id))
+      .where(eq(projects.programId, programId))
+      .then((rows) => rows.map((row) => row.publication));
+  }
+
   async createPublication(
     publication: InsertPublication & { createdByUserId?: number | null },
   ): Promise<Publication> {
