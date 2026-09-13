@@ -15,11 +15,12 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { formatNameWithJobTitle } from "@/utils/nameUtils";
 import { formatDateOrDash as formatDate } from "@/lib/dates";
 import { statusBadgeClass } from "@/lib/statusStyles";
+import { QueryError } from "@/components/QueryError";
 
 export default function IrbList() {
   const [searchQuery, setSearchQuery] = useState("");
 
-  const { data: applications, isLoading } = useQuery<EnhancedIrbApplication[]>({
+  const { data: applications, isLoading, isError, error, refetch } = useQuery<EnhancedIrbApplication[]>({
     queryKey: ['/api/irb-applications'],
   });
 
@@ -92,6 +93,8 @@ export default function IrbList() {
                 </div>
               ))}
             </div>
+          ) : isError ? (
+            <QueryError what="IRB applications" error={error} onRetry={() => refetch()} />
           ) : (
             <Table>
               <TableHeader>

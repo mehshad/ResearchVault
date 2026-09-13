@@ -6,6 +6,7 @@ import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, LineChart, Line, Area, AreaChart } from 'recharts';
 import { TrendingUp, Users, FileText, Building2, Award, Calendar, DollarSign, Target } from "lucide-react";
+import { QueryError } from "@/components/QueryError";
 
 interface DashboardStats {
   activeResearchActivities: string;
@@ -15,7 +16,7 @@ interface DashboardStats {
 }
 
 export default function ReportsPage() {
-  const { data: stats, isLoading: statsLoading } = useQuery<DashboardStats>({
+  const { data: stats, isLoading: statsLoading, isError: statsError, error: statsErrorDetail, refetch: refetchStats } = useQuery<DashboardStats>({
     queryKey: ['/api/dashboard/stats'],
   });
 
@@ -173,6 +174,17 @@ export default function ReportsPage() {
             </Card>
           ))}
         </div>
+      </div>
+    );
+  }
+
+  if (statsError) {
+    return (
+      <div className="space-y-6">
+        <div className="flex items-center justify-between">
+          <h1 className="text-2xl font-semibold text-foreground">Research Analytics & Reports</h1>
+        </div>
+        <QueryError what="report figures" error={statsErrorDetail} onRetry={() => refetchStats()} />
       </div>
     );
   }

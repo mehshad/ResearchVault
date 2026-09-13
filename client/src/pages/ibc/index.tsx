@@ -18,12 +18,13 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { formatNameWithJobTitle } from "@/utils/nameUtils";
 import { formatDateOrDash as formatDate } from "@/lib/dates";
 import { statusBadgeClass } from "@/lib/statusStyles";
+import { QueryError } from "@/components/QueryError";
 
 export default function IbcList() {
   const [searchQuery, setSearchQuery] = useState("");
   const [, navigate] = useLocation();
 
-  const { data: applications, isLoading } = useQuery<EnhancedIbcApplication[]>({
+  const { data: applications, isLoading, isError, error, refetch } = useQuery<EnhancedIbcApplication[]>({
     queryKey: ['/api/ibc-applications'],
   });
 
@@ -85,6 +86,8 @@ export default function IbcList() {
                 </div>
               ))}
             </div>
+          ) : isError ? (
+            <QueryError what="IBC applications" error={error} onRetry={() => refetch()} />
           ) : (
             <Table>
               <TableHeader>

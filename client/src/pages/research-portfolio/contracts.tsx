@@ -35,6 +35,7 @@ import {
   type PortfolioResponse,
   type PortfolioScope,
 } from "@/lib/portfolioScope";
+import { QueryError } from "@/components/QueryError";
 
 type PortfolioContract = ResearchContract & {
   leadPIName: string | null;
@@ -68,7 +69,7 @@ export default function PortfolioContracts() {
   const [scope, setScope] = useState<PortfolioScope>("team");
   const [searchQuery, setSearchQuery] = useState("");
 
-  const { data, isLoading } = useQuery<PortfolioResponse<{ contracts: PortfolioContract[] }>>({
+  const { data, isLoading, isError, error, refetch } = useQuery<PortfolioResponse<{ contracts: PortfolioContract[] }>>({
     queryKey: ["/api/research-portfolio/contracts"],
   });
 
@@ -176,6 +177,8 @@ export default function PortfolioContracts() {
                   </div>
                 ))}
               </div>
+            ) : isError ? (
+              <QueryError what="contracts" error={error} onRetry={() => refetch()} />
             ) : (
               <Table>
                 <TableHeader>

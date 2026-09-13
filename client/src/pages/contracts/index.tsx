@@ -21,12 +21,13 @@ import { PermissionWrapper } from "@/components/PermissionWrapper";
 import { usePermissions } from "@/hooks/usePermissions";
 import { formatDateOrDash as formatDate } from "@/lib/dates";
 import { statusBadgeClass } from "@/lib/statusStyles";
+import { QueryError } from "@/components/QueryError";
 
 export default function ContractsList() {
   const [searchQuery, setSearchQuery] = useState("");
   const { currentUser } = useCurrentUser();
 
-  const { data: contracts, isLoading } = useQuery<EnhancedResearchContract[]>({
+  const { data: contracts, isLoading, isError, error, refetch } = useQuery<EnhancedResearchContract[]>({
     queryKey: ['/api/research-contracts'],
   });
 
@@ -114,6 +115,8 @@ export default function ContractsList() {
                 </div>
               ))}
             </div>
+          ) : isError ? (
+            <QueryError what="contracts" error={error} onRetry={() => refetch()} />
           ) : (
             <Table>
               <TableHeader>

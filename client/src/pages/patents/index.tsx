@@ -14,11 +14,12 @@ import { Plus, Search, MoreHorizontal, Calendar, Award } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
 import { formatDateOrDash as formatDate } from "@/lib/dates";
 import { statusBadgeClass } from "@/lib/statusStyles";
+import { QueryError } from "@/components/QueryError";
 
 export default function PatentsList() {
   const [searchQuery, setSearchQuery] = useState("");
 
-  const { data: patents, isLoading } = useQuery<EnhancedPatent[]>({
+  const { data: patents, isLoading, isError, error, refetch } = useQuery<EnhancedPatent[]>({
     queryKey: ['/api/patents'],
   });
 
@@ -74,6 +75,8 @@ export default function PatentsList() {
                 </div>
               ))}
             </div>
+          ) : isError ? (
+            <QueryError what="patents" error={error} onRetry={() => refetch()} />
           ) : (
             <Table>
               <TableHeader>

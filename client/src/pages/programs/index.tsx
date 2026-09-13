@@ -19,6 +19,7 @@ import {
 import { Beaker, ExternalLink, FilePlus, FolderOpen, Globe, Search, MoreHorizontal } from "lucide-react";
 import { useCurrentUser } from "@/hooks/useCurrentUser";
 import { PermissionWrapper, useElementPermissions } from "@/components/PermissionWrapper";
+import { QueryError } from "@/components/QueryError";
 
 interface Program {
   id: number;
@@ -55,7 +56,7 @@ export default function ProgramsList() {
   const { currentUser } = useCurrentUser();
   const { canEdit } = useElementPermissions(currentUser.role, "programs");
 
-  const { data: programs, isLoading } = useQuery<Program[]>({
+  const { data: programs, isLoading, isError, error, refetch } = useQuery<Program[]>({
     queryKey: ['/api/programs'],
   });
 
@@ -139,6 +140,8 @@ export default function ProgramsList() {
                 </div>
               ))}
             </div>
+          ) : isError ? (
+            <QueryError what="programs" error={error} onRetry={() => refetch()} />
           ) : (
             <Table>
               <TableHeader>

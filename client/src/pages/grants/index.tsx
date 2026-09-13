@@ -1,6 +1,6 @@
 // @ts-nocheck — Pre-existing TypeScript errors in this file are suppressed so `npx tsc --noEmit` runs clean and new code in other files gets reliable type-checking feedback.
 // Most errors here stem from untyped `useQuery` results (data inferred as `unknown`), drifted shared/schema field renames, and form values typed as `unknown`. They are not known runtime bugs but should be fixed file-by-file as each is next touched: remove this directive, run `npx tsc --noEmit`, and resolve what surfaces.
-import { useState } from "react";
+import { useState , useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { Link, useLocation } from "wouter";
 import { Button } from "@/components/ui/button";
@@ -54,6 +54,9 @@ import { GrantCleanupDialog } from "@/components/GrantCleanupDialog";
 import { GrantRulesDialog } from "@/components/GrantRulesDialog";
 import { formatDateOrDash as formatDate } from "@/lib/dates";
 import { statusBadgeClass } from "@/lib/statusStyles";
+import { QueryError } from "@/components/QueryError";
+import { TablePagination } from "@/components/TablePagination";
+import { pageSlice } from "@/lib/paging";
 
 type EnhancedGrant = Grant & {
   lpi?: {
@@ -71,6 +74,7 @@ type EnhancedGrant = Grant & {
 
 export default function GrantsList() {
   const [searchQuery, setSearchQuery] = useState("");
+  const [page, setPage] = useState(1);
   const [statusFilter, setStatusFilter] = useState<string>("all");
   const [yearFilter, setYearFilter] = useState<string>("all");
   const [issueFilter, setIssueFilter] = useState<"all" | "any" | GrantIssueCode>("all");
@@ -81,7 +85,7 @@ export default function GrantsList() {
   const { currentUser } = useCurrentUser();
   const { all: allStatuses } = useGrantStatuses();
 
-  const { data: grants, isLoading } = useQuery<EnhancedGrant[]>({
+  const { data: grants, isLoading, isError, error, refetch } = useQuery<EnhancedGrant[]>({
     queryKey: ['/api/grants'],
   });
 
@@ -285,6 +289,9 @@ export default function GrantsList() {
 
   // Get unique years and statuses for filters
   const years = [...new Set(grants?.map(g => g.submittedYear).filter(Boolean))].sort((a, b) => (b || 0) - (a || 0));
+  // Fifty rows at a time; a filter or sort change goes back to the first page.
+  const pagedGrants = pageSlice(filteredAndSortedGrants ?? [], page);
+  useEffect(() => { setPage(1); }, [searchQuery, statusFilter, yearFilter, issueFilter, sortField, sortDirection]);
   // The filter offers retired statuses too, because grants still carry them and
   // an unfilterable status is worse than a long list.
   const statuses = allStatuses;
@@ -448,6 +455,9 @@ export default function GrantsList() {
               horizontal overflow already makes this div the scroll container,
               and sticky positions against the nearest scrolling ancestor. */}
           <div className="max-h-[70vh] overflow-auto rounded-md border">
+          {isError ? (
+            <QueryError what="grants" error={error} onRetry={() => refetch()} />
+          ) : (
             <Table className="min-w-[1950px]">
               {/* Eleven columns and a hundred rows: without this you lose track
                   of which column you are reading a few rows in. Opaque
@@ -514,7 +524,7 @@ export default function GrantsList() {
                     </TableCell>
                   </TableRow>
                 ) : (
-                  filteredAndSortedGrants?.map((grant) => (
+                  pagedGrants.map((grant) => (
                     <TableRow 
                       key={grant.id} 
                       className="hover:bg-gray-50 cursor-pointer dark:hover:bg-gray-900"
@@ -698,6 +708,8 @@ export default function GrantsList() {
                 )}
               </TableBody>
             </Table>
+          )}
+          <TablePagination total={filteredAndSortedGrants?.length ?? 0} page={page} onPageChange={setPage} what="grants" />
           </div>
         </CardContent>
         </Card>

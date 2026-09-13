@@ -5,9 +5,10 @@ import RecentActivity from "@/components/dashboard/RecentActivity";
 import UpcomingDeadlines from "@/components/dashboard/UpcomingDeadlines";
 import { DashboardStats } from "@/lib/types";
 import GrantFundingByProvider from "@/components/dashboard/GrantFundingByProvider";
+import { QueryError } from "@/components/QueryError";
 
 export default function Dashboard() {
-  const { data: stats, isLoading: statsLoading } = useQuery<DashboardStats>({
+  const { data: stats, isLoading: statsLoading, isError: statsError, error: statsErrorDetail, refetch: refetchStats } = useQuery<DashboardStats>({
     queryKey: ['/api/dashboard/stats'],
   });
 
@@ -18,6 +19,10 @@ export default function Dashboard() {
         <h1 className="text-2xl font-semibold text-foreground">Dashboard</h1>
       </div>
 
+      {statsError ? (
+        <QueryError what="dashboard figures" error={statsErrorDetail} onRetry={() => refetchStats()} />
+      ) : (
+      <>
       {/* Stats Cards */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
         <StatsCard 
@@ -68,6 +73,8 @@ export default function Dashboard() {
       </div>
 
       <GrantFundingByProvider stats={stats?.grants} isLoading={statsLoading} />
+      </>
+      )}
 
       {/* Projects & Activities */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
