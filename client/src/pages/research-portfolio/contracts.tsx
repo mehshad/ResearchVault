@@ -107,7 +107,7 @@ export default function PortfolioContracts() {
       <div className="space-y-6">
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
-            <h1 className="text-2xl font-semibold text-foreground">Contracts</h1>
+            <h1 className="text-2xl font-semibold text-foreground">My contracts</h1>
             <p className="text-sm text-muted-foreground mt-1">
               {viewer?.seesEverything
                 ? "Every research contract on record."
