@@ -143,7 +143,9 @@ export default function PublicationDetail() {
   const [authorsValue, setAuthorsValue] = useState('');
   const [isWithdrawInvalidOpen, setIsWithdrawInvalidOpen] = useState(false);
 
-  const { data: publication, isLoading: publicationLoading } = useQuery<Publication>({
+  const { data: publication, isLoading: publicationLoading } = useQuery<
+    Publication & { additionalResearchActivities?: { id: number; sdrNumber: string; title: string }[] }
+  >({
     queryKey: [`/api/publications/${id}`, currentUser.role, currentUser.id],
     queryFn: async () => {
       const query = new URLSearchParams({
@@ -638,6 +640,18 @@ export default function PublicationDetail() {
                       {researchActivity.sdrNumber}
                     </Badge>
                   )}
+                  {/* Additional SDRs the paper also belongs to; the first badge is the one on the record. */}
+                  {(publication.additionalResearchActivities ?? []).map((activity) => (
+                    <Badge
+                      key={activity.id}
+                      variant="outline"
+                      title={`Also linked to ${activity.title}`}
+                      className="rounded-sm text-blue-700 border-blue-200 dark:text-blue-300 dark:border-blue-800"
+                      data-testid={`badge-additional-sdr-${activity.id}`}
+                    >
+                      + {activity.sdrNumber}
+                    </Badge>
+                  ))}
                   <Badge className={
                     publication.status === 'published' ? 'bg-green-100 text-green-800 dark:bg-green-950 dark:text-green-300' :
                     publication.status === 'in press' ? 'bg-blue-100 text-blue-800 dark:bg-blue-950 dark:text-blue-300' :
@@ -1245,6 +1259,21 @@ export default function PublicationDetail() {
                     </Badge>
                   )}
                 </Button>
+                {(publication.additionalResearchActivities ?? []).map((activity) => (
+                  <Button
+                    key={activity.id}
+                    variant="outline"
+                    className="w-full justify-start"
+                    onClick={() => navigate(`/research-activities/${activity.id}`)}
+                    data-testid={`button-additional-sdr-${activity.id}`}
+                  >
+                    <Layers className="h-4 w-4 mr-2" />
+                    <span className="flex-1 text-left truncate">Also under {activity.title}</span>
+                    <Badge variant="outline" className="ml-2 rounded-sm text-blue-700 border-blue-200 dark:text-blue-300 dark:border-blue-800">
+                      {activity.sdrNumber}
+                    </Badge>
+                  </Button>
+                ))}
                 {relatedPatents && relatedPatents.length > 0 ? (
                   <Button 
                     variant="outline" 

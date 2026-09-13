@@ -37,6 +37,7 @@ import { usePermissions } from "@/hooks/usePermissions";
 import { useCurrentUser } from "@/hooks/useCurrentUser";
 import { isRestrictedOnly } from "@shared/effectiveRoles";
 import { FULL_PUBLICATION_VISIBILITY_ROLES } from "@shared/publicationVisibility";
+import { isLinkedToResearchActivity } from "@shared/publicationSdrLinks";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ImpactFactorsReadOnly } from "@/components/ImpactFactorsReadOnly";
 import PublicationImport from "./import";
@@ -229,7 +230,7 @@ export default function PublicationsList() {
 
   const filteredPublications = publications?.filter(publication => {
     // First apply research activity filter
-    if (filterResearchActivityId && publication.researchActivityId !== filterResearchActivityId) {
+    if (filterResearchActivityId && !isLinkedToResearchActivity(publication, filterResearchActivityId)) {
       return false;
     }
 

@@ -7,6 +7,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Project, Scientist, ResearchActivity, IrbApplication, IbcApplication, DataManagementPlan, Publication } from "@shared/schema";
 import { useMemo } from "react";
 import { orderPublicationsForActivity } from "@shared/publicationOrdering";
+import { isLinkedToResearchActivity } from "@shared/publicationSdrLinks";
 import { useGrantStatuses } from "@/hooks/useGrantStatuses";
 import { ArrowLeft, Banknote, Calendar, FileText, Layers, Users, Building, Beaker, FileCheck, FileSpreadsheet, Edit } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -95,7 +96,9 @@ export default function ResearchActivityDetail() {
       }
       return response.json();
     },
-    select: (data) => data.filter(pub => pub.researchActivityId === activity?.id),
+    // Linked as the primary SDR or as an additional one: either way this
+    // activity lists the paper.
+    select: (data) => data.filter(pub => activity != null && isLinkedToResearchActivity(pub, activity.id)),
     enabled: !!activity?.id,
   });
 
