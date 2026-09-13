@@ -1,0 +1,620 @@
+<title>Q-BRIDGE Code Review</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+  :root {
+    --bg: #f4f8f6; --panel: #ffffff; --ink: #172b27; --muted: #5a6f6a; --line: #d6e2de;
+    --accent: #0f766e; --accent-ink: #ffffff; --code-bg: #e8f0ee;
+    --critical: #b42318; --high: #c2410c; --medium: #a16207; --low: #4b6b62;
+    --critical-bg: #fde8e6; --high-bg: #fdebe0; --medium-bg: #fbf1d6; --low-bg: #e3ecea;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #0f1a18; --panel: #16241f; --ink: #e4eeeb; --muted: #97aca6; --line: #27403a;
+      --accent: #5fd0c3; --accent-ink: #0f1a18; --code-bg: #1f332e;
+      --critical: #ff8a80; --high: #ffab7a; --medium: #f5d06f; --low: #a9c4bd;
+      --critical-bg: #3a1a17; --high-bg: #3a2416; --medium-bg: #35300f; --low-bg: #223330;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #0f1a18; --panel: #16241f; --ink: #e4eeeb; --muted: #97aca6; --line: #27403a;
+    --accent: #5fd0c3; --accent-ink: #0f1a18; --code-bg: #1f332e;
+    --critical: #ff8a80; --high: #ffab7a; --medium: #f5d06f; --low: #a9c4bd;
+    --critical-bg: #3a1a17; --high-bg: #3a2416; --medium-bg: #35300f; --low-bg: #223330;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink); font: 15px/1.55 "IBM Plex Sans", "Segoe UI", system-ui, sans-serif; }
+  code { font-family: "IBM Plex Mono", Consolas, monospace; font-size: 0.86em; background: var(--code-bg); padding: 0.05em 0.35em; border-radius: 3px; word-break: break-word; }
+  h1, h2, h3 { font-family: "Bricolage Grotesque", "IBM Plex Sans", sans-serif; text-wrap: balance; margin: 0; }
+  a { color: var(--accent); }
+  .wrap { max-width: 1120px; margin: 0 auto; padding: 40px 24px 80px; display: grid; grid-template-columns: 220px minmax(0, 1fr); gap: 40px; }
+  @media (max-width: 860px) { .wrap { grid-template-columns: 1fr; } .rail { position: static; } }
+  .rail { position: sticky; top: 24px; align-self: start; display: flex; flex-direction: column; gap: 18px; }
+  .rail nav { display: flex; flex-direction: column; gap: 2px; border-left: 2px solid var(--line); }
+  .rail nav a { display: flex; justify-content: space-between; gap: 8px; padding: 6px 10px; text-decoration: none; color: var(--ink); font-size: 14px; margin-left: -2px; border-left: 2px solid transparent; }
+  .rail nav a:hover, .rail nav a:focus-visible { border-left-color: var(--accent); outline: none; }
+  .rail nav a span { color: var(--muted); font-family: "IBM Plex Mono", monospace; font-size: 12px; }
+  .label { font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); font-weight: 600; }
+  .filters { display: flex; flex-wrap: wrap; gap: 6px; }
+  .filters button { font: inherit; font-size: 13px; padding: 4px 10px; border-radius: 999px; border: 1px solid var(--line); background: var(--panel); color: var(--ink); cursor: pointer; }
+  .filters button[aria-pressed="true"] { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+  .filters button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  header.top h1 { font-size: 40px; line-height: 1.05; font-weight: 700; letter-spacing: -0.01em; }
+  header.top .sub { color: var(--muted); max-width: 62ch; margin-top: 12px; }
+  .summary { display: grid; grid-template-columns: repeat(4, 1fr); gap: 1px; background: var(--line); border: 1px solid var(--line); border-radius: 6px; overflow: hidden; margin: 28px 0 8px; }
+  .summary div { background: var(--panel); padding: 14px 16px; }
+  .summary b { display: block; font-family: "IBM Plex Mono", monospace; font-size: 26px; font-weight: 500; font-variant-numeric: tabular-nums; line-height: 1.1; }
+  .summary span { font-size: 12px; letter-spacing: 0.06em; text-transform: uppercase; font-weight: 600; }
+  .summary .critical span { color: var(--critical); } .summary .high span { color: var(--high); } .summary .medium span { color: var(--medium); } .summary .low span { color: var(--low); }
+  .where { border-left: 3px solid var(--accent); padding: 4px 14px; margin: 20px 0 0; color: var(--muted); max-width: 70ch; }
+  .area { margin-top: 44px; }
+  .area-head { border-bottom: 1px solid var(--line); padding-bottom: 12px; margin-bottom: 8px; }
+  .area-head h2 { font-size: 24px; font-weight: 700; }
+  .lede { color: var(--muted); max-width: 66ch; margin: 6px 0 10px; }
+  .chips, .tags { display: flex; flex-wrap: wrap; gap: 6px; }
+  .mini { font-family: "IBM Plex Mono", monospace; font-size: 11px; padding: 2px 8px; border-radius: 999px; }
+  .mini.critical, .sev.critical { background: var(--critical-bg); color: var(--critical); }
+  .mini.high, .sev.high { background: var(--high-bg); color: var(--high); }
+  .mini.medium, .sev.medium { background: var(--medium-bg); color: var(--medium); }
+  .mini.low, .sev.low { background: var(--low-bg); color: var(--low); }
+  .finding { padding: 18px 0; border-bottom: 1px solid var(--line); }
+  .finding[hidden] { display: none; }
+  .finding-head { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 6px 12px; align-items: baseline; }
+  .sev { font-family: "IBM Plex Mono", monospace; font-size: 11px; letter-spacing: 0.06em; text-transform: uppercase; padding: 2px 8px; border-radius: 4px; }
+  .finding h3 { font-size: 18px; font-weight: 700; line-height: 1.25; }
+  .meta { grid-column: 2; color: var(--muted); font-size: 12.5px; }
+  .meta .id { font-family: "IBM Plex Mono", monospace; }
+  .finding p { margin: 10px 0 8px; max-width: 76ch; }
+  .tags span { font-size: 11.5px; color: var(--muted); border: 1px solid var(--line); border-radius: 4px; padding: 1px 6px; }
+  .empty { color: var(--muted); font-style: italic; padding: 12px 0; display: none; }
+  .area.all-hidden .empty { display: block; }
+  footer { margin-top: 48px; color: var(--muted); font-size: 13px; max-width: 70ch; }
+</style>
+<div class="wrap">
+  <aside class="rail">
+    <div>
+      <div class="label">Areas</div>
+      <nav><a href="#security">Security and authorization<span>10</span></a><a href="#data-model">Data model and storage<span>11</span></a><a href="#client">Client and user experience<span>8</span></a><a href="#operations">Data operations and deployment<span>12</span></a><a href="#ci-dx">Testing, CI and maintainability<span>11</span></a></nav>
+    </div>
+    <div>
+      <div class="label">Show</div>
+      <div class="filters" role="group" aria-label="Filter by priority">
+        <button type="button" data-filter="all" aria-pressed="true">All 52</button>
+        <button type="button" data-filter="critical" aria-pressed="false">Critical</button>
+        <button type="button" data-filter="high" aria-pressed="false">High</button>
+        <button type="button" data-filter="medium" aria-pressed="false">Medium</button>
+        <button type="button" data-filter="low" aria-pressed="false">Low</button>
+      </div>
+    </div>
+  </aside>
+  <main>
+    <header class="top">
+      <div class="label">ResearchVault · branch phase2 · 13 September 2026</div>
+      <h1>Q-BRIDGE Code Review</h1>
+      <p class="sub">52 open findings from a read of the server, shared modules, client, migrations and CI on 13 September 2026, each verified against the code or the dev database. This page lists what is still to do; a finding that is fixed is removed from it, not marked closed. The dev database (Settings → Feature Requests, requester "Claude code review, 13 Sep 2026") is the record, with the same numbers.</p>
+      <div class="summary">
+        <div class="critical"><b>2</b><span>Critical</span></div>
+        <div class="high"><b>16</b><span>High</span></div>
+        <div class="medium"><b>23</b><span>Medium</span></div>
+        <div class="low"><b>11</b><span>Low</span></div>
+      </div>
+      <p class="where">To close one: fix it on the audit-fixes branch, mark the request implemented in the dev database with the commit, and regenerate this page from the database so it drops out.</p>
+    </header>
+    
+      <section class="area" id="security">
+        <header class="area-head">
+          <h2>Security and authorization</h2>
+          <p class="lede">Who may do what, and what the server lets through. Findings marked AC-nn are already in the access control register and remain open.</p>
+          <div class="chips"><span class="mini high">2 high</span><span class="mini medium">6 medium</span><span class="mini low">2 low</span></div>
+        </header><p class="empty">Nothing at this priority in this area.</p><article class="finding" data-priority="high" id="fr-4">
+          <div class="finding-head">
+            <span class="sev high">high</span>
+            <h3>Rate-limit POST /api/auth/login and finish AC-04 password hashing</h3>
+            <span class="meta"><span class="id">#4</span> · backend · effort medium</span>
+          </div>
+          <p>The local/LDAP login handler at <code>server/auth.ts:780-838</code> has no per-IP or per-account throttle and no lockout; <code>package.json</code> contains no express-rate-limit or equivalent. Combined with AC-04, which is still open exactly as registered (hashPassword at <code>server/auth.ts:114-116</code> is a single unsalted SHA-256, compared with plain !== at line 802), an online guess is cheap and an offline crack of a leaked hash is cheaper. Fix: add express-rate-limit keyed on ip+username to <code>/api/auth/login</code> (and the LDAP path, which otherwise lets the app be used to brute-force directory accounts), and migrate to bcrypt/argon2 with rehash-on-login as the register recommends. The same limiter belongs on the OCR routes (tesseract.js and pdf-parse at routes.ts:1668 and 1817), the ORCID/Crossref/PubMed/OpenAlex discovery routes and the 50mb <code>/api/bulk-data</code> uploads, all currently unbounded; <code>threat_model.md</code>'s Denial of Service section already requires it. Add helmet for baseline headers while there.</p>
+          <div class="tags"><span>auth</span><span>AC-04</span></div>
+        </article>
+        <article class="finding" data-priority="high" id="fr-5">
+          <div class="finding-head">
+            <span class="sev high">high</span>
+            <h3>Close the demo-mode bypasses that AC-03 lists, plus the three it does not</h3>
+            <span class="meta"><span class="id">#5</span> · backend · effort medium</span>
+          </div>
+          <p>AC-03 is still open: requireAuth returns early in demo (<code>server/auth.ts:222</code>), requireAdmin admits the demo Management session as an administrator (auth.ts:236-239), restrictDefaultUserApiAccess short-circuits (<code>server/restrictedUserPolicy.ts:133</code>) and the session refresh is skipped (index.ts:178 via auth.ts:618). Beyond what the register records, three more branches turn on with the same variable: POST <code>/api/uploads/finalize</code> skips HMAC verification entirely in demo (routes.ts:1245), GET /objects/* serves every stored object with no session (routes.ts:1316-1348), and PATCH <code>/api/scientists/:id</code> skips the own-profile check via isDemo() (routes.ts:3457). Fix: implement the register's recommendation (refuse demo when DATABASE_URL looks like production) and add these three branches to AC-03 so the exclusion list stays true.</p>
+          <div class="tags"><span>demo-mode</span><span>AC-03</span></div>
+        </article>
+        <article class="finding" data-priority="medium" id="fr-21">
+          <div class="finding-head">
+            <span class="sev medium">medium</span>
+            <h3>Stop returning the password hash from PATCH /api/admin/users/:id/role</h3>
+            <span class="meta"><span class="id">#21</span> · backend · effort low</span>
+          </div>
+          <p>The role-change route (<code>server/routes.ts:11891-11935</code>) ends with res.json(updated) where updated comes from storage.updateUser, which is db.update(users)...returning() with no column list (<code>server/databaseStorage.ts:142-145</code>). The users table has a password column (<code>shared/schema.ts:55</code>), so every role change ships the target's SHA-256 hash to the browser, where it sits in the network log and React Query cache. The sibling GET <code>/api/admin/users</code> (routes.ts:11720-11745) already selects an explicit column list and maps through toAdminUserResponse; this route should return the same shape. Fix: respond with toAdminUserResponse(...) or an explicit projection, and add a test that no <code>/api/admin</code> response contains a password key.</p>
+          <div class="tags"><span>information-leak</span></div>
+        </article>
+        <article class="finding" data-priority="medium" id="fr-22">
+          <div class="finding-head">
+            <span class="sev medium">medium</span>
+            <h3>Take the feature-request voter from the session and check ownership on edit/delete</h3>
+            <span class="meta"><span class="id">#22</span> · backend · effort medium</span>
+          </div>
+          <p>The feature-request routes (<code>server/routes.ts:11336-11455</code>) carry no route-level guard; they are covered only by the prefix rule mapping <code>/api/feature-requests</code> to the 'dashboard' area (<code>server/navigationAccess.ts:108</code>). PUT <code>/api/feature-requests/:id</code> trusts req.body.upvoteUserId as the identity of the voter (routes.ts:11388-11417), so a caller can add or strip votes under any user id. The non-vote branch parses with insertFeatureRequestSchema.partial(), which omits only id/createdAt/updatedAt, so anyone with dashboard 'edit' can set upvotes, upvotedBy, requestedBy, status and approvedPrompt directly. DELETE (routes.ts:11440) has no owner-or-admin check at all. Fix: derive the voter from req.session.user, strip upvotes/upvotedBy/requestedBy from the client-writable schema, and restrict status/approvedPrompt changes and delete to the requester or an administrator.</p>
+          <div class="tags"><span>idor</span><span>feature-requests</span></div>
+        </article>
+        <article class="finding" data-priority="medium" id="fr-23">
+          <div class="finding-head">
+            <span class="sev medium">medium</span>
+            <h3>Parse IRB board member bodies and stop echoing error.message to the client</h3>
+            <span class="meta"><span class="id">#23</span> · bugfix · effort low</span>
+          </div>
+          <p>POST and PATCH <code>/api/irb-board-members</code> pass req.body straight to storage (<code>server/routes.ts:8791, 8822</code>). irbBoardMembers has two timestamp columns, appointmentDate and termEndDate (<code>shared/schema.ts:1087-1088</code>); createIrbBoardMember coerces them with new Date() (<code>server/databaseStorage.ts:1981-1987</code>) but updateIrbBoardMember spreads the body unchanged (databaseStorage.ts:1996-2003), so a PATCH carrying a date string throws inside drizzle before any SQL and surfaces as a generic 500. Both handlers then return { error: error.message } (routes.ts:8796, 8830), handing internal driver messages to the browser. PUT <code>/api/grant-progress-reports/:id</code> (routes.ts:10919) has the same raw-body pattern and its POST hard-codes uploadedBy: 1 (routes.ts:10905), so uploads are attributed to the wrong person. Fix: zod-parse with z.coerce.date() on the timestamp fields, take uploadedBy from the session, and log the driver message server-side only.</p>
+          <div class="tags"><span>validation</span><span>information-leak</span></div>
+        </article>
+        <article class="finding" data-priority="medium" id="fr-24">
+          <div class="finding-head">
+            <span class="sev medium">medium</span>
+            <h3>Write an audit entry for every DELETE, not only scientists, grants and publications</h3>
+            <span class="meta"><span class="id">#24</span> · backend · effort medium</span>
+          </div>
+          <p><code>server/routes.ts</code> registers 42 DELETE routes but req.audit appears only 23 times in the file, and reading the handlers shows most deletes record nothing: DELETE <code>/api/programs/:id</code> (routes.ts:2888), <code>/api/irb-applications/:id</code> (6988), <code>/api/ibc-applications/:id</code> (7299), <code>/api/publications/:id</code> (5424) and the bulk DELETE <code>/api/grants/cleanup/incomplete</code> (10554) all call storage.delete* and return without logging, while DELETE <code>/api/scientists/:id</code> (3563) and <code>/api/grants/:id</code> (10290) do call req.audit.logDelete. An auditor therefore cannot tell who removed a program, an IRB application, or a batch of grants. Fix: call req.audit.logDelete with the pre-delete row in each handler, or move the logging into the storage delete methods so a new route cannot forget it.</p>
+          <div class="tags"><span>audit</span></div>
+        </article>
+        <article class="finding" data-priority="medium" id="fr-25">
+          <div class="finding-head">
+            <span class="sev medium">medium</span>
+            <h3>Refuse an administrator demoting themselves or the last administrator</h3>
+            <span class="meta"><span class="id">#25</span> · backend · effort low</span>
+          </div>
+          <p>PATCH <code>/api/admin/users/:id/role</code> (<code>server/routes.ts:11891-11935</code>) and PUT <code>/api/admin/users/:id/secondary-roles</code> (11792-11888) never compare :id with req.session.user.id and never count how many administrators would remain. Because refreshSessionAuthorization rebuilds the principal on every request (<code>server/auth.ts:616-648</code>), an admin who moves their own primary role to 'user' and clears their secondaries is locked out on the very next call, and if they were the only admin nobody can undo it through the interface. This is the one path that locks out an administrator. Fix: reject the request when the target is the caller and the result would remove administrator rights, and when the target is the last account holding admin or superadmin.</p>
+          <div class="tags"><span>admin</span><span>lockout</span></div>
+        </article>
+        <article class="finding" data-priority="medium" id="fr-26">
+          <div class="finding-head">
+            <span class="sev medium">medium</span>
+            <h3>Treat SUPER_ADMIN_EMAIL as a bootstrap, not a per-login re-promotion (AC-05)</h3>
+            <span class="meta"><span class="id">#26</span> · backend · effort low</span>
+          </div>
+          <p>AC-05 remains open. resolveRole (<code>server/auth.ts:415-419</code>) is applied on every local login (auth.ts:806-810) and every LDAP/OIDC sign-in (auth.ts:477-486), rewriting users.role to 'superadmin' whenever the email matches the environment variable; a demotion made through PATCH <code>/api/admin/users/:id/role</code> is therefore undone silently at the next sign-in, and the escalation is written to the auth log but not to the audit table. Fix: promote only when no superadmin row exists, record the promotion through the AuditService, and surface the configured address in Settings so an auditor can see where the privilege comes from.</p>
+          <div class="tags"><span>privilege</span><span>AC-05</span></div>
+        </article>
+        <article class="finding" data-priority="low" id="fr-46">
+          <div class="finding-head">
+            <span class="sev low">low</span>
+            <h3>Log Postgres error detail server-side instead of returning it from writeFailureDetail</h3>
+            <span class="meta"><span class="id">#46</span> · backend · effort low</span>
+          </div>
+          <p>writeFailureDetail (<code>server/routes.ts:3435-3441</code>) concatenates error.message with cause.message and cause.detail from the driver and the result is sent to the client on 500 from PATCH <code>/api/scientists/:id</code> (3496), DELETE <code>/api/scientists/:id</code> (3567) and PATCH <code>/api/admin/users/:id/role</code> (11932). Postgres detail strings include column names, constraint names and the offending values, which is more than a caller needs. The unique-constraint case is already handled separately with a friendly 409, so the remaining 500 path can safely return a generic message while the detail goes to logError.</p>
+          <div class="tags"><span>information-leak</span></div>
+        </article>
+        <article class="finding" data-priority="low" id="fr-47">
+          <div class="finding-head">
+            <span class="sev low">low</span>
+            <h3>Add an Origin/Referer check as a second CSRF layer beside SameSite=Lax</h3>
+            <span class="meta"><span class="id">#47</span> · backend · effort low</span>
+          </div>
+          <p>CSRF protection currently rests entirely on the session cookie's sameSite: 'lax' (<code>server/index.ts:117-121</code>); there is no token and no Origin check, and <code>package.json</code> has no csurf/helmet. Lax does block cookie-bearing cross-site POST/PUT/DELETE in current browsers, but express.urlencoded is enabled (index.ts:66) so a form-encoded cross-site POST would parse if the cookie ever arrived, and the app sits behind nginx where a misconfigured APP_URL leaves secure: false. A cheap belt-and-braces fix is a small middleware on /api that rejects state-changing requests whose Origin (or Referer) host does not match APP_URL.</p>
+          <div class="tags"><span>csrf</span></div>
+        </article>
+      </section>
+      <section class="area" id="data-model">
+        <header class="area-head">
+          <h2>Data model and storage</h2>
+          <p class="lede">Schema integrity, the storage layer, and the queries behind the busiest pages.</p>
+          <div class="chips"><span class="mini critical">1 critical</span><span class="mini high">3 high</span><span class="mini medium">5 medium</span><span class="mini low">2 low</span></div>
+        </header><p class="empty">Nothing at this priority in this area.</p><article class="finding" data-priority="critical" id="fr-1">
+          <div class="finding-head">
+            <span class="sev critical">critical</span>
+            <h3>Implement the five PMO application methods DatabaseStorage never got</h3>
+            <span class="meta"><span class="id">#1</span> · bugfix · effort low</span>
+          </div>
+          <p><code>server/routes.ts</code> calls storage.getPmoApplication (11477, 11534), storage.updatePmoApplication (11567, 11578) and storage.deletePmoApplication (11603), and IStorage declares all five PMO methods (<code>server/storage.ts:373-377</code>), but DatabaseStorage (the only runtime class) implements none of them; it has only getAllPmoApplications (<code>server/databaseStorage.ts:4035</code>). GET/PUT/DELETE <code>/api/pmo-applications/:id</code> therefore throw 'storage.getPmoApplication is not a function' and return a 500. tsc passes only because routes.ts, storage.ts and databaseStorage.ts all open with // @ts-nocheck. Add the methods (dispatching on form_type to the existing ra200/ra205a helpers) or drop the routes.</p>
+          <div class="tags"><span>storage</span><span>pmo</span><span>ts-nocheck</span></div>
+        </article>
+        <article class="finding" data-priority="high" id="fr-6">
+          <div class="finding-head">
+            <span class="sev high">high</span>
+            <h3>Guard SDR, project and program deletes against orphaning dependents</h3>
+            <span class="meta"><span class="id">#6</span> · bugfix · effort medium</span>
+          </div>
+          <p>deleteResearchActivity (<code>server/databaseStorage.ts:368</code>), deleteProject (:228) and deleteProgram (:185) are bare single-row deletes, and their routes (<code>server/routes.ts:3789, 2997, 2888</code>) call them with no dependent check, while DELETE <code>/api/scientists/:id</code> (routes.ts:3504) does have a 409 'blocked' path. None of the referencing columns has a foreign key, so deleting one SDR in the dev DB today would silently orphan its rows in project_members (26 total), publications.research_activity_id (32), and grant_research_activities (2); 5 projects own SDRs and 2 programs own projects. Add the same dependent-count 409 check the scientist route uses, or add ON DELETE RESTRICT foreign keys so Postgres refuses.</p>
+          <div class="tags"><span>integrity</span><span>delete</span></div>
+        </article>
+        <article class="finding" data-priority="high" id="fr-7">
+          <div class="finding-head">
+            <span class="sev high">high</span>
+            <h3>Add real foreign keys to the core relationship columns</h3>
+            <span class="meta"><span class="id">#7</span> · backend · effort high</span>
+          </div>
+          <p><code>shared/schema.ts</code> has 60+ columns whose only constraint is a '// references X.id' comment (publication_authors, project_members, publication_research_activities, grant_research_activities, publications.research_activity_id, research_activities.project_id/budget_holder_id, projects.principal_investigator_id, grants.lpi_id, scientists.supervisor_id, irb/ibc PI columns, manuscript_history, certifications). The live DB has 29 FKs, almost all on newer tables. Orphan counts on every core column are currently 0 (only manuscript_history.changed_by has 5), so this is the cheap moment to add them via .references() plus a migration, choosing cascade for pure link tables and restrict for ownership columns. Also clean two pieces of drift: publications.created_by_user_id has two FK constraints (<code>migrations/20260824_add_publication_creator.sql:12</code> plus the drizzle-generated one), and ibc_application_research_activities has two identical unique indexes (<code>migrations/20260609_missing_tables.sql:106</code> plus schema.ts:814).</p>
+          <div class="tags"><span>foreign-keys</span><span>migrations</span></div>
+        </article>
+        <article class="finding" data-priority="high" id="fr-8">
+          <div class="finding-head">
+            <span class="sev high">high</span>
+            <h3>Make manuscript_history.changed_by a users FK and stop writing 0</h3>
+            <span class="meta"><span class="id">#8</span> · bugfix · effort low</span>
+          </div>
+          <p><code>shared/schema.ts:439</code> documents changed_by as 'references scientists.id', but every writer stores a user id: routes.ts:5284/5298 (creatorUserId ?? 1), :5404 (req.session.user.id ?? 1), bulkDataHub.ts:5412 (applyingUserId, which lands as 0 when there is no actor). The dev DB has 71 rows: 66 match both a user and a scientist id (the two id ranges overlap), 5 hold 0 and match nothing. The GET history route (routes.ts:5587-5589) left-joins users AND scientists on the same value and prefers users.name, so a row written with a scientist id by an older path shows the wrong person's name. Declare it .references(() =&gt; users.id, { onDelete: 'set null' }), make it nullable, backfill 0 to NULL, drop the '?? 1' fallbacks and the scientists join.</p>
+          <div class="tags"><span>publications</span><span>audit</span></div>
+        </article>
+        <article class="finding" data-priority="medium" id="fr-27">
+          <div class="finding-head">
+            <span class="sev medium">medium</span>
+            <h3>Replace per-row storage.getScientist loops with one bulk lookup</h3>
+            <span class="meta"><span class="id">#27</span> · enhancement · effort medium</span>
+          </div>
+          <p>At least ten list endpoints decorate rows with names by issuing one query per row inside Promise.all: <code>/api/projects</code> (routes.ts:3817-3819), project members (:3852), project activities' members (:3984), <code>/api/research-activities/:id/members</code> (:4136), <code>/api/irb-applications</code> (:6737-6739, two queries per row), <code>/api/ibc-applications</code> (:7016), IBC personnel (:7349), <code>/api/research-contracts</code> (:8081-8085, three per row), SDR contracts (:8696) and pdf-import-history (:11269-11270). Each is a hand-rolled copy of the same 'enhance with scientist name' logic. Replace with a single join in storage or one inArray fetch into a Map, in one shared helper; getScientistsWithActivityCount (databaseStorage.ts:246-270) already shows the single-query style to copy.</p>
+          <div class="tags"><span>performance</span><span>n+1</span><span>routes</span></div>
+        </article>
+        <article class="finding" data-priority="medium" id="fr-28">
+          <div class="finding-head">
+            <span class="sev medium">medium</span>
+            <h3>Stop loading every publication author row to answer one request</h3>
+            <span class="meta"><span class="id">#28</span> · enhancement · effort medium</span>
+          </div>
+          <p>storage.getAllPublicationAuthors() (a full publication_authors x scientists x users join, databaseStorage.ts:1222) is called in seven routes (routes.ts:4531, 4648, 4665, 4712, 4834, 4870, 5076). GET <code>/api/publications/:id</code> (:5076) loads all of it then filters to one publication even though getPublicationAuthors(publicationId) exists. GET <code>/api/publications</code> (:4525-4600) loads getPublications(), all authors, all research activities and all SDR links, enhances every row, and only then slices the requested page. getPublicationsForScientist (databaseStorage.ts:1122-1187) fetches every row for the scientist and applies the yearsSince cutoff in JavaScript. Fine at 66 publications / 92 author rows, but the 25k-row journals table shows the app expects real volume. Push the filter, cutoff and pagination into SQL.</p>
+          <div class="tags"><span>performance</span><span>publications</span><span>pagination</span></div>
+        </article>
+        <article class="finding" data-priority="medium" id="fr-29">
+          <div class="finding-head">
+            <span class="sev medium">medium</span>
+            <h3>Index the scientist- and project-side of every hot lookup</h3>
+            <span class="meta"><span class="id">#29</span> · backend · effort low</span>
+          </div>
+          <p>Postgres does not index FK columns automatically, and the only indexes on the link tables lead with the other column: publication_scientist_idx is (publication_id, scientist_id) and project_scientist_idx is (research_activity_id, scientist_id). Queries filtering on the second column run unindexed: publication_authors.scientist_id (databaseStorage.ts:1127, 1198, 1274, 1285), project_members.scientist_id (:339, 398, 410, and the correlated subquery at :255-259 executed once per scientist on the directory page), research_activities.project_id (:331, 440, 1311, 1707), research_activities.budget_holder_id (:259), publications.research_activity_id (:476). Add plain indexes on these in <code>shared/schema.ts</code> table callbacks with a migration.</p>
+          <div class="tags"><span>performance</span><span>indexes</span></div>
+        </article>
+        <article class="finding" data-priority="medium" id="fr-30">
+          <div class="finding-head">
+            <span class="sev medium">medium</span>
+            <h3>Remove the legacy duplicate columns and the dead project_groups table</h3>
+            <span class="meta"><span class="id">#30</span> · backend · effort medium</span>
+          </div>
+          <p>grants.co_investigators text[] (<code>shared/schema.ts:1424</code>) and grants.collaborators text[] duplicate the grant_co_investigators and grant_collaborating_institutions tables: 58 grants have co-investigator names in the array but only 13 link rows exist and 45 of those grants have no link at all, while <code>client/src/pages/grants/edit.tsx:345-364</code> and create.tsx:142-152 still write the array and researchPortfolioRoutes.ts:179-188 reads the table (so the portfolio page misses co-investigators recorded only as text). research_activities.line_manager_id and staff_scientist_id are marked legacy, have 0 populated rows and no reader; the live DB still has research_activities.lead_scientist_id, which schema.ts:264 says was removed, and an empty project_groups table with <code>client/src/pages/project-groups/*</code> surviving with no server route. scientists.department free text (16 rows) coexists with department_id (60 rows). Pick the table as the source of truth for grant people, migrate the arrays into link rows, then drop the columns, the DB-only column and the dead table and pages.</p>
+          <div class="tags"><span>legacy</span><span>cleanup</span></div>
+        </article>
+        <article class="finding" data-priority="medium" id="fr-31">
+          <div class="finding-head">
+            <span class="sev medium">medium</span>
+            <h3>Wrap publication and grant creation in one transaction</h3>
+            <span class="meta"><span class="id">#31</span> · bugfix · effort low</span>
+          </div>
+          <p>POST <code>/api/publications</code> (routes.ts:5267-5300) runs createPublication, setPublicationResearchActivities, one or two createManuscriptHistoryEntry calls and the audit insert as separate autocommit statements; a failure after the first leaves a publication with no 'Publication created' timeline row or missing SDR links, which the exemption and finalise rules then misread. The grant bulk import (routes.ts:10446-10500) creates each grant and only in a later pass (seedGrantLinks, :10427) adds its collaborator and co-investigator rows. databaseStorage.ts already uses db.transaction in ten places for status changes and merges; apply the same pattern here, ideally by moving the whole create into a storage method.</p>
+          <div class="tags"><span>transactions</span><span>publications</span><span>grants</span></div>
+        </article>
+        <article class="finding" data-priority="low" id="fr-48">
+          <div class="finding-head">
+            <span class="sev low">low</span>
+            <h3>Constrain the free-text status columns and retire the 'Published *' sentinel</h3>
+            <span class="meta"><span class="id">#48</span> · backend · effort low</span>
+          </div>
+          <p>grants.status has a CHECK listing its 13 values (<code>shared/schema.ts:1455</code>); publications.status (:341) and research_activities.status (:249) are unconstrained text. The publication workflow encodes a distinct stage as the same column value with a trailing asterisk: 'Published *' is stage 8 in <code>shared/publicationOrdering.ts:20</code>, and getPublicationsForScientist matches with LOWER(TRIM(...)) IN ('published', 'published *') (databaseStorage.ts:1130). Add CHECK constraints from the shared stage lists so a typo cannot create a new stage, and consider a separate boolean or column for the sealed state instead of the asterisk.</p>
+          <div class="tags"><span>status</span><span>publications</span></div>
+        </article>
+        <article class="finding" data-priority="low" id="fr-49">
+          <div class="finding-head">
+            <span class="sev low">low</span>
+            <h3>Store date-only fields as date, not timestamp</h3>
+            <span class="meta"><span class="id">#49</span> · backend · effort medium</span>
+          </div>
+          <p>grants uses date for start_date/end_date (schema.ts:1431-1432), but research_activities.start_date/end_date (:251-252), publications.publication_date (:339), patents.filing_date/grant_date (:455-456), irb submission/decision/due dates (:483, 535-549), ibc milestone dates (:688-691) and board-member term dates (:1087-1108) are timestamp without time zone. A calendar date stored as midnight then serialised and shown in a different zone displays the previous day, and insertResearchActivitySchema (:268-277) accepts only z.string().datetime(), so a plain 'YYYY-MM-DD' from a date input is rejected. Migrate these to date and accept plain date strings in the insert schemas.</p>
+          <div class="tags"><span>dates</span></div>
+        </article>
+      </section>
+      <section class="area" id="client">
+        <header class="area-head">
+          <h2>Client and user experience</h2>
+          <p class="lede">What a user sees when something is denied, missing or slow, and the front-end code health behind it.</p>
+          <div class="chips"><span class="mini high">3 high</span><span class="mini medium">3 medium</span><span class="mini low">2 low</span></div>
+        </header><p class="empty">Nothing at this priority in this area.</p><article class="finding" data-priority="high" id="fr-10">
+          <div class="finding-head">
+            <span class="sev high">high</span>
+            <h3>Replace the remaining 48 unchecked fetch().then(res =&gt; res.json()) call sites</h3>
+            <span class="meta"><span class="id">#10</span> · bugfix · effort medium</span>
+          </div>
+          <p><code>client/src/lib/fetchList.ts</code> exists precisely because a 403 body ({message: ...}) handed to code expecting an array throws during render and blanks the page, but it is used in only 18 places while 48 raw fetch(url).then(res =&gt; res.json()) sites remain across 22 files. The densest are pages/scientists/edit.tsx:79-99 (4), pages/facilities/rooms/edit.tsx:86-102 (4), pages/scientists/create.tsx:62-72 (3), pages/facilities/index.tsx:40-50 (3), pages/programs/edit.tsx:39-50 (3), pages/facilities/organization.tsx:84-92 (3), plus every entity edit page (projects, publications, patents, irb-applications, ibc-applications, research-contracts, data-management-plans, buildings). Any of these pages goes fully white for a user whose access matrix denies one of the fetched areas, with nothing to act on. Switch list fetches to fetchList and single-record fetches to the default queryFn in lib/queryClient.ts (which throws on !ok so react-query reports an error).</p>
+          <div class="tags"><span>ux</span><span>reliability</span><span>access-control</span></div>
+        </article>
+        <article class="finding" data-priority="high" id="fr-11">
+          <div class="finding-head">
+            <span class="sev high">high</span>
+            <h3>Retire @ts-nocheck from the 55 client files it currently covers</h3>
+            <span class="meta"><span class="id">#11</span> · enhancement · effort high</span>
+          </div>
+          <p>55 files under client/src carry // @ts-nocheck, totalling 43,253 of the client's 84,359 lines (51%). They include the most edited and most user-facing pages: pages/grants/index.tsx, grants/create.tsx, grants/edit.tsx, publications/index.tsx, publications/detail.tsx, publications/edit.tsx, publications/import.tsx, research-activities/detail.tsx, scientists/detail.tsx, projects/create.tsx, projects/edit.tsx, reports/index.tsx, publication-office/index.tsx, plus all IRB/IBC/PMO office and reviewer pages and 6 components. A green tsc says nothing about half the front end; field renames in <code>shared/schema</code> will not be caught until a user hits them (a missing useMutation import already blanked every staff profile once). The header comment in each file already prescribes the fix (remove the directive, run tsc, resolve); do it per file as each is touched, starting with the grants and publications pages.</p>
+          <div class="tags"><span>code-health</span><span>typescript</span></div>
+        </article>
+        <article class="finding" data-priority="high" id="fr-12">
+          <div class="finding-head">
+            <span class="sev high">high</span>
+            <h3>Stop the research activity detail page downloading every publication, DMP and IRB application</h3>
+            <span class="meta"><span class="id">#12</span> · backend · effort medium</span>
+          </div>
+          <p>pages/research-activities/detail.tsx fetches the entire <code>/api/publications</code> collection (lines 90-101), the entire <code>/api/data-management-plans</code> collection (117-127) and the entire <code>/api/irb-applications</code> collection (131-141), then discards everything but this activity's rows in a select filter. Opening one SDR transfers the whole publication table, and because the IRB query throws on a non-OK response and the page has no error branch, a user without IRB access sees the same 'nothing here' as a user whose activity truly has no IRB application. The page already uses per-activity endpoints for grants (line 146) and IBC applications (line 159); add the matching /publications, /data-management-plans and /irb-applications sub-resources and drop the client-side filters. pages/teams/index.tsx:34 does the same with <code>/api/research-activities.</code></p>
+          <div class="tags"><span>performance</span><span>ux</span><span>api</span></div>
+        </article>
+        <article class="finding" data-priority="medium" id="fr-34">
+          <div class="finding-head">
+            <span class="sev medium">medium</span>
+            <h3>Give the 35 pages that ignore query errors an error state</h3>
+            <span class="meta"><span class="id">#34</span> · ui · effort medium</span>
+          </div>
+          <p>35 page files call useQuery and never reference an error (no isError, no error branch), including pages/grants/index.tsx, publications/index.tsx, projects/index.tsx, programs/index.tsx, contracts/index.tsx, irb/index.tsx, ibc/index.tsx, patents/index.tsx, dashboard/index.tsx, reports/index.tsx, research-portfolio/grants.tsx and /contracts.tsx, and most detail pages. queryClient.ts sets retry:false and the default queryFn throws on any non-OK status, so a 500 or an expired session leaves data undefined and the page renders as if empty: grants/index.tsx:532 only shows its 'No grants found' message when length === 0, so undefined data yields a silent empty table with no message at all. Add a small shared QueryState wrapper (loading / error with retry / empty) and use it on list and detail pages.</p>
+          <div class="tags"><span>ux</span><span>reliability</span></div>
+        </article>
+        <article class="finding" data-priority="medium" id="fr-35">
+          <div class="finding-head">
+            <span class="sev medium">medium</span>
+            <h3>Paginate or virtualise the grants, scientists and publications tables</h3>
+            <span class="meta"><span class="id">#35</span> · enhancement · effort medium</span>
+          </div>
+          <p>pages/grants/index.tsx renders every grant (272 in production) in a 12-column table in one pass (line 541), each row rendering issue badges and collaborating-institution chips; there is no page size, offset or slice anywhere in the file, nor in pages/scientists/index.tsx (862 lines) or pages/publications/index.tsx (807 lines). The impact factor table already does this correctly (components/ImpactFactorsReadOnly.tsx uses PAGE_SIZE and a server-side limit, lines 88-114), so the pattern exists in the codebase. Apply the same server-side page/limit pattern, or at minimum client-side pagination with a fixed page size, to these three lists.</p>
+          <div class="tags"><span>performance</span><span>ux</span><span>tables</span></div>
+        </article>
+        <article class="finding" data-priority="medium" id="fr-36">
+          <div class="finding-head">
+            <span class="sev medium">medium</span>
+            <h3>Share one status colour map and one date formatter across pages</h3>
+            <span class="meta"><span class="id">#36</span> · ui · effort medium</span>
+          </div>
+          <p>17 files define their own status colour map (getStatusColor/getStatusBadge/statusColors) and they disagree: under_review is purple on /irb (irb/index.tsx:33) but yellow on /irb-reviewer (irb-reviewer/index.tsx:45) and on the IRB office protocol page (irb-office/protocol-detail.tsx:263), so the same protocol changes colour as a user moves between pages. 20 files also define a local formatDate despite lib/dates.ts exporting formatDate/formatDateLong; publications/index.tsx:213 formats as en-US 'Mon YYYY' while grants/index.tsx:124 and irb/index.tsx:25 wrap formatDateLong. Move status colours into a single lib/statusStyles.ts keyed by status value and delete the local formatDate copies in favour of lib/dates.ts.</p>
+          <div class="tags"><span>consistency</span><span>ux</span><span>refactor</span></div>
+        </article>
+        <article class="finding" data-priority="low" id="fr-51">
+          <div class="finding-head">
+            <span class="sev low">low</span>
+            <h3>Replace hardcoded 'Sidra' wording with the institution name from the theme</h3>
+            <span class="meta"><span class="id">#51</span> · ui · effort low</span>
+          </div>
+          <p>contexts/ThemeContext.tsx supports three institutions (sidra, hbku, wcmq) with per-institution tier labels and colour palettes, yet 51 'Sidra' strings remain in non-public UI: 'Sidra Lead PI' (grants/create.tsx:468, grants/edit.tsx:820), 'Select a Sidra Lead PI', 'Sidra Medicine co-investigators' (components/GrantCoInvestigators.tsx:48), 'Sidra Branch' (projects/create.tsx:326), 'Sidra budget' (all four PMO application forms), and 'Sidra IRB' (irb/document-templates.tsx:48). Under the HBKU or WCM-Q theme these labels are simply wrong. Add an institution short name to the theme config (the themes map already has a full name) and interpolate it in these labels.</p>
+          <div class="tags"><span>branding</span><span>multi-tenant</span><span>ux</span></div>
+        </article>
+        <article class="finding" data-priority="low" id="fr-53">
+          <div class="finding-head">
+            <span class="sev low">low</span>
+            <h3>Add inline validation to the grant edit and PMO application forms</h3>
+            <span class="meta"><span class="id">#53</span> · ui · effort medium</span>
+          </div>
+          <p>pages/grants/create.tsx validates with zodResolver and shows per-field FormMessage errors, but pages/grants/edit.tsx (the form users spend most time in, 1,200+ lines) has no zodResolver, no useForm and no FormMessage; the only feedback is server-side rejection surfaced as toasts (lines 233, 258, 313, 326, 334). pages/pmo/applications/create.tsx and edit.tsx are the same. A user who leaves a required field blank or types a malformed date learns about it only after submitting, from a toast that does not point at the field. Reuse the create form's schema in edit.tsx and render FormMessage under each field.</p>
+          <div class="tags"><span>forms</span><span>ux</span><span>validation</span></div>
+        </article>
+      </section>
+      <section class="area" id="operations">
+        <header class="area-head">
+          <h2>Data operations and deployment</h2>
+          <p class="lede">Migrations, the bulk archive, container configuration and the alternative database targets.</p>
+          <div class="chips"><span class="mini critical">1 critical</span><span class="mini high">4 high</span><span class="mini medium">5 medium</span><span class="mini low">2 low</span></div>
+        </header><p class="empty">Nothing at this priority in this area.</p><article class="finding" data-priority="critical" id="fr-2">
+          <div class="finding-head">
+            <span class="sev critical">critical</span>
+            <h3>Give the demo app its own uploads volume; it serves production files unauthenticated</h3>
+            <span class="meta"><span class="id">#2</span> · backend · effort low</span>
+          </div>
+          <p><code>docker-compose.yml</code> mounts the same host directory into both the production app (line 107) and app-demo (line 135): ${UPLOADS_DATA_DIR:-./data/uploads}:/data/uploads. The /objects/:objectPath(*) route in <code>server/routes.ts</code> (line 1310) skips every access check when getAuthMode() === 'demo' and falls through to downloadObject (~line 1346), so anyone reaching the demo port (8080, no login) can download any production upload, including the daily bulk-data archives that <code>server/localObjectStorage.ts</code> line 27 writes to &lt;UPLOADS_DIR&gt;/bulk-data-archives/&lt;uuid&gt;.zip. The demo database was deliberately isolated on its own volume (pg-demo-data); the file store was not. Add a separate demo-uploads volume for app-demo, matching the database split.</p>
+          <div class="tags"><span>docker</span></div>
+        </article>
+        <article class="finding" data-priority="high" id="fr-13">
+          <div class="finding-head">
+            <span class="sev high">high</span>
+            <h3>Stop swallowing migration errors for 44 of the 51 entrypoint migrations</h3>
+            <span class="meta"><span class="id">#13</span> · backend · effort low</span>
+          </div>
+          <p><code>docker-entrypoint.sh</code> runs only 7 named files with -v ON_ERROR_STOP=1; the other 44 (every file added since 20260830, including 20260907_*, 20260908_* and 20260913_*) run with ON_ERROR_STOP=0, pipe through grep -v 'already exists|does not exist|NOTICE' and end in || true, so a real ERROR (e.g. a missing column referenced by a data migration) is printed once and the container starts anyway. <code>migrations/20260831_consolidate_navigation_areas.sql</code> wraps its work in BEGIN/COMMIT (lines 26-91): under ON_ERROR_STOP=0 any failing statement aborts the transaction, COMMIT becomes ROLLBACK, and the migration silently never applies on every restart. Make the loop fail on any ^ERROR line (or run everything strict now that files are idempotent) and require new migrations to be added to the strict list.</p>
+          <div class="tags"><span>migrations</span></div>
+        </article>
+        <article class="finding" data-priority="high" id="fr-14">
+          <div class="finding-head">
+            <span class="sev high">high</span>
+            <h3>Document the bulk archive as partial: it restores 26 of 58 tables</h3>
+            <span class="meta"><span class="id">#14</span> · backend · effort medium</span>
+          </div>
+          <p>The daily scheduled archive (startBulkDataArchiveScheduler, <code>server/index.ts</code> line 197) and Export All (routes.ts line 12302) build the six SECTION_META workbooks (bulkDataHub.ts lines 164-235); the apply path writes 26 schema tables. Never exported: grant_research_activities (GRANT_COLS lines 297-327 has no SDR column), publication_research_activities, manuscript_history, data_management_plans, grant_progress_reports, irb_submissions/irb_documents, ibc_submissions/ibc_documents/ibc_application_comments/_rooms/_ppe, research_contract_scope_items/_extensions/_documents, institutions, contract_types, grant_statuses, certification_configurations, ownership_overrides, system_configurations, irb/ibc_board_members, team_members, feature_requests, audit_log. <code>README.md</code> never mentions the archive, so it is easy to treat it as a backup. Either add sheets for the link tables (grant-SDR, publication-SDR, manuscript history) or state in the UI and README that pg_dump is the backup and the archive is a data-exchange format.</p>
+          <div class="tags"><span>bulk-data</span><span>documentation</span></div>
+        </article>
+        <article class="finding" data-priority="high" id="fr-15">
+          <div class="finding-head">
+            <span class="sev high">high</span>
+            <h3>Remove the SQL Server deployment path or finish its schema (14 of 58 tables)</h3>
+            <span class="meta"><span class="id">#15</span> · backend · effort medium</span>
+          </div>
+          <p><code>docker-compose.mssql.yml</code>, <code>.env.example</code> (mssql rows), <code>docker-entrypoint.sh</code> (mssql branch) and <code>server/db-mssql.ts</code> present SQL Server / Azure SQL as a supported production target, but <code>migrations/mssql/0001_initial_schema.sql</code> creates only 14 of the 58 tables in <code>shared/schema.ts</code> (no grants, publications, irb_applications, ibc_applications, research_contracts, scientists, users among others). <code>migrations/mssql/README.md</code> 'Migration order' lists 0002_indexes.sql and 0003_views.sql that do not exist. A deployment following the docs boots, then fails on the first query. Delete the mssql compose file and docs, or generate the full T-SQL schema the way <code>scripts/generate-sqlite-schema.ts</code> does for SQLite.</p>
+          <div class="tags"><span>migrations</span><span>documentation</span></div>
+        </article>
+        <article class="finding" data-priority="high" id="fr-16">
+          <div class="finding-head">
+            <span class="sev high">high</span>
+            <h3>Seed demo data only for the demo service, not whenever AUTH_MODE=demo</h3>
+            <span class="meta"><span class="id">#16</span> · bugfix · effort low</span>
+          </div>
+          <p><code>docker-entrypoint.sh</code> applies <code>migrations/demo_seed_data.sql</code> whenever AUTH_MODE=demo. The production app service reads AUTH_MODE: ${AUTH_MODE:-local} from <code>.env</code> (<code>docker-compose.yml</code> line 82) and <code>.env.example</code> describes demo as 'Good for trials', so setting it on a real instance writes sample grants, publications, IRB/IBC applications, 15 fake @research.org scientists, and INSERT INTO users (id=1, username 'demo.user', password '', role 'admin') (demo_seed_data.sql lines 198-200) into the production database, then re-runs on every restart. The same seed pollutes the local dev database used to test staff-name matching. Gate the seed on a dedicated variable (e.g. SEED_DEMO_DATA=1) that only app-demo sets, independent of the auth mode.</p>
+          <div class="tags"><span>docker</span><span>data-integrity</span></div>
+        </article>
+        <article class="finding" data-priority="medium" id="fr-37">
+          <div class="finding-head">
+            <span class="sev medium">medium</span>
+            <h3>Refuse to start with the default POSTGRES_PASSWORD and SESSION_SECRET</h3>
+            <span class="meta"><span class="id">#37</span> · backend · effort low</span>
+          </div>
+          <p><code>docker-compose.yml</code> falls back to 'postgres' for POSTGRES_PASSWORD (lines 19, 37, 76) and to the literal change-me-in-production-use-a-long-random-string for SESSION_SECRET (line 77) when <code>.env</code> leaves them unset; <code>.env.example</code> ships change-me values and <code>setup.sh</code> (lines 30-33) only warns after copying it, with no validation later. A deployment that skips the edit runs with a public session-signing key and database password. Use ${SESSION_SECRET:?set SESSION_SECRET in <code>.env</code>} syntax in compose, have <code>setup.sh</code> reject change-me values (or generate them with openssl rand -hex 32), and have <code>server/index.ts</code> refuse to boot on the known default. The server itself has the same gap: <code>server/index.ts:114</code> falls back to a fixed, source-visible session secret (sha256 of 'research-portal-session-secret') when SESSION_SECRET is missing, and the upload finalize HMAC at <code>server/routes.ts:214</code> falls back to the literal 'dev-fallback-secret', with no warning at startup. Throw at boot when AUTH_MODE is not demo and SESSION_SECRET is absent, shorter than 32 bytes, or the known default, and derive the finalize secret from the checked value.</p>
+          <div class="tags"><span>docker</span></div>
+        </article>
+        <article class="finding" data-priority="medium" id="fr-38">
+          <div class="finding-head">
+            <span class="sev medium">medium</span>
+            <h3>Report sheet and row when a strict bulk apply fails at write time</h3>
+            <span class="meta"><span class="id">#38</span> · bugfix · effort low</span>
+          </div>
+          <p>In <code>server/bulkDataHub.ts</code> applySection, when skipInvalidRows is false the per-row write is await applyOne(tx); appliedEntries.push(entry); (lines 4879-4881) with no try/catch, so a constraint or type error thrown by Postgres propagates raw. The route at routes.ts line 12436 then classifies it by regex on the message (line 12464) and returns a 500 with the bare driver text (e.g. null value in column ... violates not-null constraint), while the whole section transaction rolls back. The administrator sees no sheet name, row number or business key, and the preview said the file was fine. Wrap the strict path's error with '&lt;sheetName&gt; row &lt;rowNumber&gt; (&lt;key&gt;): &lt;message&gt;' and return 400 for it, matching the RejectedRow shape the lenient path already produces.</p>
+          <div class="tags"><span>bulk-data</span><span>error-handling</span></div>
+        </article>
+        <article class="finding" data-priority="medium" id="fr-39">
+          <div class="finding-head">
+            <span class="sev medium">medium</span>
+            <h3>Fix SQLite mode: 35 statements use Postgres now(), which SQLite lacks</h3>
+            <span class="meta"><span class="id">#39</span> · bugfix · effort medium</span>
+          </div>
+          <p><code>migrations/sqlite/0001_schema.sql</code> is in full parity (58 tables) and <code>server/db.ts</code> applies it at startup, but the runtime SQL is Postgres-only: sql`now()` appears 35 times across <code>server/databaseStorage.ts</code>, <code>server/routes.ts</code> and <code>server/bulkDataHub.ts</code> (e.g. databaseStorage.ts line 2673 updatedAt: sql`now()`), plus 3 EXTRACT( and 2 jsonb uses. SQLite has no now() function, so every update that touches updated_at fails. <code>docker-compose.sqlite.yml</code> and <code>.env.example</code> advertise this mode for air-gapped deploys. Either replace sql`now()` with a JS new Date() (works on every driver) or drop the SQLite compose file and docs until the storage layer is dialect-neutral.</p>
+          <div class="tags"><span>sqlite</span><span>parity</span></div>
+        </article>
+        <article class="finding" data-priority="medium" id="fr-40">
+          <div class="finding-head">
+            <span class="sev medium">medium</span>
+            <h3>Add log rotation for the app log file and container logs</h3>
+            <span class="meta"><span class="id">#40</span> · backend · effort low</span>
+          </div>
+          <p><code>docker-compose.yml</code> sets LOG_FILE: /var/log/app/qbridge.log on the app-logs named volume and <code>server/logger.ts</code> line 14 opens it with createWriteStream(LOG_FILE, { flags: 'a' }) and never rotates. No compose file has a logging: block, so the Docker json-file driver also grows without bound; console.error output from every import row failure lands there too. Over months the volume and /var/lib/docker fill and Postgres shares the disk. Add logging: {driver: json-file, options: {max-size: 10m, max-file: '5'}} to each service and either rotate the file (size-based, in logger.ts) or drop file logging in favour of docker logs.</p>
+          <div class="tags"><span>docker</span><span>logging</span></div>
+        </article>
+        <article class="finding" data-priority="medium" id="fr-41">
+          <div class="finding-head">
+            <span class="sev medium">medium</span>
+            <h3>Return per-row failures from the impact factor CSV import</h3>
+            <span class="meta"><span class="id">#41</span> · bugfix · effort low</span>
+          </div>
+          <p>POST <code>/api/journal-impact-factors/import-csv</code> (<code>server/routes.ts</code> lines 9613-9660) loops over rows, calls storage.createJournalImpactFactor for each, and on failure only does console.error('Error importing row:', row, error); the response is { imported, total }. A file with 40 bad rows reports 'imported 460 of 500' with no way to learn which journals or why, and there is no transaction so re-running upserts the good rows again while the bad ones stay missing. Collect {rowNumber, journalName, year, reason} for each failure and return it, as <code>/api/grants/import/apply</code> already does with its failed array.</p>
+          <div class="tags"><span>import</span><span>error-handling</span></div>
+        </article>
+        <article class="finding" data-priority="low" id="fr-54">
+          <div class="finding-head">
+            <span class="sev low">low</span>
+            <h3>Correct the README on how schema changes and backups actually work</h3>
+            <span class="meta"><span class="id">#54</span> · enhancement · effort low</span>
+          </div>
+          <p><code>README.md</code> line 304 says 'Database schema changes are applied automatically at startup via drizzle-kit push' and line 338 lists npm run db:push; production runs the psql loop in <code>docker-entrypoint.sh</code> and drizzle-kit push is never invoked in the image, so an operator debugging a missing column looks in the wrong place. The Backup/Restore section (lines 257-279) covers only pg_dump and the uploads tar: it omits the demo volume, the scheduled bulk archives, that docker compose stop app also stops the daily archive, and that a restored local-mode database contains no account that can sign in (the User Accounts sheet carries no credentials, bulkDataHub.ts line 231). Rewrite the Updating and Backup sections to describe the entrypoint migration loop and a tested restore sequence.</p>
+          <div class="tags"><span>documentation</span></div>
+        </article>
+        <article class="finding" data-priority="low" id="fr-55">
+          <div class="finding-head">
+            <span class="sev low">low</span>
+            <h3>Pin LF line endings for shell scripts and SQL with .gitattributes</h3>
+            <span class="meta"><span class="id">#55</span> · enhancement · effort low</span>
+          </div>
+          <p>There is no <code>.gitattributes</code>; git ls-files --eol shows <code>docker-entrypoint.sh</code>, <code>setup.sh</code>, <code>scripts/post-merge.sh</code> and 35 migration .sql files as i/lf w/crlf on this Windows checkout. An image built from such a checkout copies '#!/bin/sh\r' into /<code>docker-entrypoint.sh</code> and the container exits immediately with 'no such file or directory'; psql on CRLF migrations is tolerant but the shell is not. <code>setup.sh</code> already strips \r from <code>.env</code> (lines 40-42), showing the hazard is known. Add *.sh text eol=lf and *.sql text eol=lf so every checkout builds a working image.</p>
+          <div class="tags"><span>docker</span></div>
+        </article>
+      </section>
+      <section class="area" id="ci-dx">
+        <header class="area-head">
+          <h2>Testing, CI and maintainability</h2>
+          <p class="lede">What the checks actually exercise, and what makes the codebase harder to change than it needs to be.</p>
+          <div class="chips"><span class="mini high">4 high</span><span class="mini medium">4 medium</span><span class="mini low">3 low</span></div>
+        </header><p class="empty">Nothing at this priority in this area.</p><article class="finding" data-priority="high" id="fr-17">
+          <div class="finding-head">
+            <span class="sev high">high</span>
+            <h3>Run the shared and client test suites in CI, not only server/</h3>
+            <span class="meta"><span class="id">#17</span> · backend · effort low</span>
+          </div>
+          <p><code>.github/workflows/ci.yml</code> runs find server -name '*.test.ts' for both the unit-test and coverage steps, so the 30 <code>shared/*.test.ts</code> files and the 19 <code>client/src/lib</code> and <code>client/src/hooks</code> tests (permissions, route order, restricted-user policy, grant lifecycle, publication workflow) never execute on a PR, even though <code>package.json</code>'s test script includes them. The same find server pattern is copied into sonarqube.yml, so coverage reported to Sonar also omits them. Change both workflows to run the <code>package.json</code> globs (or find server shared client/src -name '*.test.ts') minus *.integration.test.ts.</p>
+          <div class="tags"><span>ci</span><span>testing</span><span>dx</span></div>
+        </article>
+        <article class="finding" data-priority="high" id="fr-18">
+          <div class="finding-head">
+            <span class="sev high">high</span>
+            <h3>Fix the ESLint config so the lint job can pass</h3>
+            <span class="meta"><span class="id">#18</span> · backend · effort low</span>
+          </div>
+          <p><code>eslint.config.mjs</code> sets no languageOptions.globals, so running eslint on <code>server/db.ts</code> and <code>server/logger.ts</code> reports 'process' is not defined and 'console' is not defined (no-undef) on every use; every server file is affected. Test files are matched by <code>server/**/*.ts</code> with parserOptions.project: ./<code>tsconfig.json</code>, but <code>tsconfig.json</code> excludes **/*.test.ts, so each test file fails with a parsing error. review.yml then runs with --max-warnings=0 while security/detect-non-literal-fs-filename and no-console are configured as warnings that fire in logger.ts. The job has failed on every PR the repository has had, so it carries no signal. Add globals.node for <code>server/shared</code> and globals.browser for client, point the parser at a tsconfig.eslint.json that includes tests (or use projectService: true), and either drop --max-warnings=0 or promote the intended rules to errors. Its own PR, not riding along with feature work.</p>
+          <div class="tags"><span>ci</span><span>lint</span><span>dx</span></div>
+        </article>
+        <article class="finding" data-priority="high" id="fr-19">
+          <div class="finding-head">
+            <span class="sev high">high</span>
+            <h3>Stop npm test from requiring and mutating a live database</h3>
+            <span class="meta"><span class="id">#19</span> · backend · effort medium</span>
+          </div>
+          <p><code>server/db.ts</code> throws at import when DATABASE_URL is unset, and nine unit tests (researchPortfolioRoutes, institutionRoutes, publicationWorkflowRoutes, grantIssueRoutes, authMiddleware, authSessionRefresh, auditService, preprintRepairStorage, rolePermissions.integration) import ./auth or ./db and hit it; running one without the variable fails with 'DATABASE_URL must be set' rather than a message about the test setup. The <code>package.json</code> test glob <code>server/*.test.ts</code> also includes <code>server/rolePermissions.integration.test.ts</code>, which unlike bulkDataHub.integration.test.ts has no RUN_* gate and deletes and inserts role_groups rows through DatabaseStorage against whatever DATABASE_URL the developer has, i.e. the local dev database. Gate that test the same way, add test:unit and test:integration scripts, and make db.ts resolve the connection lazily or through injection so route handler tests do not need a driver at all.</p>
+          <div class="tags"><span>testing</span><span>dx</span><span>backend</span></div>
+        </article>
+        <article class="finding" data-priority="high" id="fr-20">
+          <div class="finding-head">
+            <span class="sev high">high</span>
+            <h3>Actually run the bulk hub integration tests in the CI integration job</h3>
+            <span class="meta"><span class="id">#20</span> · backend · effort low</span>
+          </div>
+          <p><code>server/bulkDataHub.integration.test.ts</code> is the only coverage of applySection (<code>server/bulkDataHub.ts:4591-6092</code>, about 1,500 lines; 29 applySection calls in the test), but it is guarded by process<code>.env</code>.RUN_BULK_HUB_INTEGRATION === '1' and falls back to test.skip. The integration-tests job in ci.yml provisions Postgres and applies migrations but sets only DATABASE_URL, so every one of those tests is skipped and the job goes green without exercising the apply phase. The unit file bulkDataHub.test.ts only checks that apply refuses a section with row errors. Set RUN_BULK_HUB_INTEGRATION=1 in the job env and confirm the run reports passes, not skips.</p>
+          <div class="tags"><span>ci</span><span>testing</span><span>bulk-data</span></div>
+        </article>
+        <article class="finding" data-priority="medium" id="fr-42">
+          <div class="finding-head">
+            <span class="sev medium">medium</span>
+            <h3>Split server/routes.ts by domain into the existing *Routes.ts pattern</h3>
+            <span class="meta"><span class="id">#42</span> · backend · effort high</span>
+          </div>
+          <p><code>server/routes.ts</code> is 12,565 lines under @ts-nocheck with 299 route registrations inside a single registerRoutes function that starts at line 1194; lines 440-1190 are also pure external-discovery helpers (fetchOrcidWorks, fetchCrossrefWork, fetchPubmedByDoi, discoverOpenAlex/Pubmed/Crossref/EuropePmc/Orcid) with no tests. The prefix counts show the natural seams: publications 33, ibc-applications 21, research-contracts 19, grants 16, research-activities 15, scientists 14, projects 14, journal-impact-factors 14, bulk-data 9. The repo already has ten dependency-injected modules (institutionRoutes.ts, researchPortfolioRoutes.ts, publicationWorkflowRoutes.ts, etc.) each with an express-level test, so move one prefix at a time into <code>server/routes/</code>&lt;domain&gt;.ts exposing register&lt;Domain&gt;Routes(app) and lift the discovery helpers into a publicationDiscovery.ts that can be unit tested with a mocked fetch.</p>
+          <div class="tags"><span>refactor</span><span>maintainability</span><span>backend</span></div>
+        </article>
+        <article class="finding" data-priority="medium" id="fr-43">
+          <div class="finding-head">
+            <span class="sev medium">medium</span>
+            <h3>Route routes.ts logging through the structured logger</h3>
+            <span class="meta"><span class="id">#43</span> · backend · effort medium</span>
+          </div>
+          <p><code>server/logger.ts</code> emits JSON lines with timestamp, level, source and request fields, and index.ts logs every request and unhandled error through it, but only two non-test files import it. <code>server/routes.ts</code> alone has 267 console.error and 116 console.log calls (305/117 across server/), so route-level failures land as unstructured text with no userId, path or event, and cannot be correlated with the http_request records. Replace them with logError/log/logEvent carrying req.path and the session user, then raise the server no-console rule from warn to error so the count cannot grow back.</p>
+          <div class="tags"><span>observability</span><span>logging</span><span>backend</span></div>
+        </article>
+        <article class="finding" data-priority="medium" id="fr-44">
+          <div class="finding-head">
+            <span class="sev medium">medium</span>
+            <h3>Introduce a React test runner and start covering components</h3>
+            <span class="meta"><span class="id">#44</span> · enhancement · effort medium</span>
+          </div>
+          <p>client/src has 101 pages and 99 components and zero *.test.tsx files; <code>package.json</code> contains no vitest, jest, testing-library, playwright or cypress, and the 19 client tests that exist are plain-function .ts files run under node:test. 55 of the 58 @ts-nocheck files in the repo are client pages and components, so the most logic-heavy screens have neither type checking nor tests. Add vitest with jsdom and @testing-library/react, wire it into npm test and ci.yml, and start with the permission-gated pages that the existing server tests mirror.</p>
+          <div class="tags"><span>testing</span><span>frontend</span><span>dx</span></div>
+        </article>
+        <article class="finding" data-priority="medium" id="fr-45">
+          <div class="finding-head">
+            <span class="sev medium">medium</span>
+            <h3>Make the scheduled and advisory CI jobs meaningful or remove them</h3>
+            <span class="meta"><span class="id">#45</span> · backend · effort low</span>
+          </div>
+          <p>performance.yml defaults BASE_URL to http://172.32.79.20/demo, a private address GitHub-hosted runners cannot reach, so the nightly k6 job fails whenever PERF_TARGET_URL is not set. sonarqube.yml runs the tests with || true and continue-on-error: true, security.yml runs semgrep with || true, and review.yml's pr-hygiene step only emits a warning, so none of them can turn a PR red, while the ESLint job always does. With one job permanently red and several that cannot fail, the checks list carries no signal. Gate the perf job on the secret being present (or a self-hosted runner), make semgrep fail on ERROR-severity findings, and keep only the checks that are expected to pass.</p>
+          <div class="tags"><span>ci</span><span>dx</span></div>
+        </article>
+        <article class="finding" data-priority="low" id="fr-56">
+          <div class="finding-head">
+            <span class="sev low">low</span>
+            <h3>Remove unused dependencies and the dead AI-provider setting</h3>
+            <span class="meta"><span class="id">#56</span> · backend · effort low</span>
+          </div>
+          <p>@anthropic-ai/sdk, @sendgrid/mail, google-auth-library and @jridgewell/trace-mapping have no import anywhere in server/, client/src, shared/ or <code>scripts/.</code> better-sqlite3 is a regular dependency although it is only reached by await import('better-sqlite3') in <code>server/db.ts:41</code> for sqlite mode, so every install pays for a native build that group policy blocks locally; move it to optionalDependencies alongside bufferutil. <code>shared/schema.ts:1935</code> defines aiProvider ('groq, huggingface, together_ai') and <code>client/src/pages/settings/index.tsx:48-49</code> offers Groq and HuggingFace options, but no server file reads aiProvider, so the setting is inert UI. Drop the four packages, demote better-sqlite3, and remove or hide the provider picker.</p>
+          <div class="tags"><span>dependencies</span><span>dx</span><span>cleanup</span></div>
+        </article>
+        <article class="finding" data-priority="low" id="fr-57">
+          <div class="finding-head">
+            <span class="sev low">low</span>
+            <h3>Delete the orphaned scripts and the duplicated scientistDisplayName</h3>
+            <span class="meta"><span class="id">#57</span> · backend · effort low</span>
+          </div>
+          <p>Of the 15 files in scripts/, only container-runtime.sh (sourced by <code>setup.sh</code>) and generate-sqlite-schema.ts (<code>package.json</code> generate:sqlite) are referenced anywhere; db-setup.ts, init-db.ts, seed-db.ts (36 KB), setup-database.ts, push-ibc-schema.ts, run-migration.ts, migrate-journals-refactor.ts, import-impact-factors.js, enrich-journal-fields-from-openalex.js and its 790 KB journal-fields-openalex.csv, and post-merge.sh are wired into nothing, and seeding now lives in <code>migrations/demo_seed_data.sql.</code> <code>scripts/package.json</code> is a four-line stub. export function scientistDisplayName is defined twice with the same signature in <code>server/grantsImportExport.ts:58</code> and <code>server/publicationLinksImport.ts:94</code>. Remove the dead scripts (or move any still-useful one into docs/ with a runbook) and hoist the helper into <code>shared/.</code></p>
+          <div class="tags"><span>cleanup</span><span>dx</span></div>
+        </article>
+        <article class="finding" data-priority="low" id="fr-58">
+          <div class="finding-head">
+            <span class="sev low">low</span>
+            <h3>Bring the docs in line with the deployment and add CODEOWNERS and a PR template</h3>
+            <span class="meta"><span class="id">#58</span> · enhancement · effort low</span>
+          </div>
+          <p><code>README.md</code>:315 still recommends a Neon database, <code>replit.md</code> (257 lines) describes Neon serverless, WebSocket pooling and Replit deployments and is named by CHANGELOG_ARCHIVE.md as the active changelog, <code>threat_model.md</code> reasons about a public Replit app, and <code>sonar-project.properties</code> names the project 'ResearchVault (IRIS)' while <code>replit.md</code>:10 says IRIS is the retired name. .github/ contains only workflows/: no CODEOWNERS, no PULL_REQUEST_TEMPLATE.md, no dependabot.yml, although one person approves every PR. Fold the still-true parts of <code>replit.md</code> into README/docs, fix the Sonar name, and add CODEOWNERS naming the approver plus a short PR template that lists the checks expected to be green.</p>
+          <div class="tags"><span>docs</span><span>dx</span></div>
+        </article>
+      </section>
+    <footer>Line numbers refer to the phase2 branch at commit 130a2df, where the review was made; later commits on audit-fixes may have moved them.</footer>
+  </main>
+</div>
+<script>
+  (function () {
+    var buttons = document.querySelectorAll('.filters button');
+    var findings = document.querySelectorAll('.finding');
+    var areas = document.querySelectorAll('.area');
+    function apply(filter) {
+      findings.forEach(function (f) { f.hidden = filter !== 'all' && f.dataset.priority !== filter; });
+      areas.forEach(function (a) {
+        var visible = a.querySelectorAll('.finding:not([hidden])').length;
+        a.classList.toggle('all-hidden', visible === 0);
+      });
+      buttons.forEach(function (b) { b.setAttribute('aria-pressed', String(b.dataset.filter === filter)); });
+    }
+    buttons.forEach(function (b) { b.addEventListener('click', function () { apply(b.dataset.filter); }); });
+  })();
+</script>
