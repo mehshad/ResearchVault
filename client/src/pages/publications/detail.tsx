@@ -594,30 +594,33 @@ export default function PublicationDetail() {
           </Button>
           <h1 className="text-2xl font-semibold text-foreground">{publication.title}</h1>
         </div>
-        {publication.status === 'Published *' ? (
-          <Badge className="bg-green-600 text-white hover:bg-green-700 px-3 py-1.5">
-            <CheckCircle className="h-4 w-4 mr-1.5" />
-            Sealed — contact the Outcome Office to edit
-          </Badge>
-        ) : canEditPublication ? (
-          <Button 
-            className="bg-sidra-teal hover:bg-sidra-teal-dark text-white font-medium px-4 py-2 shadow-sm"
-            onClick={() => navigate(`/publications/${publication.id}/edit${safeFrom ? `?from=${encodeURIComponent(safeFrom)}` : ''}`)}
-          >
-            <Edit className="h-4 w-4 mr-2" />
-            Edit
-          </Button>
-        ) : (
-          <Badge variant="outline" className="px-3 py-1.5 text-muted-foreground">
-            Link your profile or ask Outcome Office to edit
-          </Badge>
-        )}
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         <Card className="lg:col-span-2">
-          <CardHeader>
+          <CardHeader className="flex flex-row items-center justify-between gap-4 space-y-0">
             <CardTitle>Publication Details</CardTitle>
+            {/* The edit control sits on the card it edits, not on the page
+                header, so it is next to the fields it changes. */}
+            {publication.status === 'Published *' ? (
+              <Badge className="bg-green-600 text-white hover:bg-green-700 px-3 py-1.5">
+                <CheckCircle className="h-4 w-4 mr-1.5" />
+                Sealed — contact the Outcome Office to edit
+              </Badge>
+            ) : canEditPublication ? (
+              <Button
+                size="sm"
+                className="bg-sidra-teal hover:bg-sidra-teal-dark text-white font-medium shadow-sm"
+                onClick={() => navigate(`/publications/${publication.id}/edit${safeFrom ? `?from=${encodeURIComponent(safeFrom)}` : ''}`)}
+              >
+                <Edit className="h-4 w-4 mr-2" />
+                Edit
+              </Button>
+            ) : (
+              <Badge variant="outline" className="px-3 py-1.5 text-muted-foreground">
+                Link your profile or ask Outcome Office to edit
+              </Badge>
+            )}
           </CardHeader>
           <CardContent>
             <div className="space-y-4">
