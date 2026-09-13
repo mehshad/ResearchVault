@@ -29,6 +29,7 @@ import { format } from "date-fns";
 import { Calendar } from "@/components/ui/calendar";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { cn } from "@/lib/utils";
+import { InstitutionName } from "@/components/InstitutionName";
 
 // Extend the insert schema with additional validations
 const createProjectSchema = insertProjectSchema.extend({
@@ -323,7 +324,7 @@ export default function CreateProject() {
                   name="sidraBranch"
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel>Sidra Branch</FormLabel>
+                      <FormLabel><InstitutionName short /> Branch</FormLabel>
                       <Select
                         onValueChange={field.onChange}
                         defaultValue={field.value}
@@ -341,7 +342,7 @@ export default function CreateProject() {
                         </SelectContent>
                       </Select>
                       <FormDescription>
-                        Branch or department within Sidra
+                        Branch or department within <InstitutionName short />
                       </FormDescription>
                       <FormMessage />
                     </FormItem>

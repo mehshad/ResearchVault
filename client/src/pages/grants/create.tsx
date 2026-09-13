@@ -44,6 +44,7 @@ import {
 } from "@shared/grantLifecycle";
 import { useGrantStatuses } from "@/hooks/useGrantStatuses";
 import { GrantStatusCombobox } from "@/components/GrantStatusCombobox";
+import { InstitutionName } from "@/components/InstitutionName";
 
 type CreateGrantForm = InsertGrant;
 
@@ -465,7 +466,7 @@ export default function CreateGrant() {
                         {/* "Sidra Lead PI", not "Lead PI": on a subaward the
                             grant's own lead is the external one above, and this
                             is the person here who owns our part of it. */}
-                        <FormLabel>Sidra Lead PI</FormLabel>
+                        <FormLabel><InstitutionName short /> Lead PI</FormLabel>
                         <Select onValueChange={(value) => field.onChange(value ? parseInt(value) : undefined)}>
                           <FormControl>
                             <SelectTrigger>
@@ -495,7 +496,7 @@ export default function CreateGrant() {
                     </span>
                     <p className="text-sm" data-testid="text-investigator-type">
                       {!watchedLpiId ? (
-                        <span className="text-muted-foreground">Select a Sidra Lead PI</span>
+                        <span className="text-muted-foreground">Select a <InstitutionName short /> Lead PI</span>
                       ) : sidraLpiInvestigatorType ? (
                         sidraLpiInvestigatorType
                       ) : (
@@ -773,7 +774,7 @@ export default function CreateGrant() {
 
                 <div className="space-y-2 mt-6">
                   <label className="text-sm font-medium text-gray-700 block dark:text-gray-300">
-                    Sidra Medicine co-investigators
+                    <InstitutionName /> co-investigators
                   </label>
                   <p className="text-xs text-muted-foreground">
                     Our own staff on this grant, chosen from the directory. People at other

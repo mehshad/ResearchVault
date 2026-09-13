@@ -47,6 +47,7 @@ import {
   type GrantIssueCode,
 } from "@shared/grantIssues";
 import { formatDate } from "@/lib/dates";
+import { InstitutionName } from "@/components/InstitutionName";
 
 const GRANT_ISSUE_TARGETS: Record<GrantIssueCode, string> = {
   missing_project_number: "grant-field-project-number",
@@ -817,7 +818,7 @@ export default function EditGrant() {
             <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mt-4">
               <div id="grant-field-lpi" className={issueFieldClass("missing_lpi")}>
                 <label className="text-sm font-medium text-gray-700 mb-2 block dark:text-gray-300">
-                  Sidra Lead PI
+                  <InstitutionName short /> Lead PI
                   {isSubaward && (
                     <span className="ml-1 font-normal text-xs text-muted-foreground">
                       (who owns our part)
@@ -852,7 +853,7 @@ export default function EditGrant() {
                 </label>
                 <p className="text-sm py-2" data-testid="text-investigator-type">
                   {!selectedLpiId ? (
-                    <span className="text-muted-foreground">Select a Sidra Lead PI</span>
+                    <span className="text-muted-foreground">Select a <InstitutionName short /> Lead PI</span>
                   ) : sidraLpiInvestigatorType ? (
                     sidraLpiInvestigatorType
                   ) : (
@@ -1204,7 +1205,7 @@ export default function EditGrant() {
 
             <div className="space-y-2">
               <label className="text-sm font-medium text-gray-700 block dark:text-gray-300">
-                Sidra Medicine co-investigators
+                <InstitutionName /> co-investigators
               </label>
               <p className="text-xs text-muted-foreground">
                 Our own staff on this grant, chosen from the directory. People at other

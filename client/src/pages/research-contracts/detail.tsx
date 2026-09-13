@@ -14,6 +14,7 @@ import { usePublicationCount } from "@/hooks/use-publication-count";
 import { useCurrentUser } from "@/hooks/useCurrentUser";
 import { isAdministrator, hasAnyRole } from "@shared/effectiveRoles";
 import { fetchList } from "@/lib/fetchList";
+import { InstitutionName } from "@/components/InstitutionName";
 
 export default function ResearchContractDetail() {
   const params = useParams<{ id: string }>();
@@ -380,7 +381,7 @@ export default function ResearchContractDetail() {
                 <h3 className="text-md font-medium border-b pb-2">Financial Details</h3>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-2">
                   <div>
-                    <p className="text-sm font-medium text-foreground">Internal Cost (Sidra)</p>
+                    <p className="text-sm font-medium text-foreground">Internal Cost (<InstitutionName short />)</p>
                     <p className="mt-1">${contract.internalCostSidra?.toLocaleString() || 'Not specified'}</p>
                   </div>
                   <div>
@@ -578,7 +579,7 @@ export default function ResearchContractDetail() {
                               }
                               data-testid={`badge-scope-party-${item.id}`}
                             >
-                              {item.party === 'sidra' ? 'Sidra' : 'Counterparty'}
+                              {item.party === 'sidra' ? <InstitutionName short /> : 'Counterparty'}
                             </Badge>
                           </TableCell>
                           <TableCell className="max-w-xs">

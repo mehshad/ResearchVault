@@ -24,6 +24,7 @@ import { z } from "zod";
 import React from "react";
 import { useCurrentUser } from "@/hooks/useCurrentUser";
 import { fetchRecord } from "@/lib/fetchList";
+import { InstitutionName } from "@/components/InstitutionName";
 
 const countries = [
   "Afghanistan", "Albania", "Algeria", "Argentina", "Armenia", "Australia", "Austria", "Azerbaijan",
@@ -666,7 +667,7 @@ export default function ResearchContractEdit() {
                   name="internalCostSidra"
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel>Internal Cost Sidra (QAR)</FormLabel>
+                      <FormLabel>Internal Cost <InstitutionName short /> (QAR)</FormLabel>
                       <FormControl>
                         <Input 
                           type="number" 
@@ -764,7 +765,7 @@ export default function ResearchContractEdit() {
                                       </SelectTrigger>
                                     </FormControl>
                                     <SelectContent>
-                                      <SelectItem value="sidra">Sidra</SelectItem>
+                                      <SelectItem value="sidra"><InstitutionName short /></SelectItem>
                                       <SelectItem value="counterparty">Counterparty</SelectItem>
                                     </SelectContent>
                                   </Select>

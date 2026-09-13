@@ -29,6 +29,7 @@ import { Calendar } from "@/components/ui/calendar";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { cn } from "@/lib/utils";
 import { formatFullName } from "@/utils/nameUtils";
+import { InstitutionName } from "@/components/InstitutionName";
 
 // Extend the insert schema with additional validations
 const createResearchActivitySchema = insertResearchActivitySchema.extend({
@@ -403,7 +404,7 @@ export default function CreateResearchActivity() {
                   name="sidraBranch"
                   render={({ field }) => (
                     <FormItem className="space-y-3">
-                      <FormLabel>Sidra Branch</FormLabel>
+                      <FormLabel><InstitutionName short /> Branch</FormLabel>
                       <FormControl>
                         <RadioGroup
                           onValueChange={field.onChange}
@@ -425,7 +426,7 @@ export default function CreateResearchActivity() {
                         </RadioGroup>
                       </FormControl>
                       <FormDescription>
-                        Branch or department within Sidra
+                        Branch or department within <InstitutionName short />
                       </FormDescription>
                       <FormMessage />
                     </FormItem>

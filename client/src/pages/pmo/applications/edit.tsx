@@ -12,6 +12,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { ArrowLeft, Save, Send } from "lucide-react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useToast } from "@/hooks/use-toast";
+import { InstitutionName } from "@/components/InstitutionName";
 
 interface Ra200Form {
   // Header Information
@@ -563,7 +564,7 @@ export default function EditRa200() {
                               }))
                             }
                           />
-                          <Label htmlFor="sidraBudget">Sidra budget</Label>
+                          <Label htmlFor="sidraBudget"><InstitutionName short /> budget</Label>
                         </div>
                       </div>
                     </div>

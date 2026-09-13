@@ -22,6 +22,7 @@ import { cn } from "@/lib/utils";
 import { Calendar as CalendarComponent } from "@/components/ui/calendar";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { formatFullName } from "@/utils/nameUtils";
+import { InstitutionName } from "@/components/InstitutionName";
 
 export default function EditResearchActivity() {
   const params = useParams<{ id: string }>();
@@ -461,7 +462,7 @@ export default function EditResearchActivity() {
                   name="sidraBranch"
                   render={({ field }) => (
                     <FormItem className="space-y-3">
-                      <FormLabel>Sidra Branch</FormLabel>
+                      <FormLabel><InstitutionName short /> Branch</FormLabel>
                       <FormControl>
                         <RadioGroup
                           onValueChange={field.onChange}

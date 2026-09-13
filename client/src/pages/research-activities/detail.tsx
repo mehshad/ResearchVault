@@ -16,6 +16,7 @@ import { format } from "date-fns";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { formatFullName } from "@/utils/nameUtils";
 import { formatDateLong } from "@/lib/dates";
+import { InstitutionName } from "@/components/InstitutionName";
 
 // Define interface for detail data
 interface ResearchActivityDetail extends ResearchActivity {
@@ -313,7 +314,7 @@ export default function ResearchActivityDetail() {
 
                 {activity.sidraBranch && (
                   <div>
-                    <h3 className="text-sm font-medium text-foreground">Sidra Branch</h3>
+                    <h3 className="text-sm font-medium text-foreground"><InstitutionName short /> Branch</h3>
                     <div className="flex items-center gap-1">
                       <Beaker className="h-3 w-3" />
                       <Badge variant="outline" className="rounded-sm bg-purple-50 text-purple-700 border-purple-200 dark:bg-purple-950 dark:text-purple-300 dark:border-purple-800">

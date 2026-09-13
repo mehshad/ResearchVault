@@ -88,6 +88,10 @@ export const defaultInstitutionLabels: InstitutionConfig = {
 
 interface ThemeContextType {
   themeName: ThemeName;
+  /** The institution the theme belongs to, as it names itself: "Sidra Medicine". */
+  institutionName: string;
+  /** The short form for labels: "Sidra Lead PI", "HBKU budget". */
+  institutionShortName: string;
   institutionLabels: InstitutionConfig;
   currentLabels: InstitutionLabels;
   sectionVisibility: SectionVisibility;
@@ -107,6 +111,7 @@ const ThemeContext = createContext<ThemeContextType | undefined>(undefined);
 const themes = {
   sidra: {
     name: 'Sidra Medicine',
+    shortName: 'Sidra',
     colors: {
       primary: {
         50: '#f0fdfa', 100: '#ccfbf1', 200: '#99f6e4', 300: '#5eead4',
@@ -122,6 +127,7 @@ const themes = {
   },
   hbku: {
     name: 'Hamad Bin Khalifa University',
+    shortName: 'HBKU',
     colors: {
       primary: {
         50: '#f0f9ff', 100: '#e0f2fe', 200: '#bae6fd', 300: '#7dd3fc',
@@ -137,6 +143,7 @@ const themes = {
   },
   wcmq: {
     name: 'Weill Cornell Medicine-Qatar',
+    shortName: 'WCM-Q',
     colors: {
       primary: {
         50: '#fef2f2', 100: '#fee2e2', 200: '#fecaca', 300: '#fca5a5',
@@ -326,6 +333,8 @@ export function ThemeProvider({ children }: ThemeProviderProps) {
 
   const value: ThemeContextType = {
     themeName,
+    institutionName: themes[themeName].name,
+    institutionShortName: themes[themeName].shortName,
     institutionLabels,
     currentLabels,
     sectionVisibility,

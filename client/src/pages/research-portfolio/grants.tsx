@@ -48,6 +48,7 @@ import { statusesVisibleOutsideSection, type GrantRole } from "@shared/researchP
 import { useCurrentUser } from "@/hooks/useCurrentUser";
 import { PermissionWrapper } from "@/components/PermissionWrapper";
 import type { PortfolioResponse, PortfolioViewerSummary } from "@/lib/portfolioScope";
+import { InstitutionName } from "@/components/InstitutionName";
 
 type PortfolioGrant = Grant & {
   lpiName: string | null;
@@ -369,7 +370,7 @@ export default function PortfolioGrants() {
               My grants
               <span className="text-sm font-normal text-muted-foreground">{count(mine)}</span>
             </CardTitle>
-            <p className="text-sm text-muted-foreground">Grants on which you are the Sidra lead PI.</p>
+            <p className="text-sm text-muted-foreground">Grants on which you are the <InstitutionName short /> lead PI.</p>
           </CardHeader>
           <CardContent>
             <GrantsTable
