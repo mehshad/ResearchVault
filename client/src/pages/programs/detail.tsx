@@ -216,19 +216,21 @@ export default function ProgramDetail() {
           </Button>
           <h1 className="text-2xl font-semibold text-foreground">{program.name}</h1>
         </div>
-        <Button 
-          className="bg-sidra-teal hover:bg-sidra-teal-dark text-white font-medium px-4 py-2 shadow-sm"
-          onClick={() => navigate(`/programs/${program.id}/edit`)}
-        >
-          <Edit className="h-4 w-4 mr-2" />
-          Edit
-        </Button>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         <Card className="lg:col-span-2">
-          <CardHeader>
+          <CardHeader className="flex flex-row items-center justify-between gap-4 space-y-0">
             <CardTitle>Program Details</CardTitle>
+            {/* On the card it edits, next to the fields it changes. */}
+            <Button
+              size="sm"
+              className="bg-sidra-teal hover:bg-sidra-teal-dark text-white font-medium shadow-sm"
+              onClick={() => navigate(`/programs/${program.id}/edit`)}
+            >
+              <Edit className="h-4 w-4 mr-2" />
+              Edit
+            </Button>
           </CardHeader>
           <CardContent>
             <div className="space-y-4">
