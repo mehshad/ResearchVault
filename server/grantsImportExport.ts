@@ -49,15 +49,17 @@ export const GRANT_COLUMNS: Array<{ header: string; key: string }> = [
   { header: "Reporting Interval (Months)", key: "reportingIntervalMonths" },
   { header: "Collaborators", key: "collaborators" },
   { header: "Description", key: "description" },
-  { header: "Program", key: "program" },
+  { header: "Sidra Programme", key: "program" },
 ];
 
 const HEADER_TO_KEY: Record<string, string> = GRANT_COLUMNS.reduce((acc, col) => {
   acc[col.header.toLowerCase().trim()] = col.key;
   return acc;
 }, {} as Record<string, string>);
-// The office's template spells the column "Program"; the app UI says
-// "Programme". Accept either on import so neither file is rejected.
+// The app UI calls this the Sidra Programme; accept the British "Programme"
+// spelling too. Deliberately NOT "Program": the grants office uses that header
+// for the funding mechanism (NPRP, IRF, ...), which maps to Grant Source, so a
+// bare "Program" column must never be read as the research programme.
 HEADER_TO_KEY["programme"] = "program";
 
 /**
@@ -169,7 +171,7 @@ export function buildGrantsTemplateRows(): Record<string, any>[] {
     {
       "Project Number": "PRJ-2026-001",
       "Cycle": "2026-1",
-      "Program": "PRM-001 — Example Programme",
+      "Sidra Programme": "PRM-001 — Example Programme",
       "Title": "Example grant title (delete this row before importing)",
       "LPI Email": "lead.pi@sidra.org",
       "LPI Name": "",
