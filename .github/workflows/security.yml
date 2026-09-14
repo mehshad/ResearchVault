@@ -3,8 +3,8 @@ name: Security
 on:
   push:
     branches: [main]
+  # Every pull request, whatever it targets.
   pull_request:
-    branches: [main]
   schedule:
     # Nightly scan at 02:00 UTC
     - cron: "0 2 * * *"
@@ -95,3 +95,19 @@ jobs:
         uses: github/codeql-action/upload-sarif@v4
         with:
           sarif_file: semgrep.sarif
+
+      # The scan above never fails the job (|| true keeps the SARIF upload
+      # alive), so until now this check could not go red. ERROR-severity
+      # findings fail it here; warnings and notes stay in the Security tab.
+      - name: Fail on ERROR-severity findings
+        run: |
+          python3 - <<'PY'
+          import json, sys
+          runs = json.load(open("semgrep.sarif")).get("runs", [])
+          errors = [r for run in runs for r in run.get("results", []) if r.get("level") == "error"]
+          for r in errors:
+              loc = r.get("locations", [{}])[0].get("physicalLocation", {})
+              print(f"{loc.get('artifactLocation', {}).get('uri')}:{loc.get('region', {}).get('startLine')}  {r.get('ruleId')}")
+          print(f"{len(errors)} ERROR-severity finding(s)")
+          sys.exit(1 if errors else 0)
+          PY

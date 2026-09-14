@@ -56,6 +56,16 @@ export function formatDateLong(value: DateLike, fallback = ""): string {
   return `${date.getDate()} ${MONTHS[date.getMonth()]} ${date.getFullYear()}`;
 }
 
+/**
+ * 8 Sep 2026, or an em dash when there is no date. The form a table cell
+ * takes: sixteen pages each kept a private copy of this three-line wrapper
+ * around formatDateLong, under the name formatDate, shadowing the short
+ * format exported here. One copy, here, under a name that says what it does.
+ */
+export function formatDateOrDash(value: DateLike): string {
+  return formatDateLong(value, "—");
+}
+
 /** 08/09/2026 14:30. Day first, then a 24-hour clock. */
 export function formatDateTime(value: DateLike, fallback = ""): string {
   const date = toDate(value);

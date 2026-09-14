@@ -1,5 +1,3 @@
-// @ts-nocheck — Pre-existing TypeScript errors in this file are suppressed so `npx tsc --noEmit` runs clean and new code in other files gets reliable type-checking feedback.
-// Most errors here stem from untyped `useQuery` results (data inferred as `unknown`), drifted shared/schema field renames, and form values typed as `unknown`. They are not known runtime bugs but should be fixed file-by-file as each is next touched: remove this directive, run `npx tsc --noEmit`, and resolve what surfaces.
 import { useQuery } from "@tanstack/react-query";
 import { useLocation, useParams } from "wouter";
 import { Button } from "@/components/ui/button";
@@ -11,7 +9,8 @@ import { Badge } from "@/components/ui/badge";
 import { format } from "date-fns";
 import { usePublicationCount } from "@/hooks/use-publication-count";
 import StatusActions from "@/components/irb/StatusActions";
-import { formatDateLong } from "@/lib/dates";
+import { formatDateOrDash as formatDate } from "@/lib/dates";
+import { formatFullName } from "@/utils/nameUtils";
 
 export default function IrbApplicationDetail() {
   const params = useParams<{ id: string }>();
@@ -58,17 +57,13 @@ export default function IrbApplicationDetail() {
   // Get the number of publications linked to this research activity
   const { count: publicationCount } = usePublicationCount(irbApplication?.researchActivityId);
 
-  const formatDate = (date: string | Date | undefined) => {
-    if (!date) return "—";
-    return formatDateLong(date);
-  };
-
   const renderProtocolHistory = () => {
+    if (!irbApplication) return null;
     try {
       const allEntries: Array<[string, any]> = [];
       
       // Always add initial submission with earliest timestamp
-      const submissionTime = new Date(irbApplication.submissionDate).getTime();
+      const submissionTime = new Date(irbApplication.submissionDate ?? 0).getTime();
       allEntries.push([
         (submissionTime - 100000).toString(), // Ensure it's always first
         {
@@ -248,6 +243,10 @@ export default function IrbApplicationDetail() {
     );
   }
 
+  // `documents` is a free-form json column with no shared type; only the
+  // protocol summary file name is read here.
+  const applicationDocuments = irbApplication.documents as { protocolSummary?: string } | null;
+
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
@@ -350,7 +349,7 @@ export default function IrbApplicationDetail() {
                       {principalInvestigatorLoading ? (
                         <Skeleton className="h-4 w-24 inline-block" />
                       ) : principalInvestigator ? (
-                        principalInvestigator.name
+                        formatFullName(principalInvestigator)
                       ) : 'Not assigned'}
                     </span>
                   </div>
@@ -511,12 +510,12 @@ export default function IrbApplicationDetail() {
               <CardTitle>Documents</CardTitle>
             </CardHeader>
             <CardContent>
-              {irbApplication.documents && irbApplication.documents.protocolSummary ? (
+              {applicationDocuments && applicationDocuments.protocolSummary ? (
                 <div className="space-y-2">
                   <div className="flex items-center justify-between p-2 border rounded">
                     <div className="flex items-center gap-2">
                       <FileText className="h-4 w-4 text-foreground" />
-                      <span>{irbApplication.documents.protocolSummary}</span>
+                      <span>{applicationDocuments.protocolSummary}</span>
                     </div>
                     <Button size="sm" variant="ghost">
                       <FileText className="h-4 w-4" />

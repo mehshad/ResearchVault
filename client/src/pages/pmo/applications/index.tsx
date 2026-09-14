@@ -1,5 +1,3 @@
-// @ts-nocheck — Pre-existing TypeScript errors in this file are suppressed so `npx tsc --noEmit` runs clean and new code in other files gets reliable type-checking feedback.
-// Most errors here stem from untyped `useQuery` results (data inferred as `unknown`), drifted shared/schema field renames, and form values typed as `unknown`. They are not known runtime bugs but should be fixed file-by-file as each is next touched: remove this directive, run `npx tsc --noEmit`, and resolve what surfaces.
 import { useState } from "react";
 import { Link } from "wouter";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -9,22 +7,20 @@ import { Input } from "@/components/ui/input";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ClipboardList, Plus, Search, FileText, Eye, Edit, Filter } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
-import type { Scientist } from "@shared/schema";
+import type { Ra200Application, Ra205aApplication, Scientist } from "@shared/schema";
 
-const statusColors = {
-  draft: "bg-gray-100 text-gray-800 dark:bg-gray-800 dark:text-gray-200",
-  submitted: "bg-blue-100 text-blue-800 dark:bg-blue-950 dark:text-blue-300", 
-  under_review: "bg-yellow-100 text-yellow-800 dark:bg-yellow-950 dark:text-yellow-300",
-  approved: "bg-green-100 text-green-800 dark:bg-green-950 dark:text-green-300",
-  rejected: "bg-red-100 text-red-800 dark:bg-red-950 dark:text-red-300"
-};
+// /api/pmo-applications merges both tables and tags each row with its form.
+type PmoRa200 = Ra200Application & { form_type: 'RA-200' };
+type PmoRa205a = Ra205aApplication & { form_type: 'RA-205A' };
+type PmoApplication = PmoRa200 | PmoRa205a;
+import { statusBadgeClass } from "@/lib/statusStyles";
 
 export default function PmoApplicationsList() {
   const [searchTerm, setSearchTerm] = useState("");
   const [statusFilter, setStatusFilter] = useState<string>("all");
 
   // Connect to real API
-  const { data: applications = [], isLoading } = useQuery({
+  const { data: applications = [], isLoading } = useQuery<PmoApplication[]>({
     queryKey: ['/api/pmo-applications']
   });
 
@@ -49,8 +45,8 @@ export default function PmoApplicationsList() {
   });
 
   // Separate applications by type
-  const ra200Applications = filteredApplications.filter(app => app.form_type === 'RA-200');
-  const ra205aApplications = filteredApplications.filter(app => app.form_type === 'RA-205A');
+  const ra200Applications = filteredApplications.filter((app): app is PmoRa200 => app.form_type === 'RA-200');
+  const ra205aApplications = filteredApplications.filter((app): app is PmoRa205a => app.form_type === 'RA-205A');
 
   return (
     <div className="p-6 space-y-6">
@@ -210,7 +206,7 @@ export default function PmoApplicationsList() {
                     <div className="flex-1">
                       <div className="flex items-center gap-3 mb-2">
                         <h3 className="font-medium text-lg">{application.title}</h3>
-                        <Badge className={statusColors[application.status as keyof typeof statusColors]}>
+                        <Badge className={statusBadgeClass("pmo", application.status)}>
                           {application.status.replace('_', ' ').toUpperCase()}
                         </Badge>
                         <Badge variant="outline">{application.form_type}</Badge>
@@ -288,7 +284,7 @@ export default function PmoApplicationsList() {
                     <div className="flex-1">
                       <div className="flex items-center gap-3 mb-2">
                         <h3 className="font-medium text-lg">{application.title}</h3>
-                        <Badge className={statusColors[application.status as keyof typeof statusColors]}>
+                        <Badge className={statusBadgeClass("pmo", application.status)}>
                           {application.status.replace('_', ' ').toUpperCase()}
                         </Badge>
                         <Badge variant="outline">{application.form_type}</Badge>

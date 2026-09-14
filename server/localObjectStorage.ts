@@ -27,6 +27,19 @@ function localArchivePath(id: string): string {
   return path.join(UPLOADS_DIR, "bulk-data-archives", `${id}.zip`);
 }
 
+/**
+ * Thrown when a write would replace a file already stored under that id.
+ * An upload id is used once: the URL that carries it is minted for one
+ * upload, and a second body under the same id is somebody overwriting a
+ * document that other records already point at.
+ */
+export class ObjectAlreadyExistsError extends Error {
+  constructor() {
+    super("An object already exists under this id");
+    this.name = "ObjectAlreadyExistsError";
+  }
+}
+
 export class LocalFile {
   constructor(
     public readonly filePath: string,
@@ -64,7 +77,9 @@ export class LocalObjectStorageService {
     return `${APP_URL}/api/objects/local-upload/${id}`;
   }
 
-  // Saves a file body buffer/stream to disk and returns the local file.
+  // Saves a file body to disk under a fresh id. Refuses to replace an
+  // existing file: the write is opened exclusively, so the check and the
+  // write are one operation and two concurrent PUTs cannot both succeed.
   async saveFile(id: string, body: Buffer, contentType: string): Promise<void> {
     await mkdir(UPLOADS_DIR, { recursive: true });
     const filePath = localFilePath(id); // throws if id is not a UUID
@@ -74,12 +89,18 @@ export class LocalObjectStorageService {
     if (!resolvedFile.startsWith(resolvedDir + path.sep)) {
       throw new Error("Path traversal detected");
     }
-    await writeFile(resolvedFile, body);
+    try {
+      await writeFile(resolvedFile, body, { flag: "wx" });
+    } catch (error: any) {
+      if (error?.code === "EEXIST") throw new ObjectAlreadyExistsError();
+      throw error;
+    }
   }
 
   async getObjectEntityFile(objectPath: string): Promise<LocalFile> {
-    // objectPath is /objects/local-upload/<uuid>
-    const id = objectPath.split("/").pop();
+    // objectPath is /objects/local-upload/<uuid>; a query string, if one was
+    // carried along from the upload URL, is not part of the id.
+    const id = objectPath.split("?")[0].split("/").pop();
     if (!id) throw new ObjectNotFoundError();
     const filePath = localFilePath(id);
     if (!existsSync(filePath)) throw new ObjectNotFoundError();
@@ -88,7 +109,9 @@ export class LocalObjectStorageService {
 
   normalizeObjectEntityPath(rawPath: string): string {
     if (rawPath.includes("/api/objects/local-upload/")) {
-      const id = rawPath.split("/").pop();
+      // The minted URL carries the upload token as a query string; the
+      // object path is the id alone.
+      const id = rawPath.split("?")[0].split("/").pop();
       return `/objects/local-upload/${id}`;
     }
     return rawPath;

@@ -48,6 +48,7 @@ import { statusesVisibleOutsideSection, type GrantRole } from "@shared/researchP
 import { useCurrentUser } from "@/hooks/useCurrentUser";
 import { PermissionWrapper } from "@/components/PermissionWrapper";
 import type { PortfolioResponse, PortfolioViewerSummary } from "@/lib/portfolioScope";
+import { InstitutionName } from "@/components/InstitutionName";
 
 type PortfolioGrant = Grant & {
   lpiName: string | null;
@@ -295,7 +296,7 @@ export default function PortfolioGrants() {
       <div className="space-y-6">
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div>
-            <h1 className="text-2xl font-semibold text-foreground">Grants</h1>
+            <h1 className="text-2xl font-semibold text-foreground">My grants</h1>
             <p className="text-sm text-muted-foreground mt-1">
               The grants you lead, the grants your section is running, and the grants you are named
               on, each in its own list.
@@ -369,7 +370,7 @@ export default function PortfolioGrants() {
               My grants
               <span className="text-sm font-normal text-muted-foreground">{count(mine)}</span>
             </CardTitle>
-            <p className="text-sm text-muted-foreground">Grants on which you are the Sidra lead PI.</p>
+            <p className="text-sm text-muted-foreground">Grants on which you are the <InstitutionName short /> lead PI.</p>
           </CardHeader>
           <CardContent>
             <GrantsTable

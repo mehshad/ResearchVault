@@ -28,23 +28,19 @@ import type { ResearchContract } from "@shared/schema";
 import { useCurrentUser } from "@/hooks/useCurrentUser";
 import { PermissionWrapper } from "@/components/PermissionWrapper";
 import { PortfolioScopeSelect } from "@/components/PortfolioScopeSelect";
-import { formatDateLong } from "@/lib/dates";
+import { formatDateOrDash as formatDate } from "@/lib/dates";
 import {
   matchesScope,
   scopeEmptyMessage,
   type PortfolioResponse,
   type PortfolioScope,
 } from "@/lib/portfolioScope";
+import { QueryError } from "@/components/QueryError";
 
 type PortfolioContract = ResearchContract & {
   leadPIName: string | null;
   requestedByScientistId: number | null;
   involvement: "mine" | "team";
-};
-
-const formatDate = (date: string | Date | null | undefined) => {
-  if (!date) return "—";
-  return formatDateLong(date);
 };
 
 const formatValue = (value: string | number | null | undefined, currency: string | null) => {
@@ -73,7 +69,7 @@ export default function PortfolioContracts() {
   const [scope, setScope] = useState<PortfolioScope>("team");
   const [searchQuery, setSearchQuery] = useState("");
 
-  const { data, isLoading } = useQuery<PortfolioResponse<{ contracts: PortfolioContract[] }>>({
+  const { data, isLoading, isError, error, refetch } = useQuery<PortfolioResponse<{ contracts: PortfolioContract[] }>>({
     queryKey: ["/api/research-portfolio/contracts"],
   });
 
@@ -107,7 +103,7 @@ export default function PortfolioContracts() {
       <div className="space-y-6">
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
-            <h1 className="text-2xl font-semibold text-foreground">Contracts</h1>
+            <h1 className="text-2xl font-semibold text-foreground">My contracts</h1>
             <p className="text-sm text-muted-foreground mt-1">
               {viewer?.seesEverything
                 ? "Every research contract on record."
@@ -181,6 +177,8 @@ export default function PortfolioContracts() {
                   </div>
                 ))}
               </div>
+            ) : isError ? (
+              <QueryError what="contracts" error={error} onRetry={() => refetch()} />
             ) : (
               <Table>
                 <TableHeader>

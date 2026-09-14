@@ -1,11 +1,11 @@
-// @ts-nocheck — Pre-existing TypeScript errors in this file are suppressed so `npx tsc --noEmit` runs clean and new code in other files gets reliable type-checking feedback.
-// Most errors here stem from untyped `useQuery` results (data inferred as `unknown`), drifted shared/schema field renames, and form values typed as `unknown`. They are not known runtime bugs but should be fixed file-by-file as each is next touched: remove this directive, run `npx tsc --noEmit`, and resolve what surfaces.
 import { useQuery } from "@tanstack/react-query";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, LineChart, Line, Area, AreaChart } from 'recharts';
 import { TrendingUp, Users, FileText, Building2, Award, Calendar, DollarSign, Target } from "lucide-react";
+import { QueryError } from "@/components/QueryError";
+import type { Patent, Program, Project, Publication, ResearchActivity, ResearchContract } from "@shared/schema";
 
 interface DashboardStats {
   activeResearchActivities: string;
@@ -15,39 +15,44 @@ interface DashboardStats {
 }
 
 export default function ReportsPage() {
-  const { data: stats, isLoading: statsLoading } = useQuery<DashboardStats>({
+  const { data: stats, isLoading: statsLoading, isError: statsError, error: statsErrorDetail, refetch: refetchStats } = useQuery<DashboardStats>({
     queryKey: ['/api/dashboard/stats'],
   });
 
-  const { data: researchActivities, isLoading: activitiesLoading } = useQuery({
+  const { data: researchActivities, isLoading: activitiesLoading } = useQuery<ResearchActivity[]>({
     queryKey: ['/api/research-activities'],
   });
 
-  const { data: publications, isLoading: publicationsLoading } = useQuery({
+  const { data: publications, isLoading: publicationsLoading } = useQuery<Publication[]>({
     queryKey: ['/api/publications'],
   });
 
-  const { data: patents, isLoading: patentsLoading } = useQuery({
+  const { data: patents, isLoading: patentsLoading } = useQuery<Patent[]>({
     queryKey: ['/api/patents'],
   });
 
-  const { data: contracts, isLoading: contractsLoading } = useQuery({
+  const { data: contracts, isLoading: contractsLoading } = useQuery<ResearchContract[]>({
     queryKey: ['/api/research-contracts'],
   });
 
-  const { data: programs, isLoading: programsLoading } = useQuery({
+  const { data: programs, isLoading: programsLoading } = useQuery<Program[]>({
     queryKey: ['/api/programs'],
+  });
+
+  // An activity carries only its projectId; the program is on the project.
+  const { data: projects } = useQuery<Project[]>({
+    queryKey: ['/api/projects'],
   });
 
   // Research Activities by Program Distribution
   const programDistribution = programs?.map(program => {
     const programActivities = researchActivities?.filter(activity => 
-      activity.project?.programId === program.id
+      projects?.find(project => project.id === activity.projectId)?.programId === program.id
     ) || [];
     return {
-      name: program.category || program.name,
+      name: program.name,
       value: programActivities.length,
-      color: getProgramColor(program.category)
+      color: getProgramColor(program.name)
     };
   }).filter(item => item.value > 0) || [];
 
@@ -82,7 +87,7 @@ export default function ReportsPage() {
     {
       title: "Publications This Year",
       value: publications?.filter(p => 
-        new Date(p.createdAt).getFullYear() === new Date().getFullYear()
+        new Date(p.createdAt ?? 0).getFullYear() === new Date().getFullYear()
       ).length || 0,
       change: "+23%",
       trend: "up",
@@ -108,7 +113,7 @@ export default function ReportsPage() {
   ];
 
   function getProgramColor(category: string) {
-    const colors = {
+    const colors: Record<string, string> = {
       'Cancer': '#EF4444',
       'Neurological Disorders': '#8B5CF6',
       'Genetic/Metabolic Disorders': '#10B981',
@@ -120,8 +125,8 @@ export default function ReportsPage() {
     return colors[category] || '#6B7280';
   }
 
-  function generateTimelineData(activities: any[]) {
-    const months = [];
+  function generateTimelineData(activities: ResearchActivity[] | undefined) {
+    const months: { month: string; activities: number; cumulative: number }[] = [];
     const now = new Date();
     
     for (let i = 11; i >= 0; i--) {
@@ -129,7 +134,7 @@ export default function ReportsPage() {
       const monthName = date.toLocaleDateString('en-US', { month: 'short' });
       
       const activitiesCount = activities?.filter(activity => {
-        const activityDate = new Date(activity.createdAt);
+        const activityDate = new Date(activity.createdAt ?? 0);
         return activityDate.getMonth() === date.getMonth() && 
                activityDate.getFullYear() === date.getFullYear();
       }).length || 0;
@@ -173,6 +178,17 @@ export default function ReportsPage() {
             </Card>
           ))}
         </div>
+      </div>
+    );
+  }
+
+  if (statsError) {
+    return (
+      <div className="space-y-6">
+        <div className="flex items-center justify-between">
+          <h1 className="text-2xl font-semibold text-foreground">Research Analytics & Reports</h1>
+        </div>
+        <QueryError what="report figures" error={statsErrorDetail} onRetry={() => refetchStats()} />
       </div>
     );
   }
@@ -376,7 +392,7 @@ export default function ReportsPage() {
             
             <div className="text-center p-6 bg-gradient-to-br from-purple-50 to-purple-100 rounded-lg">
               <div className="text-3xl font-bold text-purple-600 mb-2 dark:text-purple-400">
-                {contracts?.filter(c => c.status === 'Active').length || 0}
+                {contracts?.filter(c => c.status === 'active').length || 0}
               </div>
               <div className="text-sm font-medium text-purple-700 dark:text-purple-300">Active Collaborations</div>
               <div className="text-xs text-purple-600 mt-1 dark:text-purple-400">External partnerships</div>

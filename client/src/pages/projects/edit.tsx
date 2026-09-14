@@ -1,5 +1,3 @@
-// @ts-nocheck — Pre-existing TypeScript errors in this file are suppressed so `npx tsc --noEmit` runs clean and new code in other files gets reliable type-checking feedback.
-// Most errors here stem from untyped `useQuery` results (data inferred as `unknown`), drifted shared/schema field renames, and form values typed as `unknown`. They are not known runtime bugs but should be fixed file-by-file as each is next touched: remove this directive, run `npx tsc --noEmit`, and resolve what surfaces.
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useLocation, useParams } from "wouter";
 import { formatFullName } from "@/utils/nameUtils";
@@ -18,6 +16,7 @@ import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
 import { useEffect } from "react";
 import React from "react";
+import { fetchRecord } from "@/lib/fetchList";
 
 export default function ProjectEdit() {
   const { id } = useParams();
@@ -27,7 +26,7 @@ export default function ProjectEdit() {
 
   const { data: project, isLoading } = useQuery<Project>({
     queryKey: ['/api/projects', id],
-    queryFn: () => fetch(`/api/projects/${id}`).then(res => res.json()),
+    queryFn: () => fetchRecord(`/api/projects/${id}`),
     enabled: !!id,
   });
 
@@ -246,7 +245,7 @@ export default function ProjectEdit() {
                       <Textarea 
                         placeholder="Project description..."
                         className="min-h-[100px]"
-                        {...field}
+                        {...field} value={field.value ?? ""}
                       />
                     </FormControl>
                     <FormMessage />

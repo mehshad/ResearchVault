@@ -1,5 +1,3 @@
-// @ts-nocheck — Pre-existing TypeScript errors in this file are suppressed so `npx tsc --noEmit` runs clean and new code in other files gets reliable type-checking feedback.
-// Most errors here stem from untyped `useQuery` results (data inferred as `unknown`), drifted shared/schema field renames, and form values typed as `unknown`. They are not known runtime bugs but should be fixed file-by-file as each is next touched: remove this directive, run `npx tsc --noEmit`, and resolve what surfaces.
 import { useState, useEffect } from "react";
 import { useLocation, useRoute } from "wouter";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -16,6 +14,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { useToast } from "@/hooks/use-toast";
 import { ArrowLeft, FileText, Users, CheckCircle2, AlertCircle, Save, Send, History, MessageSquare } from "lucide-react";
 import { apiRequest } from "@/lib/queryClient";
+import type { Ra205aApplication } from "@shared/schema";
 import { formatDate } from "@/lib/dates";
 
 // Form validation schema for RA-205A
@@ -81,14 +80,38 @@ const ra205aFormSchema = z.object({
 
 type RA205AFormData = z.infer<typeof ra205aFormSchema>;
 
+// ra205a_applications has no columns for these three and the insert schema
+// strips them on create, so today they are always undefined here and the
+// reset below falls through to its defaults for each of them.
+type Ra205aRecord = Ra205aApplication & {
+  selectedSdrId?: number;
+  newTitle?: string;
+  approvals?: RA205AFormData["approvals"];
+};
+
+// Entries the PMO office appends to the three json comment columns.
+interface ReviewHistoryEntry {
+  timestamp: string;
+  action: string;
+  user: string;
+  comment?: string;
+}
+
+interface ApplicationComment {
+  timestamp: string;
+  user: string;
+  comment: string;
+  action?: string;
+}
+
 export default function EditRA205AApplication() {
   const [location, navigate] = useLocation();
-  const [match] = useRoute("/pmo/applications/:id/edit-ra205a");
+  const [, params] = useRoute("/pmo/applications/:id/edit-ra205a");
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  const applicationId = match?.id;
+  const applicationId = params?.id;
 
   // Fetch data for dropdowns
   const { data: scientists = [] } = useQuery<any[]>({
@@ -104,7 +127,7 @@ export default function EditRA205AApplication() {
   });
 
   // Load application data
-  const { data: application, isLoading } = useQuery({
+  const { data: application, isLoading } = useQuery<Ra205aRecord>({
     queryKey: ['/api/ra205a-applications', applicationId],
     enabled: !!applicationId
   });
@@ -155,10 +178,10 @@ export default function EditRA205AApplication() {
         selectedSdrId: application.selectedSdrId,
         sdrNumber: application.sdrNumber || "",
         currentTitle: application.currentTitle || "",
-        activityType: application.activityType || "Human",
-        projectId: application.projectId,
-        currentPiId: application.currentPiId,
-        changeCategory: application.changeCategory || {
+        activityType: (application.activityType as RA205AFormData["activityType"] | null) || "Human",
+        projectId: application.projectId ?? undefined,
+        currentPiId: application.currentPiId ?? undefined,
+        changeCategory: (application.changeCategory as RA205AFormData["changeCategory"] | null) || {
           lpiChange: false,
           budgetChange: false,
           titleChange: false,
@@ -168,7 +191,7 @@ export default function EditRA205AApplication() {
         },
         newTitle: application.newTitle || "",
         changeReason: application.changeReason || "",
-        newPiId: application.newPiId,
+        newPiId: application.newPiId ?? undefined,
         budgetSource: application.budgetSource || "",
         changeRequestNumber: application.changeRequestNumber || "",
         approvals: application.approvals || {
@@ -244,6 +267,10 @@ export default function EditRA205AApplication() {
   }
 
   const canEdit = application.status === 'draft' || application.status === 'revision_requested';
+  // The json columns come back untyped.
+  const reviewHistory = (application.reviewHistory ?? []) as ReviewHistoryEntry[];
+  const officeComments = (application.officeComments ?? []) as ApplicationComment[];
+  const piComments = (application.piComments ?? []) as ApplicationComment[];
 
   if (!canEdit) {
     return (
@@ -957,8 +984,8 @@ export default function EditRA205AApplication() {
               </CardHeader>
               <CardContent>
                 <div className="space-y-3">
-                  {application.reviewHistory && application.reviewHistory.length > 0 ? (
-                    application.reviewHistory.map((entry: any, index: number) => (
+                  {reviewHistory.length > 0 ? (
+                    reviewHistory.map((entry, index) => (
                       <div key={index} className="border-l-4 border-orange-200 pl-4 pb-3 dark:border-orange-800">
                         <div className="flex justify-between items-start">
                           <div>
@@ -995,8 +1022,8 @@ export default function EditRA205AApplication() {
                   <div>
                     <h4 className="font-medium text-sm mb-2">Office Comments</h4>
                     <div className="space-y-2">
-                      {application.officeComments && application.officeComments.length > 0 ? (
-                        application.officeComments.map((comment: any, index: number) => (
+                      {officeComments.length > 0 ? (
+                        officeComments.map((comment, index) => (
                           <div key={index} className="bg-red-50 p-3 rounded border-l-4 border-red-200 dark:bg-red-950 dark:border-red-800">
                             <div className="flex justify-between items-start mb-1">
                               <span className="font-medium text-sm">{comment.user}</span>
@@ -1020,8 +1047,8 @@ export default function EditRA205AApplication() {
                   <div>
                     <h4 className="font-medium text-sm mb-2">PI Comments</h4>
                     <div className="space-y-2">
-                      {application.piComments && application.piComments.length > 0 ? (
-                        application.piComments.map((comment: any, index: number) => (
+                      {piComments.length > 0 ? (
+                        piComments.map((comment, index) => (
                           <div key={index} className="bg-blue-50 p-3 rounded border-l-4 border-blue-200 dark:bg-blue-950 dark:border-blue-800">
                             <div className="flex justify-between items-start mb-1">
                               <span className="font-medium text-sm">{comment.user}</span>

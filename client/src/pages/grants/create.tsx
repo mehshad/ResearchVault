@@ -1,5 +1,3 @@
-// @ts-nocheck — Pre-existing TypeScript errors in this file are suppressed so `npx tsc --noEmit` runs clean and new code in other files gets reliable type-checking feedback.
-// Most errors here stem from untyped `useQuery` results (data inferred as `unknown`), drifted shared/schema field renames, and form values typed as `unknown`. They are not known runtime bugs but should be fixed file-by-file as each is next touched: remove this directive, run `npx tsc --noEmit`, and resolve what surfaces.
 import { useState } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -35,7 +33,7 @@ import { investigatorTypeOf } from "@shared/investigatorType";
 import { GrantCollaborations } from "@/components/GrantCollaborations";
 import { GrantCoInvestigators } from "@/components/GrantCoInvestigators";
 import type { GrantCollaborationTree, GrantCoInvestigatorList } from "@shared/schema";
-import { GRANT_CURRENCY_VALUES, insertGrantSchema, type InsertGrant } from "@shared/schema";
+import { GRANT_CURRENCY_VALUES, insertGrantSchema, type InsertGrant, type Scientist } from "@shared/schema";
 import {
   grantStatusAllowsProgressTracking,
   grantStatusImpliesAward,
@@ -44,6 +42,7 @@ import {
 } from "@shared/grantLifecycle";
 import { useGrantStatuses } from "@/hooks/useGrantStatuses";
 import { GrantStatusCombobox } from "@/components/GrantStatusCombobox";
+import { InstitutionName } from "@/components/InstitutionName";
 
 type CreateGrantForm = InsertGrant;
 
@@ -92,7 +91,7 @@ export default function CreateGrant() {
     },
   });
 
-  const { data: scientists = [] } = useQuery({
+  const { data: scientists = [] } = useQuery<Scientist[]>({
     queryKey: ['/api/scientists']
   });
 
@@ -117,7 +116,7 @@ export default function CreateGrant() {
   // Shown as the placeholder on our own grants, where the lead is our own
   // person. Left as a placeholder rather than written into the field: storing
   // a copy would mean two places to correct when the Sidra Lead PI changes.
-  const selectedLpi = (scientists as any[]).find((s) => s.id === watchedLpiId) ?? null;
+  const selectedLpi = scientists.find((s) => s.id === watchedLpiId) ?? null;
   const sidraLpiName = selectedLpi ? formatFullName(selectedLpi) : null;
   // Read off the job title rather than asked for or stored. See
   // shared/investigatorType.ts.
@@ -296,7 +295,7 @@ export default function CreateGrant() {
                       <FormItem>
                         <FormLabel>Cycle</FormLabel>
                         <FormControl>
-                          <Input {...field} placeholder="e.g., 2024-1" />
+                          <Input {...field} value={field.value ?? ""} placeholder="e.g., 2024-1" />
                         </FormControl>
                         <FormMessage />
                       </FormItem>
@@ -384,7 +383,7 @@ export default function CreateGrant() {
                       <FormItem>
                         <FormLabel>Funding Agency</FormLabel>
                         <FormControl>
-                          <Input {...field} placeholder="e.g., NIH, NSF, KSAS" />
+                          <Input {...field} value={field.value ?? ""} placeholder="e.g., NIH, NSF, KSAS" />
                         </FormControl>
                         <FormMessage />
                       </FormItem>
@@ -421,10 +420,10 @@ export default function CreateGrant() {
 
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mt-4">
                   <FormField control={form.control} name="sourceCategory" render={({ field }) => (
-                    <FormItem><FormLabel>Grant Source/Category</FormLabel><FormControl><Input {...field} placeholder="e.g., Internal, External" /></FormControl><FormMessage /></FormItem>
+                    <FormItem><FormLabel>Grant Source/Category</FormLabel><FormControl><Input {...field} value={field.value ?? ""} placeholder="e.g., Internal, External" /></FormControl><FormMessage /></FormItem>
                   )} />
                   <FormField control={form.control} name="sourceRecordKey" render={({ field }) => (
-                    <FormItem><FormLabel>Source Record Key</FormLabel><FormControl><Input {...field} placeholder="Source system reference" /></FormControl><FormMessage /></FormItem>
+                    <FormItem><FormLabel>Source Record Key</FormLabel><FormControl><Input {...field} value={field.value ?? ""} placeholder="Source system reference" /></FormControl><FormMessage /></FormItem>
                   )} />
                   <FormField control={form.control} name="submittingInstitution" render={({ field }) => (
                     <FormItem><FormLabel>Submitting Institution</FormLabel><FormControl><InstitutionCombobox value={field.value} onChange={field.onChange} data-testid="select-submitting-institution" /></FormControl><FormMessage /></FormItem>
@@ -465,7 +464,7 @@ export default function CreateGrant() {
                         {/* "Sidra Lead PI", not "Lead PI": on a subaward the
                             grant's own lead is the external one above, and this
                             is the person here who owns our part of it. */}
-                        <FormLabel>Sidra Lead PI</FormLabel>
+                        <FormLabel><InstitutionName short /> Lead PI</FormLabel>
                         <Select onValueChange={(value) => field.onChange(value ? parseInt(value) : undefined)}>
                           <FormControl>
                             <SelectTrigger>
@@ -495,7 +494,7 @@ export default function CreateGrant() {
                     </span>
                     <p className="text-sm" data-testid="text-investigator-type">
                       {!watchedLpiId ? (
-                        <span className="text-muted-foreground">Select a Sidra Lead PI</span>
+                        <span className="text-muted-foreground">Select a <InstitutionName short /> Lead PI</span>
                       ) : sidraLpiInvestigatorType ? (
                         sidraLpiInvestigatorType
                       ) : (
@@ -516,7 +515,7 @@ export default function CreateGrant() {
                         <FormLabel>Description</FormLabel>
                         <FormControl>
                           <Textarea 
-                            {...field} 
+                            {...field} value={field.value ?? ""} 
                             placeholder="Brief description of the grant objectives and scope"
                             rows={2}
                           />
@@ -545,7 +544,7 @@ export default function CreateGrant() {
                           <FormLabel>Requested Amount</FormLabel>
                           <FormControl>
                             <Input 
-                              {...field} 
+                              {...field} value={field.value ?? ""} 
                               type="number" 
                               step="0.01"
                               placeholder="0.00" 
@@ -564,7 +563,7 @@ export default function CreateGrant() {
                           <FormLabel>Awarded Amount</FormLabel>
                           <FormControl>
                             <Input 
-                              {...field} 
+                              {...field} value={field.value ?? ""} 
                               type="number" 
                               step="0.01"
                               placeholder="0.00" 
@@ -620,7 +619,7 @@ export default function CreateGrant() {
                           <FormLabel>Submitted Year</FormLabel>
                           <FormControl>
                             <Input 
-                              {...field} 
+                              {...field} value={field.value ?? ""} 
                               type="number" 
                               placeholder="2024" 
                               onChange={(e) => field.onChange(e.target.value ? parseInt(e.target.value) : undefined)}
@@ -639,7 +638,7 @@ export default function CreateGrant() {
                           <FormLabel>Awarded Year</FormLabel>
                           <FormControl>
                             <Input 
-                              {...field} 
+                              {...field} value={field.value ?? ""} 
                               type="number" 
                               placeholder="2024" 
                               onChange={(e) => field.onChange(e.target.value ? parseInt(e.target.value) : undefined)}
@@ -653,10 +652,10 @@ export default function CreateGrant() {
                       <FormItem><FormLabel>Reporting Interval (months)</FormLabel><FormControl><Input {...field} value={field.value ?? ""} type="number" min="1" max="60" placeholder="e.g., 12 for annual reports" onChange={(e) => field.onChange(e.target.value ? parseInt(e.target.value) : undefined)} /></FormControl><FormMessage /></FormItem>
                     )} />
                     <FormField control={form.control} name="durationMonths" render={({ field }) => (
-                      <FormItem><FormLabel>Duration (Months)</FormLabel><FormControl><Input {...field} type="number" placeholder="36" onChange={(e) => field.onChange(e.target.value ? parseInt(e.target.value) : undefined)} /></FormControl><FormMessage /></FormItem>
+                      <FormItem><FormLabel>Duration (Months)</FormLabel><FormControl><Input {...field} value={field.value ?? ""} type="number" placeholder="36" onChange={(e) => field.onChange(e.target.value ? parseInt(e.target.value) : undefined)} /></FormControl><FormMessage /></FormItem>
                     )} />
                     <FormField control={form.control} name="subawardCompletedYear" render={({ field }) => (
-                      <FormItem><FormLabel>Subaward Completed Year</FormLabel><FormControl><Input {...field} type="number" placeholder="2024" onChange={(e) => field.onChange(e.target.value ? parseInt(e.target.value) : undefined)} /></FormControl><FormMessage /></FormItem>
+                      <FormItem><FormLabel>Subaward Completed Year</FormLabel><FormControl><Input {...field} value={field.value ?? ""} type="number" placeholder="2024" onChange={(e) => field.onChange(e.target.value ? parseInt(e.target.value) : undefined)} /></FormControl><FormMessage /></FormItem>
                     )} />
                   </div>
 
@@ -694,7 +693,7 @@ export default function CreateGrant() {
                           <FormLabel>Running Time (Years)</FormLabel>
                           <FormControl>
                             <Input 
-                              {...field} 
+                              {...field} value={field.value ?? ""} 
                               type="number" 
                               placeholder="3" 
                               onChange={(e) => field.onChange(e.target.value ? parseInt(e.target.value) : undefined)}
@@ -748,10 +747,10 @@ export default function CreateGrant() {
               <CardContent>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
                   <FormField control={form.control} name="contributionType" render={({ field }) => (
-                    <FormItem><FormLabel>Contribution Type</FormLabel><FormControl><Input {...field} placeholder="e.g., Financial, In-kind" /></FormControl><FormMessage /></FormItem>
+                    <FormItem><FormLabel>Contribution Type</FormLabel><FormControl><Input {...field} value={field.value ?? ""} placeholder="e.g., Financial, In-kind" /></FormControl><FormMessage /></FormItem>
                   )} />
                   <FormField control={form.control} name="contributionDetails" render={({ field }) => (
-                    <FormItem><FormLabel>Contribution Details</FormLabel><FormControl><Input {...field} placeholder="Describe the contribution" /></FormControl><FormMessage /></FormItem>
+                    <FormItem><FormLabel>Contribution Details</FormLabel><FormControl><Input {...field} value={field.value ?? ""} placeholder="Describe the contribution" /></FormControl><FormMessage /></FormItem>
                   )} />
                 </div>
                 {/* The same two pickers the edit form uses. They were free-text
@@ -773,7 +772,7 @@ export default function CreateGrant() {
 
                 <div className="space-y-2 mt-6">
                   <label className="text-sm font-medium text-gray-700 block dark:text-gray-300">
-                    Sidra Medicine co-investigators
+                    <InstitutionName /> co-investigators
                   </label>
                   <p className="text-xs text-muted-foreground">
                     Our own staff on this grant, chosen from the directory. People at other

@@ -1,5 +1,3 @@
-// @ts-nocheck — Pre-existing TypeScript errors in this file are suppressed so `npx tsc --noEmit` runs clean and new code in other files gets reliable type-checking feedback.
-// Most errors here stem from untyped `useQuery` results (data inferred as `unknown`), drifted shared/schema field renames, and form values typed as `unknown`. They are not known runtime bugs but should be fixed file-by-file as each is next touched: remove this directive, run `npx tsc --noEmit`, and resolve what surfaces.
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "wouter";
@@ -18,7 +16,7 @@ import {
 } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
 import { IrbApplication } from "@shared/schema";
-import { formatDateLong } from "@/lib/dates";
+import { formatDateOrDash as formatDate } from "@/lib/dates";
 
 interface EnhancedIrbApplication extends IrbApplication {
   researchActivity?: {
@@ -43,12 +41,7 @@ export default function IrbOfficePortal() {
     queryKey: ['/api/irb-applications'],
   });
 
-  const formatDate = (date: string | Date | undefined) => {
-    if (!date) return "—";
-    return formatDateLong(date);
-  };
-
-  const getDaysSince = (date: string | Date | undefined) => {
+  const getDaysSince = (date: string | Date | null | undefined) => {
     if (!date) return 0;
     const diffTime = Math.abs(new Date().getTime() - new Date(date).getTime());
     return Math.ceil(diffTime / (1000 * 60 * 60 * 24));
@@ -345,7 +338,7 @@ export default function IrbOfficePortal() {
                 <CheckCircle className="h-5 w-5 text-green-600 dark:text-green-400" />
               </div>
               <div>
-                <div className="text-2xl font-bold">{tabCounts.review}</div>
+                <div className="text-2xl font-bold">{tabCounts.under_review}</div>
                 <div className="text-xs text-gray-500 dark:text-gray-400">Under Review</div>
               </div>
             </div>
@@ -359,7 +352,7 @@ export default function IrbOfficePortal() {
                 <Send className="h-5 w-5 text-purple-600 dark:text-purple-400" />
               </div>
               <div>
-                <div className="text-2xl font-bold">{tabCounts.ready_for_pi}</div>
+                <div className="text-2xl font-bold">{tabCounts.ready_for_decision}</div>
                 <div className="text-xs text-gray-500 dark:text-gray-400">Ready for PI</div>
               </div>
             </div>

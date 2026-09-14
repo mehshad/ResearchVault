@@ -13,29 +13,16 @@ import { EnhancedIrbApplication } from "@/lib/types";
 import { Plus, Search, MoreHorizontal, CalendarRange, FileText, AlertCircle } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
 import { formatNameWithJobTitle } from "@/utils/nameUtils";
-import { formatDateLong } from "@/lib/dates";
+import { formatDateOrDash as formatDate } from "@/lib/dates";
+import { statusBadgeClass } from "@/lib/statusStyles";
+import { QueryError } from "@/components/QueryError";
 
 export default function IrbList() {
   const [searchQuery, setSearchQuery] = useState("");
 
-  const { data: applications, isLoading } = useQuery<EnhancedIrbApplication[]>({
+  const { data: applications, isLoading, isError, error, refetch } = useQuery<EnhancedIrbApplication[]>({
     queryKey: ['/api/irb-applications'],
   });
-
-  const formatDate = (date: string | Date | undefined) => {
-    if (!date) return "—";
-    return formatDateLong(date);
-  };
-
-  const statusColors = {
-    draft: "bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-300",
-    submitted: "bg-yellow-100 text-yellow-700 dark:bg-yellow-950 dark:text-yellow-300",
-    under_review: "bg-purple-100 text-purple-600 dark:bg-purple-950 dark:text-purple-400",
-    approved: "bg-green-100 text-green-700 dark:bg-green-950 dark:text-green-300",
-    rejected: "bg-red-100 text-red-600 dark:bg-red-950 dark:text-red-400",
-    pending: "bg-blue-100 text-blue-600 dark:bg-blue-950 dark:text-blue-400",
-    expired: "bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-300"
-  };
 
   const riskLevelColors = {
     minimal: "bg-green-50 text-green-600 dark:bg-green-950 dark:text-green-400",
@@ -106,6 +93,8 @@ export default function IrbList() {
                 </div>
               ))}
             </div>
+          ) : isError ? (
+            <QueryError what="IRB applications" error={error} onRetry={() => refetch()} />
           ) : (
             <Table>
               <TableHeader>
@@ -188,7 +177,7 @@ export default function IrbList() {
                       {(application.workflowStatus || application.status) && (
                         <Badge 
                           variant="outline"
-                          className={`capitalize ${statusColors[(application.workflowStatus || application.status).toLowerCase() as keyof typeof statusColors] || "bg-gray-100 text-gray-600"}`}
+                          className={`capitalize ${statusBadgeClass("irb", application.workflowStatus || application.status)}`}
                         >
                           {(application.workflowStatus || application.status).replace('_', ' ')}
                         </Badge>

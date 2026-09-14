@@ -1,6 +1,4 @@
-// @ts-nocheck — Pre-existing TypeScript errors in this file are suppressed so `npx tsc --noEmit` runs clean and new code in other files gets reliable type-checking feedback.
-// Most errors here stem from untyped `useQuery` results (data inferred as `unknown`), drifted shared/schema field renames, and form values typed as `unknown`. They are not known runtime bugs but should be fixed file-by-file as each is next touched: remove this directive, run `npx tsc --noEmit`, and resolve what surfaces.
-import { useState } from "react";
+import { useState, type ComponentProps } from "react";
 import { useParams, useLocation } from "wouter";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
@@ -16,7 +14,9 @@ import {
 } from "lucide-react";
 import { IrbApplication, ResearchActivity, Scientist } from "@shared/schema";
 import TimelineComments from "@/components/TimelineComments";
-import { formatDateLong } from "@/lib/dates";
+import { formatFullName } from "@/utils/nameUtils";
+import { formatDateOrDash as formatDate } from "@/lib/dates";
+import { statusBadgeClass } from "@/lib/statusStyles";
 
 interface ReviewAction {
   action: 'approve' | 'reject' | 'request_revisions' | 'assign_reviewer' | 'assign_reviewers';
@@ -24,6 +24,8 @@ interface ReviewAction {
   reviewerId?: number;
   decision?: string;
 }
+
+type TimelineComment = ComponentProps<typeof TimelineComments>["comments"][number];
 
 export default function IrbOfficeProtocolDetail(
   { applicationId: applicationIdProp, printMode = false }: { applicationId?: number; printMode?: boolean } & Record<string, any> = {}
@@ -60,7 +62,7 @@ export default function IrbOfficeProtocolDetail(
   });
 
   // Fetch comments for timeline display
-  const { data: comments = [] } = useQuery({
+  const { data: comments = [] } = useQuery<TimelineComment[]>({
     queryKey: [`/api/irb-applications/${applicationId}/comments`],
     enabled: !!applicationId,
     staleTime: 0,
@@ -71,7 +73,8 @@ export default function IrbOfficeProtocolDetail(
   const reviewers = boardMembers.map(member => member.scientist).filter(Boolean);
 
   const updateApplicationMutation = useMutation({
-    mutationFn: async (updateData: any) => {
+    // `action` names the step for the success toast; the rest is the PATCH body.
+    mutationFn: async ({ action: _action, ...updateData }: { action: ReviewAction['action'] } & Record<string, unknown>) => {
       const response = await fetch(`/api/irb-applications/${applicationId}`, {
         method: 'PATCH',
         headers: { 
@@ -248,42 +251,15 @@ export default function IrbOfficeProtocolDetail(
     }
   };
 
-  const formatDate = (date: string | Date | undefined) => {
-    if (!date) return "—";
-    return formatDateLong(date);
-  };
-
-  const getStatusBadge = (status: string) => {
-    switch (status) {
-      case 'submitted':
-        return 'bg-blue-100 text-blue-800 dark:bg-blue-950 dark:text-blue-300';
-      case 'triage_complete':
-        return 'bg-cyan-100 text-cyan-800 dark:bg-cyan-950 dark:text-cyan-300';
-      case 'under_review':
-        return 'bg-yellow-100 text-yellow-800 dark:bg-yellow-950 dark:text-yellow-300';
-      case 'approved':
-        return 'bg-green-100 text-green-800 dark:bg-green-950 dark:text-green-300';
-      case 'rejected':
-        return 'bg-red-100 text-red-800 dark:bg-red-950 dark:text-red-300';
-      case 'revisions_requested':
-        return 'bg-orange-100 text-orange-800 dark:bg-orange-950 dark:text-orange-300';
-      case 'resubmitted':
-        return 'bg-purple-100 text-purple-800 dark:bg-purple-950 dark:text-purple-300';
-      default:
-        return 'bg-gray-100 text-gray-800 dark:bg-gray-800 dark:text-gray-200';
-    }
-  };
-
   const renderReviewHistory = () => {
+    if (!application) return null;
     return (
       <TimelineComments 
         application={{
-          createdAt: application.createdAt,
-          submissionDate: application.submissionDate,
-          vettedDate: application.vettedDate,
-          underReviewDate: application.underReviewDate,
-          approvalDate: application.approvalDate,
-          expirationDate: application.expirationDate,
+          createdAt: typeof application.createdAt === 'string' ? application.createdAt : application.createdAt?.toISOString(),
+          submissionDate: typeof application.submissionDate === 'string' ? application.submissionDate : application.submissionDate?.toISOString(),
+          approvalDate: application.initialApprovalDate ?? undefined,
+          expirationDate: application.expirationDate ?? undefined,
         }}
         comments={comments}
         title="Complete Workflow History"
@@ -336,7 +312,7 @@ export default function IrbOfficeProtocolDetail(
           )}
           <Badge 
             variant="outline"
-            className={`capitalize ${getStatusBadge(application.workflowStatus || 'submitted')}`}
+            className={`capitalize ${statusBadgeClass("irb", application.workflowStatus || 'submitted')}`}
           >
             {application.workflowStatus === 'revisions_requested' ? 'revisions requested' :
              application.workflowStatus === 'triage_complete' ? 'triage complete' :
@@ -561,7 +537,7 @@ export default function IrbOfficeProtocolDetail(
                     {principalInvestigator.profileImageInitials}
                   </div>
                   <div>
-                    <p className="font-medium">{principalInvestigator.name}</p>
+                    <p className="font-medium">{formatFullName(principalInvestigator)}</p>
                     <p className="text-sm text-gray-500 dark:text-gray-400">{principalInvestigator.email}</p>
                   </div>
                 </div>
@@ -686,6 +662,7 @@ export default function IrbOfficeProtocolDetail(
                       const timestamp = Date.now();
                       
                       const updateData = {
+                        action: 'assign_reviewers' as const,
                         workflowStatus: 'under_review',
                         protocolType: reviewType,
                         reviewerAssignments: JSON.stringify({

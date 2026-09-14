@@ -1,5 +1,3 @@
-// @ts-nocheck — Pre-existing TypeScript errors in this file are suppressed so `npx tsc --noEmit` runs clean and new code in other files gets reliable type-checking feedback.
-// Most errors here stem from untyped `useQuery` results (data inferred as `unknown`), drifted shared/schema field renames, and form values typed as `unknown`. They are not known runtime bugs but should be fixed file-by-file as each is next touched: remove this directive, run `npx tsc --noEmit`, and resolve what surfaces.
 import { useState, useEffect, useRef, useLayoutEffect, useMemo } from "react";
 import {
   DEFAULT_IMPACT_FACTOR_CUTOFF,
@@ -4876,7 +4874,7 @@ export default function PublicationOffice({ embeddedTab }: PublicationOfficeProp
                         </div>
                         <div className="text-center p-3 bg-muted/30 rounded">
                           <div className="text-lg font-bold">
-                            {latestData.citedHalfLife != null && latestData.citedHalfLife !== 0 
+                            {latestData.citedHalfLife != null && Number(latestData.citedHalfLife) !== 0 
                               ? latestData.citedHalfLife 
                               : 'N/A'}
                           </div>
@@ -4884,7 +4882,7 @@ export default function PublicationOffice({ embeddedTab }: PublicationOfficeProp
                         </div>
                         <div className="text-center p-3 bg-muted/30 rounded">
                           <div className="text-lg font-bold">
-                            {latestData.jci != null && latestData.jci !== 0 
+                            {latestData.jci != null && Number(latestData.jci) !== 0 
                               ? latestData.jci 
                               : 'N/A'}
                           </div>

@@ -6,7 +6,8 @@ import {
   BookOpen, Award, FileText, Table, Handshake, PieChart,
   Settings, LogOut, UserPlus, X, Shield, Biohazard, Building,
   FolderTree, FileCheck, ShieldCheck, TestTube, TrendingUp, ChevronDown, Eye,
-  ClipboardList, Briefcase, ChevronLeft, ChevronRight, Home, UserCog, MessageSquarePlus
+  ClipboardList, Briefcase, ChevronLeft, ChevronRight, Home, UserCog, MessageSquarePlus,
+  HandCoins, ScrollText,
 } from "lucide-react";
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue
@@ -24,6 +25,8 @@ interface SidebarProps {
   onClose?: () => void;
   onCollapsedChange?: (collapsed: boolean) => void;
 }
+
+import { resolveActiveHref } from "@/lib/activeHref";
 
 export default function Sidebar({ mobile = false, onClose, onCollapsedChange }: SidebarProps) {
   const [location, navigate] = useLocation();
@@ -283,15 +286,17 @@ export default function Sidebar({ mobile = false, onClose, onCollapsedChange }: 
         // The researcher-facing pair. Same records as the two office pages
         // above, but scoped to the viewer and their section, and behind their
         // own matrix area so they can be granted without the office screens.
+        // Labelled and drawn as the viewer's own, so they read as a different
+        // thing from the office pages beside them rather than a duplicate.
         {
           href: "/research-portfolio/grants",
-          label: "Grants",
-          icon: PieChart
+          label: "My grants",
+          icon: HandCoins
         },
         {
           href: "/research-portfolio/contracts",
-          label: "Contracts",
-          icon: Handshake
+          label: "My contracts",
+          icon: ScrollText
         },
         {
           href: "/research-office/configuration",
@@ -331,6 +336,14 @@ export default function Sidebar({ mobile = false, onClose, onCollapsedChange }: 
       ]
     }
   ];
+
+  // The one entry to light up for this location: the longest href that is
+  // the page or an ancestor of it, with /pmo/ and unprefixed PMO paths
+  // treated as the same place.
+  const activeHref = resolveActiveHref(
+    location,
+    navigationSections.flatMap((section) => section.items.map((item) => item.href)),
+  );
 
   const isCollapsed = !mobile && collapsed;
 
@@ -502,7 +515,7 @@ export default function Sidebar({ mobile = false, onClose, onCollapsedChange }: 
                           className={cn(
                             "flex items-center rounded-lg transition-colors",
                             isCollapsed ? "justify-center px-2 py-2" : "px-3 py-2 text-sm",
-                            location === item.href
+                            item.href === activeHref
                               ? "bg-primary text-primary-foreground font-medium shadow-sm"
                               : "text-card-foreground hover:bg-primary/10 hover:text-primary",
                             itemIsReadOnly && "opacity-80"

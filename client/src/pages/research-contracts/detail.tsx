@@ -1,5 +1,3 @@
-// @ts-nocheck — Pre-existing TypeScript errors in this file are suppressed so `npx tsc --noEmit` runs clean and new code in other files gets reliable type-checking feedback.
-// Most errors here stem from untyped `useQuery` results (data inferred as `unknown`), drifted shared/schema field renames, and form values typed as `unknown`. They are not known runtime bugs but should be fixed file-by-file as each is next touched: remove this directive, run `npx tsc --noEmit`, and resolve what surfaces.
 import { useQuery } from "@tanstack/react-query";
 import { useLocation, useParams } from "wouter";
 import { Button } from "@/components/ui/button";
@@ -13,6 +11,8 @@ import { format } from "date-fns";
 import { usePublicationCount } from "@/hooks/use-publication-count";
 import { useCurrentUser } from "@/hooks/useCurrentUser";
 import { isAdministrator, hasAnyRole } from "@shared/effectiveRoles";
+import { fetchList } from "@/lib/fetchList";
+import { InstitutionName } from "@/components/InstitutionName";
 
 export default function ResearchContractDetail() {
   const params = useParams<{ id: string }>();
@@ -148,6 +148,10 @@ export default function ResearchContractDetail() {
       </div>
     );
   }
+
+  // `documents` is a free-form json column with no shared type; only the
+  // agreement file name is read here.
+  const contractDocuments = contract.documents as { agreement?: string } | null;
 
   return (
     <div className="space-y-6">
@@ -379,7 +383,7 @@ export default function ResearchContractDetail() {
                 <h3 className="text-md font-medium border-b pb-2">Financial Details</h3>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-2">
                   <div>
-                    <p className="text-sm font-medium text-foreground">Internal Cost (Sidra)</p>
+                    <p className="text-sm font-medium text-foreground">Internal Cost (<InstitutionName short />)</p>
                     <p className="mt-1">${contract.internalCostSidra?.toLocaleString() || 'Not specified'}</p>
                   </div>
                   <div>
@@ -462,8 +466,7 @@ export default function ResearchContractDetail() {
                     className="w-full justify-start" 
                     onClick={() => {
                       // Find the IRB application ID from the protocol number and navigate to its details
-                      fetch(`/api/irb-applications`)
-                        .then(res => res.json())
+                      fetchList<{ id: number; irbNumber: string | null }>('/api/irb-applications')
                         .then(data => {
                           const irbApp = data.find(app => app.irbNumber === contract.irbProtocol);
                           if (irbApp) {
@@ -490,8 +493,7 @@ export default function ResearchContractDetail() {
                     className="w-full justify-start" 
                     onClick={() => {
                       // Find the IBC application ID from the protocol number and navigate to its details
-                      fetch(`/api/ibc-applications`)
-                        .then(res => res.json())
+                      fetchList<{ id: number; ibcNumber: string | null }>('/api/ibc-applications')
                         .then(data => {
                           const ibcApp = data.find(app => app.ibcNumber === contract.ibcProtocol);
                           if (ibcApp) {
@@ -520,12 +522,12 @@ export default function ResearchContractDetail() {
               <CardTitle>Documents</CardTitle>
             </CardHeader>
             <CardContent>
-              {contract.documents && contract.documents.agreement ? (
+              {contractDocuments && contractDocuments.agreement ? (
                 <div className="space-y-2">
                   <div className="flex items-center justify-between p-2 border rounded">
                     <div className="flex items-center gap-2">
                       <FileText className="h-4 w-4 text-foreground" />
-                      <span>{contract.documents.agreement}</span>
+                      <span>{contractDocuments.agreement}</span>
                     </div>
                     <Button size="sm" variant="ghost" data-testid="button-document-view">
                       <FileText className="h-4 w-4" />
@@ -579,7 +581,7 @@ export default function ResearchContractDetail() {
                               }
                               data-testid={`badge-scope-party-${item.id}`}
                             >
-                              {item.party === 'sidra' ? 'Sidra' : 'Counterparty'}
+                              {item.party === 'sidra' ? <InstitutionName short /> : 'Counterparty'}
                             </Badge>
                           </TableCell>
                           <TableCell className="max-w-xs">
