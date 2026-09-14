@@ -26,7 +26,7 @@ interface LoginModalProps {
 }
 
 export function LoginModal({ open, onOpenChange, onSuccess }: LoginModalProps) {
-  const { login, loading, authConfig } = useAuth();
+  const { login, loginAsDemo, loading, authConfig } = useAuth();
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
   // Parse OIDC error from URL if present
@@ -54,6 +54,17 @@ export function LoginModal({ open, onOpenChange, onSuccess }: LoginModalProps) {
 
   const handleOidcLogin = () => {
     window.location.href = '/api/auth/oidc';
+  };
+
+  const handleDemoSignIn = async (username: string) => {
+    setErrorMsg(null);
+    const success = await loginAsDemo(username);
+    if (success) {
+      form.reset();
+      onSuccess();
+    } else {
+      setErrorMsg('Could not sign in to the demo account.');
+    }
   };
 
   const isFormMode = authConfig.mode === 'local' || authConfig.mode === 'ldap';
@@ -134,6 +145,28 @@ export function LoginModal({ open, onOpenChange, onSuccess }: LoginModalProps) {
           <Button className="w-full bg-teal-600 hover:bg-teal-500" onClick={handleOidcLogin} disabled={loading}>
             Sign in with {providerName}
           </Button>
+        )}
+
+        {authConfig.demoLogin && authConfig.demoAccounts.length > 0 && (
+          <div className="mt-2 border-t border-slate-700 pt-4">
+            <p className="mb-2 text-sm font-medium text-slate-400">Or explore the demo as:</p>
+            <div className="grid gap-2">
+              {authConfig.demoAccounts.map((account) => (
+                <Button
+                  key={account.username}
+                  type="button"
+                  variant="outline"
+                  className="w-full justify-between border-slate-600 bg-slate-800 text-white hover:bg-slate-700 hover:text-white"
+                  onClick={() => handleDemoSignIn(account.username)}
+                  disabled={loading}
+                  data-testid={`button-demo-${account.username}`}
+                >
+                  <span>{account.name}</span>
+                  <span className="text-xs text-slate-400">{account.role}</span>
+                </Button>
+              ))}
+            </div>
+          </div>
         )}
 
         <p className="text-center text-xs text-slate-500 dark:text-slate-400">
