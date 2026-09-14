@@ -17,7 +17,8 @@ import { formatDateLong } from "@/lib/dates";
 import { InstitutionName } from "@/components/InstitutionName";
 
 // Define interface for detail data
-interface ResearchActivityDetail extends ResearchActivity {
+// Named apart from the component below; sharing its name was a redeclaration.
+interface ResearchActivityWithProject extends ResearchActivity {
   project?: Project;
 }
 
@@ -27,7 +28,7 @@ export default function ResearchActivityDetail() {
   const id = parseInt(params.id);
   const { all: allStatuses } = useGrantStatuses();
 
-  const { data: activity, isLoading: activityLoading } = useQuery<ResearchActivityDetail>({
+  const { data: activity, isLoading: activityLoading } = useQuery<ResearchActivityWithProject>({
     queryKey: ['/api/research-activities', id],
     queryFn: async () => {
       const response = await fetch(`/api/research-activities/${id}`);
