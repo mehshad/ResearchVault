@@ -9431,9 +9431,10 @@ function writeFailureDetail(error: unknown): string {
   app.get('/api/grants/export/csv', requireAuth, async (req: Request, res: Response) => {
     try {
       const format = req.query.format === 'xlsx' ? 'xlsx' : 'csv';
-      const [grants, scientists] = await Promise.all([storage.getGrants(), storage.getScientists()]);
+      const [grants, scientists, programs] = await Promise.all([storage.getGrants(), storage.getScientists(), storage.getPrograms()]);
       const scientistById = new Map(scientists.map((s: any) => [s.id, s]));
-      const rows = grantsToRows(grants, scientistById);
+      const programById = new Map(programs.map((p: any) => [p.id, p]));
+      const rows = grantsToRows(grants, scientistById, programById);
       const stamp = new Date().toISOString().slice(0, 10);
 
       if (format === 'xlsx') {
@@ -9475,14 +9476,23 @@ function writeFailureDetail(error: unknown): string {
     if (fileBase64.length > 15_000_000) throw new Error("File too large (max ~10 MB)");
     const rawRows = await parseUploadedFile(fileBase64, fileName);
     if (rawRows.length > 2000) throw new Error("Too many rows in one import (max 2000)");
-    const [grants, scientists] = await Promise.all([storage.getGrants(), storage.getScientists()]);
+    const [grants, scientists, programs] = await Promise.all([storage.getGrants(), storage.getScientists(), storage.getPrograms()]);
     const existingByProjectNumber = new Map(grants.map((g: any) => [String(g.projectNumber).toLowerCase(), g]));
     const scientistByEmail = new Map(scientists.filter((s: any) => s.email).map((s: any) => [s.email.toLowerCase(), s]));
     // Indexed rather than keyed on an exact "first last" string: the office's
     // files write the title into the name field and sometimes a middle name,
     // so "Dr. Khalid Fakhro" never matched the record "Khalid Fakhro".
     const scientistByName = buildStaffNameIndex(scientists as any);
-    return previewGrantRows(rawRows, existingByProjectNumber, scientistByEmail, scientistByName);
+    // A grant's programme, keyed for import by its PRM code, its name, and the
+    // "PRM-001 — Name" label an export writes, so any of the three resolves.
+    const programByKey = new Map<string, number>();
+    for (const program of programs as any[]) {
+      const add = (raw: string) => { const key = String(raw).trim().toLowerCase(); if (key) programByKey.set(key, program.id); };
+      if (program.programId) add(program.programId);
+      if (program.name) add(program.name);
+      if (program.programId && program.name) add(`${program.programId} — ${program.name}`);
+    }
+    return previewGrantRows(rawRows, existingByProjectNumber, scientistByEmail, scientistByName, programByKey);
   }
 
   app.post('/api/grants/import/preview', requireAuth, async (req: Request, res: Response) => {

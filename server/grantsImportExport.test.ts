@@ -7,12 +7,90 @@ import { buildStaffNameIndex } from "@shared/staffNameMatching";
 import {
   buildMissingGrantStaffWorkbookBuffer,
   collectMissingGrantStaff,
+  formatProgramLabel,
+  grantsToRows,
   previewGrantRows,
 } from "./grantsImportExport";
+import type { Program } from "@shared/schema";
 
 const noExistingGrants = new Map<string, Grant>();
 const noScientistsByEmail = new Map<string, Scientist>();
 const noScientistsByName = buildStaffNameIndex([]);
+
+// One programme, keyed the way the import route keys them: PRM code, name, and
+// the "code — name" label an export writes.
+const demoProgram = { id: 7, programId: "PRM-001", name: "Precision Medicine" } as Program;
+const programByKey = new Map<string, number>([
+  ["prm-001", 7],
+  ["precision medicine", 7],
+  ["prm-001 — precision medicine", 7],
+]);
+const programById = new Map<number, Program>([[7, demoProgram]]);
+
+test("grant import resolves a programme by its PRM code", () => {
+  const [preview] = previewGrantRows(
+    [{ "Project Number": "IMPORT-PRG-CODE", "Title": "Coded programme", "Program": "PRM-001" }],
+    noExistingGrants,
+    noScientistsByEmail,
+    noScientistsByName,
+    programByKey,
+  );
+  assert.equal(preview.action, "create");
+  assert.equal(preview.data?.programId, 7);
+});
+
+test("grant import resolves a programme by the exported 'code — name' label", () => {
+  const [preview] = previewGrantRows(
+    [{ "Project Number": "IMPORT-PRG-LABEL", "Title": "Labelled programme", "Program": "PRM-001 — Precision Medicine" }],
+    noExistingGrants,
+    noScientistsByEmail,
+    noScientistsByName,
+    programByKey,
+  );
+  assert.equal(preview.action, "create");
+  assert.equal(preview.data?.programId, 7);
+});
+
+test("grant import skips a row whose programme matches nothing", () => {
+  const [preview] = previewGrantRows(
+    [{ "Project Number": "IMPORT-PRG-BAD", "Title": "Unknown programme", "Program": "PRM-999" }],
+    noExistingGrants,
+    noScientistsByEmail,
+    noScientistsByName,
+    programByKey,
+  );
+  assert.equal(preview.action, "skip");
+  assert.equal(preview.reasonCode, "unmatched_program");
+});
+
+test("grant import clears the programme on the literal CLEAR", () => {
+  const existing = new Map<string, Grant>([
+    ["import-prg-clear", { id: 1, projectNumber: "IMPORT-PRG-CLEAR", title: "Has a programme", programId: 7 } as Grant],
+  ]);
+  const [preview] = previewGrantRows(
+    [{ "Project Number": "IMPORT-PRG-CLEAR", "Program": "clear" }],
+    existing,
+    noScientistsByEmail,
+    noScientistsByName,
+    programByKey,
+  );
+  assert.equal(preview.action, "update");
+  assert.equal(preview.data?.programId, null);
+});
+
+test("grant export writes the programme as its 'code — name' label", () => {
+  const [row] = grantsToRows(
+    [{ id: 1, projectNumber: "EXP-PRG", title: "Exported grant", programId: 7 } as Grant],
+    new Map(),
+    programById,
+  );
+  assert.equal(row["Program"], "PRM-001 — Precision Medicine");
+});
+
+test("formatProgramLabel is blank when the grant names no programme", () => {
+  assert.equal(formatProgramLabel(null, programById), "");
+  assert.equal(formatProgramLabel(999, programById), "");
+});
 
 test("grant import rejects Active rows without a start date", () => {
   const [preview] = previewGrantRows(
