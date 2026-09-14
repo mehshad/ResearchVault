@@ -174,6 +174,7 @@ import {
 import { registerOfficeDashboardRoutes } from "./officeDashboardRoutes";
 import { registerManagementReportRoutes } from "./managementReportRoutes";
 import { systemAudit } from "./auditService";
+import { log, logError } from "./logger";
 
 const isLocalStorage = process.env.STORAGE_TYPE === "local";
 
@@ -1194,7 +1195,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       await db.execute(sql`SELECT 1`);
       res.json(true);
     } catch (error) {
-      console.error("Database health check failed:", error);
+      logError("Database health check failed", "routes", error);
       res.json(false);
     }
   });
@@ -1216,7 +1217,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
       res.json({ uploadURL, objectPath, finalizeToken });
     } catch (error) {
-      console.error("Error getting upload URL:", error);
+      logError("Error getting upload URL", "routes", error);
       res.status(500).json({ error: "Failed to generate upload URL" });
     }
   });
@@ -1253,7 +1254,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
             visibility: "private",
           });
         } catch (error) {
-          console.error("Failed to set ACL on upload:", error);
+          logError("Failed to set ACL on upload", "routes", error);
           return res.status(500).json({ error: "Failed to finalize upload" });
         }
       }
@@ -1284,7 +1285,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         metadata: { name, size, contentType },
       });
     } catch (error) {
-      console.error("Error generating upload URL:", error);
+      logError("Error generating upload URL", "routes", error);
       res.status(500).json({ error: "Failed to generate upload URL" });
     }
   });
@@ -1338,7 +1339,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       await objectStorageService.downloadObject(objectFile as any, res);
     } catch (error) {
-      console.error("Error serving object:", error);
+      logError("Error serving object", "routes", error);
       if (error instanceof ObjectNotFoundError) {
         return res.status(404).json({ error: "Object not found" });
       }
@@ -1391,7 +1392,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         if (err instanceof ObjectAlreadyExistsError) {
           return res.status(409).json({ error: "This upload id has already been used. Request a new upload URL." });
         }
-        console.error("Local upload error:", err);
+        logError("Local upload error", "routes", err);
         // localFilePath throws for non-UUID ids and path traversal attempts.
         const status = err?.message?.includes("Invalid file id") || err?.message?.includes("Path traversal") ? 400 : 500;
         if (!res.headersSent) res.status(status).json({ error: status === 400 ? err.message : "Upload failed" });
@@ -1524,9 +1525,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
               try {
                 const [metadata] = await gcsFile.getMetadata();
                 contentType = metadata.contentType || '';
-                console.log(`Content-Type from GCS metadata: ${contentType}`);
+                log(`Content-Type from GCS metadata: ${contentType}`, "routes");
               } catch (metaError) {
-                console.log('Could not read GCS metadata, will detect from bytes');
+                log('Could not read GCS metadata, will detect from bytes', "routes");
               }
               const [fileContent] = await gcsFile.download();
               fileBuffer = fileContent;
@@ -1557,32 +1558,32 @@ export async function registerRoutes(app: Express): Promise<Server> {
           if (contentType.includes('pdf') || contentType.includes('application/pdf')) {
             isPDF = true;
             isValidFile = true;
-            console.log('PDF detected via Content-Type metadata');
+            log('PDF detected via Content-Type metadata', "routes");
           } else if (contentType.includes('image/')) {
             isValidFile = true;
-            console.log('Image file detected via Content-Type metadata');
+            log('Image file detected via Content-Type metadata', "routes");
           } else {
             // Fall back to magic-byte detection from the already-downloaded buffer.
             const bytes = new Uint8Array(fileBuffer.buffer, fileBuffer.byteOffset, Math.min(fileBuffer.byteLength, 10));
-            console.log(`File signature bytes: ${Array.from(bytes).map(b => b.toString(16).padStart(2, '0')).join(' ')}`);
+            log(`File signature bytes: ${Array.from(bytes).map(b => b.toString(16).padStart(2, '0')).join(' ')}`, "routes");
             if (bytes.length >= 4 && bytes[0] === 0x25 && bytes[1] === 0x50 && bytes[2] === 0x44 && bytes[3] === 0x46) {
-              console.log('PDF detected via magic bytes (%PDF)');
+              log('PDF detected via magic bytes (%PDF)', "routes");
               isPDF = true;
               isValidFile = true;
             } else if (bytes.length >= 4 && bytes[0] === 0x89 && bytes[1] === 0x50 && bytes[2] === 0x4E && bytes[3] === 0x47) {
-              console.log('PNG detected via magic bytes');
+              log('PNG detected via magic bytes', "routes");
               isValidFile = true;
             } else if (bytes.length >= 3 && bytes[0] === 0xFF && bytes[1] === 0xD8 && bytes[2] === 0xFF) {
-              console.log('JPEG detected via magic bytes');
+              log('JPEG detected via magic bytes', "routes");
               isValidFile = true;
             } else {
-              console.log('Unknown file signature - treating as image for OCR attempt');
+              log('Unknown file signature - treating as image for OCR attempt', "routes");
               isValidFile = true;
             }
           }
 
           if (!isValidFile) {
-            console.log('File type validation failed, skipping OCR processing');
+            log('File type validation failed, skipping OCR processing', "routes");
             continue;
           }
 
@@ -1593,11 +1594,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
           try {
             if (isPDF && provider === 'tesseract') {
-              console.log('Warning: Using Tesseract for PDF processing - may have limited accuracy');
+              log('Warning: Using Tesseract for PDF processing - may have limited accuracy', "routes");
             }
             
             detectedData.status = 'processing';
-            console.log(`Processing OCR for file: ${fileUrl} using ${provider}`);
+            log(`Processing OCR for file: ${fileUrl} using ${provider}`, "routes");
 
             let extractedText = '';
 
@@ -1611,20 +1612,20 @@ export async function registerRoutes(app: Express): Promise<Server> {
                 if (pdfText && pdfText.replace(/\s/g, '').length >= 100) {
                   extractedText = pdfText;
                   provider = 'pdf-text';
-                  console.log(`Extracted embedded PDF text (${pdfText.length} chars) — skipping OCR`);
+                  log(`Extracted embedded PDF text (${pdfText.length} chars) — skipping OCR`, "routes");
                 } else {
-                  console.log('PDF has little/no embedded text — falling back to OCR (likely scanned image)');
+                  log('PDF has little/no embedded text — falling back to OCR (likely scanned image)', "routes");
                 }
               } catch (pdfErr: any) {
-                console.error('Embedded PDF text extraction failed, falling back to OCR:', pdfErr?.message);
+                logError('Embedded PDF text extraction failed, falling back to OCR', "routes", pdfErr?.message);
               }
             }
 
             if (!extractedText && provider === 'ocr_space') {
               // Use OCR.space API
               try {
-                console.log('Attempting OCR.space API call...');
-                console.log('API Key available:', !!(process.env.OCR_SPACE_API_KEY || ocrSettings.ocrSpaceApiKey));
+                log('Attempting OCR.space API call...', "routes");
+                log('API Key available', "routes", { detail: !!(process.env.OCR_SPACE_API_KEY || ocrSettings.ocrSpaceApiKey) });
 
                 const apiKey = process.env.OCR_SPACE_API_KEY || ocrSettings.ocrSpaceApiKey || 'helloworld';
 
@@ -1637,17 +1638,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
                   try {
                     buffersToOcr = await splitPdfIntoChunks(Buffer.from(fileBuffer), 3);
                     if (buffersToOcr.length > 1) {
-                      console.log(`PDF split into ${buffersToOcr.length} chunk(s) to stay within OCR page limit`);
+                      log(`PDF split into ${buffersToOcr.length} chunk(s) to stay within OCR page limit`, "routes");
                     }
                   } catch (splitErr: any) {
-                    console.error('PDF split failed, sending whole file:', splitErr?.message);
+                    logError('PDF split failed, sending whole file', "routes", splitErr?.message);
                     buffersToOcr = [Buffer.from(fileBuffer)];
                   }
                 }
 
                 const chunkTexts: string[] = [];
                 for (let chunkIndex = 0; chunkIndex < buffersToOcr.length; chunkIndex++) {
-                  console.log(`Uploading chunk ${chunkIndex + 1}/${buffersToOcr.length} to OCR.space (${buffersToOcr[chunkIndex].byteLength} bytes)...`);
+                  log(`Uploading chunk ${chunkIndex + 1}/${buffersToOcr.length} to OCR.space (${buffersToOcr[chunkIndex].byteLength} bytes)...`, "routes");
                   const chunkText = await ocrSpaceExtractText(buffersToOcr[chunkIndex], apiKey, isPDF, contentType);
                   if (chunkText && chunkText.trim().length > 0) {
                     chunkTexts.push(chunkText);
@@ -1655,17 +1656,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
                 }
 
                 extractedText = chunkTexts.join('\n');
-                console.log(`OCR Extracted Text Length: ${extractedText.length} characters across ${buffersToOcr.length} chunk(s)`);
-                console.log('First 500 characters of extracted text:', extractedText.substring(0, 500));
+                log(`OCR Extracted Text Length: ${extractedText.length} characters across ${buffersToOcr.length} chunk(s)`, "routes");
+                log('First 500 characters of extracted text', "routes", { detail: extractedText.substring(0, 500) });
               } catch (apiError: any) {
-                console.error('OCR.space failed:', apiError.message);
+                logError('OCR.space failed', "routes", apiError.message);
 
                 // Don't fallback to Tesseract for rate limit errors or 403 errors
                 if (apiError.message && (apiError.message.includes('RATE_LIMIT') || apiError.message.includes('403'))) {
                   throw new Error('OCR service temporarily unavailable (rate limit). Please wait about an hour and try again.');
                 }
 
-                console.log('Falling back to Tesseract.js...');
+                log('Falling back to Tesseract.js...', "routes");
                 // Don't throw error yet, let it fall back to Tesseract
                 extractedText = null; // Signal to use fallback
               }
@@ -1675,19 +1676,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
             if (!extractedText) {
               // For Tesseract, only block if the initial detection confirmed it's a PDF
               if (isPDF && provider === 'tesseract') {
-                console.log('Confirmed PDF file detected in initial scan - Tesseract.js cannot process PDF files');
+                log('Confirmed PDF file detected in initial scan - Tesseract.js cannot process PDF files', "routes");
                 throw new Error('PDF files cannot be processed with Tesseract.js. Please either: 1) Switch to OCR.space in Config tab, or 2) Convert your PDF to an image (PNG, JPG) first.');
               }
               
-              console.log('Proceeding with Tesseract.js processing for image file');
+              log('Proceeding with Tesseract.js processing for image file', "routes");
 
               // Use Tesseract.js for image processing
-              console.log('Attempting Tesseract.js processing for image file...');
+              log('Attempting Tesseract.js processing for image file...', "routes");
               try {
                 // Use the already-downloaded fileBuffer for Tesseract recognition.
                 // Content type was determined from GCS metadata above, no HEAD fetch needed.
                 const detectedFileType = contentType.includes('image/') ? contentType.split('/')[1]?.split(';')[0] : '';
-                console.log(`Tesseract processing buffer (${fileBuffer.byteLength} bytes), content-type: ${contentType || 'unknown'}`);
+                log(`Tesseract processing buffer (${fileBuffer.byteLength} bytes), content-type: ${contentType || 'unknown'}`, "routes");
 
                 const { createWorker } = await import('tesseract.js');
                 let worker = null;
@@ -1699,7 +1700,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
                   // Pass the Buffer directly — Tesseract.js accepts Buffer/ArrayBuffer, so no
                   // URL-based network fetch is made here.
                   const recognitionPromise = worker.recognize(fileBuffer).catch((err: any) => {
-                    console.error('Tesseract recognition failed:', err);
+                    logError('Tesseract recognition failed', "routes", err);
                     throw new Error(`Image recognition failed: ${err?.message || 'Unknown error'}`);
                   });
                   
@@ -1710,7 +1711,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
                   const { data: { text } } = await Promise.race([recognitionPromise, timeoutPromise]) as any;
                   extractedText = text;
                 } catch (tesseractError: any) {
-                  console.error('Tesseract.js error:', tesseractError);
+                  logError('Tesseract.js error', "routes", tesseractError);
                   // Set extracted text to empty to trigger fallback handling
                   extractedText = '';
                   throw new Error(`Tesseract OCR failed: ${tesseractError?.message || 'Unsupported image format or processing error'}`);
@@ -1719,12 +1720,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
                     try {
                       await worker.terminate();
                     } catch (terminateError) {
-                      console.error('Error terminating Tesseract worker:', terminateError);
+                      logError('Error terminating Tesseract worker', "routes", terminateError);
                     }
                   }
                 }
               } catch (importError: any) {
-                console.error('Error importing Tesseract.js:', importError);
+                logError('Error importing Tesseract.js', "routes", importError);
                 extractedText = '';
                 throw new Error(`Failed to load OCR library: ${importError?.message || 'OCR module not available'}`);
               }
@@ -1732,13 +1733,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
             if (extractedText && extractedText.trim().length > 0) {
               detectedData.extractedText = extractedText;
-              console.log(`OCR extracted ${extractedText.length} characters using ${provider}`);
+              log(`OCR extracted ${extractedText.length} characters using ${provider}`, "routes");
 
               // Parse CITI certificate data from extracted text
-              console.log('Starting certificate parsing...');
-              console.log('Available modules:', modules.map(m => m.name));
+              log('Starting certificate parsing...', "routes");
+              log('Available modules', "routes", { detail: modules.map(m => m.name) });
               const parsedData = await parseCITICertificate(extractedText, modules);
-              console.log('Parsing result:', JSON.stringify(parsedData, null, 2));
+              log('Parsing result', "routes", { detail: JSON.stringify(parsedData, null, 2) });
               detectedData = {
                 ...detectedData,
                 ...parsedData,
@@ -1747,7 +1748,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
               // Update history entry with parsed data
               try {
-                console.log(`Updating history entry ${historyEntry.id} with parsed data:`, {
+                log(`Updating history entry ${historyEntry.id} with parsed data`, "routes", {
                   processingStatus: parsedData.name ? 'completed' : 'failed',
                   hasExtractedText: !!extractedText,
                   parsedDataFields: Object.keys(parsedData).filter(k => parsedData[k] !== null),
@@ -1765,9 +1766,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
                   errorMessage: parsedData.name ? null : 'Certificate data could not be extracted - manual assignment may be required'
                 });
                 
-                console.log('History entry update result:', updateResult ? 'SUCCESS' : 'FAILED');
+                log('History entry update result', "routes", { detail: updateResult ? 'SUCCESS' : 'FAILED' });
               } catch (updateError) {
-                console.error('Failed to update history entry:', updateError);
+                logError('Failed to update history entry', "routes", updateError);
               }
             } else {
               detectedData.status = 'ocr_failed';
@@ -1775,7 +1776,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
               
               // Update history entry with OCR failure
               try {
-                console.log(`Updating history entry ${historyEntry.id} with OCR failure`);
+                log(`Updating history entry ${historyEntry.id} with OCR failure`, "routes");
                 const updateResult = await storage.updatePdfImportHistoryEntry(historyEntry.id, {
                   processingStatus: 'failed',
                   ocrProvider: provider, // Make sure OCR provider is saved
@@ -1785,18 +1786,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
                   processingDuration: Date.now() - startTime
                 });
               } catch (updateError) {
-                console.error('Failed to update history entry with OCR failure:', updateError);
+                logError('Failed to update history entry with OCR failure', "routes", updateError);
               }
             }
           } catch (ocrError: any) {
-            console.error('OCR processing error:', ocrError);
+            logError('OCR processing error', "routes", ocrError);
             detectedData.status = 'ocr_failed';
             detectedData.error = `OCR processing failed: ${ocrError?.message || 'Unknown error'}`;
             detectedData.suggestion = 'OCR failed - file uploaded but data extraction was unsuccessful. You can still manually assign this certificate to a scientist.';
             
             // Update history entry with OCR error
             try {
-              console.log(`Updating history entry ${historyEntry.id} with OCR error:`, ocrError?.message);
+              log(`Updating history entry ${historyEntry.id} with OCR error`, "routes", { detail: ocrError?.message });
               const updateResult = await storage.updatePdfImportHistoryEntry(historyEntry.id, {
                 processingStatus: 'failed',
                 ocrProvider: provider, // Make sure OCR provider is saved
@@ -1806,7 +1807,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
                 processingDuration: Date.now() - startTime
               });
             } catch (updateError) {
-              console.error('Failed to update history entry with OCR error:', updateError);
+              logError('Failed to update history entry with OCR error', "routes", updateError);
             }
           }
 
@@ -1827,7 +1828,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         results
       });
     } catch (error) {
-      console.error("Error processing certificates:", error);
+      logError("Error processing certificates", "routes", error);
       res.status(500).json({ message: "Failed to process certificates" });
     }
   });
@@ -2095,18 +2096,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
     };
 
     try {
-      console.log('=== PARSING CITI DOCUMENT ===');
-      console.log('Raw text length:', text.length);
-      console.log('Raw text sample (first 300 chars):', text.substring(0, 300));
+      log('=== PARSING CITI DOCUMENT ===', "routes");
+      log('Raw text length', "routes", { detail: text.length });
+      log('Raw text sample (first 300 chars)', "routes", { detail: text.substring(0, 300) });
       
       // DEBUG: Print full text to see actual OCR output structure
-      console.log('=== FULL OCR TEXT DEBUG ===');
-      console.log(text);
-      console.log('=== END FULL OCR TEXT ===');
+      log("Full OCR text", "routes", { length: text.length, text });
 
       // Detect document type and route to appropriate parser
       const documentType = detectCITIDocumentType(text);
-      console.log('Detected document type:', documentType);
+      log('Detected document type', "routes", { detail: documentType });
 
       let parsedResult;
       switch (documentType) {
@@ -2117,7 +2116,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           parsedResult = await parseCITIReportFormat(text, modules);
           break;
         default:
-          console.log('Unknown document type, trying certificate format as fallback');
+          log('Unknown document type, trying certificate format as fallback', "routes");
           parsedResult = await parseCITICertificateFormat(text, modules);
       }
 
@@ -2127,7 +2126,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         documentType: documentType
       };
     } catch (error) {
-      console.error('Error parsing CITI document:', error);
+      logError('Error parsing CITI document', "routes", error);
       return result;
     }
   }
@@ -2146,13 +2145,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
     };
 
     try {
-      console.log('=== PARSING CERTIFICATE FORMAT ===');
+      log('=== PARSING CERTIFICATE FORMAT ===', "routes");
       
       // Clean up text - remove extra whitespace and normalize
       const cleanText = text.replace(/\s+/g, ' ').trim();
 
       // Extract completion date - match multiple formats
-      console.log('Searching for completion date...');
+      log('Searching for completion date...', "routes");
       const completionMatch = 
         // Format 1: "Completion Date: 21-May-2022" (with colon)
         text.match(/Completion Date:\s*(\d{1,2}-\w{3}-\d{4})/i) ||
@@ -2172,14 +2171,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
         // characters, so use the whole string in that case.
         const dateStr = typeof completionMatch === 'string' ? completionMatch : (completionMatch[1] || completionMatch[0]);
         result.completionDate = convertDateFormat(dateStr);
-        console.log('Found completion date:', result.completionDate);
+        log('Found completion date', "routes", { detail: result.completionDate });
       } else {
-        console.log('No completion date match found');
-        console.log('Date search text sample:', text.substring(0, 800));
+        log('No completion date match found', "routes");
+        log('Date search text sample', "routes", { detail: text.substring(0, 800) });
       }
 
       // Extract expiration date - match multiple formats  
-      console.log('Searching for expiration date...');
+      log('Searching for expiration date...', "routes");
       const expirationMatch = 
         // Format 1: "Expiration Date: 20-May-2025" (with colon)
         text.match(/Expiration Date:\s*(\d{1,2}-\w{3}-\d{4})/i) ||
@@ -2199,14 +2198,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
         // characters, so use the whole string in that case.
         const dateStr = typeof expirationMatch === 'string' ? expirationMatch : (expirationMatch[1] || expirationMatch[0]);
         result.expirationDate = convertDateFormat(dateStr);
-        console.log('Found expiration date:', result.expirationDate);
+        log('Found expiration date', "routes", { detail: result.expirationDate });
       } else {
-        console.log('No expiration date match found');
-        console.log('Date search text sample:', text.substring(0, 800));
+        log('No expiration date match found', "routes");
+        log('Date search text sample', "routes", { detail: text.substring(0, 800) });
       }
 
       // Extract record ID - match "31911316" format with Record ID context
-      console.log('Searching for record ID...');
+      log('Searching for record ID...', "routes");
       const recordIdMatch = text.match(/Record ID:\s*(\d+)/i) ||
                            text.match(/•\s*Record ID:\s*(\d+)/i) ||
                            text.match(/Record ID\s+(\d+)/i) ||
@@ -2222,14 +2221,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
         // returns the plain matched string. Strip non-digits either way.
         const idStr = typeof recordIdMatch === 'string' ? recordIdMatch : (recordIdMatch[1] || recordIdMatch[0]);
         result.recordId = idStr.replace(/\D/g, ''); // Remove any non-digits
-        console.log('Found record ID:', result.recordId);
+        log('Found record ID', "routes", { detail: result.recordId });
       } else {
-        console.log('No record ID match found');
-        console.log('ID search text sample:', text.substring(0, 800));
+        log('No record ID match found', "routes");
+        log('ID search text sample', "routes", { detail: text.substring(0, 800) });
       }
 
       // Extract person name - improved patterns for CITI certificates
-      console.log('Searching for person name...');
+      log('Searching for person name...', "routes");
       // Look for "Name: Apryl Sanchez (ID: 8085848)" pattern - handle OCR mangled text
       let nameMatch = text.match(/([A-Z][a-z]+\s+[A-Z][a-z]+)\s*\(ID:\s*\d+\)/i) ||  // "Apryl Sanchez (ID: 8085848)"
                      text.match(/Name:\s*([A-Z][a-z]+\s+[A-Z][a-z]+)/i) ||            // "Name: Apryl Sanchez"
@@ -2246,14 +2245,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
           extractedName = nameOnly[1];
         }
         result.name = extractedName.replace(/\s+/g, ' ');
-        console.log('Found name:', result.name);
+        log('Found name', "routes", { detail: result.name });
       } else {
-        console.log('No name match found');
-        console.log('Text being searched for name (first 500 chars):', text.substring(0, 500));
+        log('No name match found', "routes");
+        log('Text being searched for name (first 500 chars)', "routes", { detail: text.substring(0, 500) });
       }
 
       // Extract course name - improved patterns for CITI courses  
-      console.log('Searching for course name...');
+      log('Searching for course name...', "routes");
       // Look for "Course: [Course Name]" or "CITI Program course: [Course Name]"
       let courseMatch = text.match(/Course:\s*([^\n\r]+?)(?:\s*Stage|$)/i) ||
                        text.match(/CITI Program course:\s*\n\s*([^\n]+)/i) ||
@@ -2269,24 +2268,24 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       if (courseMatch) {
         result.courseName = courseMatch[1].trim().replace(/\s+/g, ' ');
-        console.log('Found course name:', result.courseName);
+        log('Found course name', "routes", { detail: result.courseName });
         
         // Strict module matching (conservative — flags unknown courses as NEW).
-        console.log('Module matching results:');
-        console.log('Course name to match:', result.courseName);
+        log('Module matching results', "routes");
+        log('Course name to match', "routes", { detail: result.courseName });
         const module = matchCertificationModule(result.courseName, modules);
 
         result.module = module || null;
         result.isNewModule = !module;
 
         if (module) {
-          console.log('Matched with existing module:', module.name);
+          log('Matched with existing module', "routes", { detail: module.name });
         } else {
-          console.log('No matching module found — will suggest a new module from the course title');
+          log('No matching module found — will suggest a new module from the course title', "routes");
         }
       } else {
-        console.log('No course name match found');
-        console.log('Text being searched for course (first 500 chars):', text.substring(0, 500));
+        log('No course name match found', "routes");
+        log('Text being searched for course (first 500 chars)', "routes", { detail: text.substring(0, 500) });
       }
 
       // Extract institution - improved pattern
@@ -2297,13 +2296,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
     } catch (parseError) {
-      console.error('Error parsing certificate text:', parseError);
+      logError('Error parsing certificate text', "routes", parseError);
     }
 
     // Look up scientist ID by name if name was extracted
     if (result.name) {
       try {
-        console.log('Looking up scientist for name:', result.name);
+        log('Looking up scientist for name', "routes", { detail: result.name });
         const allScientists = await storage.getScientists();
         
         // Split extracted name into first and last name
@@ -2320,14 +2319,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
           
           if (matchedScientist) {
             result.scientistId = matchedScientist.id;
-            console.log(`Found scientist match: ${result.name} -> ID ${matchedScientist.id}`);
+            log(`Found scientist match: ${result.name} -> ID ${matchedScientist.id}`, "routes");
           } else {
-            console.log(`No scientist found for name: ${result.name} (${firstName} ${lastName})`);
+            log(`No scientist found for name: ${result.name} (${firstName} ${lastName})`, "routes");
             result.scientistId = null;
           }
         }
       } catch (lookupError) {
-        console.error('Error looking up scientist:', lookupError);
+        logError('Error looking up scientist', "routes", lookupError);
         result.scientistId = null;
       }
     }
@@ -2350,7 +2349,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     };
 
     try {
-      console.log('=== PARSING REPORT FORMAT ===');
+      log('=== PARSING REPORT FORMAT ===', "routes");
       
       // Clean up text - remove extra whitespace and normalize
       const cleanText = text.replace(/\s+/g, ' ').trim();
@@ -2358,7 +2357,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Report format specific patterns
       // Name extraction. CITI reports list the learner as "• Name: First Last (ID: 12345)".
       // Prefer that labeled form; fall back to the older heuristic patterns.
-      console.log('Searching for person name in report format...');
+      log('Searching for person name in report format...', "routes");
       const nameMatch = text.match(/Name:\s*([A-Za-z][A-Za-z.'\-\s]+?)\s*\(ID:/i) ||
                        text.match(/Name:\s*([A-Za-z][A-Za-z.'\-\s]+?)(?:\s*\n|$)/i) ||
                        text.match(/Phone:\s*([A-Za-z\s]+?)(?:\s+\([^)]*\))?$/m) ||
@@ -2371,12 +2370,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
         // Clean up the name - remove extra whitespace and validate
         if (rawName.length > 2 && rawName.length < 50 && /^[A-Za-z.'\-\s]+$/.test(rawName)) {
           result.name = rawName;
-          console.log('Found name in report format:', result.name);
+          log('Found name in report format', "routes", { detail: result.name });
         }
       }
 
       // Course name extraction. Reports identify the course via "Curriculum Group:".
-      console.log('Searching for course name in report format...');
+      log('Searching for course name in report format...', "routes");
       const reportCourseMatch = text.match(/Curriculum Group:\s*([^\n•]+?)(?:\s*•|\n|$)/i) ||
                                text.match(/Course Learner Group:\s*([^\n•]+?)(?:\s*•|\n|$)/i) ||
                                text.match(/COURSEWORK REQUIREMENTS[\s\S]*?([A-Za-z][^•\n]+?)(?:\s*•|\s*$)/i) ||
@@ -2391,7 +2390,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           if (curr) courseName = curr[1].trim();
         }
         result.courseName = courseName;
-        console.log('Found course name in report format:', result.courseName);
+        log('Found course name in report format', "routes", { detail: result.courseName });
         
         // Strict module matching (conservative — flags unknown courses as NEW).
         const module = matchCertificationModule(result.courseName, modules);
@@ -2401,23 +2400,23 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       // Date extraction. Prefer the explicitly labeled completion/expiration dates;
       // fall back to positional (first/second date) only if labels are missing.
-      console.log('Searching for dates in report format...');
+      log('Searching for dates in report format...', "routes");
       const completionLabel = text.match(/Completion Date:\s*(\d{1,2}-\w{3}-\d{4})/i);
       const expirationLabel = text.match(/Expiration Date:\s*(\d{1,2}-\w{3}-\d{4})/i);
       if (completionLabel) {
         result.completionDate = convertDateFormat(completionLabel[1]);
-        console.log('Found completion date (labeled) in report format:', result.completionDate);
+        log('Found completion date (labeled) in report format', "routes", { detail: result.completionDate });
       }
       if (expirationLabel) {
         result.expirationDate = convertDateFormat(expirationLabel[1]);
-        console.log('Found expiration date (labeled) in report format:', result.expirationDate);
+        log('Found expiration date (labeled) in report format', "routes", { detail: result.expirationDate });
       }
       if (!result.completionDate || !result.expirationDate) {
         const allDates = text.match(/(\d{1,2}-\w{3}-20\d{2})/g);
         if (allDates && allDates.length > 0) {
           if (!result.completionDate) {
             result.completionDate = convertDateFormat(allDates[0]);
-            console.log('Found completion date (positional) in report format:', result.completionDate);
+            log('Found completion date (positional) in report format', "routes", { detail: result.completionDate });
           }
           if (!result.expirationDate && allDates.length > 1) {
             // Use the latest distinct date as expiration (module rows repeat the
@@ -2428,20 +2427,20 @@ export async function registerRoutes(app: Express): Promise<Server> {
             const latest = distinct.sort((a, b) => a.localeCompare(b)).pop();
             if (latest && latest !== result.completionDate) {
               result.expirationDate = latest;
-              console.log('Found expiration date (positional) in report format:', result.expirationDate);
+              log('Found expiration date (positional) in report format', "routes", { detail: result.expirationDate });
             }
           }
         }
       }
 
       // Record ID extraction. Prefer the labeled "Record ID:" value.
-      console.log('Searching for record ID in report format...');
+      log('Searching for record ID in report format...', "routes");
       const reportIdMatch = text.match(/Record ID:\s*(\d+)/i)?.[1] ||
                             text.match(/(\d{8})/g)?.find(match => match.length === 8);
       
       if (reportIdMatch) {
         result.recordId = reportIdMatch;
-        console.log('Found record ID in report format:', result.recordId);
+        log('Found record ID in report format', "routes", { detail: result.recordId });
       }
 
       // Institution extraction
@@ -2452,13 +2451,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
     } catch (parseError) {
-      console.error('Error parsing report format:', parseError);
+      logError('Error parsing report format', "routes", parseError);
     }
 
     // Look up scientist ID by name if name was extracted (same logic as certificate format)
     if (result.name) {
       try {
-        console.log('Looking up scientist for name:', result.name);
+        log('Looking up scientist for name', "routes", { detail: result.name });
         const allScientists = await storage.getScientists();
         
         // Split extracted name into first and last name
@@ -2475,14 +2474,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
           
           if (matchedScientist) {
             result.scientistId = matchedScientist.id;
-            console.log(`Found scientist match: ${result.name} -> ID ${matchedScientist.id}`);
+            log(`Found scientist match: ${result.name} -> ID ${matchedScientist.id}`, "routes");
           } else {
-            console.log(`No scientist found for name: ${result.name} (${firstName} ${lastName})`);
+            log(`No scientist found for name: ${result.name} (${firstName} ${lastName})`, "routes");
             result.scientistId = null;
           }
         }
       } catch (lookupError) {
-        console.error('Error looking up scientist:', lookupError);
+        logError('Error looking up scientist', "routes", lookupError);
         result.scientistId = null;
       }
     }
@@ -2543,7 +2542,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         parsed: parsedData
       });
     } catch (error) {
-      console.error("Error testing certificate parsing:", error);
+      logError("Error testing certificate parsing", "routes", error);
       res.status(500).json({ message: "Failed to test parsing" });
     }
   });
@@ -2687,7 +2686,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         try {
           await storage.updatePdfImportHistorySaveStatus(cert.fileName, saveStatus);
         } catch (error) {
-          console.error(`Failed to update save status for ${cert.fileName}:`, error);
+          logError(`Failed to update save status for ${cert.fileName}`, "routes", error);
         }
       }
 
@@ -2697,7 +2696,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         summary: { total: results.length, successful: successCount, failed: errorCount }
       });
     } catch (error) {
-      console.error("Error confirming certifications:", error);
+      logError("Error confirming certifications", "routes", error);
       res.status(500).json({ message: "Failed to confirm certifications" });
     }
   });
@@ -2719,7 +2718,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const activity = await storage.getRecentActivity(limit);
       res.json(activity);
     } catch (error) {
-      console.error("Error fetching recent activity:", error);
+      logError("Error fetching recent activity", "routes", error);
       res.status(500).json({ message: "Failed to fetch recent activity" });
     }
   });
@@ -2770,7 +2769,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       
       res.json(enhancedActivities);
     } catch (error) {
-      console.error("Error fetching recent research activities:", error);
+      logError("Error fetching recent research activities", "routes", error);
       res.status(500).json({ message: "Failed to fetch recent research activities" });
     }
   });
@@ -2822,7 +2821,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const projects = await storage.getProjectsForProgram(id);
       res.json(projects);
     } catch (error) {
-      console.error("Error fetching projects for program:", error);
+      logError("Error fetching projects for program", "routes", error);
       res.status(500).json({ message: "Failed to fetch projects for program" });
     }
   });
@@ -3118,7 +3117,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       
       res.json(enhancedActivities);
     } catch (error) {
-      console.error('Error fetching scientist research activities:', error);
+      logError('Error fetching scientist research activities', "routes", error);
       res.status(500).json({ message: 'Failed to fetch research activities' });
     }
   });
@@ -3138,7 +3137,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
       res.send(buffer);
     } catch (error) {
-      console.error('Staff export failed:', error);
+      logError('Staff export failed', "routes", error);
       res.status(500).json({ message: 'Failed to export staff' });
     }
   });
@@ -3150,7 +3149,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.setHeader('Content-Disposition', 'attachment; filename="staff-import-template.xlsx"');
       res.send(buffer);
     } catch (error) {
-      console.error('Staff import template failed:', error);
+      logError('Staff import template failed', "routes", error);
       res.status(500).json({ message: 'Failed to build staff import template' });
     }
   });
@@ -3161,7 +3160,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const investigators = await storage.getScientistsByRole('investigator');
       res.json(investigators);
     } catch (error) {
-      console.error('Error fetching investigators:', error);
+      logError('Error fetching investigators', "routes", error);
       res.status(500).json({ message: "Failed to fetch investigators" });
     }
   });
@@ -3171,7 +3170,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const scientificStaff = await storage.getScientistsByRole('staff|management|post-doctoral|research');
       res.json(scientificStaff);
     } catch (error) {
-      console.error('Error fetching scientific staff:', error);
+      logError('Error fetching scientific staff', "routes", error);
       res.status(500).json({ message: "Failed to fetch scientific staff" });
     }
   });
@@ -3215,7 +3214,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       
       res.json(publications);
     } catch (error) {
-      console.error('Error fetching scientist publications:', error);
+      logError('Error fetching scientist publications', "routes", error);
       res.status(500).json({ message: "Failed to fetch scientist publications" });
     }
   });
@@ -3273,7 +3272,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const org = { branches: await storage.getBranches(), departments: await storage.getDepartments(), sections: await storage.getSections() };
       res.json(buildImportPreview(fileRows, existing, org));
     } catch (error) {
-      console.error('Staff import preview failed:', error);
+      logError('Staff import preview failed', "routes", error);
       res.status(500).json({ message: 'Failed to build import preview' });
     }
   });
@@ -3382,7 +3381,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(409).json({ message: e?.message || 'Import failed' });
       }
     } catch (error) {
-      console.error('Staff import apply failed:', error);
+      logError('Staff import apply failed', "routes", error);
       res.status(500).json({ message: 'Failed to apply staff import' });
     }
   });
@@ -3436,10 +3435,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
       const conflict = scientistUniqueConflictMessage(error);
       if (conflict) {
-        console.error("Failed to create scientist (unique constraint):", error);
+        logError("Failed to create scientist (unique constraint)", "routes", error);
         return res.status(409).json({ message: conflict });
       }
-      console.error("Failed to create scientist:", error);
+      logError("Failed to create scientist", "routes", error);
       res.status(500).json({ message: "Failed to create scientist" });
     }
   });
@@ -3512,10 +3511,10 @@ function writeFailureDetail(error: unknown): string {
       }
       const conflict = scientistUniqueConflictMessage(error);
       if (conflict) {
-        console.error("Failed to update scientist (unique constraint):", error);
+        logError("Failed to update scientist (unique constraint)", "routes", error);
         return res.status(409).json({ message: conflict });
       }
-      console.error("Failed to update scientist:", error);
+      logError("Failed to update scientist", "routes", error);
       res.status(500).json({
         message: `Failed to update scientist: ${writeFailureDetail(error)}`,
       });
@@ -3586,7 +3585,7 @@ function writeFailureDetail(error: unknown): string {
       await req.audit.logDelete("scientists", id, existing as Record<string, unknown>);
       res.status(204).send();
     } catch (error) {
-      console.error("Error deleting scientist:", error);
+      logError("Error deleting scientist", "routes", error);
       res.status(500).json({
         message: `Failed to delete scientist: ${writeFailureDetail(error)}`,
       });
@@ -3628,7 +3627,7 @@ function writeFailureDetail(error: unknown): string {
       
       res.json(activities);
     } catch (error) {
-      console.error("Error fetching research activities:", error);
+      logError("Error fetching research activities", "routes", error);
       res.status(500).json({ message: "Failed to fetch research activities" });
     }
   });
@@ -3690,7 +3689,7 @@ function writeFailureDetail(error: unknown): string {
       
       res.json(validStaff);
     } catch (error) {
-      console.error("Error fetching research activity staff:", error);
+      logError("Error fetching research activity staff", "routes", error);
       res.status(500).json({ message: "Failed to fetch research activity staff" });
     }
   });
@@ -3720,7 +3719,7 @@ function writeFailureDetail(error: unknown): string {
           });
         } catch (memberError) {
           // Don't fail SDR creation if the auto-add fails; log for diagnosis.
-          console.error("Failed to auto-add PI as team member:", memberError);
+          logError("Failed to auto-add PI as team member", "routes", memberError);
         }
       }
 
@@ -3730,7 +3729,7 @@ function writeFailureDetail(error: unknown): string {
         const validationError = fromZodError(error);
         return res.status(400).json({ message: validationError.message });
       }
-      console.error("Error creating research activity:", error);
+      logError("Error creating research activity", "routes", error);
       res.status(500).json({ message: "Failed to create research activity" });
     }
   });
@@ -3795,7 +3794,7 @@ function writeFailureDetail(error: unknown): string {
           }
         } catch (memberError) {
           // Worth reporting, not worth failing a saved update over.
-          console.error("Failed to reconcile the team for", updatedActivity.sdrNumber, memberError);
+          logError(`Failed to reconcile the team for ${updatedActivity.sdrNumber}`, "routes", memberError);
         }
       }
       
@@ -3805,7 +3804,7 @@ function writeFailureDetail(error: unknown): string {
         const validationError = fromZodError(error);
         return res.status(400).json({ message: validationError.message });
       }
-      console.error("Error updating research activity:", error);
+      logError("Error updating research activity", "routes", error);
       res.status(500).json({ message: "Failed to update research activity" });
     }
   });
@@ -3820,7 +3819,7 @@ function writeFailureDetail(error: unknown): string {
       await storage.deleteResearchActivity(id);
       res.status(204).send();
     } catch (error) {
-      console.error("Error deleting research activity:", error);
+      logError("Error deleting research activity", "routes", error);
       res.status(500).json({ message: "Failed to delete research activity" });
     }
   });
@@ -3979,7 +3978,7 @@ function writeFailureDetail(error: unknown): string {
       // Directly return activities without enhancement for now
       res.json(activities);
     } catch (error) {
-      console.error("Error fetching research activities for project:", error);
+      logError("Error fetching research activities for project", "routes", error);
       res.status(500).json({ message: "Failed to fetch research activities for project" });
     }
   });
@@ -4024,7 +4023,7 @@ function writeFailureDetail(error: unknown): string {
       
       res.json(allMembers);
     } catch (error) {
-      console.error("Error fetching project members:", error);
+      logError("Error fetching project members", "routes", error);
       res.status(500).json({ message: "Failed to fetch project members" });
     }
   });
@@ -4035,7 +4034,7 @@ function writeFailureDetail(error: unknown): string {
       const allMembers = await storage.getAllProjectMembers();
       res.json(allMembers);
     } catch (error) {
-      console.error("Error fetching all project members:", error);
+      logError("Error fetching all project members", "routes", error);
       res.status(500).json({ message: "Failed to fetch project members" });
     }
   });
@@ -4102,7 +4101,7 @@ function writeFailureDetail(error: unknown): string {
       if (error instanceof ZodError) {
         return res.status(400).json({ message: fromZodError(error).message });
       }
-      console.error("Error adding project member:", error);
+      logError("Error adding project member", "routes", error);
       res.status(500).json({ message: "Failed to add project member" });
     }
   });
@@ -4141,7 +4140,7 @@ function writeFailureDetail(error: unknown): string {
       
       res.status(204).send();
     } catch (error) {
-      console.error("Error removing project member:", error);
+      logError("Error removing project member", "routes", error);
       res.status(500).json({ message: "Failed to remove project member" });
     }
   });
@@ -4176,7 +4175,7 @@ function writeFailureDetail(error: unknown): string {
       
       res.json(enhancedMembers);
     } catch (error) {
-      console.error("Error fetching research activity members:", error);
+      logError("Error fetching research activity members", "routes", error);
       res.status(500).json({ message: "Failed to fetch research activity members" });
     }
   });
@@ -4257,7 +4256,7 @@ function writeFailureDetail(error: unknown): string {
       if (error instanceof ZodError) {
         return res.status(400).json({ message: fromZodError(error).message });
       }
-      console.error("Error adding research activity member:", error);
+      logError("Error adding research activity member", "routes", error);
       res.status(500).json({ message: "Failed to add research activity member" });
     }
   });
@@ -4281,7 +4280,7 @@ function writeFailureDetail(error: unknown): string {
       
       res.status(204).send();
     } catch (error) {
-      console.error("Error removing research activity member:", error);
+      logError("Error removing research activity member", "routes", error);
       res.status(500).json({ message: "Failed to remove research activity member" });
     }
   });
@@ -4430,7 +4429,7 @@ function writeFailureDetail(error: unknown): string {
       res.setHeader('Content-Disposition', 'attachment; filename="publication-links-template.xlsx"');
       res.send(buf);
     } catch (error) {
-      console.error("Error building link-import template:", error);
+      logError("Error building link-import template", "routes", error);
       res.status(500).json({ message: "Failed to build template" });
     }
   });
@@ -4465,7 +4464,7 @@ function writeFailureDetail(error: unknown): string {
       });
       res.json({ rows });
     } catch (error) {
-      console.error("Error previewing link import:", error);
+      logError("Error previewing link import", "routes", error);
       res.status(400).json({ message: error instanceof Error ? error.message : "Failed to parse file" });
     }
   });
@@ -4530,7 +4529,7 @@ function writeFailureDetail(error: unknown): string {
       }
       res.json({ sdrLinks, staffLinks, skipped });
     } catch (error) {
-      console.error("Error applying link import:", error);
+      logError("Error applying link import", "routes", error);
       res.status(500).json({ message: "Failed to apply links" });
     }
   });
@@ -4664,7 +4663,7 @@ function writeFailureDetail(error: unknown): string {
       }
       res.json(result);
     } catch (error) {
-      console.error('Error getting publication journal counts:', error);
+      logError('Error getting publication journal counts', "routes", error);
       res.status(500).json({ message: 'Failed to count publications by journal' });
     }
   });
@@ -4682,7 +4681,7 @@ function writeFailureDetail(error: unknown): string {
       }
       res.json(counts);
     } catch (error) {
-      console.error('Error getting publication author counts:', error);
+      logError('Error getting publication author counts', "routes", error);
       res.status(500).json({ message: 'Failed to count publication authors' });
     }
   });
@@ -4707,7 +4706,7 @@ function writeFailureDetail(error: unknown): string {
       }
       res.json(map);
     } catch (error) {
-      console.error('Error building publication author map:', error);
+      logError('Error building publication author map', "routes", error);
       res.status(500).json({ message: 'Failed to build publication author map' });
     }
   });
@@ -4825,7 +4824,7 @@ function writeFailureDetail(error: unknown): string {
 
       res.json(flagged);
     } catch (error) {
-      console.error("Error finding publications needing author fixes:", error);
+      logError("Error finding publications needing author fixes", "routes", error);
       res.status(500).json({ message: "Failed to find publications needing author fixes" });
     }
   });
@@ -4883,7 +4882,7 @@ function writeFailureDetail(error: unknown): string {
       }));
       res.json(issues);
     } catch (error) {
-      console.error("Error fetching invalid publication issues:", error);
+      logError("Error fetching invalid publication issues", "routes", error);
       res.status(500).json({ message: "Failed to fetch invalid publication issues" });
     }
   });
@@ -4934,7 +4933,7 @@ function writeFailureDetail(error: unknown): string {
 
       res.json(result);
     } catch (error) {
-      console.error("Error detecting duplicate publications:", error);
+      logError("Error detecting duplicate publications", "routes", error);
       res.status(500).json({ message: "Failed to detect duplicate publications" });
     }
   });
@@ -4946,7 +4945,7 @@ function writeFailureDetail(error: unknown): string {
       const groups = detectDuplicateGroups(allPublications);
       res.json({ count: groups.length });
     } catch (error) {
-      console.error("Error counting duplicate publication groups:", error);
+      logError("Error counting duplicate publication groups", "routes", error);
       res.status(500).json({ message: "Failed to count duplicate publication groups" });
     }
   });
@@ -5018,7 +5017,7 @@ function writeFailureDetail(error: unknown): string {
       if (error instanceof ZodError) {
         return res.status(400).json({ message: fromZodError(error).message });
       }
-      console.error("Error merging publications:", error);
+      logError("Error merging publications", "routes", error);
       res.status(500).json({ message: error?.message || "Failed to merge publications" });
     }
   });
@@ -5047,7 +5046,7 @@ function writeFailureDetail(error: unknown): string {
         .filter(Boolean);
       res.json({ candidates, count: candidates.length });
     } catch (error) {
-      console.error("Error listing preprint repair candidates:", error);
+      logError("Error listing preprint repair candidates", "routes", error);
       res.status(500).json({ message: "Failed to list preprint repair candidates" });
     }
   });
@@ -5083,7 +5082,7 @@ function writeFailureDetail(error: unknown): string {
         skippedCount: skipped.length,
       });
     } catch (error) {
-      console.error("Error repairing preprint publications:", error);
+      logError("Error repairing preprint publications", "routes", error);
       res.status(500).json({ message: "Failed to repair preprint publications" });
     }
   });
@@ -5333,7 +5332,7 @@ function writeFailureDetail(error: unknown): string {
       await req.audit.logInsert("publications", publication.id, publication as Record<string, unknown>);
       res.status(201).json(publication);
     } catch (error) {
-      console.error("Publication creation error:", error);
+      logError("Publication creation error", "routes", error);
       if (error instanceof ZodError) {
         return res.status(400).json({ message: fromZodError(error).message });
       }
@@ -5521,7 +5520,7 @@ function writeFailureDetail(error: unknown): string {
       const activities = await storage.getPublicationResearchActivities(id);
       res.json(activities.map(summariseResearchActivity));
     } catch (error) {
-      console.error("Error fetching publication research activities:", error);
+      logError("Error fetching publication research activities", "routes", error);
       res.status(500).json({ message: "Failed to fetch publication research activities" });
     }
   });
@@ -5561,7 +5560,7 @@ function writeFailureDetail(error: unknown): string {
       const activities = await storage.setPublicationResearchActivities(id, additionalIds);
       res.json(activities.map(summariseResearchActivity));
     } catch (error) {
-      console.error("Error updating publication research activities:", error);
+      logError("Error updating publication research activities", "routes", error);
       res.status(500).json({ message: "Failed to update publication research activities" });
     }
   });
@@ -5648,7 +5647,7 @@ function writeFailureDetail(error: unknown): string {
 
       res.json(history);
     } catch (error) {
-      console.error('Error fetching manuscript history:', error);
+      logError('Error fetching manuscript history', "routes", error);
       res.status(500).json({ message: "Failed to fetch manuscript history" });
     }
   });
@@ -5746,7 +5745,7 @@ function writeFailureDetail(error: unknown): string {
       }
       res.json(updated);
     } catch (error) {
-      console.error("Error finalizing publication:", error);
+      logError("Error finalizing publication", "routes", error);
       res.status(500).json({ message: "Failed to finalize publication" });
     }
   });
@@ -5912,7 +5911,7 @@ function writeFailureDetail(error: unknown): string {
 
       res.json(updatedPublication);
     } catch (error) {
-      console.error('Error updating publication status:', error);
+      logError('Error updating publication status', "routes", error);
       res.status(500).json({ message: "Failed to update publication status" });
     }
   });
@@ -5935,7 +5934,7 @@ function writeFailureDetail(error: unknown): string {
       const authors = await storage.getPublicationAuthors(publicationId);
       res.json(authors);
     } catch (error) {
-      console.error("Error fetching publication authors:", error);
+      logError("Error fetching publication authors", "routes", error);
       res.status(500).json({ message: "Failed to fetch publication authors", error: error.message });
     }
   });
@@ -6049,7 +6048,7 @@ function writeFailureDetail(error: unknown): string {
       if (error instanceof ZodError) {
         return res.status(400).json({ message: fromZodError(error).message });
       }
-      console.error("Failed to add publication author:", error);
+      logError("Failed to add publication author", "routes", error);
       res.status(500).json({ message: "Failed to add publication author", detail: error instanceof Error ? error.message : String(error) });
     }
   });
@@ -6151,7 +6150,7 @@ function writeFailureDetail(error: unknown): string {
 
       res.json({ suggestions: hydrated });
     } catch (error) {
-      console.error("Error suggesting publication authors:", error);
+      logError("Error suggesting publication authors", "routes", error);
       res.status(500).json({ message: "Failed to suggest publication authors" });
     }
   });
@@ -6236,7 +6235,7 @@ function writeFailureDetail(error: unknown): string {
         skippedCount: skipped.length,
       });
     } catch (error) {
-      console.error("Error bulk-linking publication authors:", error);
+      logError("Error bulk-linking publication authors", "routes", error);
       res.status(500).json({ message: "Failed to link publication authors" });
     }
   });
@@ -6379,7 +6378,7 @@ function writeFailureDetail(error: unknown): string {
 
       res.json({ results, count: results.length });
     } catch (error) {
-      console.error("Error discovering papers:", error);
+      logError("Error discovering papers", "routes", error);
       res.status(500).json({ message: "Failed to discover papers" });
     }
   });
@@ -6517,7 +6516,7 @@ function writeFailureDetail(error: unknown): string {
               });
               linkedAuthors++;
             } catch (linkErr) {
-              console.error(`Failed to auto-link scientist ${s.scientistId} on pub ${publication.id}:`, linkErr);
+              logError(`Failed to auto-link scientist ${s.scientistId} on pub ${publication.id}`, "routes", linkErr);
             }
           }
 
@@ -6533,7 +6532,7 @@ function writeFailureDetail(error: unknown): string {
             prepublicationSite: publication.prepublicationSite,
           });
         } catch (err) {
-          console.error(`Failed to import discovered DOI ${doi}:`, err);
+          logError(`Failed to import discovered DOI ${doi}`, "routes", err);
           skipped.push({ doi, reason: "failed to save" });
         }
       }
@@ -6545,7 +6544,7 @@ function writeFailureDetail(error: unknown): string {
         skippedCount: skipped.length,
       });
     } catch (error) {
-      console.error("Error importing discovered papers:", error);
+      logError("Error importing discovered papers", "routes", error);
       res.status(500).json({ message: "Failed to import discovered papers" });
     }
   });
@@ -6601,7 +6600,7 @@ function writeFailureDetail(error: unknown): string {
         publications: filteredPublications
       });
     } catch (error) {
-      console.error('Error exporting publications:', error);
+      logError('Error exporting publications', "routes", error);
       res.status(500).json({ message: "Failed to export publications" });
     }
   });
@@ -6895,7 +6894,7 @@ function writeFailureDetail(error: unknown): string {
       if (error instanceof ZodError) {
         return res.status(400).json({ message: fromZodError(error).message });
       }
-      console.error('IRB application creation error:', error);
+      logError('IRB application creation error', "routes", error);
       res.status(500).json({ message: "Failed to create IRB application" });
     }
   });
@@ -6907,7 +6906,7 @@ function writeFailureDetail(error: unknown): string {
         return res.status(400).json({ message: "Invalid IRB application ID" });
       }
 
-      console.log('Updating IRB application with data:', req.body);
+      log('Updating IRB application with data', "routes", { detail: req.body });
 
       // Handle submission comments separately
       if (req.body.submissionComment) {
@@ -6921,7 +6920,7 @@ function writeFailureDetail(error: unknown): string {
               try {
                 existingResponses = JSON.parse(currentApp.piResponses);
               } catch (e) {
-                console.error('Error parsing existing PI responses:', e);
+                logError('Error parsing existing PI responses', "routes", e);
                 existingResponses = {};
               }
             } else if (typeof currentApp.piResponses === 'object') {
@@ -7007,10 +7006,10 @@ function writeFailureDetail(error: unknown): string {
       res.json(application);
     } catch (error) {
       if (error instanceof ZodError) {
-        console.error('Validation error:', error);
+        logError('Validation error', "routes", error);
         return res.status(400).json({ message: fromZodError(error).message });
       }
-      console.error('IRB application update error:', error);
+      logError('IRB application update error', "routes", error);
       res.status(500).json({ message: "Failed to update IRB application", error: error.message });
     }
   });
@@ -7063,7 +7062,7 @@ function writeFailureDetail(error: unknown): string {
       
       res.json(enhancedApplications);
     } catch (error) {
-      console.error('Error fetching IBC applications:', error);
+      logError('Error fetching IBC applications', "routes", error);
       res.status(500).json({ message: "Failed to fetch IBC applications" });
     }
   });
@@ -7112,15 +7111,15 @@ function writeFailureDetail(error: unknown): string {
 
   app.post('/api/ibc-applications', async (req: Request, res: Response) => {
     try {
-      console.log("=== IBC Application Creation Debug ===");
-      console.log("Full request body:", JSON.stringify(req.body, null, 2));
+      log("=== IBC Application Creation Debug ===", "routes");
+      log("Full request body", "routes", { detail: JSON.stringify(req.body, null, 2) });
       
       const { researchActivityIds, isDraft, ...applicationData } = req.body;
-      console.log("Extracted researchActivityIds:", researchActivityIds);
-      console.log("Is draft:", isDraft);
-      console.log("Application data after extraction:", JSON.stringify(applicationData, null, 2));
+      log("Extracted researchActivityIds", "routes", { detail: researchActivityIds });
+      log("Is draft", "routes", { detail: isDraft });
+      log("Application data after extraction", "routes", { detail: JSON.stringify(applicationData, null, 2) });
       
-      console.log("Adding auto-generated fields...");
+      log("Adding auto-generated fields...", "routes");
       // Add auto-generated fields before validation
       const dataWithAutoFields = {
         ...applicationData,
@@ -7129,13 +7128,13 @@ function writeFailureDetail(error: unknown): string {
         workflowStatus: isDraft ? "draft" : (applicationData.workflowStatus || "submitted"),
         riskLevel: applicationData.riskLevel || "moderate"
       };
-      console.log("Data with auto-generated fields:", JSON.stringify(dataWithAutoFields, null, 2));
+      log("Data with auto-generated fields", "routes", { detail: JSON.stringify(dataWithAutoFields, null, 2) });
       
-      console.log("Validating with schema...");
+      log("Validating with schema...", "routes");
       const validateData = insertIbcApplicationSchema.parse(dataWithAutoFields);
-      console.log("Schema validation successful:", JSON.stringify(validateData, null, 2));
+      log("Schema validation successful", "routes", { detail: JSON.stringify(validateData, null, 2) });
       
-      console.log("Checking principal investigator eligibility with ID:", validateData.principalInvestigatorId);
+      log("Checking principal investigator eligibility with ID", "routes", { detail: validateData.principalInvestigatorId });
       const piEligibilityError = await getInvestigatorAssignmentError(
         validateData.principalInvestigatorId,
         "IBC Principal Investigator"
@@ -7148,38 +7147,38 @@ function writeFailureDetail(error: unknown): string {
       
       // Validate research activities if provided
       if (researchActivityIds && Array.isArray(researchActivityIds)) {
-        console.log("Validating research activities:", researchActivityIds);
+        log("Validating research activities", "routes", { detail: researchActivityIds });
         for (const activityId of researchActivityIds) {
           const activity = await storage.getResearchActivity(activityId);
           if (!activity) {
-            console.log(`Research activity with ID ${activityId} not found`);
+            log(`Research activity with ID ${activityId} not found`, "routes");
             return res.status(404).json({ message: `Research activity with ID ${activityId} not found` });
           }
-          console.log(`Research activity ${activityId} found:`, activity.title);
+          log(`Research activity ${activityId} found`, "routes", { detail: activity.title });
         }
       }
       
-      console.log("Creating IBC application...");
+      log("Creating IBC application...", "routes");
       const application = await storage.createIbcApplication(validateData, researchActivityIds || []);
-      console.log("IBC application created successfully:", application.id);
+      log("IBC application created successfully", "routes", { detail: application.id });
       await req.audit.logInsert("ibc_applications", application.id, application as Record<string, unknown>);
       res.status(201).json(application);
     } catch (error) {
-      console.error("Error creating IBC application:", error);
+      logError("Error creating IBC application", "routes", error);
       if (error instanceof ZodError) {
-        console.log("Zod validation error:", fromZodError(error).message);
+        log("Zod validation error", "routes", { detail: fromZodError(error).message });
         return res.status(400).json({ message: fromZodError(error).message });
       }
-      console.log("Generic error:", error.message);
+      log("Generic error", "routes", { detail: error.message });
       res.status(500).json({ message: "Failed to create IBC application", error: error.message });
     }
   });
 
   app.patch('/api/ibc-applications/:id', async (req: Request, res: Response) => {
     try {
-      console.log('PATCH /api/ibc-applications/:id called');
-      console.log('Request params:', req.params);
-      console.log('Request body:', req.body);
+      log('PATCH /api/ibc-applications/:id called', "routes");
+      log('Request params', "routes", { detail: req.params });
+      log('Request body', "routes", { detail: req.body });
       
       const id = parseInt(req.params.id);
       if (isNaN(id)) {
@@ -7188,11 +7187,11 @@ function writeFailureDetail(error: unknown): string {
 
       // Extract isDraft flag and remove it from validation data
       const { isDraft, ...bodyData } = req.body;
-      console.log('isDraft:', isDraft);
-      console.log('bodyData:', bodyData);
+      log('isDraft', "routes", { detail: isDraft });
+      log('bodyData', "routes", { detail: bodyData });
       
       const validateData = insertIbcApplicationSchema.partial().parse(bodyData);
-      console.log('Validated data after schema parsing:', validateData);
+      log('Validated data after schema parsing', "routes", { detail: validateData });
       
       // Handle status based on isDraft flag
       if (isDraft !== undefined) {
@@ -7205,8 +7204,8 @@ function writeFailureDetail(error: unknown): string {
             validateData.submissionDate = new Date();
           }
         }
-        console.log('Status set to:', validateData.status);
-        console.log('Submission date set to:', validateData.submissionDate);
+        log('Status set to', "routes", { detail: validateData.status });
+        log('Submission date set to', "routes", { detail: validateData.submissionDate });
       }
       
       // Handle status changes for timeline tracking
@@ -7256,9 +7255,9 @@ function writeFailureDetail(error: unknown): string {
         return res.status(404).json({ message: "IBC application not found" });
       }
 
-      console.log('About to call storage.updateIbcApplication with:', id, validateData);
+      log("Updating IBC application", "routes", { id, fields: validateData });
       const application = await storage.updateIbcApplication(id, validateData);
-      console.log('storage.updateIbcApplication result:', application);
+      log('storage.updateIbcApplication result', "routes", { detail: application });
       
       if (!application) {
         return res.status(404).json({ message: "IBC application not found" });
@@ -7316,12 +7315,12 @@ function writeFailureDetail(error: unknown): string {
 
       res.json(application);
     } catch (error) {
-      console.error('Error in PATCH /api/ibc-applications/:id:', error);
+      logError('Error in PATCH /api/ibc-applications/:id', "routes", error);
       if (error instanceof ZodError) {
-        console.error('Zod validation error details:', fromZodError(error).message);
+        logError('Zod validation error details', "routes", fromZodError(error).message);
         return res.status(400).json({ message: fromZodError(error).message });
       }
-      console.error('Non-Zod error:', error);
+      logError('Non-Zod error', "routes", error);
       res.status(500).json({ message: "Failed to update IBC application", error: error.message });
     }
   });
@@ -7404,7 +7403,7 @@ function writeFailureDetail(error: unknown): string {
         res.json([]);
       }
     } catch (error) {
-      console.error("Error fetching IBC application personnel:", error);
+      logError("Error fetching IBC application personnel", "routes", error);
       res.status(500).json({ message: "Failed to fetch personnel for IBC application" });
     }
   });
@@ -7544,7 +7543,7 @@ function writeFailureDetail(error: unknown): string {
         application: updatedApplication 
       });
     } catch (error) {
-      console.error("Error submitting reviewer feedback:", error);
+      logError("Error submitting reviewer feedback", "routes", error);
       res.status(500).json({ message: "Failed to submit reviewer feedback" });
     }
   });
@@ -7560,7 +7559,7 @@ function writeFailureDetail(error: unknown): string {
       const comments = await storage.getIbcApplicationComments(id);
       res.json(comments);
     } catch (error) {
-      console.error("Error fetching IBC application comments:", error);
+      logError("Error fetching IBC application comments", "routes", error);
       res.status(500).json({ message: "Failed to fetch comments" });
     }
   });
@@ -7607,7 +7606,7 @@ function writeFailureDetail(error: unknown): string {
         message: "Comment submitted successfully"
       });
     } catch (error) {
-      console.error("Error submitting PI comment:", error);
+      logError("Error submitting PI comment", "routes", error);
       res.status(500).json({ message: "Failed to submit comment" });
     }
   });
@@ -7621,7 +7620,7 @@ function writeFailureDetail(error: unknown): string {
       const rooms = await storage.getIbcApplicationRooms(id);
       res.json(rooms);
     } catch (error) {
-      console.error('Error getting IBC application rooms:', error);
+      logError('Error getting IBC application rooms', "routes", error);
       res.status(500).json({ message: "Failed to fetch IBC application rooms" });
     }
   });
@@ -7640,7 +7639,7 @@ function writeFailureDetail(error: unknown): string {
       if (error instanceof ZodError) {
         res.status(400).json({ message: fromZodError(error).toString() });
       } else {
-        console.error('Error adding room to IBC application:', error);
+        logError('Error adding room to IBC application', "routes", error);
         res.status(500).json({ message: "Failed to add room to IBC application" });
       }
     }
@@ -7658,7 +7657,7 @@ function writeFailureDetail(error: unknown): string {
         res.status(404).json({ message: "Room not found in IBC application" });
       }
     } catch (error) {
-      console.error('Error removing room from IBC application:', error);
+      logError('Error removing room from IBC application', "routes", error);
       res.status(500).json({ message: "Failed to remove room from IBC application" });
     }
   });
@@ -7670,7 +7669,7 @@ function writeFailureDetail(error: unknown): string {
       const assignments = await storage.getIbcBackboneSourceRooms(id);
       res.json(assignments);
     } catch (error) {
-      console.error('Error getting IBC backbone source rooms:', error);
+      logError('Error getting IBC backbone source rooms', "routes", error);
       res.status(500).json({ message: "Failed to fetch IBC backbone source rooms" });
     }
   });
@@ -7689,7 +7688,7 @@ function writeFailureDetail(error: unknown): string {
       if (error instanceof ZodError) {
         res.status(400).json({ message: fromZodError(error).toString() });
       } else {
-        console.error('Error adding backbone source room:', error);
+        logError('Error adding backbone source room', "routes", error);
         res.status(500).json({ message: "Failed to add backbone source room assignment" });
       }
     }
@@ -7708,7 +7707,7 @@ function writeFailureDetail(error: unknown): string {
         res.status(404).json({ message: "Backbone source room assignment not found" });
       }
     } catch (error) {
-      console.error('Error removing backbone source room assignment:', error);
+      logError('Error removing backbone source room assignment', "routes", error);
       res.status(500).json({ message: "Failed to remove backbone source room assignment" });
     }
   });
@@ -7727,7 +7726,7 @@ function writeFailureDetail(error: unknown): string {
       }
       res.json(ppe);
     } catch (error) {
-      console.error('Error getting IBC application PPE:', error);
+      logError('Error getting IBC application PPE', "routes", error);
       res.status(500).json({ message: "Failed to fetch IBC application PPE" });
     }
   });
@@ -7746,7 +7745,7 @@ function writeFailureDetail(error: unknown): string {
       if (error instanceof ZodError) {
         res.status(400).json({ message: fromZodError(error).toString() });
       } else {
-        console.error('Error adding PPE to IBC application:', error);
+        logError('Error adding PPE to IBC application', "routes", error);
         res.status(500).json({ message: "Failed to add PPE to IBC application" });
       }
     }
@@ -7765,7 +7764,7 @@ function writeFailureDetail(error: unknown): string {
         res.status(404).json({ message: "PPE not found in IBC application" });
       }
     } catch (error) {
-      console.error('Error removing PPE from IBC application:', error);
+      logError('Error removing PPE from IBC application', "routes", error);
       res.status(500).json({ message: "Failed to remove PPE from IBC application" });
     }
   });
@@ -7825,7 +7824,7 @@ function writeFailureDetail(error: unknown): string {
       const boardMember = await storage.createIbcBoardMember(validateData);
       res.status(201).json(boardMember);
     } catch (error) {
-      console.error("Board member creation error:", error);
+      logError("Board member creation error", "routes", error);
       res.status(500).json({ message: "Failed to create IBC board member" });
     }
   });
@@ -8136,7 +8135,7 @@ function writeFailureDetail(error: unknown): string {
       
       res.json(enhancedContracts);
     } catch (error) {
-      console.error('Error fetching research contracts:', error);
+      logError('Error fetching research contracts', "routes", error);
       res.status(500).json({ message: "Failed to fetch research contracts" });
     }
   });
@@ -8192,7 +8191,7 @@ function writeFailureDetail(error: unknown): string {
 
       res.json(enhancedContract);
     } catch (error) {
-      console.error('Error fetching research contract:', error);
+      logError('Error fetching research contract', "routes", error);
       res.status(500).json({ message: "Failed to fetch research contract" });
     }
   });
@@ -8231,7 +8230,7 @@ function writeFailureDetail(error: unknown): string {
       if (error instanceof ZodError) {
         return res.status(400).json({ message: fromZodError(error).message });
       }
-      console.error('Error creating research contract:', error);
+      logError('Error creating research contract', "routes", error);
       res.status(500).json({ message: "Failed to create research contract" });
     }
   });
@@ -8283,7 +8282,7 @@ function writeFailureDetail(error: unknown): string {
       if (error instanceof ZodError) {
         return res.status(400).json({ message: fromZodError(error).message });
       }
-      console.error('Error updating research contract:', error);
+      logError('Error updating research contract', "routes", error);
       res.status(500).json({ message: "Failed to update research contract" });
     }
   });
@@ -8315,7 +8314,7 @@ function writeFailureDetail(error: unknown): string {
       await req.audit.logDelete("research_contracts", id, existingContract as Record<string, unknown>);
       res.status(204).send();
     } catch (error) {
-      console.error('Error deleting research contract:', error);
+      logError('Error deleting research contract', "routes", error);
       res.status(500).json({ message: "Failed to delete research contract" });
     }
   });
@@ -8336,7 +8335,7 @@ function writeFailureDetail(error: unknown): string {
       const scopeItems = await storage.getResearchContractScopeItems(contractId);
       res.json(scopeItems);
     } catch (error) {
-      console.error('Error fetching contract scope items:', error);
+      logError('Error fetching contract scope items', "routes", error);
       res.status(500).json({ message: "Failed to fetch scope items" });
     }
   });
@@ -8364,7 +8363,7 @@ function writeFailureDetail(error: unknown): string {
       if (error instanceof ZodError) {
         return res.status(400).json({ message: fromZodError(error).message });
       }
-      console.error('Error creating scope item:', error);
+      logError('Error creating scope item', "routes", error);
       res.status(500).json({ message: "Failed to create scope item" });
     }
   });
@@ -8393,7 +8392,7 @@ function writeFailureDetail(error: unknown): string {
       if (error instanceof ZodError) {
         return res.status(400).json({ message: fromZodError(error).message });
       }
-      console.error('Error updating scope item:', error);
+      logError('Error updating scope item', "routes", error);
       res.status(500).json({ message: "Failed to update scope item" });
     }
   });
@@ -8418,7 +8417,7 @@ function writeFailureDetail(error: unknown): string {
       
       res.status(204).send();
     } catch (error) {
-      console.error('Error deleting scope item:', error);
+      logError('Error deleting scope item', "routes", error);
       res.status(500).json({ message: "Failed to delete scope item" });
     }
   });
@@ -8439,7 +8438,7 @@ function writeFailureDetail(error: unknown): string {
       const extensions = await storage.getResearchContractExtensions(contractId);
       res.json(extensions);
     } catch (error) {
-      console.error('Error fetching contract extensions:', error);
+      logError('Error fetching contract extensions', "routes", error);
       res.status(500).json({ message: "Failed to fetch extensions" });
     }
   });
@@ -8478,7 +8477,7 @@ function writeFailureDetail(error: unknown): string {
       if (error instanceof ZodError) {
         return res.status(400).json({ message: fromZodError(error).message });
       }
-      console.error('Error creating extension:', error);
+      logError('Error creating extension', "routes", error);
       res.status(500).json({ message: "Failed to create extension" });
     }
   });
@@ -8508,7 +8507,7 @@ function writeFailureDetail(error: unknown): string {
       if (error instanceof ZodError) {
         return res.status(400).json({ message: fromZodError(error).message });
       }
-      console.error('Error updating extension:', error);
+      logError('Error updating extension', "routes", error);
       res.status(500).json({ message: "Failed to update extension" });
     }
   });
@@ -8539,7 +8538,7 @@ function writeFailureDetail(error: unknown): string {
       
       res.status(204).send();
     } catch (error) {
-      console.error('Error deleting extension:', error);
+      logError('Error deleting extension', "routes", error);
       res.status(500).json({ message: "Failed to delete extension" });
     }
   });
@@ -8560,7 +8559,7 @@ function writeFailureDetail(error: unknown): string {
       const documents = await storage.getResearchContractDocuments(contractId);
       res.json(documents);
     } catch (error) {
-      console.error('Error fetching contract documents:', error);
+      logError('Error fetching contract documents', "routes", error);
       res.status(500).json({ message: "Failed to fetch documents" });
     }
   });
@@ -8585,7 +8584,7 @@ function writeFailureDetail(error: unknown): string {
       const documents = await storage.getResearchContractDocumentsForExtension(extensionId);
       res.json(documents);
     } catch (error) {
-      console.error('Error fetching extension documents:', error);
+      logError('Error fetching extension documents', "routes", error);
       res.status(500).json({ message: "Failed to fetch extension documents" });
     }
   });
@@ -8613,7 +8612,7 @@ function writeFailureDetail(error: unknown): string {
       if (error instanceof ZodError) {
         return res.status(400).json({ message: fromZodError(error).message });
       }
-      console.error('Error creating document:', error);
+      logError('Error creating document', "routes", error);
       res.status(500).json({ message: "Failed to create document" });
     }
   });
@@ -8646,7 +8645,7 @@ function writeFailureDetail(error: unknown): string {
       if (error instanceof ZodError) {
         return res.status(400).json({ message: fromZodError(error).message });
       }
-      console.error('Error creating extension document:', error);
+      logError('Error creating extension document', "routes", error);
       res.status(500).json({ message: "Failed to create extension document" });
     }
   });
@@ -8675,7 +8674,7 @@ function writeFailureDetail(error: unknown): string {
       if (error instanceof ZodError) {
         return res.status(400).json({ message: fromZodError(error).message });
       }
-      console.error('Error updating document:', error);
+      logError('Error updating document', "routes", error);
       res.status(500).json({ message: "Failed to update document" });
     }
   });
@@ -8700,7 +8699,7 @@ function writeFailureDetail(error: unknown): string {
       
       res.status(204).send();
     } catch (error) {
-      console.error('Error deleting document:', error);
+      logError('Error deleting document', "routes", error);
       res.status(500).json({ message: "Failed to delete document" });
     }
   });
@@ -8737,7 +8736,7 @@ function writeFailureDetail(error: unknown): string {
 
       res.json(enhancedContracts);
     } catch (error) {
-      console.error('Error fetching contracts for research activity:', error);
+      logError('Error fetching contracts for research activity', "routes", error);
       res.status(500).json({ message: "Failed to fetch contracts" });
     }
   });
@@ -8748,7 +8747,7 @@ function writeFailureDetail(error: unknown): string {
       const members = await storage.getIrbBoardMembers();
       res.json(members);
     } catch (error) {
-      console.error('Error fetching IRB board members:', error);
+      logError('Error fetching IRB board members', "routes", error);
       res.status(500).json({ message: "Failed to fetch IRB board members" });
     }
   });
@@ -8758,7 +8757,7 @@ function writeFailureDetail(error: unknown): string {
       const members = await storage.getActiveIrbBoardMembers();
       res.json(members);
     } catch (error) {
-      console.error('Error fetching active IRB board members:', error);
+      logError('Error fetching active IRB board members', "routes", error);
       res.status(500).json({ message: "Failed to fetch active IRB board members" });
     }
   });
@@ -8777,14 +8776,14 @@ function writeFailureDetail(error: unknown): string {
 
       res.json(member);
     } catch (error) {
-      console.error('Error fetching IRB board member:', error);
+      logError('Error fetching IRB board member', "routes", error);
       res.status(500).json({ message: "Failed to fetch IRB board member" });
     }
   });
 
   app.post('/api/irb-board-members', async (req: Request, res: Response) => {
     try {
-      console.log('Creating IRB board member with data:', req.body);
+      log('Creating IRB board member with data', "routes", { detail: req.body });
       
       // Validate required fields
       if (!req.body.scientistId || !req.body.role) {
@@ -8819,10 +8818,10 @@ function writeFailureDetail(error: unknown): string {
       }
 
       const member = await storage.createIrbBoardMember(req.body);
-      console.log('Successfully created IRB board member:', member);
+      log('Successfully created IRB board member', "routes", { detail: member });
       res.status(201).json(member);
     } catch (error) {
-      console.error('Error creating IRB board member:', error);
+      logError('Error creating IRB board member', "routes", error);
       res.status(500).json({ message: "Failed to create IRB board member", error: error.message });
     }
   });
@@ -8834,7 +8833,7 @@ function writeFailureDetail(error: unknown): string {
         return res.status(400).json({ message: "Invalid board member ID" });
       }
 
-      console.log('Updating IRB board member with data:', req.body);
+      log('Updating IRB board member with data', "routes", { detail: req.body });
 
       // Check for existing chair or deputy chair if trying to assign these roles
       if (req.body.role === 'chair' || req.body.role === 'deputy_chair') {
@@ -8856,7 +8855,7 @@ function writeFailureDetail(error: unknown): string {
 
       res.json(member);
     } catch (error) {
-      console.error('Error updating IRB board member:', error);
+      logError('Error updating IRB board member', "routes", error);
       res.status(500).json({ message: "Failed to update IRB board member", error: error.message });
     }
   });
@@ -8875,7 +8874,7 @@ function writeFailureDetail(error: unknown): string {
 
       res.json({ message: "IRB board member deleted successfully" });
     } catch (error) {
-      console.error('Error deleting IRB board member:', error);
+      logError('Error deleting IRB board member', "routes", error);
       res.status(500).json({ message: "Failed to delete IRB board member", error: error.message });
     }
   });
@@ -8898,7 +8897,7 @@ function writeFailureDetail(error: unknown): string {
     try {
       res.json(await storage.getBranches());
     } catch (error) {
-      console.error('Error fetching branches:', error);
+      logError('Error fetching branches', "routes", error);
       res.status(500).json({ message: 'Failed to fetch branches' });
     }
   });
@@ -8912,7 +8911,7 @@ function writeFailureDetail(error: unknown): string {
       if (error instanceof z.ZodError) {
         return res.status(400).json({ message: 'Invalid branch data', errors: error.errors });
       }
-      console.error('Error creating branch:', error);
+      logError('Error creating branch', "routes", error);
       res.status(500).json({ message: 'Failed to create branch' });
     }
   });
@@ -8930,7 +8929,7 @@ function writeFailureDetail(error: unknown): string {
       if (error instanceof z.ZodError) {
         return res.status(400).json({ message: 'Invalid branch data', errors: error.errors });
       }
-      console.error('Error updating branch:', error);
+      logError('Error updating branch', "routes", error);
       res.status(500).json({ message: 'Failed to update branch' });
     }
   });
@@ -8947,7 +8946,7 @@ function writeFailureDetail(error: unknown): string {
       }
       res.json({ message: 'Branch deleted successfully' });
     } catch (error) {
-      console.error('Error deleting branch:', error);
+      logError('Error deleting branch', "routes", error);
       res.status(500).json({ message: 'Failed to delete branch' });
     }
   });
@@ -8956,7 +8955,7 @@ function writeFailureDetail(error: unknown): string {
     try {
       res.json(await storage.getDepartments());
     } catch (error) {
-      console.error('Error fetching departments:', error);
+      logError('Error fetching departments', "routes", error);
       res.status(500).json({ message: 'Failed to fetch departments' });
     }
   });
@@ -8972,7 +8971,7 @@ function writeFailureDetail(error: unknown): string {
       if (error instanceof z.ZodError) {
         return res.status(400).json({ message: 'Invalid department data', errors: error.errors });
       }
-      console.error('Error creating department:', error);
+      logError('Error creating department', "routes", error);
       res.status(500).json({ message: 'Failed to create department' });
     }
   });
@@ -8994,7 +8993,7 @@ function writeFailureDetail(error: unknown): string {
       if (error instanceof z.ZodError) {
         return res.status(400).json({ message: 'Invalid department data', errors: error.errors });
       }
-      console.error('Error updating department:', error);
+      logError('Error updating department', "routes", error);
       res.status(500).json({ message: 'Failed to update department' });
     }
   });
@@ -9011,7 +9010,7 @@ function writeFailureDetail(error: unknown): string {
       }
       res.json({ message: 'Department deleted successfully' });
     } catch (error) {
-      console.error('Error deleting department:', error);
+      logError('Error deleting department', "routes", error);
       res.status(500).json({ message: 'Failed to delete department' });
     }
   });
@@ -9020,7 +9019,7 @@ function writeFailureDetail(error: unknown): string {
     try {
       res.json(await storage.getSections());
     } catch (error) {
-      console.error('Error fetching sections:', error);
+      logError('Error fetching sections', "routes", error);
       res.status(500).json({ message: 'Failed to fetch sections' });
     }
   });
@@ -9036,7 +9035,7 @@ function writeFailureDetail(error: unknown): string {
       if (error instanceof z.ZodError) {
         return res.status(400).json({ message: 'Invalid section data', errors: error.errors });
       }
-      console.error('Error creating section:', error);
+      logError('Error creating section', "routes", error);
       res.status(500).json({ message: 'Failed to create section' });
     }
   });
@@ -9073,7 +9072,7 @@ function writeFailureDetail(error: unknown): string {
       if (error instanceof z.ZodError) {
         return res.status(400).json({ message: 'Invalid section data', errors: error.errors });
       }
-      console.error('Error updating section:', error);
+      logError('Error updating section', "routes", error);
       res.status(500).json({ message: 'Failed to update section' });
     }
   });
@@ -9090,7 +9089,7 @@ function writeFailureDetail(error: unknown): string {
       }
       res.json({ message: 'Section deleted successfully' });
     } catch (error) {
-      console.error('Error deleting section:', error);
+      logError('Error deleting section', "routes", error);
       res.status(500).json({ message: 'Failed to delete section' });
     }
   });
@@ -9101,7 +9100,7 @@ function writeFailureDetail(error: unknown): string {
       const buildings = await storage.getBuildings();
       res.json(buildings);
     } catch (error) {
-      console.error('Error fetching buildings:', error);
+      logError('Error fetching buildings', "routes", error);
       res.status(500).json({ message: "Failed to fetch buildings" });
     }
   });
@@ -9120,7 +9119,7 @@ function writeFailureDetail(error: unknown): string {
 
       res.json(building);
     } catch (error) {
-      console.error('Error fetching building:', error);
+      logError('Error fetching building', "routes", error);
       res.status(500).json({ message: "Failed to fetch building" });
     }
   });
@@ -9131,7 +9130,7 @@ function writeFailureDetail(error: unknown): string {
       const building = await storage.createBuilding(parsedData);
       res.status(201).json(building);
     } catch (error) {
-      console.error('Error creating building:', error);
+      logError('Error creating building', "routes", error);
       if (error instanceof ZodError) {
         const validationError = fromZodError(error);
         return res.status(400).json({ message: validationError.message });
@@ -9155,7 +9154,7 @@ function writeFailureDetail(error: unknown): string {
 
       res.json(building);
     } catch (error) {
-      console.error('Error updating building:', error);
+      logError('Error updating building', "routes", error);
       if (error instanceof ZodError) {
         const validationError = fromZodError(error);
         return res.status(400).json({ message: validationError.message });
@@ -9178,7 +9177,7 @@ function writeFailureDetail(error: unknown): string {
 
       res.json({ message: "Building deleted successfully" });
     } catch (error) {
-      console.error('Error deleting building:', error);
+      logError('Error deleting building', "routes", error);
       res.status(500).json({ message: "Failed to delete building" });
     }
   });
@@ -9196,7 +9195,7 @@ function writeFailureDetail(error: unknown): string {
         res.json(rooms);
       }
     } catch (error) {
-      console.error('Error fetching rooms:', error);
+      logError('Error fetching rooms', "routes", error);
       res.status(500).json({ message: "Failed to fetch rooms" });
     }
   });
@@ -9215,7 +9214,7 @@ function writeFailureDetail(error: unknown): string {
 
       res.json(room);
     } catch (error) {
-      console.error('Error fetching room:', error);
+      logError('Error fetching room', "routes", error);
       res.status(500).json({ message: "Failed to fetch room" });
     }
   });
@@ -9246,7 +9245,7 @@ function writeFailureDetail(error: unknown): string {
       const room = await storage.createRoom(parsedData);
       res.status(201).json(room);
     } catch (error) {
-      console.error('Error creating room:', error);
+      logError('Error creating room', "routes", error);
       if (error instanceof ZodError) {
         const validationError = fromZodError(error);
         return res.status(400).json({ message: validationError.message });
@@ -9290,7 +9289,7 @@ function writeFailureDetail(error: unknown): string {
 
       res.json(room);
     } catch (error) {
-      console.error('Error updating room:', error);
+      logError('Error updating room', "routes", error);
       if (error instanceof ZodError) {
         const validationError = fromZodError(error);
         return res.status(400).json({ message: validationError.message });
@@ -9313,7 +9312,7 @@ function writeFailureDetail(error: unknown): string {
 
       res.json({ message: "Room deleted successfully" });
     } catch (error) {
-      console.error('Error deleting room:', error);
+      logError('Error deleting room', "routes", error);
       res.status(500).json({ message: "Failed to delete room" });
     }
   });
@@ -9329,7 +9328,7 @@ function writeFailureDetail(error: unknown): string {
       const rooms = await storage.getRoomsByBuilding(buildingId);
       res.json(rooms);
     } catch (error) {
-      console.error('Error fetching building rooms:', error);
+      logError('Error fetching building rooms', "routes", error);
       res.status(500).json({ message: "Failed to fetch building rooms" });
     }
   });
@@ -9343,7 +9342,7 @@ function writeFailureDetail(error: unknown): string {
       const permissions = await storage.getRolePermissions();
       res.json(permissions);
     } catch (error) {
-      console.error('Error fetching role permissions:', error);
+      logError('Error fetching role permissions', "routes", error);
       res.status(500).json({ message: "Failed to fetch role permissions" });
     }
   });
@@ -9357,7 +9356,7 @@ function writeFailureDetail(error: unknown): string {
       const permission = await storage.createRolePermission(validateData);
       res.status(201).json(permission);
     } catch (error) {
-      console.error('Error creating role permission:', error);
+      logError('Error creating role permission', "routes", error);
       if (error instanceof ZodError) {
         const validationError = fromZodError(error);
         return res.status(400).json({ message: validationError.message });
@@ -9382,7 +9381,7 @@ function writeFailureDetail(error: unknown): string {
       
       res.json(permission);
     } catch (error) {
-      console.error('Error updating role permission:', error);
+      logError('Error updating role permission', "routes", error);
       res.status(500).json({ message: "Failed to update role permission" });
     }
   });
@@ -9400,7 +9399,7 @@ function writeFailureDetail(error: unknown): string {
       );
       res.json(results);
     } catch (error) {
-      console.error('Error bulk updating role permissions:', error);
+      logError('Error bulk updating role permissions', "routes", error);
       res.status(500).json({ message: "Failed to bulk update role permissions" });
     }
   });
@@ -9436,7 +9435,7 @@ function writeFailureDetail(error: unknown): string {
 
       res.json(result);
     } catch (error) {
-      console.error('Error fetching journal impact factors:', error);
+      logError('Error fetching journal impact factors', "routes", error);
       res.status(500).json({ message: "Failed to fetch journal impact factors" });
     }
   });
@@ -9446,7 +9445,7 @@ function writeFailureDetail(error: unknown): string {
       const years = await storage.getJournalImpactFactorYears();
       res.json(years);
     } catch (error) {
-      console.error('Error fetching journal IF years:', error);
+      logError('Error fetching journal IF years', "routes", error);
       res.status(500).json({ message: "Failed to fetch journal impact factor years" });
     }
   });
@@ -9499,7 +9498,7 @@ function writeFailureDetail(error: unknown): string {
       res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
       res.send(csv);
     } catch (error) {
-      console.error('Error exporting journal impact factors:', error);
+      logError('Error exporting journal impact factors', "routes", error);
       res.status(500).json({ message: "Failed to export journal impact factors" });
     }
   });
@@ -9509,7 +9508,7 @@ function writeFailureDetail(error: unknown): string {
       const fields = await storage.getJournalFields();
       res.json(fields);
     } catch (error) {
-      console.error('Error fetching journal fields:', error);
+      logError('Error fetching journal fields', "routes", error);
       res.status(500).json({ message: "Failed to fetch journal fields" });
     }
   });
@@ -9531,7 +9530,7 @@ function writeFailureDetail(error: unknown): string {
 
       res.json(factor);
     } catch (error) {
-      console.error('Error fetching journal:', error);
+      logError('Error fetching journal', "routes", error);
       res.status(500).json({ message: "Failed to fetch journal" });
     }
   });
@@ -9545,7 +9544,7 @@ function writeFailureDetail(error: unknown): string {
       const history = await storage.getHistoricalImpactFactorsByJournalId(id);
       res.json(history);
     } catch (error) {
-      console.error('Error fetching journal history:', error);
+      logError('Error fetching journal history', "routes", error);
       res.status(500).json({ message: "Failed to fetch journal history" });
     }
   });
@@ -9564,7 +9563,7 @@ function writeFailureDetail(error: unknown): string {
       const distribution = await storage.getFieldImpactFactorDistribution(journal.field);
       res.json({ field: journal.field, distribution });
     } catch (error) {
-      console.error('Error fetching field IF distribution:', error);
+      logError('Error fetching field IF distribution', "routes", error);
       res.status(500).json({ message: "Failed to fetch field impact factor distribution" });
     }
   });
@@ -9580,7 +9579,7 @@ function writeFailureDetail(error: unknown): string {
       if (!updated) return res.status(404).json({ message: "Journal not found" });
       res.json(updated);
     } catch (error) {
-      console.error('Error updating journal field:', error);
+      logError('Error updating journal field', "routes", error);
       res.status(500).json({ message: "Failed to update journal field" });
     }
   });
@@ -9601,7 +9600,7 @@ function writeFailureDetail(error: unknown): string {
 
       res.json(factor);
     } catch (error) {
-      console.error('Error fetching journal impact factor:', error);
+      logError('Error fetching journal impact factor', "routes", error);
       res.status(500).json({ message: "Failed to fetch journal impact factor" });
     }
   });
@@ -9614,7 +9613,7 @@ function writeFailureDetail(error: unknown): string {
       const historicalData = await storage.getHistoricalImpactFactors(decodedJournalName);
       res.json(historicalData);
     } catch (error) {
-      console.error('Error fetching historical impact factors:', error);
+      logError('Error fetching historical impact factors', "routes", error);
       res.status(500).json({ message: "Failed to fetch historical impact factors" });
     }
   });
@@ -9627,7 +9626,7 @@ function writeFailureDetail(error: unknown): string {
       const factor = await storage.createJournalImpactFactor(parsedData);
       res.status(201).json(factor);
     } catch (error: any) {
-      console.error('Error creating journal impact factor:', error);
+      logError('Error creating journal impact factor', "routes", error);
       
       if (error.name === 'ZodError') {
         return res.status(400).json({ 
@@ -9681,13 +9680,13 @@ function writeFailureDetail(error: unknown): string {
           const created = await storage.createJournalImpactFactor(impactFactor);
           results.push(created);
         } catch (error) {
-          console.error('Error importing row:', row, error);
+          logError(`Error importing row ${row}`, "routes", error);
         }
       }
 
       res.json({ imported: results.length, total: csvData.length });
     } catch (error) {
-      console.error('Error importing CSV data:', error);
+      logError('Error importing CSV data', "routes", error);
       res.status(500).json({ message: "Failed to import CSV data" });
     }
   });
@@ -9709,7 +9708,7 @@ function writeFailureDetail(error: unknown): string {
 
       res.json(factor);
     } catch (error: any) {
-      console.error('Error updating journal impact factor:', error);
+      logError('Error updating journal impact factor', "routes", error);
       
       if (error.name === 'ZodError') {
         return res.status(400).json({ 
@@ -9763,7 +9762,7 @@ function writeFailureDetail(error: unknown): string {
       
       res.json(publication);
     } catch (error) {
-      console.error('Error fetching PubMed data:', error);
+      logError('Error fetching PubMed data', "routes", error);
       res.status(500).json({ message: "Failed to fetch publication data from PubMed" });
     }
   });
@@ -9801,7 +9800,7 @@ function writeFailureDetail(error: unknown): string {
       
       res.json(publication);
     } catch (error) {
-      console.error('Error fetching CrossRef data:', error);
+      logError('Error fetching CrossRef data', "routes", error);
       res.status(500).json({ message: "Failed to fetch publication data from CrossRef" });
     }
   });
@@ -9853,7 +9852,7 @@ function writeFailureDetail(error: unknown): string {
           orcidWorks = await fetchOrcidWorks(scientist.orcidId as string);
           orcidAvailable = true;
         } catch (err) {
-          console.error("ORCID fetch failed:", err);
+          logError("ORCID fetch failed", "routes", err);
           orcidAvailable = false;
         }
       }
@@ -9912,7 +9911,7 @@ function writeFailureDetail(error: unknown): string {
         message,
       });
     } catch (error) {
-      console.error("Error checking for missing papers:", error);
+      logError("Error checking for missing papers", "routes", error);
       res
         .status(500)
         .json({ message: "Failed to check for missing papers" });
@@ -10106,7 +10105,7 @@ function writeFailureDetail(error: unknown): string {
             prepublicationSite: publication.prepublicationSite,
           });
         } catch (err) {
-          console.error(`Failed to import DOI ${doi}:`, err);
+          logError(`Failed to import DOI ${doi}`, "routes", err);
           skipped.push({ doi, reason: "failed to save" });
         }
       }
@@ -10118,7 +10117,7 @@ function writeFailureDetail(error: unknown): string {
         skippedCount: skipped.length,
       });
     } catch (error) {
-      console.error("Error importing papers:", error);
+      logError("Error importing papers", "routes", error);
       res.status(500).json({ message: "Failed to import papers" });
     }
   });
@@ -10137,7 +10136,7 @@ function writeFailureDetail(error: unknown): string {
 
       res.status(204).send();
     } catch (error) {
-      console.error('Error deleting journal impact factor:', error);
+      logError('Error deleting journal impact factor', "routes", error);
       res.status(500).json({ message: "Failed to delete journal impact factor" });
     }
   });
@@ -10175,7 +10174,7 @@ function writeFailureDetail(error: unknown): string {
 
       res.json(grant);
     } catch (error) {
-      console.error('Error fetching grant:', error);
+      logError('Error fetching grant', "routes", error);
       res.status(500).json({ message: "Failed to fetch grant" });
     }
   });
@@ -10212,7 +10211,7 @@ function writeFailureDetail(error: unknown): string {
           details: fromZodError(error).toString()
         });
       }
-      console.error('Error creating grant:', error);
+      logError('Error creating grant', "routes", error);
       res.status(500).json({ message: "Failed to create grant" });
     }
   });
@@ -10292,13 +10291,13 @@ function writeFailureDetail(error: unknown): string {
         return res.status(400).json({ message: error.message });
       }
       if (error instanceof ZodError) {
-        console.error('Validation error:', fromZodError(error).toString());
+        logError('Validation error', "routes", fromZodError(error).toString());
         return res.status(400).json({ 
           message: "Invalid grant data", 
           details: fromZodError(error).toString() 
         });
       }
-      console.error('Error updating grant:', error);
+      logError('Error updating grant', "routes", error);
       res.status(500).json({ message: "Failed to update grant" });
     }
   });
@@ -10324,7 +10323,7 @@ function writeFailureDetail(error: unknown): string {
       if (error instanceof GrantSdrLifecycleStorageError) {
         return res.status(409).json({ message: error.message });
       }
-      console.error('Error deleting grant:', error);
+      logError('Error deleting grant', "routes", error);
       res.status(500).json({ message: "Failed to delete grant" });
     }
   });
@@ -10354,7 +10353,7 @@ function writeFailureDetail(error: unknown): string {
       res.setHeader('Content-Disposition', `attachment; filename=grants-export-${stamp}.csv`);
       res.send(csvContent);
     } catch (error) {
-      console.error('Error exporting grants:', error);
+      logError('Error exporting grants', "routes", error);
       res.status(500).json({ message: "Failed to export grants" });
     }
   });
@@ -10367,7 +10366,7 @@ function writeFailureDetail(error: unknown): string {
       res.setHeader('Content-Disposition', 'attachment; filename=grants-import-template.xlsx');
       res.send(buffer);
     } catch (error) {
-      console.error('Error building grants import template:', error);
+      logError('Error building grants import template', "routes", error);
       res.status(500).json({ message: "Failed to build template" });
     }
   });
@@ -10405,7 +10404,7 @@ function writeFailureDetail(error: unknown): string {
         },
       });
     } catch (error) {
-      console.error('Error previewing grants import:', error);
+      logError('Error previewing grants import', "routes", error);
       res.status(400).json({ message: error instanceof Error ? error.message : "Failed to parse file" });
     }
   });
@@ -10427,7 +10426,7 @@ function writeFailureDetail(error: unknown): string {
       res.setHeader('Content-Disposition', `attachment; filename=missing-grant-staff-${stamp}.xlsx`);
       res.send(buffer);
     } catch (error) {
-      console.error('Error exporting missing grant staff:', error);
+      logError('Error exporting missing grant staff', "routes", error);
       res.status(400).json({ message: error instanceof Error ? error.message : "Failed to export missing staff" });
     }
   });
@@ -10542,14 +10541,14 @@ function writeFailureDetail(error: unknown): string {
           linked += await seedGrantLinks(grantId, p.data);
         } catch (err) {
           // A link that will not seed must not fail the grant it belongs to.
-          console.error(`Failed to seed links for grant ${p.projectNumber}:`, err);
+          logError(`Failed to seed links for grant ${p.projectNumber}`, "routes", err);
         }
       }
 
       const skipped = previews.filter((p) => p.action === 'skip').map((p) => ({ rowNumber: p.rowNumber, projectNumber: p.projectNumber, reason: p.reason }));
       res.json({ created, updated, skipped, failed, linked });
     } catch (error) {
-      console.error('Error applying grants import:', error);
+      logError('Error applying grants import', "routes", error);
       res.status(400).json({ message: error instanceof Error ? error.message : "Failed to import grants" });
     }
   });
@@ -10576,7 +10575,7 @@ function writeFailureDetail(error: unknown): string {
         withOtherContent: grants.filter((grant) => grant.hasOtherContent).length,
       });
     } catch (error) {
-      console.error('Error listing incomplete grants:', error);
+      logError('Error listing incomplete grants', "routes", error);
       res.status(500).json({ message: "Failed to list incomplete grants" });
     }
   });
@@ -10612,7 +10611,7 @@ function writeFailureDetail(error: unknown): string {
         skippedCount: result.skipped.length,
       });
     } catch (error) {
-      console.error('Error deleting incomplete grants:', error);
+      logError('Error deleting incomplete grants', "routes", error);
       res.status(500).json({ message: "Failed to delete incomplete grants" });
     }
   });
@@ -10633,7 +10632,7 @@ function writeFailureDetail(error: unknown): string {
       res.setHeader('Content-Disposition', 'attachment; filename="sdr-import-template.xlsx"');
       res.send(buffer);
     } catch (error) {
-      console.error('Error building SDR template:', error);
+      logError('Error building SDR template', "routes", error);
       res.status(500).json({ message: "Failed to build the template" });
     }
   });
@@ -10693,7 +10692,7 @@ function writeFailureDetail(error: unknown): string {
         },
       });
     } catch (error) {
-      console.error('Error previewing SDR import:', error);
+      logError('Error previewing SDR import', "routes", error);
       res.status(400).json({ message: error instanceof Error ? error.message : "Failed to preview" });
     }
   });
@@ -10749,7 +10748,7 @@ function writeFailureDetail(error: unknown): string {
                   role: "Principal Investigator",
                 });
               } catch (memberError) {
-                console.error('Failed to add the PI to the team for', activity.sdrNumber, memberError);
+                logError(`Failed to add the PI to the team for ${activity.sdrNumber}`, "routes", memberError);
               }
             }
             created++;
@@ -10779,7 +10778,7 @@ function writeFailureDetail(error: unknown): string {
 
       res.json({ created, updated, projectsCreated, skipped, failed });
     } catch (error) {
-      console.error('Error applying SDR import:', error);
+      logError('Error applying SDR import', "routes", error);
       res.status(400).json({ message: error instanceof Error ? error.message : "Failed to import" });
     }
   });
@@ -10795,7 +10794,7 @@ function writeFailureDetail(error: unknown): string {
       const researchActivities = await storage.getGrantResearchActivities(grantId);
       res.json(researchActivities);
     } catch (error) {
-      console.error('Error fetching grant research activities:', error);
+      logError('Error fetching grant research activities', "routes", error);
       res.status(500).json({ message: "Failed to fetch grant research activities" });
     }
   });
@@ -10836,7 +10835,7 @@ function writeFailureDetail(error: unknown): string {
           : 409;
         return res.status(status).json({ message: error.message });
       }
-      console.error('Error linking grant to research activity:', error);
+      logError('Error linking grant to research activity', "routes", error);
       res.status(500).json({ message: "Failed to link grant to research activity" });
     }
   });
@@ -10857,7 +10856,7 @@ function writeFailureDetail(error: unknown): string {
 
       res.status(204).send();
     } catch (error) {
-      console.error('Error unlinking grant from research activity:', error);
+      logError('Error unlinking grant from research activity', "routes", error);
       res.status(500).json({ message: "Failed to unlink grant from research activity" });
     }
   });
@@ -10872,7 +10871,7 @@ function writeFailureDetail(error: unknown): string {
       const grants = await storage.getResearchActivityGrants(researchActivityId);
       res.json(grants);
     } catch (error) {
-      console.error('Error fetching research activity grants:', error);
+      logError('Error fetching research activity grants', "routes", error);
       res.status(500).json({ message: "Failed to fetch research activity grants" });
     }
   });
@@ -10887,7 +10886,7 @@ function writeFailureDetail(error: unknown): string {
       const ibcApplications = await storage.getResearchActivityIbcApplications(researchActivityId);
       res.json(ibcApplications);
     } catch (error) {
-      console.error('Error fetching research activity IBC applications:', error);
+      logError('Error fetching research activity IBC applications', "routes", error);
       res.status(500).json({ message: "Failed to fetch research activity IBC applications" });
     }
   });
@@ -10903,7 +10902,7 @@ function writeFailureDetail(error: unknown): string {
       const progressReports = await storage.getGrantProgressReports(grantId);
       res.json(progressReports);
     } catch (error) {
-      console.error('Error fetching grant progress reports:', error);
+      logError('Error fetching grant progress reports', "routes", error);
       res.status(500).json({ message: "Failed to fetch grant progress reports" });
     }
   });
@@ -10934,7 +10933,7 @@ function writeFailureDetail(error: unknown): string {
       const newReport = await storage.createGrantProgressReport(reportData);
       res.status(201).json(newReport);
     } catch (error) {
-      console.error('Error creating grant progress report:', error);
+      logError('Error creating grant progress report', "routes", error);
       res.status(500).json({ message: "Failed to create grant progress report" });
     }
   });
@@ -10949,7 +10948,7 @@ function writeFailureDetail(error: unknown): string {
       const updatedReport = await storage.updateGrantProgressReport(reportId, req.body);
       res.json(updatedReport);
     } catch (error) {
-      console.error('Error updating grant progress report:', error);
+      logError('Error updating grant progress report', "routes", error);
       res.status(500).json({ message: "Failed to update grant progress report" });
     }
   });
@@ -10968,7 +10967,7 @@ function writeFailureDetail(error: unknown): string {
 
       res.status(204).send();
     } catch (error) {
-      console.error('Error deleting grant progress report:', error);
+      logError('Error deleting grant progress report', "routes", error);
       res.status(500).json({ message: "Failed to delete grant progress report" });
     }
   });
@@ -10979,7 +10978,7 @@ function writeFailureDetail(error: unknown): string {
       const modules = await storage.getCertificationModules();
       res.json(modules);
     } catch (error) {
-      console.error('Error fetching certification modules:', error);
+      logError('Error fetching certification modules', "routes", error);
       res.status(500).json({ message: "Failed to fetch certification modules" });
     }
   });
@@ -10994,7 +10993,7 @@ function writeFailureDetail(error: unknown): string {
         const validationError = fromZodError(error);
         res.status(400).json({ message: validationError.message });
       } else {
-        console.error('Error creating certification module:', error);
+        logError('Error creating certification module', "routes", error);
         res.status(500).json({ message: "Failed to create certification module" });
       }
     }
@@ -11015,7 +11014,7 @@ function writeFailureDetail(error: unknown): string {
         const validationError = fromZodError(error);
         res.status(400).json({ message: validationError.message });
       } else {
-        console.error('Error updating certification module:', error);
+        logError('Error updating certification module', "routes", error);
         res.status(500).json({ message: "Failed to update certification module" });
       }
     }
@@ -11035,7 +11034,7 @@ function writeFailureDetail(error: unknown): string {
 
       res.status(204).send();
     } catch (error) {
-      console.error('Error deleting certification module:', error);
+      logError('Error deleting certification module', "routes", error);
       res.status(500).json({ message: "Failed to delete certification module" });
     }
   });
@@ -11046,7 +11045,7 @@ function writeFailureDetail(error: unknown): string {
       const certifications = await storage.getCertifications();
       res.json(certifications);
     } catch (error) {
-      console.error('Error fetching certifications:', error);
+      logError('Error fetching certifications', "routes", error);
       res.status(500).json({ message: "Failed to fetch certifications" });
     }
   });
@@ -11056,7 +11055,7 @@ function writeFailureDetail(error: unknown): string {
       const matrix = await storage.getCertificationMatrix();
       res.json(matrix);
     } catch (error) {
-      console.error('Error fetching certification matrix:', error);
+      logError('Error fetching certification matrix', "routes", error);
       res.status(500).json({ message: "Failed to fetch certification matrix" });
     }
   });
@@ -11071,7 +11070,7 @@ function writeFailureDetail(error: unknown): string {
       const certifications = await storage.getCertificationsByScientist(scientistId);
       res.json(certifications);
     } catch (error) {
-      console.error('Error fetching scientist certifications:', error);
+      logError('Error fetching scientist certifications', "routes", error);
       res.status(500).json({ message: "Failed to fetch scientist certifications" });
     }
   });
@@ -11086,7 +11085,7 @@ function writeFailureDetail(error: unknown): string {
         const validationError = fromZodError(error);
         res.status(400).json({ message: validationError.message });
       } else {
-        console.error('Error creating certification:', error);
+        logError('Error creating certification', "routes", error);
         res.status(500).json({ message: "Failed to create certification" });
       }
     }
@@ -11107,7 +11106,7 @@ function writeFailureDetail(error: unknown): string {
         const validationError = fromZodError(error);
         res.status(400).json({ message: validationError.message });
       } else {
-        console.error('Error updating certification:', error);
+        logError('Error updating certification', "routes", error);
         res.status(500).json({ message: "Failed to update certification" });
       }
     }
@@ -11127,7 +11126,7 @@ function writeFailureDetail(error: unknown): string {
 
       res.status(204).send();
     } catch (error) {
-      console.error('Error deleting certification:', error);
+      logError('Error deleting certification', "routes", error);
       res.status(500).json({ message: "Failed to delete certification" });
     }
   });
@@ -11138,7 +11137,7 @@ function writeFailureDetail(error: unknown): string {
       const config = await storage.getCertificationConfiguration();
       res.json(config || {});
     } catch (error) {
-      console.error('Error fetching certification configuration:', error);
+      logError('Error fetching certification configuration', "routes", error);
       res.status(500).json({ message: "Failed to fetch certification configuration" });
     }
   });
@@ -11153,7 +11152,7 @@ function writeFailureDetail(error: unknown): string {
         const validationError = fromZodError(error);
         res.status(400).json({ message: validationError.message });
       } else {
-        console.error('Error creating certification configuration:', error);
+        logError('Error creating certification configuration', "routes", error);
         res.status(500).json({ message: "Failed to create certification configuration" });
       }
     }
@@ -11174,7 +11173,7 @@ function writeFailureDetail(error: unknown): string {
         const validationError = fromZodError(error);
         res.status(400).json({ message: validationError.message });
       } else {
-        console.error('Error updating certification configuration:', error);
+        logError('Error updating certification configuration', "routes", error);
         res.status(500).json({ message: "Failed to update certification configuration" });
       }
     }
@@ -11216,7 +11215,7 @@ function writeFailureDetail(error: unknown): string {
       const configs = await storage.getSystemConfigurations();
       res.json(configs);
     } catch (error) {
-      console.error('Error fetching system configurations:', error);
+      logError('Error fetching system configurations', "routes", error);
       res.status(500).json({ error: 'Failed to fetch configurations' });
     }
   });
@@ -11229,7 +11228,7 @@ function writeFailureDetail(error: unknown): string {
       }
       res.json(config);
     } catch (error) {
-      console.error('Error fetching system configuration:', error);
+      logError('Error fetching system configuration', "routes", error);
       res.status(500).json({ error: 'Failed to fetch configuration' });
     }
   });
@@ -11242,7 +11241,7 @@ function writeFailureDetail(error: unknown): string {
       const config = await storage.createSystemConfiguration(req.body);
       res.status(201).json(config);
     } catch (error) {
-      console.error('Error creating system configuration:', error);
+      logError('Error creating system configuration', "routes", error);
       res.status(500).json({ error: 'Failed to create configuration' });
     }
   });
@@ -11258,7 +11257,7 @@ function writeFailureDetail(error: unknown): string {
       }
       res.json(config);
     } catch (error) {
-      console.error('Error updating system configuration:', error);
+      logError('Error updating system configuration', "routes", error);
       res.status(500).json({ error: 'Failed to update configuration' });
     }
   });
@@ -11274,7 +11273,7 @@ function writeFailureDetail(error: unknown): string {
       }
       res.json({ success: true });
     } catch (error) {
-      console.error('Error deleting system configuration:', error);
+      logError('Error deleting system configuration', "routes", error);
       res.status(500).json({ error: 'Failed to delete configuration' });
     }
   });
@@ -11318,7 +11317,7 @@ function writeFailureDetail(error: unknown): string {
       
       res.json(enhancedHistory);
     } catch (error) {
-      console.error("Error fetching PDF import history:", error);
+      logError("Error fetching PDF import history", "routes", error);
       res.status(500).json({ message: "Failed to fetch PDF import history" });
     }
   });
@@ -11357,7 +11356,7 @@ function writeFailureDetail(error: unknown): string {
 
       res.json(enhancedEntry);
     } catch (error) {
-      console.error("Error fetching PDF import history entry:", error);
+      logError("Error fetching PDF import history entry", "routes", error);
       res.status(500).json({ message: "Failed to fetch PDF import history entry" });
     }
   });
@@ -11368,7 +11367,7 @@ function writeFailureDetail(error: unknown): string {
       const requests = await storage.getFeatureRequests();
       res.json(requests);
     } catch (error) {
-      console.error("Error fetching feature requests:", error);
+      logError("Error fetching feature requests", "routes", error);
       res.status(500).json({ message: "Failed to fetch feature requests" });
     }
   });
@@ -11387,7 +11386,7 @@ function writeFailureDetail(error: unknown): string {
 
       res.json(request);
     } catch (error) {
-      console.error("Error fetching feature request:", error);
+      logError("Error fetching feature request", "routes", error);
       res.status(500).json({ message: "Failed to fetch feature request" });
     }
   });
@@ -11402,7 +11401,7 @@ function writeFailureDetail(error: unknown): string {
         const validationError = fromZodError(error);
         res.status(400).json({ message: validationError.message });
       } else {
-        console.error("Error creating feature request:", error);
+        logError("Error creating feature request", "routes", error);
         res.status(500).json({ message: "Failed to create feature request" });
       }
     }
@@ -11461,7 +11460,7 @@ function writeFailureDetail(error: unknown): string {
         const validationError = fromZodError(error);
         res.status(400).json({ message: validationError.message });
       } else {
-        console.error("Error updating feature request:", error);
+        logError("Error updating feature request", "routes", error);
         res.status(500).json({ message: "Failed to update feature request" });
       }
     }
@@ -11481,7 +11480,7 @@ function writeFailureDetail(error: unknown): string {
 
       res.json({ message: "Feature request deleted successfully" });
     } catch (error) {
-      console.error("Error deleting feature request:", error);
+      logError("Error deleting feature request", "routes", error);
       res.status(500).json({ message: "Failed to delete feature request" });
     }
   });
@@ -11492,7 +11491,7 @@ function writeFailureDetail(error: unknown): string {
       const applications = await storage.getAllPmoApplications();
       res.json(applications);
     } catch (error) {
-      console.error("Error fetching PMO applications:", error);
+      logError("Error fetching PMO applications", "routes", error);
       res.status(500).json({ message: "Failed to fetch PMO applications" });
     }
   });
@@ -11511,7 +11510,7 @@ function writeFailureDetail(error: unknown): string {
 
       res.json(application);
     } catch (error) {
-      console.error("Error fetching PMO application:", error);
+      logError("Error fetching PMO application", "routes", error);
       res.status(500).json({ message: "Failed to fetch application" });
     }
   });
@@ -11527,7 +11526,7 @@ function writeFailureDetail(error: unknown): string {
         const validationError = fromZodError(error);
         res.status(400).json({ message: validationError.message });
       } else {
-        console.error("Error creating RA-200 application:", error);
+        logError("Error creating RA-200 application", "routes", error);
         res.status(500).json({ message: "Failed to create application" });
       }
     }
@@ -11544,7 +11543,7 @@ function writeFailureDetail(error: unknown): string {
         const validationError = fromZodError(error);
         res.status(400).json({ message: validationError.message });
       } else {
-        console.error("Error creating RA-205A application:", error);
+        logError("Error creating RA-205A application", "routes", error);
         res.status(500).json({ message: "Failed to create application" });
       }
     }
@@ -11591,7 +11590,7 @@ function writeFailureDetail(error: unknown): string {
         // If approved, create SDR entry
         if (status === 'approved') {
           // TODO: Create SDR entry from approved application
-          console.log('Creating SDR entry for approved application:', id);
+          log('Creating SDR entry for approved application', "routes", { detail: id });
         }
 
         const updatedApp = await storage.updatePmoApplication(id, {
@@ -11617,7 +11616,7 @@ function writeFailureDetail(error: unknown): string {
         const validationError = fromZodError(error);
         res.status(400).json({ message: validationError.message });
       } else {
-        console.error("Error updating PMO application:", error);
+        logError("Error updating PMO application", "routes", error);
         res.status(500).json({ message: "Failed to update application" });
       }
     }
@@ -11637,7 +11636,7 @@ function writeFailureDetail(error: unknown): string {
 
       res.json({ message: "Application deleted successfully" });
     } catch (error) {
-      console.error("Error deleting PMO application:", error);
+      logError("Error deleting PMO application", "routes", error);
       res.status(500).json({ message: "Failed to delete application" });
     }
   });
@@ -11648,7 +11647,7 @@ function writeFailureDetail(error: unknown): string {
       const members = await storage.getTeamMembers();
       res.json(members);
     } catch (error) {
-      console.error("Error fetching team members:", error);
+      logError("Error fetching team members", "routes", error);
       res.status(500).json({ message: "Failed to fetch team members" });
     }
   });
@@ -11659,7 +11658,7 @@ function writeFailureDetail(error: unknown): string {
       const members = await storage.getTeamMembersByCategory(category);
       res.json(members);
     } catch (error) {
-      console.error("Error fetching team members by category:", error);
+      logError("Error fetching team members by category", "routes", error);
       res.status(500).json({ message: "Failed to fetch team members" });
     }
   });
@@ -11678,7 +11677,7 @@ function writeFailureDetail(error: unknown): string {
 
       res.json(member);
     } catch (error) {
-      console.error("Error fetching team member:", error);
+      logError("Error fetching team member", "routes", error);
       res.status(500).json({ message: "Failed to fetch team member" });
     }
   });
@@ -11693,7 +11692,7 @@ function writeFailureDetail(error: unknown): string {
         const validationError = fromZodError(error);
         res.status(400).json({ message: validationError.message });
       } else {
-        console.error("Error creating team member:", error);
+        logError("Error creating team member", "routes", error);
         res.status(500).json({ message: "Failed to create team member" });
       }
     }
@@ -11719,7 +11718,7 @@ function writeFailureDetail(error: unknown): string {
         const validationError = fromZodError(error);
         res.status(400).json({ message: validationError.message });
       } else {
-        console.error("Error updating team member:", error);
+        logError("Error updating team member", "routes", error);
         res.status(500).json({ message: "Failed to update team member" });
       }
     }
@@ -11739,7 +11738,7 @@ function writeFailureDetail(error: unknown): string {
 
       res.json({ message: "Team member deleted successfully" });
     } catch (error) {
-      console.error("Error deleting team member:", error);
+      logError("Error deleting team member", "routes", error);
       res.status(500).json({ message: "Failed to delete team member" });
     }
   });
@@ -11781,7 +11780,7 @@ function writeFailureDetail(error: unknown): string {
         toAdminUserResponse(user, profileJobTitle, (secondaryByUser.get(user.id) ?? []).sort())
       ));
     } catch (err) {
-      console.error('Error fetching users:', err);
+      logError('Error fetching users', "routes", err);
       res.status(500).json({ message: 'Failed to fetch users' });
     }
   });
@@ -11810,7 +11809,7 @@ function writeFailureDetail(error: unknown): string {
         .orderBy(roleGroups.name);
       res.json(buildAssignableRoles(matrixRoles.map((entry) => entry.name)));
     } catch (err) {
-      console.error('Error fetching assignable roles:', err);
+      logError('Error fetching assignable roles', "routes", err);
       res.status(500).json({ message: 'Failed to fetch assignable roles' });
     }
   });
@@ -11912,7 +11911,7 @@ function writeFailureDetail(error: unknown): string {
 
       res.json({ id, secondaryRoles: nextRoles });
     } catch (err) {
-      console.error('Error updating secondary roles:', err);
+      logError('Error updating secondary roles', "routes", err);
       res.status(500).json({ message: 'Failed to update secondary roles' });
     }
   });
@@ -11957,7 +11956,7 @@ function writeFailureDetail(error: unknown): string {
 
       res.json(updated);
     } catch (err) {
-      console.error('Error updating user role:', err);
+      logError('Error updating user role', "routes", err);
       res.status(500).json({
         message: `Failed to update role: ${writeFailureDetail(err)}`,
       });
@@ -12100,7 +12099,7 @@ function writeFailureDetail(error: unknown): string {
 
       res.json({ dryRun: false, created, plan: toCreate, skipped });
     } catch (err) {
-      console.error(`Error provisioning ${group} accounts:`, err);
+      logError(`Error provisioning ${group} accounts`, "routes", err);
       res.status(500).json({ message: `Failed to create ${group} accounts` });
     }
   });
@@ -12199,14 +12198,14 @@ function writeFailureDetail(error: unknown): string {
       await new Promise<void>((resolve) => {
         req.session.save((error) => {
           if (error) {
-            console.error('Registration session save failed after profile was linked:', error);
+            logError('Registration session save failed after profile was linked', "routes", error);
           }
           resolve();
         });
       });
       res.json({ user: (req.session as any).user });
     } catch (err) {
-      console.error('Error during registration:', err);
+      logError('Error during registration', "routes", err);
       res.status(500).json({ message: 'Failed to create profile' });
     }
     }
@@ -12267,7 +12266,7 @@ function writeFailureDetail(error: unknown): string {
 
       res.json({ roleAccess, ownershipAccess: ownershipAccess ?? null, effectiveAccess });
     } catch (error) {
-      console.error('Error in access-check:', error);
+      logError('Error in access-check', "routes", error);
       res.status(500).json({ message: 'Failed to check access' });
     }
   });
@@ -12278,7 +12277,7 @@ function writeFailureDetail(error: unknown): string {
       const overrides = await storage.getOwnershipOverrides();
       res.json(overrides);
     } catch (error) {
-      console.error('Error fetching ownership overrides:', error);
+      logError('Error fetching ownership overrides', "routes", error);
       res.status(500).json({ message: 'Failed to fetch ownership overrides' });
     }
   });
@@ -12289,7 +12288,7 @@ function writeFailureDetail(error: unknown): string {
       const overrides = await storage.getOwnershipOverridesForModule(module);
       res.json(overrides);
     } catch (error) {
-      console.error('Error fetching ownership overrides for module:', error);
+      logError('Error fetching ownership overrides for module', "routes", error);
       res.status(500).json({ message: 'Failed to fetch ownership overrides' });
     }
   });
@@ -12308,7 +12307,7 @@ function writeFailureDetail(error: unknown): string {
       const result = await storage.upsertOwnershipOverride(module, relationship, grantedAccess, description);
       res.json(result);
     } catch (error) {
-      console.error('Error upserting ownership override:', error);
+      logError('Error upserting ownership override', "routes", error);
       res.status(500).json({ message: 'Failed to upsert ownership override' });
     }
   });
@@ -12321,7 +12320,7 @@ function writeFailureDetail(error: unknown): string {
       if (!deleted) return res.status(404).json({ message: 'Ownership override not found' });
       res.json({ message: 'Deleted successfully' });
     } catch (error) {
-      console.error('Error deleting ownership override:', error);
+      logError('Error deleting ownership override', "routes", error);
       res.status(500).json({ message: 'Failed to delete ownership override' });
     }
   });
@@ -12341,7 +12340,7 @@ function writeFailureDetail(error: unknown): string {
       res.setHeader('X-Content-Type-Options', 'nosniff');
       res.send(buffer);
     } catch (error) {
-      console.error('Bulk data export-all failed:', error);
+      logError('Bulk data export-all failed', "routes", error);
       res.status(500).json({ message: 'Failed to export bulk data archive' });
     }
   });
@@ -12357,7 +12356,7 @@ function writeFailureDetail(error: unknown): string {
         },
       });
     } catch (error) {
-      console.error('Bulk data archive listing failed:', error);
+      logError('Bulk data archive listing failed', "routes", error);
       res.status(500).json({ message: 'Failed to list bulk data archives' });
     }
   });
@@ -12373,7 +12372,7 @@ function writeFailureDetail(error: unknown): string {
       const { objectId: _objectId, leaseToken: _leaseToken, ...archive } = row;
       res.status(202).json({ archive });
     } catch (error) {
-      console.error('Bulk data archive request failed:', error);
+      logError('Bulk data archive request failed', "routes", error);
       res.status(500).json({ message: 'Failed to request bulk data archive' });
     }
   });
@@ -12397,7 +12396,7 @@ function writeFailureDetail(error: unknown): string {
       if (error instanceof ObjectNotFoundError) {
         return res.status(404).json({ message: 'Archive object not found' });
       }
-      console.error('Bulk data archive download failed:', error);
+      logError('Bulk data archive download failed', "routes", error);
       res.status(500).json({ message: 'Failed to download bulk data archive' });
     }
   });
@@ -12424,7 +12423,7 @@ function writeFailureDetail(error: unknown): string {
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Failed to export section data';
       const status = message.startsWith('Unknown section') ? 400 : 500;
-      console.error('Bulk data export failed:', error);
+      logError('Bulk data export failed', "routes", error);
       res.status(status).json({ message });
     }
   });
@@ -12439,7 +12438,7 @@ function writeFailureDetail(error: unknown): string {
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Failed to build import template';
       const status = message.startsWith('Unknown section') ? 400 : 500;
-      console.error('Bulk data template failed:', error);
+      logError('Bulk data template failed', "routes", error);
       res.status(status).json({ message });
     }
   });
@@ -12458,7 +12457,7 @@ function writeFailureDetail(error: unknown): string {
       res.json(preview);
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Failed to preview section import';
-      console.error('Bulk data preview failed:', error);
+      logError('Bulk data preview failed', "routes", error);
       res.status(400).json({ message });
     }
   });
@@ -12495,7 +12494,7 @@ function writeFailureDetail(error: unknown): string {
       const status = /fingerprint|preview|row error|unknown section|only \.xlsx|required|auditable applying user|limit|not found|duplicate/i.test(message)
         ? 400
         : 500;
-      console.error('Bulk data apply failed:', error);
+      logError('Bulk data apply failed', "routes", error);
       res.status(status).json({ message });
     }
   });
@@ -12565,7 +12564,7 @@ function writeFailureDetail(error: unknown): string {
 
       res.json({ total: Number(total), limit, offset, rows });
     } catch (err) {
-      console.error("Error fetching audit log:", err);
+      logError("Error fetching audit log", "routes", err);
       res.status(500).json({ message: "Failed to fetch audit log" });
     }
   });
@@ -12585,7 +12584,7 @@ function writeFailureDetail(error: unknown): string {
 
       res.json(rows);
     } catch (err) {
-      console.error("Error fetching record audit history:", err);
+      logError("Error fetching record audit history", "routes", err);
       res.status(500).json({ message: "Failed to fetch record history" });
     }
   });
