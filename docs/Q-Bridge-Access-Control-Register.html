@@ -497,7 +497,9 @@
     <h2><span class="num">02</span> Identity and authentication modes</h2>
     <p class="lede">
       A single environment variable, <span class="mono">AUTH_MODE</span>, selects how users are
-      identified. One of the four values disables authorisation across the entire application.
+      identified. Every one of the three values enforces authorisation in full; a separate
+      <span class="mono">DEMO_LOGIN</span> flag offers password-less sign-in to seeded accounts
+      without weakening any guard.
     </p>
     <div class="scroller">
       <table>
@@ -505,13 +507,6 @@
           <tr><th>Mode</th><th>Identity source</th><th>Effect on authorisation</th><th>Fit for production</th></tr>
         </thead>
         <tbody>
-          <tr>
-            <td class="k">demo</td>
-            <td>None — a guest user is injected into every session</td>
-            <td><strong>All guards bypassed.</strong> Auth passes unconditionally, the restricted-role
-                policy short-circuits, and the session refresh is skipped</td>
-            <td><span class="chip critical">Never</span></td>
-          </tr>
           <tr>
             <td class="k">local</td>
             <td>Username and password in <span class="mono">users</span>, SHA-256 hashed</td>
@@ -533,6 +528,18 @@
         </tbody>
       </table>
     </div>
+
+    <h3>Demo sign-in</h3>
+    <p>
+      A demonstration deployment sets <span class="mono">AUTH_MODE=local</span> with
+      <span class="mono">DEMO_LOGIN=1</span>. That offers password-less sign-in to seeded accounts
+      whose <span class="mono">auth_provider</span> is <span class="mono">demo</span> &mdash; one per
+      access role &mdash; through a picker on the sign-in screen and a switcher in the sidebar. Each
+      is a real session for a real account, so every guard in this register applies unchanged: the
+      flag removes the password step, not the authorisation, and grants no privilege the account
+      does not already hold. It is inert unless the mode is <span class="mono">local</span> and unless
+      demo accounts have been seeded, which a production deployment does not do.
+    </p>
 
     <h3>Session integrity</h3>
     <p>
@@ -740,11 +747,11 @@
             <td class="k">requireAuth</td>
             <td>Any signed-in user</td>
             <td class="num-col">54</td>
-            <td>Returns immediately in demo mode</td>
+            <td>No exceptions; an unauthenticated request is refused</td>
           </tr>
           <tr>
             <td class="k">requireAdmin</td>
-            <td><span class="mono">admin</span>, <span class="mono">superadmin</span>, and in demo mode <span class="mono">Management</span></td>
+            <td><span class="mono">admin</span> and <span class="mono">superadmin</span></td>
             <td class="num-col">25</td>
             <td>Guards user administration and the Bulk Data Hub</td>
           </tr>
@@ -784,8 +791,8 @@
     <p style="margin-top:16px">
       Two further middlewares run globally on every <span class="mono">/api</span> request: the
       session refresh described in section&nbsp;02, and the restricted-role policy that confines
-      the <span class="mono">user</span> role to its allowlist. Both are bypassed in demo mode.
-      The session refresh also reloads secondary roles, so revoking one takes effect on that
+      the <span class="mono">user</span> role to its allowlist. Both run for every request, in
+      every mode. The session refresh also reloads secondary roles, so revoking one takes effect on that
       session's very next request rather than at next sign-in.
     </p>
     <h3>What each method has to hold</h3>
@@ -936,7 +943,7 @@
     <ul class="tight">
       <li><span class="mono">superadmin</span> and <span class="mono">admin</span> short-circuit to <em>edit</em> before any lookup — in any role slot, primary or secondary.</li>
       <li>A person holding several roles takes the most permissive level among them.</li>
-      <li>Outside demo mode, the <span class="mono">user</span> role resolves to <em>view</em> for publications and <em>hide</em> everywhere else, whatever the stored row says.</li>
+      <li>The <span class="mono">user</span> role resolves to <em>view</em> for publications and <em>hide</em> everywhere else, whatever the stored row says.</li>
       <li>Otherwise the stored access level applies: <em>hide</em>, <em>view</em>, <em>create</em>, or <em>edit</em>.</li>
       <li><strong>A missing row resolves to <em>hide</em></strong> — the default is closed, which is correct.</li>
     </ul>
@@ -1169,7 +1176,7 @@
     <p>
       The nine that reach no guard are the ones that cannot: the seven
       <span class="mono">/api/auth</span> routes &mdash; sign-in, sign-out, the session read, the
-      two OIDC legs and the demo role selector &mdash; and two liveness probes. All nine are
+      two OIDC legs and the demo sign-in &mdash; and two liveness probes. All nine are
       reached before a role exists, or must answer without one, and guarding them would lock
       everyone out. Every one is listed in
       <span class="mono">UNMAPPED_API_PREFIXES</span> beside the reason it is excluded, and
@@ -1241,42 +1248,6 @@
     </p>
 
     
-
-    <div class="finding high">
-      <div class="finding-head">
-        <span class="finding-id">AC-03</span>
-        <h4>Demo mode disables authorisation entirely</h4>
-        <span class="chip high">High</span>
-      </div>
-      <p>
-        With <span class="mono">AUTH_MODE=demo</span> there is no login, a guest user with the
-        Management role is injected into every session, authentication passes unconditionally, the
-        restricted-role policy short-circuits, and the session refresh is skipped. The guard
-        <span class="mono">requireAdmin</span> additionally treats that demo Management session as an
-        administrator.
-      </p>
-      <div class="note">
-        <p>
-          <strong>Role emulation moves the session, not just the browser.</strong> The demo role
-          selector posts to an endpoint that changes the session role, and accepts only a role
-          that really exists, so the interface and the API agree about who you are. The endpoint
-          is registered only when the mode is demo, so outside demo the path does not exist rather
-          than existing and refusing &mdash; but it is one more thing that turns on with that
-          single environment variable, which is the point of this finding.
-        </p>
-      </div>
-      <p>
-        This is deliberate and appropriate for a public demonstration instance. The risk is
-        configuration, not code: a single environment variable separates a fully governed
-        deployment from an ungoverned one, and nothing in the application prevents the combination
-        of demo mode with a production database.
-      </p>
-      <p>
-        <span class="label">Recommendation</span>
-        Refuse to start in demo mode when the configuration looks like production, and surface the
-        active mode in the interface where an auditor can see it.
-      </p>
-    </div>
 
     <div class="finding high">
       <div class="finding-head">
