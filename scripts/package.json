@@ -1,7 +1,0 @@
-{
-  "name": "migration-scripts",
-  "version": "1.0.0",
-  "type": "module",
-  "description": "Database migration scripts",
-  "private": true
-}
