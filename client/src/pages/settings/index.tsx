@@ -74,12 +74,8 @@ export default function Settings() {
   const mode = resolvedTheme === 'dark' ? 'dark' : 'light';
   const { authConfig } = useAuth();
   const { currentUser } = useCurrentUser();
-  // isAdministrator already covers admin and superadmin in any slot. The demo
-  // clause mirrors requireAdmin on the server, which treats the fixed demo
-  // Management session as an administrator so protected screens are previewable.
-  const userIsAdmin =
-    isAdministrator(currentUser) ||
-    (authConfig.mode === 'demo' && currentUser.role === 'Management');
+  // isAdministrator already covers admin and superadmin in any slot.
+  const userIsAdmin = isAdministrator(currentUser);
   const { toast } = useToast();
 
   // Global default color mode — loaded from server, saved together with other settings
@@ -769,16 +765,14 @@ Q-BRIDGE is a research governance and information management platform built with
                       ? `Single Sign-On — ${authConfig.providerName || "OIDC"}`
                       : authConfig.mode === "ldap"
                       ? "Single Sign-On — LDAP / Active Directory"
-                      : authConfig.mode === "demo"
-                      ? "Demo mode (open access guest)"
-                      : "Local login / role emulation"}
+                      : "Local login"}
                   </div>
                   <div className="text-sm text-muted-foreground">
                     {authConfig.ssoEnabled
                       ? "Users sign in through your identity provider. The role selector and local login form are hidden."
-                      : authConfig.mode === "demo"
-                      ? "Everyone is signed in as a shared guest. No login is required."
-                      : "Anyone can pick a role from the sidebar to emulate that user. No real authentication is enforced."}
+                      : authConfig.demoLogin
+                      ? "Users sign in from the demo account picker — no password is required."
+                      : "Users sign in with a username and password."}
                   </div>
                 </div>
                 <Badge

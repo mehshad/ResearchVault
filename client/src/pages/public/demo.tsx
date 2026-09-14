@@ -119,7 +119,7 @@ const DEMO_ORIGIN = `${window.location.protocol}//${window.location.hostname}:${
 export default function DemoPage() {
   const { authConfig, loading } = useAuth();
   const [, navigate] = useLocation();
-  const isDemo = authConfig.mode === 'demo';
+  const isDemo = authConfig.demoLogin;
 
   // If the production app is serving this page, always redirect to the demo
   // instance as soon as the auth config is known — regardless of login state.

@@ -18,7 +18,14 @@ interface User {
   needsRegistration: boolean;
 }
 
-export type AuthMode = 'demo' | 'local' | 'ldap' | 'oidc';
+export type AuthMode = 'local' | 'ldap' | 'oidc';
+
+/** A demo account offered by the password-less "sign in as" picker. */
+export interface DemoAccount {
+  username: string;
+  name: string;
+  role: string;
+}
 
 export interface AuthConfig {
   // Active auth mode (server-controlled via the AUTH_MODE env var).
@@ -29,6 +36,10 @@ export interface AuthConfig {
   provider: string;
   // Display name for the SSO button (e.g. "Microsoft"), null when not OIDC.
   providerName: string | null;
+  // True when the server offers password-less sign-in as seeded demo accounts.
+  demoLogin: boolean;
+  // The accounts the picker offers, when demoLogin is on.
+  demoAccounts: DemoAccount[];
 }
 
 const DEFAULT_AUTH_CONFIG: AuthConfig = {
@@ -36,6 +47,8 @@ const DEFAULT_AUTH_CONFIG: AuthConfig = {
   ssoEnabled: false,
   provider: 'local',
   providerName: null,
+  demoLogin: false,
+  demoAccounts: [],
 };
 
 interface AuthContextType {
@@ -43,6 +56,7 @@ interface AuthContextType {
   authConfig: AuthConfig;
   loading: boolean;
   login: (username: string, password: string) => Promise<boolean>;
+  loginAsDemo: (username: string) => Promise<boolean>;
   loginWithSso: () => void;
   logout: () => Promise<void>;
   isAuthenticated: boolean;
@@ -72,7 +86,9 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
             // ssoEnabled = only OIDC, which redirects the browser to an external IDP.
             // LDAP uses a regular username/password form on the login page.
             ssoEnabled: raw.ssoEnabled ?? raw.mode === 'oidc',
-            providerName: raw.oidcProviderName ?? null,
+            providerName: raw.providerName ?? raw.oidcProviderName ?? null,
+            demoLogin: raw.demoLogin === true,
+            demoAccounts: Array.isArray(raw.demoAccounts) ? raw.demoAccounts : [],
           });
         }
 
@@ -110,6 +126,32 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         toast({ title: 'Sign in failed', description: err.message || 'Invalid credentials', variant: 'destructive' });
         return false;
       }
+    } catch {
+      toast({ title: 'Sign in error', description: 'An unexpected error occurred.', variant: 'destructive' });
+      return false;
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Password-less sign-in as a seeded demo account. A real login: it replaces
+  // the session, so every page and every API call answers as that account.
+  const loginAsDemo = async (username: string): Promise<boolean> => {
+    setLoading(true);
+    try {
+      const response = await fetch('/api/auth/demo-login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username }),
+      });
+      if (response.ok) {
+        const data = await response.json();
+        setUser(data.user);
+        return true;
+      }
+      const err = await response.json().catch(() => ({}));
+      toast({ title: 'Could not sign in', description: err.message || 'That demo account is unavailable.', variant: 'destructive' });
+      return false;
     } catch {
       toast({ title: 'Sign in error', description: 'An unexpected error occurred.', variant: 'destructive' });
       return false;
@@ -173,6 +215,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         authConfig,
         loading,
         login,
+        loginAsDemo,
         loginWithSso,
         logout,
         refreshUser,
@@ -199,14 +242,14 @@ export const RequireAuth: React.FC<{ children: ReactNode; adminOnly?: boolean }>
   children,
   adminOnly = false,
 }) => {
-  const { isAuthenticated, isAdmin, loading, user, authConfig } = useAuth();
+  const { isAuthenticated, isAdmin, loading, user } = useAuth();
   const [, navigate] = useLocation();
-  const isDemo = authConfig.mode === 'demo';
 
   useEffect(() => {
     if (!loading) {
-      // Demo mode: server auto-injects a guest user — no login required.
-      if (!isDemo && !isAuthenticated) {
+      // Every mode requires a session now, demo included: a demo visitor
+      // signs in as a seeded account from the landing page.
+      if (!isAuthenticated) {
         navigate('/');
       } else if (user?.needsRegistration) {
         navigate('/register');
@@ -214,7 +257,7 @@ export const RequireAuth: React.FC<{ children: ReactNode; adminOnly?: boolean }>
         navigate('/');
       }
     }
-  }, [isAuthenticated, isAdmin, loading, navigate, adminOnly, user, isDemo]);
+  }, [isAuthenticated, isAdmin, loading, navigate, adminOnly, user]);
 
   if (loading) {
     return (
@@ -224,7 +267,7 @@ export const RequireAuth: React.FC<{ children: ReactNode; adminOnly?: boolean }>
     );
   }
 
-  if (!isDemo && (!isAuthenticated || (adminOnly && !isAdmin))) {
+  if (!isAuthenticated || (adminOnly && !isAdmin)) {
     return null;
   }
 

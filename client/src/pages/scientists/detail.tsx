@@ -32,7 +32,6 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } f
 import { SidraScoreDetails } from "@/components/SidraScoreDetails";
 import { ScientistGrants } from "@/components/ScientistGrants";
 import { useAuth } from "@/hooks/useAuth";
-import { useCurrentUser } from "@/hooks/useCurrentUser";
 import { Calculator, ShieldCheck } from "lucide-react";
 import type { SidraScoreResult } from "@shared/sidraScore";
 
@@ -200,33 +199,26 @@ export default function ScientistDetail() {
   const params = useParams<{ id: string }>();
   const [, navigate] = useLocation();
   const id = parseInt(params.id);
-  const { user, authConfig } = useAuth();
-  const { currentUser } = useCurrentUser();
-  // The *staff* record of whoever is looking, compared against the profile
-  // being viewed. Demo mode read `currentUser.id` here -- the account id, which
-  // is 0 for a demo session -- and compared it against a scientist id, so
-  // `isOwner` was false on every profile including your own. Real sessions were
-  // already correct; only demo asked the wrong object for the number.
-  const ownerId = authConfig.mode === "demo" ? currentUser.scientistId : user?.scientistId;
-  const effectiveRole = authConfig.mode === "demo" ? currentUser.role : (user?.role ?? "user");
+  const { user } = useAuth();
+  // The staff record of whoever is looking, compared against the profile being
+  // viewed, so this is true only on your own profile.
+  const isOwner = user?.scientistId === id;
   /**
    * The person, not one role string. Access is the union of the primary role
    * and any secondaries, and administrator rights are normally a secondary --
-   * so testing `effectiveRole` against a list answered for the primary alone.
-   * That is why this page offered Delete, which asks the person, but hid Edit,
-   * which asked the string.
+   * so testing the primary role alone answered for the primary only. That is
+   * why this page offered Delete, which asks the person, but hid Edit, which
+   * asked the string.
    */
-  const effectiveUser = authConfig.mode === "demo" ? currentUser : user;
-  const isOwner = ownerId === id;
-  const isRestrictedRealUser = authConfig.mode !== "demo" && isRestrictedOnly(effectiveUser);
-  const canManageProfile = hasAnyRole(effectiveUser, ["Management", "admin", "superadmin"]);
+  const isRestrictedRealUser = isRestrictedOnly(user);
+  const canManageProfile = hasAnyRole(user, ["Management", "admin", "superadmin"]);
   const canImport = !isRestrictedRealUser && (
-    isOwner || hasAnyRole(effectiveUser, ["Outcome Officer", "Management", "admin", "superadmin"])
+    isOwner || hasAnyRole(user, ["Outcome Officer", "Management", "admin", "superadmin"])
   );
   // Deleting a staff profile is irreversible and cannot be undone in bulk
   // anywhere else, so it is administrator-only -- matching the server, which
   // refuses anyone else.
-  const canDelete = isAdministrator(effectiveUser);
+  const canDelete = isAdministrator(user);
   const { toast } = useToast();
   const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
   const [deleteBlockers, setDeleteBlockers] = useState<string | null>(null);
@@ -757,11 +749,9 @@ export default function ScientistDetail() {
             hasOrcid={!!scientist.orcidId}
             hasScholar={!!scientist.googleScholarUrl}
             canImport={canImport}
-            demoViewerRole={authConfig.mode === "demo" ? currentUser.role : undefined}
-            demoViewerScientistId={authConfig.mode === "demo" ? (currentUser.scientistId ?? undefined) : undefined}
             showAuthorFixes={isOwner && !isRestrictedRealUser}
             showMissingPapers={isOwner && !isRestrictedRealUser}
-            showInvalidIssues={isOwner || hasAnyRole(effectiveUser, ["Outcome Officer", "Management", "admin", "superadmin"])}
+            showInvalidIssues={isOwner || hasAnyRole(user, ["Outcome Officer", "Management", "admin", "superadmin"])}
             canActOnInvalid={isOwner}
           />
         )}
@@ -808,8 +798,6 @@ export default function ScientistDetail() {
             <PublicationCharts
               scientistId={id}
               yearsSince={5}
-              demoViewerRole={authConfig.mode === "demo" ? currentUser.role : undefined}
-              demoViewerScientistId={authConfig.mode === "demo" ? (currentUser.scientistId ?? undefined) : undefined}
             />
           )}
           {isScientificStaff && (

@@ -37,21 +37,15 @@ interface InvalidPublicationIssue {
 interface InvalidPublicationIssuesProps {
   scientistId: number;
   canAct: boolean;
-  demoViewerRole?: string;
-  demoViewerScientistId?: number;
 }
 
 export function InvalidPublicationIssues({
   scientistId,
   canAct,
-  demoViewerRole,
-  demoViewerScientistId,
 }: InvalidPublicationIssuesProps) {
   const { toast } = useToast();
   const [withdrawId, setWithdrawId] = useState<number | null>(null);
   const params = new URLSearchParams({ scientistId: String(scientistId) });
-  if (demoViewerRole) params.set("viewerRole", demoViewerRole);
-  if (demoViewerScientistId) params.set("viewerScientistId", String(demoViewerScientistId));
   const endpoint = `/api/publications/invalid-issues?${params.toString()}`;
 
   const { data: issues = [], isLoading } = useQuery<InvalidPublicationIssue[]>({

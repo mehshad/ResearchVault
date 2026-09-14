@@ -15,7 +15,6 @@ import {
 import { usePermissions } from "@/hooks/usePermissions";
 import { useAuth } from "@/hooks/useAuth";
 import { useCurrentUser } from "@/hooks/useCurrentUser";
-import { DUMMY_USERS, SUPER_ADMIN_USER } from "@/lib/currentUserRoleData";
 import { useTheme, themes } from "@/contexts/ThemeContext";
 import qbridgeLogo from "@assets/image_1767775219373.png";
 import { isAdministrator, hasAnyRole } from "@shared/effectiveRoles";
@@ -36,23 +35,15 @@ export default function Sidebar({ mobile = false, onClose, onCollapsedChange }: 
   // letting straight through to the same screens.
   const { getEffectiveAccessLevel } = usePermissions();
   const { themeName, currentLabels, isSectionVisible, isPageVisible } = useTheme();
-  const { authConfig, logout, user: authUser } = useAuth();
-  const { currentUser, setCurrentUser } = useCurrentUser();
-  // Every mode except demo uses the role from the authenticated session.
-  const hasRealAuth = authConfig.mode !== 'demo';
-  const isRestrictedRealUser = hasRealAuth && authUser?.role === 'user';
-  // Expose the Super Admin test identity in the role selector only in demo mode.
-  const availableUsers = authConfig.mode === 'demo'
-    ? [...DUMMY_USERS, SUPER_ADMIN_USER]
-    : DUMMY_USERS;
+  const { authConfig, logout, loginAsDemo, user: authUser } = useAuth();
+  const { currentUser } = useCurrentUser();
+  const isRestrictedRealUser = authUser?.role === 'user';
+  // The "sign in as" account switcher, shown only on a demo instance. Each
+  // entry is a real seeded account; picking one signs in as it.
+  const demoAccounts = authConfig.demoLogin ? authConfig.demoAccounts : [];
 
-  // Default scientist record for open test/demo mode (Dr. Wouter Hendrickx).
-  const DEMO_SCIENTIST_ID = 48;
-
-  // Resolve the current user to their own scientist record. Under SSO the
-  // signed-in user's linked scientistId is authoritative; in open test/demo
-  // mode there is no real link, so we always land on the demo scientist.
-  const resolvedScientistId = hasRealAuth ? authUser?.scientistId ?? null : DEMO_SCIENTIST_ID;
+  // The signed-in user's linked scientist record, when they have one.
+  const resolvedScientistId = authUser?.scientistId ?? null;
 
   // Navigate to the current user's scientist detail page. If no scientist can
   // be resolved (SSO user with no linked record), fall back to the list so the
@@ -86,9 +77,12 @@ export default function Sidebar({ mobile = false, onClose, onCollapsedChange }: 
     onCollapsedChange?.(collapsed);
   }, []);
 
-  const handleUserSwitch = (userId: string) => {
-    const selected = availableUsers.find((u) => u.id.toString() === userId);
-    if (selected) setCurrentUser(selected);
+  const handleAccountSwitch = async (username: string) => {
+    if (username === authUser?.username) return;
+    // A real sign-in as the chosen account. Reload so every query refetches
+    // as the new session rather than keeping the previous account's cache.
+    const ok = await loginAsDemo(username);
+    if (ok) window.location.reload();
   };
 
   // Simple pluralization helper
@@ -425,27 +419,28 @@ export default function Sidebar({ mobile = false, onClose, onCollapsedChange }: 
                 <div className="font-medium text-card-foreground truncate">{currentUser.name}</div>
                 <div className="text-xs text-muted-foreground truncate">{currentUser.role}</div>
                 <div className="text-xs text-muted-foreground/70 truncate">
-                  {hasRealAuth
-                    ? `Signed in${authConfig.providerName ? ' with ' + authConfig.providerName : ' via SSO'}`
-                    : 'Role-based Testing'}
+                  {authConfig.demoLogin
+                    ? 'Demo — signed in'
+                    : `Signed in${authConfig.providerName ? ' with ' + authConfig.providerName : authConfig.ssoEnabled ? ' via SSO' : ''}`}
                 </div>
               </div>
             </button>
 
-            {/* Role Selector — test mode only (hidden under SSO/real auth) */}
-            {!hasRealAuth && (
-              <Select value={currentUser.id.toString()} onValueChange={handleUserSwitch}>
-                <SelectTrigger className="w-full h-8 text-xs" data-testid="select-role">
-                  <SelectValue placeholder="Switch role..." />
+            {/* Account switcher — a demo instance only. Each option signs in
+                as that seeded account, a real session run through every guard. */}
+            {demoAccounts.length > 0 && (
+              <Select value={authUser?.username ?? ''} onValueChange={handleAccountSwitch}>
+                <SelectTrigger className="w-full h-8 text-xs" data-testid="select-demo-account">
+                  <SelectValue placeholder="Sign in as…" />
                 </SelectTrigger>
                 <SelectContent>
-                  {availableUsers.map((user) => (
-                    <SelectItem key={user.id} value={user.id.toString()} data-testid={`option-role-${user.id}`}>
+                  {demoAccounts.map((account) => (
+                    <SelectItem key={account.username} value={account.username} data-testid={`option-account-${account.username}`}>
                       <div className="flex items-center space-x-2">
                         <div className="h-4 w-4 rounded-full bg-primary/20 flex items-center justify-center text-xs text-primary font-medium">
-                          {getInitials(user.role)}
+                          {getInitials(account.role)}
                         </div>
-                        <span>{user.role}</span>
+                        <span>{account.role}</span>
                       </div>
                     </SelectItem>
                   ))}
