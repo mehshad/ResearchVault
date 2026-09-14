@@ -10,8 +10,8 @@ process.env.DATABASE_URL ||= "postgresql://ci:ci@localhost:5432/ci_test";
 import {
   getAuthMode,
   isSsoEnabled,
+  isDemoLoginEnabled,
   hashPassword,
-  demoBannerMiddleware,
   requireAuth,
   createRequireResearchOfficer,
   createRequirePmoOfficer,
@@ -75,10 +75,10 @@ test("getAuthMode returns 'local' by default", () => {
   process.env.AUTH_MODE = prev ?? "";
 });
 
-test("getAuthMode returns 'demo' when AUTH_MODE=demo", () => {
+test("getAuthMode falls back to 'local' for the retired demo mode", () => {
   const prev = process.env.AUTH_MODE;
   process.env.AUTH_MODE = "demo";
-  assert.equal(getAuthMode(), "demo");
+  assert.equal(getAuthMode(), "local");
   process.env.AUTH_MODE = prev ?? "";
 });
 
@@ -116,13 +116,36 @@ test("isSsoEnabled is true only for oidc mode", () => {
   process.env.AUTH_MODE = "ldap";
   assert.equal(isSsoEnabled(), false);
 
-  process.env.AUTH_MODE = "demo";
-  assert.equal(isSsoEnabled(), false);
-
   process.env.AUTH_MODE = "local";
   assert.equal(isSsoEnabled(), false);
 
   process.env.AUTH_MODE = prev ?? "";
+});
+
+// ---------------------------------------------------------------------------
+// isDemoLoginEnabled
+// ---------------------------------------------------------------------------
+
+test("isDemoLoginEnabled is true only for local mode with DEMO_LOGIN=1", () => {
+  const prevMode = process.env.AUTH_MODE;
+  const prevFlag = process.env.DEMO_LOGIN;
+
+  process.env.AUTH_MODE = "local";
+  process.env.DEMO_LOGIN = "1";
+  assert.equal(isDemoLoginEnabled(), true);
+
+  // Not without the flag.
+  delete process.env.DEMO_LOGIN;
+  assert.equal(isDemoLoginEnabled(), false);
+
+  // Not in an external-provider mode, where the provider owns the identity.
+  process.env.AUTH_MODE = "oidc";
+  process.env.DEMO_LOGIN = "1";
+  assert.equal(isDemoLoginEnabled(), false);
+
+  process.env.AUTH_MODE = prevMode ?? "";
+  if (prevFlag === undefined) delete process.env.DEMO_LOGIN;
+  else process.env.DEMO_LOGIN = prevFlag;
 });
 
 // ---------------------------------------------------------------------------
@@ -152,58 +175,18 @@ test("hashPassword handles empty string", () => {
 });
 
 // ---------------------------------------------------------------------------
-// demoBannerMiddleware
-// ---------------------------------------------------------------------------
-
-test("demoBannerMiddleware injects default demo user when session is empty", async () => {
-  const req = fakeReq({ session: {} } as any);
-  const res = fakeRes();
-  let calledNext = false;
-  await demoBannerMiddleware(req, res, () => { calledNext = true; });
-
-  assert.ok(calledNext, "must call next()");
-  assert.equal((req.session as any).user.username, process.env.DEMO_USERNAME || "demo.user");
-  assert.equal((req.session as any).user.role, process.env.DEMO_ROLE || "Management");
-  assert.equal((req.session as any).user.scientistId, null);
-});
-
-test("demoBannerMiddleware does not overwrite an existing session user", async () => {
-  const existing = { id: 5, username: "alice", role: "Investigator" };
-  const req = fakeReq({ session: { user: existing } } as any);
-  const res = fakeRes();
-  await demoBannerMiddleware(req, res, () => {});
-  assert.deepEqual((req.session as any).user, existing);
-});
-
-test("demoBannerMiddleware always calls next()", async () => {
-  const req = fakeReq({ session: {} } as any);
-  const res = fakeRes();
-  let called = false;
-  await demoBannerMiddleware(req, res, () => { called = true; });
-  assert.ok(called);
-});
-
-test("demoBannerMiddleware uses DEMO_NAME env if set", async () => {
-  const prev = process.env.DEMO_NAME;
-  process.env.DEMO_NAME = "Dr Test";
-  const req = fakeReq({ session: {} } as any);
-  await demoBannerMiddleware(req, fakeRes(), () => {});
-  assert.equal((req.session as any).user.name, "Dr Test");
-  process.env.DEMO_NAME = prev ?? "";
-});
-
-// ---------------------------------------------------------------------------
 // requireAuth
 // ---------------------------------------------------------------------------
 
-test("requireAuth calls next() in demo mode without a session user", () => {
+test("requireAuth returns 401 without a session user, whatever the mode", () => {
   const prev = process.env.AUTH_MODE;
-  process.env.AUTH_MODE = "demo";
+  process.env.AUTH_MODE = "local";
   const req = fakeReq({ session: {} } as any);
   const res = fakeRes();
   let called = false;
   requireAuth(req, res, () => { called = true; });
-  assert.ok(called);
+  assert.equal(called, false);
+  assert.equal(res.statusCode, 401);
   process.env.AUTH_MODE = prev ?? "";
 });
 
@@ -215,18 +198,6 @@ test("requireAuth calls next() in local mode when session user exists", () => {
   let called = false;
   requireAuth(req, res, () => { called = true; });
   assert.ok(called);
-  process.env.AUTH_MODE = prev ?? "";
-});
-
-test("requireAuth returns 401 in local mode without a session user", () => {
-  const prev = process.env.AUTH_MODE;
-  process.env.AUTH_MODE = "local";
-  const req = fakeReq({ session: {} } as any);
-  const res = fakeRes();
-  let called = false;
-  requireAuth(req, res, () => { called = true; });
-  assert.ok(!called);
-  assert.equal(res.statusCode, 401);
   process.env.AUTH_MODE = prev ?? "";
 });
 
