@@ -21,8 +21,8 @@ export const GRANT_COLUMNS: Array<{ header: string; key: string }> = [
   { header: "Project Number", key: "projectNumber" },
   { header: "Cycle", key: "cycle" },
   { header: "Title", key: "title" },
-  { header: "LPI Email", key: "lpiEmail" },
-  { header: "LPI Name", key: "lpiName" },
+  { header: "Sidra LPI Email", key: "lpiEmail" },
+  { header: "Sidra LPI", key: "lpiName" },
   { header: "Investigator Type", key: "investigatorType" },
   { header: "Grant Type", key: "grantType" },
   { header: "Grant Source", key: "sourceCategory" },
@@ -61,6 +61,9 @@ const HEADER_TO_KEY: Record<string, string> = GRANT_COLUMNS.reduce((acc, col) =>
 // for the funding mechanism (NPRP, IRF, ...), which maps to Grant Source, so a
 // bare "Program" column must never be read as the research programme.
 HEADER_TO_KEY["programme"] = "program";
+// The Sidra Lead PI columns were once "LPI Name"/"LPI Email"; still accept them.
+HEADER_TO_KEY["lpi name"] = "lpiName";
+HEADER_TO_KEY["lpi email"] = "lpiEmail";
 
 /**
  * "PRM-001 — Name" for the export and template, or "" when the grant names
@@ -173,8 +176,8 @@ export function buildGrantsTemplateRows(): Record<string, any>[] {
       "Cycle": "2026-1",
       "Sidra Programme": "PRM-001 — Example Programme",
       "Title": "Example grant title (delete this row before importing)",
-      "LPI Email": "lead.pi@sidra.org",
-      "LPI Name": "",
+      "Sidra LPI Email": "lead.pi@sidra.org",
+      "Sidra LPI": "",
       "Investigator Type": "Researcher",
       "Grant Type": "Local",
       "Grant Source": "QNRF Grant",
@@ -446,18 +449,21 @@ export function previewGrantRows(
     // Held until `data` exists, further down.
     let pendingGrantLpiName: string | null | undefined = undefined;
 
-    // A grant somebody else submitted. Its Lead PI works at the prime
+    // A grant somebody else submitted: its Lead PI works at the prime
     // institution and will never be in our directory, so that name goes to the
-    // external field and the Sidra Lead PI is taken from the Co-Investigators
-    // column instead -- on a subaward, our person is listed there.
+    // external "Grant LPI" field while Sidra LPI holds our person.
     //
-    // Only when exactly one co-investigator resolves to staff. Two would be a
-    // guess about which of them leads our part, and none means the file never
-    // says who here owns it; both are left for a person, because the Sidra
-    // Lead PI is the one field on a grant that must not be empty.
+    // When the file names the external lead outright (Grant LPI is filled),
+    // trust it: Sidra LPI is resolved normally below and Grant LPI is the
+    // external. Only when the file gives a single name and no external lead do
+    // we fall back to reading the Sidra person out of the Co-Investigators
+    // column -- exactly one that resolves to staff, because two would be a guess
+    // about which of them leads our part and none leaves nobody to record, and
+    // the Sidra Lead PI is the one field on a grant that must not be empty.
     const submitting = row.submittingInstitution ?? "";
     const isSubaward = submitting !== "" && !isClear(submitting) && !isHomeInstitution(submitting);
-    if (isSubaward && lpiName && !lpiEmail) {
+    const hasExplicitGrantLpi = writes("grantLpiName") && textVal("grantLpiName") !== null;
+    if (isSubaward && lpiName && !lpiEmail && !hasExplicitGrantLpi) {
       const sidraCandidates: number[] = [];
       for (const candidate of splitList(row.coInvestigators ?? "")) {
         const m = matchStaffByName(scientistByName, candidate);
@@ -504,8 +510,8 @@ export function previewGrantRows(
         lpiId = match.scientist.id;
       } else {
         const reason = match.status === "ambiguous"
-          ? `"${lpiName}" matches ${match.candidates.length} staff members. Use LPI Email to say which.`
-          : `No staff member found named "${lpiName}" (use LPI Email for reliable matching)`;
+          ? `"${lpiName}" matches ${match.candidates.length} staff members. Use Sidra LPI Email to say which.`
+          : `No staff member found named "${lpiName}" (use Sidra LPI Email for reliable matching)`;
         errorCodes.push(match.status === "ambiguous" ? "ambiguous_staff" : "unmatched_staff");
         errors.push(reason);
         unmatchedStaff = { lpiName, lpiEmail, reason };
