@@ -339,6 +339,21 @@ The dev server runs on `http://localhost:5000`.
 | `npm test` | Unit tests (server, shared, client) with no database, then the component tests |
 | `npm run test:integration` | The database-backed tests, against `DATABASE_URL`, with `RUN_INTEGRATION_TESTS=1` set for you |
 | `npm run check` | TypeScript type-check |
+| `npm run seed:demo` | Seed demo accounts and sample data (see below) |
+
+### Seeding demo data
+
+`npm run seed:demo` fills an empty database with one sign-in account per access role (`demo.investigator`, `demo.management`, `demo.superadmin`, ...), the default permission matrix, and a small coherent set of sample data -- organisation, staff, programs, SDRs, grants, publications, ethics and biosafety applications, contracts, facilities and certifications -- so every page has something to show. It runs against `DATABASE_URL` after the migrations.
+
+The accounts are marked `auth_provider = 'demo'` and every one of them signs in with the password `demo`; with `DEMO_LOGIN=1` in local mode the login page also offers them as a password-less "sign in as" list.
+
+The seed is idempotent: if any demo account already exists it prints the accounts and exits without writing. To start over, pass `--reset` with the confirmation variable set:
+
+```bash
+SEED_RESET_CONFIRM=yes npm run seed:demo -- --reset
+```
+
+`--reset` empties every table the seed writes, **including all user accounts**, before seeding again; it refuses without `SEED_RESET_CONFIRM=yes`. It never touches the `session` table or the reference lists the migrations maintain (grant statuses, agreement types, institutions).
 
 ---
 
