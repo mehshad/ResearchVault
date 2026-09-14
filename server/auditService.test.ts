@@ -18,7 +18,10 @@ const captured: unknown[] = [];
 
 // Replace db.insert with a spy that records the values payload.
 // The real db.insert returns a chainable builder; we only need `.values()`.
-const originalInsert = db.insert.bind(db);
+// The stub is set as an own property, so it works whether db is a real
+// drizzle instance (insert lives on its prototype) or the stand-in db.ts
+// exports when no DATABASE_URL is set (the static import above runs before
+// the assignment to process.env, so that is what this test gets).
 (db as any).insert = (table: unknown) => {
   return {
     values: (row: unknown) => {
@@ -231,6 +234,7 @@ test("logUpdate redacts sensitive fields in both before and after", async () => 
 
 // Restore original db.insert at end (best-effort; tests run in isolation)
 test("restore db.insert", () => {
-  (db as any).insert = originalInsert;
+  // Dropping the own property reveals the real method again, if there is one.
+  delete (db as any).insert;
   assert.ok(true);
 });
