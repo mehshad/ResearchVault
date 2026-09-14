@@ -29,7 +29,7 @@ const programById = new Map<number, Program>([[7, demoProgram]]);
 
 test("grant import resolves a programme by its PRM code", () => {
   const [preview] = previewGrantRows(
-    [{ "Project Number": "IMPORT-PRG-CODE", "Title": "Coded programme", "Program": "PRM-001" }],
+    [{ "Project Number": "IMPORT-PRG-CODE", "Title": "Coded programme", "Sidra Programme": "PRM-001" }],
     noExistingGrants,
     noScientistsByEmail,
     noScientistsByName,
@@ -41,7 +41,7 @@ test("grant import resolves a programme by its PRM code", () => {
 
 test("grant import resolves a programme by the exported 'code — name' label", () => {
   const [preview] = previewGrantRows(
-    [{ "Project Number": "IMPORT-PRG-LABEL", "Title": "Labelled programme", "Program": "PRM-001 — Precision Medicine" }],
+    [{ "Project Number": "IMPORT-PRG-LABEL", "Title": "Labelled programme", "Sidra Programme": "PRM-001 — Precision Medicine" }],
     noExistingGrants,
     noScientistsByEmail,
     noScientistsByName,
@@ -53,7 +53,7 @@ test("grant import resolves a programme by the exported 'code — name' label", 
 
 test("grant import skips a row whose programme matches nothing", () => {
   const [preview] = previewGrantRows(
-    [{ "Project Number": "IMPORT-PRG-BAD", "Title": "Unknown programme", "Program": "PRM-999" }],
+    [{ "Project Number": "IMPORT-PRG-BAD", "Title": "Unknown programme", "Sidra Programme": "PRM-999" }],
     noExistingGrants,
     noScientistsByEmail,
     noScientistsByName,
@@ -68,7 +68,7 @@ test("grant import clears the programme on the literal CLEAR", () => {
     ["import-prg-clear", { id: 1, projectNumber: "IMPORT-PRG-CLEAR", title: "Has a programme", programId: 7 } as Grant],
   ]);
   const [preview] = previewGrantRows(
-    [{ "Project Number": "IMPORT-PRG-CLEAR", "Program": "clear" }],
+    [{ "Project Number": "IMPORT-PRG-CLEAR", "Sidra Programme": "clear" }],
     existing,
     noScientistsByEmail,
     noScientistsByName,
@@ -84,7 +84,7 @@ test("grant export writes the programme as its 'code — name' label", () => {
     new Map(),
     programById,
   );
-  assert.equal(row["Program"], "PRM-001 — Precision Medicine");
+  assert.equal(row["Sidra Programme"], "PRM-001 — Precision Medicine");
 });
 
 test("formatProgramLabel is blank when the grant names no programme", () => {
