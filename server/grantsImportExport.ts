@@ -10,7 +10,7 @@ import { GRANT_CURRENCY_VALUES } from "@shared/schema";
 import { matchStaffByName, type StaffNameIndex } from "@shared/staffNameMatching";
 import { isHomeInstitution, resolveGrantLpiName } from "@shared/grantSubmission";
 import type { GrantSkipCode } from "@shared/grantImportReasons";
-import type { Grant, InsertGrant, Scientist } from "@shared/schema";
+import type { Grant, InsertGrant, Scientist, Program } from "@shared/schema";
 import { scientistDisplayName } from "@shared/scientistName";
 import {
   GrantLifecycleError,
@@ -49,22 +49,42 @@ export const GRANT_COLUMNS: Array<{ header: string; key: string }> = [
   { header: "Reporting Interval (Months)", key: "reportingIntervalMonths" },
   { header: "Collaborators", key: "collaborators" },
   { header: "Description", key: "description" },
+  { header: "Program", key: "program" },
 ];
 
 const HEADER_TO_KEY: Record<string, string> = GRANT_COLUMNS.reduce((acc, col) => {
   acc[col.header.toLowerCase().trim()] = col.key;
   return acc;
 }, {} as Record<string, string>);
+// The office's template spells the column "Program"; the app UI says
+// "Programme". Accept either on import so neither file is rejected.
+HEADER_TO_KEY["programme"] = "program";
+
+/**
+ * "PRM-001 — Name" for the export and template, or "" when the grant names
+ * no programme. The same label an import resolves back to a programme.
+ */
+export function formatProgramLabel(
+  programId: number | null | undefined,
+  programById: Map<number, Program>,
+): string {
+  if (programId == null) return "";
+  const program = programById.get(programId);
+  if (!program) return "";
+  return program.programId ? `${program.programId} — ${program.name}` : program.name;
+}
 
 export function grantsToRows(
   grants: Grant[],
   scientistById: Map<number, Scientist>,
+  programById: Map<number, Program> = new Map(),
 ): Record<string, any>[] {
   return grants.map((g) => {
     const lpi = g.lpiId ? scientistById.get(g.lpiId) : undefined;
     const values: Record<string, any> = {
       projectNumber: g.projectNumber,
       cycle: g.cycle ?? "",
+      program: formatProgramLabel(g.programId, programById),
       title: g.title,
       lpiEmail: lpi?.email ?? "",
       lpiName: lpi ? scientistDisplayName(lpi) : "",
@@ -149,6 +169,7 @@ export function buildGrantsTemplateRows(): Record<string, any>[] {
     {
       "Project Number": "PRJ-2026-001",
       "Cycle": "2026-1",
+      "Program": "PRM-001 — Example Programme",
       "Title": "Example grant title (delete this row before importing)",
       "LPI Email": "lead.pi@sidra.org",
       "LPI Name": "",
@@ -360,6 +381,7 @@ export function previewGrantRows(
   existingByProjectNumber: Map<string, Grant>,
   scientistByEmail: Map<string, Scientist>,
   scientistByName: StaffNameIndex,
+  programByKey: Map<string, number> = new Map(),
 ): GrantRowPreview[] {
   const previews: GrantRowPreview[] = [];
   const seenProjectNumbers = new Set<string>();
@@ -564,6 +586,26 @@ export function previewGrantRows(
     appendUniqueList("coInvestigators", existing?.coInvestigators);
     appendUniqueList("collaborators", existing?.collaborators);
     if (writes("description")) data.description = textVal("description");
+    // Programme resolves by its human code (PRM-nnn) or its name. An exported
+    // file writes "PRM-001 — Name"; match the whole cell, then fall back to
+    // the code before the em dash, so a hand-typed code or name also works.
+    if (writes("program")) {
+      const rawProgram = row.program ?? "";
+      if (rawProgram === "" || isClear(rawProgram)) {
+        data.programId = null;
+      } else {
+        let resolved = programByKey.get(rawProgram.trim().toLowerCase());
+        if (resolved == null && rawProgram.includes("—")) {
+          resolved = programByKey.get(rawProgram.split("—")[0].trim().toLowerCase());
+        }
+        if (resolved == null) {
+          errorCodes.push("unmatched_program");
+          errors.push(`No programme found matching "${rawProgram}" (use its PRM code or exact name)`);
+        } else {
+          data.programId = resolved;
+        }
+      }
+    }
     if (lpiId !== undefined) data.lpiId = lpiId;
     if (pendingGrantLpiName !== undefined) data.grantLpiName = pendingGrantLpiName;
 
