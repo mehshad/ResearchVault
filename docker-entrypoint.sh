@@ -146,7 +146,9 @@ for migration in \
     "migrations/20260908_office_grant_statuses.sql" \
     "migrations/20260908_quartile_must_be_valid.sql" \
     "migrations/20260908_clear_preprint_server_from_journal.sql" \
-    "migrations/20260913_publication_additional_sdrs.sql"; do
+    "migrations/20260913_publication_additional_sdrs.sql" \
+    "migrations/20260914_institution_country.sql" \
+    "migrations/20260914_project_principal_investigator.sql"; do
   if [ -f "/app/$migration" ]; then
     echo "  Applying $migration..."
     if [ "$migration" = "migrations/20260820_grant_lifecycle_consistency.sql" ] || \
@@ -166,11 +168,16 @@ for migration in \
 done
 echo "==> Migrations complete."
 
-# In demo mode, seed sample data so the app is populated out of the box.
-if [ "${AUTH_MODE:-local}" = "demo" ]; then
+# A demo instance seeds sample data and demo accounts. Gated on SEED_DEMO_DATA,
+# NOT on the auth mode: seeding used to run whenever AUTH_MODE=demo, and a
+# production instance set to demo (once a supported "trial" mode) wrote fake
+# scientists and a demo admin into its own database on every start. The seed
+# is idempotent -- it skips when demo accounts already exist -- so re-running
+# on restart is a no-op.
+if [ "${SEED_DEMO_DATA:-0}" = "1" ]; then
   echo "==> Seeding demo data..."
-  psql "$DATABASE_URL" -f "/app/migrations/demo_seed_data.sql" -v ON_ERROR_STOP=0 2>&1 | grep -v "^$\|already exists\|does not exist\|NOTICE\|duplicate key" || true
-  echo "==> Demo data seeded."
+  node dist/seed-demo.js || echo "==> Demo seed reported an issue (continuing)."
+  echo "==> Demo data seed complete."
 fi
 
 fi  # end of postgres-only block

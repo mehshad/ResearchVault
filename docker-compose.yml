@@ -6,6 +6,7 @@ volumes:
   pg-data:
   pg-demo-data:
   app-logs:
+  demo-uploads:
 
 
 services:
@@ -123,16 +124,20 @@ services:
       STORAGE_TYPE: local
       UPLOADS_DIR: /data/uploads
       APP_URL: ${DEMO_APP_URL:-http://localhost:8080}
-      AUTH_MODE: demo
-      DEMO_USERNAME: demo.user
-      DEMO_NAME: Demo User
-      DEMO_EMAIL: demo@researchvault.local
-      DEMO_ROLE: Management
+      # A real local login with the password-less "sign in as" picker, backed
+      # by seeded accounts. SEED_DEMO_DATA=1 populates them on first start.
+      AUTH_MODE: local
+      DEMO_LOGIN: "1"
+      SEED_DEMO_DATA: "1"
       # APP_BASE_PATH: when the demo is served under /demo via nginx,
       # this injects a <base> tag so browser asset paths resolve correctly.
       APP_BASE_PATH: ${DEMO_BASE_PATH:-/demo}
     volumes:
-      - ${UPLOADS_DATA_DIR:-./data/uploads}:/data/uploads
+      # Its own uploads volume, not the production one. The two used to share a
+      # directory, and the demo served every stored object with no session, so
+      # anyone on the demo could read a production upload. The demo requires a
+      # session now, but a separate store keeps demo files off production disk.
+      - demo-uploads:/data/uploads
     depends_on:
       postgres-demo:
         condition: service_healthy
