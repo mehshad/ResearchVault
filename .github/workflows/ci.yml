@@ -33,6 +33,11 @@ jobs:
         # used to be left out of this step and never ran on a pull request.
         run: npm run test:unit
 
+      - name: Component tests
+        # React components under jsdom with vitest and the testing library;
+        # *.test.tsx only, so the two runners never pick up each other's files.
+        run: npm run test:components
+
       - name: Unit test coverage
         run: |
           node --import tsx \
