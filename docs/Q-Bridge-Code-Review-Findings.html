@@ -74,12 +74,12 @@
   <aside class="rail">
     <div>
       <div class="label">Areas</div>
-      <nav><a href="#security">Security and authorization<span>10</span></a><a href="#data-model">Data model and storage<span>11</span></a><a href="#client">Client and user experience<span>2</span></a><a href="#operations">Data operations and deployment<span>12</span></a><a href="#ci-dx">Testing, CI and maintainability<span>12</span></a></nav>
+      <nav><a href="#security">Security and authorization<span>10</span></a><a href="#data-model">Data model and storage<span>11</span></a><a href="#client">Client and user experience<span>2</span></a><a href="#operations">Data operations and deployment<span>12</span></a><a href="#ci-dx">Testing, CI and maintainability<span>8</span></a></nav>
     </div>
     <div>
       <div class="label">Show</div>
       <div class="filters" role="group" aria-label="Filter by priority">
-        <button type="button" data-filter="all" aria-pressed="true">All 47</button>
+        <button type="button" data-filter="all" aria-pressed="true">All 43</button>
         <button type="button" data-filter="critical" aria-pressed="false">Critical</button>
         <button type="button" data-filter="high" aria-pressed="false">High</button>
         <button type="button" data-filter="medium" aria-pressed="false">Medium</button>
@@ -91,10 +91,10 @@
     <header class="top">
       <div class="label">ResearchVault · branch phase2 · 13 September 2026</div>
       <h1>Q-BRIDGE Code Review</h1>
-      <p class="sub">47 open findings from a read of the server, shared modules, client, migrations and CI on 13 September 2026, each verified against the code or the dev database. This page lists what is still to do; a finding that is fixed is removed from it, not marked closed. The dev database (Settings → Feature Requests, requester "Claude code review, 13 Sep 2026") is the record, with the same numbers.</p>
+      <p class="sub">43 open findings from a read of the server, shared modules, client, migrations and CI on 13 September 2026, each verified against the code or the dev database. This page lists what is still to do; a finding that is fixed is removed from it, not marked closed. The dev database (Settings → Feature Requests, requester "Claude code review, 13 Sep 2026") is the record, with the same numbers.</p>
       <div class="summary">
         <div class="critical"><b>3</b><span>Critical</span></div>
-        <div class="high"><b>14</b><span>High</span></div>
+        <div class="high"><b>10</b><span>High</span></div>
         <div class="medium"><b>21</b><span>Medium</span></div>
         <div class="low"><b>9</b><span>Low</span></div>
       </div>
@@ -444,44 +444,8 @@
         <header class="area-head">
           <h2>Testing, CI and maintainability</h2>
           <p class="lede">What the checks actually exercise, and what makes the codebase harder to change than it needs to be.</p>
-          <div class="chips"><span class="mini high">4 high</span><span class="mini medium">5 medium</span><span class="mini low">3 low</span></div>
-        </header><p class="empty">Nothing at this priority in this area.</p><article class="finding" data-priority="high" id="fr-17">
-          <div class="finding-head">
-            <span class="sev high">high</span>
-            <h3>Run the shared and client test suites in CI, not only server/</h3>
-            <span class="meta"><span class="id">#17</span> · backend · effort low</span>
-          </div>
-          <p><code>.github/workflows/ci.yml</code> runs find server -name '*.test.ts' for both the unit-test and coverage steps, so the 30 <code>shared/*.test.ts</code> files and the 19 <code>client/src/lib</code> and <code>client/src/hooks</code> tests (permissions, route order, restricted-user policy, grant lifecycle, publication workflow) never execute on a PR, even though <code>package.json</code>'s test script includes them. The same find server pattern is copied into sonarqube.yml, so coverage reported to Sonar also omits them. Change both workflows to run the <code>package.json</code> globs (or find server shared client/src -name '*.test.ts') minus *.integration.test.ts.</p>
-          <div class="tags"><span>ci</span><span>testing</span><span>dx</span></div>
-        </article>
-        <article class="finding" data-priority="high" id="fr-18">
-          <div class="finding-head">
-            <span class="sev high">high</span>
-            <h3>Fix the ESLint config so the lint job can pass</h3>
-            <span class="meta"><span class="id">#18</span> · backend · effort low</span>
-          </div>
-          <p><code>eslint.config.mjs</code> sets no languageOptions.globals, so running eslint on <code>server/db.ts</code> and <code>server/logger.ts</code> reports 'process' is not defined and 'console' is not defined (no-undef) on every use; every server file is affected. Test files are matched by <code>server/**/*.ts</code> with parserOptions.project: ./<code>tsconfig.json</code>, but <code>tsconfig.json</code> excludes **/*.test.ts, so each test file fails with a parsing error. review.yml then runs with --max-warnings=0 while security/detect-non-literal-fs-filename and no-console are configured as warnings that fire in logger.ts. The job has failed on every PR the repository has had, so it carries no signal. Add globals.node for <code>server/shared</code> and globals.browser for client, point the parser at a tsconfig.eslint.json that includes tests (or use projectService: true), and either drop --max-warnings=0 or promote the intended rules to errors. Its own PR, not riding along with feature work.</p>
-          <div class="tags"><span>ci</span><span>lint</span><span>dx</span></div>
-        </article>
-        <article class="finding" data-priority="high" id="fr-19">
-          <div class="finding-head">
-            <span class="sev high">high</span>
-            <h3>Stop npm test from requiring and mutating a live database</h3>
-            <span class="meta"><span class="id">#19</span> · backend · effort medium</span>
-          </div>
-          <p><code>server/db.ts</code> throws at import when DATABASE_URL is unset, and nine unit tests (researchPortfolioRoutes, institutionRoutes, publicationWorkflowRoutes, grantIssueRoutes, authMiddleware, authSessionRefresh, auditService, preprintRepairStorage, rolePermissions.integration) import ./auth or ./db and hit it; running one without the variable fails with 'DATABASE_URL must be set' rather than a message about the test setup. The <code>package.json</code> test glob <code>server/*.test.ts</code> also includes <code>server/rolePermissions.integration.test.ts</code>, which unlike bulkDataHub.integration.test.ts has no RUN_* gate and deletes and inserts role_groups rows through DatabaseStorage against whatever DATABASE_URL the developer has, i.e. the local dev database. Gate that test the same way, add test:unit and test:integration scripts, and make db.ts resolve the connection lazily or through injection so route handler tests do not need a driver at all.</p>
-          <div class="tags"><span>testing</span><span>dx</span><span>backend</span></div>
-        </article>
-        <article class="finding" data-priority="high" id="fr-20">
-          <div class="finding-head">
-            <span class="sev high">high</span>
-            <h3>Actually run the bulk hub integration tests in the CI integration job</h3>
-            <span class="meta"><span class="id">#20</span> · backend · effort low</span>
-          </div>
-          <p><code>server/bulkDataHub.integration.test.ts</code> is the only coverage of applySection (<code>server/bulkDataHub.ts:4591-6092</code>, about 1,500 lines; 29 applySection calls in the test), but it is guarded by process<code>.env</code>.RUN_BULK_HUB_INTEGRATION === '1' and falls back to test.skip. The integration-tests job in ci.yml provisions Postgres and applies migrations but sets only DATABASE_URL, so every one of those tests is skipped and the job goes green without exercising the apply phase. The unit file bulkDataHub.test.ts only checks that apply refuses a section with row errors. Set RUN_BULK_HUB_INTEGRATION=1 in the job env and confirm the run reports passes, not skips.</p>
-          <div class="tags"><span>ci</span><span>testing</span><span>bulk-data</span></div>
-        </article>
-        <article class="finding" data-priority="medium" id="fr-42">
+          <div class="chips"><span class="mini medium">5 medium</span><span class="mini low">3 low</span></div>
+        </header><p class="empty">Nothing at this priority in this area.</p><article class="finding" data-priority="medium" id="fr-42">
           <div class="finding-head">
             <span class="sev medium">medium</span>
             <h3>Split server/routes.ts by domain into the existing *Routes.ts pattern</h3>
