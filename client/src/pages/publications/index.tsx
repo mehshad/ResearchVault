@@ -177,11 +177,7 @@ export default function PublicationsList() {
   const { data: publications, isLoading, isError, error, refetch } = useQuery<EnhancedPublication[]>({
     queryKey: ['/api/publications', 'visible', currentUser.role, currentUser.id],
     queryFn: async () => {
-      const params = new URLSearchParams({
-        viewerRole: currentUser.role,
-        viewerScientistId: String(currentUser.id),
-        viewerUserId: String(currentUser.id),
-      });
+      const params = new URLSearchParams();
       const response = await fetch(`/api/publications?${params.toString()}`, {
         credentials: "include",
       });

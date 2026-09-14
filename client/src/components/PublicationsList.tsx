@@ -84,8 +84,6 @@ interface PublicationsListProps {
   yearsSince?: number;
   /** Render as a section inside another card (no own Card chrome). */
   embedded?: boolean;
-  demoViewerRole?: string;
-  demoViewerScientistId?: number;
 }
 
 const authorshipColors = {
@@ -299,8 +297,6 @@ export function PublicationsList({
   scientistId,
   yearsSince = 5,
   embedded = false,
-  demoViewerRole,
-  demoViewerScientistId,
 }: PublicationsListProps) {
   const [expandedIds, setExpandedIds] = React.useState<Set<number>>(new Set());
   // The viewer's own choice outlives the visit: reopening a profile should show
@@ -320,8 +316,6 @@ export function PublicationsList({
   };
   const yearsParam = yearsMode === "all" ? 100 : parseInt(yearsMode, 10);
   const queryParams = new URLSearchParams({ years: String(yearsParam) });
-  if (demoViewerRole) queryParams.set("viewerRole", demoViewerRole);
-  if (demoViewerScientistId) queryParams.set("viewerScientistId", String(demoViewerScientistId));
   const toggleExpanded = (id: number) => {
     setExpandedIds((prev) => {
       const next = new Set(prev);

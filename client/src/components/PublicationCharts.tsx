@@ -51,8 +51,6 @@ function pickIfRow(rows: JournalImpactFactor[], pubYear: number): JournalImpactF
 interface PublicationChartsProps {
   scientistId: number;
   yearsSince?: number;
-  demoViewerRole?: string;
-  demoViewerScientistId?: number;
 }
 
 const authorshipColors = {
@@ -70,12 +68,8 @@ const chartAuthorshipOrder = ['First Author', 'Contributing Author', 'Second or 
 export function PublicationCharts({
   scientistId,
   yearsSince = 5,
-  demoViewerRole,
-  demoViewerScientistId,
 }: PublicationChartsProps) {
   const queryParams = new URLSearchParams({ years: String(yearsSince) });
-  if (demoViewerRole) queryParams.set("viewerRole", demoViewerRole);
-  if (demoViewerScientistId) queryParams.set("viewerScientistId", String(demoViewerScientistId));
 
   const { data: publications = [], isLoading: pubLoading } = useQuery<Publication[]>({
     queryKey: [`/api/scientists/${scientistId}/publications?${queryParams.toString()}`],
