@@ -695,8 +695,8 @@ export default function EditGrant() {
   };
 
   return (
-    <div className="container mx-auto p-6">
-      <div className="mb-6">
+    <div className="space-y-6">
+      <div>
         <Button
           variant="ghost"
           className="mb-4"
