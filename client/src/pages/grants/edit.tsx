@@ -695,8 +695,8 @@ export default function EditGrant() {
   };
 
   return (
-    <div className="container mx-auto p-6">
-      <div className="mb-6">
+    <div className="space-y-6">
+      <div>
         <Button
           variant="ghost"
           className="mb-4"
@@ -1164,7 +1164,7 @@ export default function EditGrant() {
                 className={`mt-6 border-t pt-4 ${issueFieldClass("missing_sdr")}`}
               >
                 <h3 className="text-lg font-medium mb-4">Linked Research Activities (SDRs)</h3>
-                <div className="space-y-2 max-h-64 overflow-y-auto">
+                <div className="space-y-2">
                   {lpiResearchActivities.length > 0 ? (
                     lpiResearchActivities.map((sdr: any) => {
                       const isLinked = linkedSdrs.includes(sdr.id);

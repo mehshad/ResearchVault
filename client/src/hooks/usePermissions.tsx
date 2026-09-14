@@ -13,7 +13,6 @@ import {
   maxAccessLevel,
   type RoleBearer,
 } from "@shared/effectiveRoles";
-import { useAuth } from "@/hooks/useAuth";
 import {
   getOfficeDashboardDefaultAccess,
   isAdministratorRole,
@@ -204,7 +203,6 @@ export function PermissionsProvider({ children }: PermissionsProviderProps) {
   const [permissions, setPermissions] = useState<NavigationPermission[]>([]);
   const [isLoaded, setIsLoaded] = useState(false);
   const [isUnconfigured, setIsUnconfigured] = useState(false);
-  const { authConfig } = useAuth();
 
   // Load permissions from database on mount
   useEffect(() => {
@@ -291,7 +289,7 @@ export function PermissionsProvider({ children }: PermissionsProviderProps) {
       return "edit";
     }
 
-    if (authConfig.mode !== "demo" && jobTitle === RESTRICTED_USER_ROLE) {
+    if (jobTitle === RESTRICTED_USER_ROLE) {
       return navigationItem === "publications" ? "view" : "hide";
     }
 
@@ -310,7 +308,7 @@ export function PermissionsProvider({ children }: PermissionsProviderProps) {
    */
   const getEffectiveAccessLevel = (user: RoleBearer | null | undefined, navigationItem: string): AccessLevel => {
     if (isAdministrator(user)) return "edit";
-    if (authConfig.mode !== "demo" && isRestrictedOnly(user)) {
+    if (isRestrictedOnly(user)) {
       return navigationItem === "publications" ? "view" : "hide";
     }
     let best: AccessLevel | null = null;

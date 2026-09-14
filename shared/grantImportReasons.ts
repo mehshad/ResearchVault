@@ -20,6 +20,7 @@ export type GrantSkipCode =
   | "subaward_no_sidra_lead"
   | "subaward_ambiguous_lead"
   | "lifecycle"
+  | "unmatched_program"
   | "bad_value"
   | "other";
 
@@ -37,6 +38,7 @@ export const GRANT_SKIP_REASONS: ReadonlyArray<{
   { code: "subaward_no_sidra_lead", label: "Subaward with no Sidra co-investigator", hint: "Another institution submitted it and no co-investigator is one of ours, so nobody here can be recorded as the Sidra Lead PI." },
   { code: "subaward_ambiguous_lead", label: "Subaward naming several Sidra staff", hint: "Two or more co-investigators are ours. Set the Sidra Lead PI by hand." },
   { code: "lifecycle", label: "Status and Awarded switch disagree", hint: "See Rules: some statuses only apply to a grant that was actually awarded." },
+  { code: "unmatched_program", label: "Programme not found", hint: "The Programme value matches no programme code (PRM-nnn) or name. Add the programme first, or correct the value." },
   { code: "bad_value", label: "A value could not be read", hint: "A number, date or currency is not in a form the import understands." },
   { code: "other", label: "Other", hint: "Opened individually below." },
 ];

@@ -74,12 +74,12 @@
   <aside class="rail">
     <div>
       <div class="label">Areas</div>
-      <nav><a href="#security">Security and authorization<span>10</span></a><a href="#data-model">Data model and storage<span>11</span></a><a href="#client">Client and user experience<span>2</span></a><a href="#operations">Data operations and deployment<span>12</span></a><a href="#ci-dx">Testing, CI and maintainability<span>1</span></a></nav>
+      <nav><a href="#security">Security and authorization<span>9</span></a><a href="#data-model">Data model and storage<span>11</span></a><a href="#client">Client and user experience<span>2</span></a><a href="#operations">Data operations and deployment<span>10</span></a><a href="#ci-dx">Testing, CI and maintainability<span>1</span></a></nav>
     </div>
     <div>
       <div class="label">Show</div>
       <div class="filters" role="group" aria-label="Filter by priority">
-        <button type="button" data-filter="all" aria-pressed="true">All 36</button>
+        <button type="button" data-filter="all" aria-pressed="true">All 33</button>
         <button type="button" data-filter="critical" aria-pressed="false">Critical</button>
         <button type="button" data-filter="high" aria-pressed="false">High</button>
         <button type="button" data-filter="medium" aria-pressed="false">Medium</button>
@@ -91,10 +91,10 @@
     <header class="top">
       <div class="label">ResearchVault · branch phase2 · 13 September 2026</div>
       <h1>Q-BRIDGE Code Review</h1>
-      <p class="sub">36 open findings from a read of the server, shared modules, client, migrations and CI on 13 September 2026, each verified against the code or the dev database. This page lists what is still to do; a finding that is fixed is removed from it, not marked closed. The dev database (Settings → Feature Requests, requester "Claude code review, 13 Sep 2026") is the record, with the same numbers.</p>
+      <p class="sub">33 open findings from a read of the server, shared modules, client, migrations and CI on 13 September 2026, each verified against the code or the dev database. This page lists what is still to do; a finding that is fixed is removed from it, not marked closed. The dev database (Settings → Feature Requests, requester "Claude code review, 13 Sep 2026") is the record, with the same numbers.</p>
       <div class="summary">
-        <div class="critical"><b>3</b><span>Critical</span></div>
-        <div class="high"><b>10</b><span>High</span></div>
+        <div class="critical"><b>2</b><span>Critical</span></div>
+        <div class="high"><b>8</b><span>High</span></div>
         <div class="medium"><b>17</b><span>Medium</span></div>
         <div class="low"><b>6</b><span>Low</span></div>
       </div>
@@ -105,7 +105,7 @@
         <header class="area-head">
           <h2>Security and authorization</h2>
           <p class="lede">Who may do what, and what the server lets through. Findings marked AC-nn are already in the access control register and remain open.</p>
-          <div class="chips"><span class="mini high">2 high</span><span class="mini medium">6 medium</span><span class="mini low">2 low</span></div>
+          <div class="chips"><span class="mini high">1 high</span><span class="mini medium">6 medium</span><span class="mini low">2 low</span></div>
         </header><p class="empty">Nothing at this priority in this area.</p><article class="finding" data-priority="high" id="fr-4">
           <div class="finding-head">
             <span class="sev high">high</span>
@@ -114,15 +114,6 @@
           </div>
           <p>The local/LDAP login handler at <code>server/auth.ts:780-838</code> has no per-IP or per-account throttle and no lockout; <code>package.json</code> contains no express-rate-limit or equivalent. Combined with AC-04, which is still open exactly as registered (hashPassword at <code>server/auth.ts:114-116</code> is a single unsalted SHA-256, compared with plain !== at line 802), an online guess is cheap and an offline crack of a leaked hash is cheaper. Fix: add express-rate-limit keyed on ip+username to <code>/api/auth/login</code> (and the LDAP path, which otherwise lets the app be used to brute-force directory accounts), and migrate to bcrypt/argon2 with rehash-on-login as the register recommends. The same limiter belongs on the OCR routes (tesseract.js and pdf-parse at routes.ts:1668 and 1817), the ORCID/Crossref/PubMed/OpenAlex discovery routes and the 50mb <code>/api/bulk-data</code> uploads, all currently unbounded; <code>threat_model.md</code>'s Denial of Service section already requires it. Add helmet for baseline headers while there.</p>
           <div class="tags"><span>auth</span><span>AC-04</span></div>
-        </article>
-        <article class="finding" data-priority="high" id="fr-5">
-          <div class="finding-head">
-            <span class="sev high">high</span>
-            <h3>Close the demo-mode bypasses that AC-03 lists, plus the three it does not</h3>
-            <span class="meta"><span class="id">#5</span> · backend · effort medium</span>
-          </div>
-          <p>AC-03 is still open: requireAuth returns early in demo (<code>server/auth.ts:222</code>), requireAdmin admits the demo Management session as an administrator (auth.ts:236-239), restrictDefaultUserApiAccess short-circuits (<code>server/restrictedUserPolicy.ts:133</code>) and the session refresh is skipped (index.ts:178 via auth.ts:618). Beyond what the register records, three more branches turn on with the same variable: POST <code>/api/uploads/finalize</code> skips HMAC verification entirely in demo (routes.ts:1245), GET /objects/* serves every stored object with no session (routes.ts:1316-1348), and PATCH <code>/api/scientists/:id</code> skips the own-profile check via isDemo() (routes.ts:3457). Fix: implement the register's recommendation (refuse demo when DATABASE_URL looks like production) and add these three branches to AC-03 so the exclusion list stays true.</p>
-          <div class="tags"><span>demo-mode</span><span>AC-03</span></div>
         </article>
         <article class="finding" data-priority="medium" id="fr-21">
           <div class="finding-head">
@@ -330,17 +321,8 @@
         <header class="area-head">
           <h2>Data operations and deployment</h2>
           <p class="lede">Migrations, the bulk archive, container configuration and the alternative database targets.</p>
-          <div class="chips"><span class="mini critical">1 critical</span><span class="mini high">4 high</span><span class="mini medium">5 medium</span><span class="mini low">2 low</span></div>
-        </header><p class="empty">Nothing at this priority in this area.</p><article class="finding" data-priority="critical" id="fr-2">
-          <div class="finding-head">
-            <span class="sev critical">critical</span>
-            <h3>Give the demo app its own uploads volume; it serves production files unauthenticated</h3>
-            <span class="meta"><span class="id">#2</span> · backend · effort low</span>
-          </div>
-          <p><code>docker-compose.yml</code> mounts the same host directory into both the production app (line 107) and app-demo (line 135): ${UPLOADS_DATA_DIR:-./data/uploads}:/data/uploads. The /objects/:objectPath(*) route in <code>server/routes.ts</code> (line 1310) skips every access check when getAuthMode() === 'demo' and falls through to downloadObject (~line 1346), so anyone reaching the demo port (8080, no login) can download any production upload, including the daily bulk-data archives that <code>server/localObjectStorage.ts</code> line 27 writes to &lt;UPLOADS_DIR&gt;/bulk-data-archives/&lt;uuid&gt;.zip. The demo database was deliberately isolated on its own volume (pg-demo-data); the file store was not. Add a separate demo-uploads volume for app-demo, matching the database split.</p>
-          <div class="tags"><span>docker</span></div>
-        </article>
-        <article class="finding" data-priority="high" id="fr-13">
+          <div class="chips"><span class="mini high">3 high</span><span class="mini medium">5 medium</span><span class="mini low">2 low</span></div>
+        </header><p class="empty">Nothing at this priority in this area.</p><article class="finding" data-priority="high" id="fr-13">
           <div class="finding-head">
             <span class="sev high">high</span>
             <h3>Stop swallowing migration errors for 44 of the 51 entrypoint migrations</h3>
@@ -366,15 +348,6 @@
           </div>
           <p><code>docker-compose.mssql.yml</code>, <code>.env.example</code> (mssql rows), <code>docker-entrypoint.sh</code> (mssql branch) and <code>server/db-mssql.ts</code> present SQL Server / Azure SQL as a supported production target, but <code>migrations/mssql/0001_initial_schema.sql</code> creates only 14 of the 58 tables in <code>shared/schema.ts</code> (no grants, publications, irb_applications, ibc_applications, research_contracts, scientists, users among others). <code>migrations/mssql/README.md</code> 'Migration order' lists 0002_indexes.sql and 0003_views.sql that do not exist. A deployment following the docs boots, then fails on the first query. Delete the mssql compose file and docs, or generate the full T-SQL schema the way <code>scripts/generate-sqlite-schema.ts</code> does for SQLite.</p>
           <div class="tags"><span>migrations</span><span>documentation</span></div>
-        </article>
-        <article class="finding" data-priority="high" id="fr-16">
-          <div class="finding-head">
-            <span class="sev high">high</span>
-            <h3>Seed demo data only for the demo service, not whenever AUTH_MODE=demo</h3>
-            <span class="meta"><span class="id">#16</span> · bugfix · effort low</span>
-          </div>
-          <p><code>docker-entrypoint.sh</code> applies <code>migrations/demo_seed_data.sql</code> whenever AUTH_MODE=demo. The production app service reads AUTH_MODE: ${AUTH_MODE:-local} from <code>.env</code> (<code>docker-compose.yml</code> line 82) and <code>.env.example</code> describes demo as 'Good for trials', so setting it on a real instance writes sample grants, publications, IRB/IBC applications, 15 fake @research.org scientists, and INSERT INTO users (id=1, username 'demo.user', password '', role 'admin') (demo_seed_data.sql lines 198-200) into the production database, then re-runs on every restart. The same seed pollutes the local dev database used to test staff-name matching. Gate the seed on a dedicated variable (e.g. SEED_DEMO_DATA=1) that only app-demo sets, independent of the auth mode.</p>
-          <div class="tags"><span>docker</span><span>data-integrity</span></div>
         </article>
         <article class="finding" data-priority="medium" id="fr-37">
           <div class="finding-head">

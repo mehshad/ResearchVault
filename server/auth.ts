@@ -1,8 +1,5 @@
 import { roleGroups, rolePermissions, scientists, users } from "@shared/schema";
-import { INVESTIGATOR_ROLE } from "@shared/investigatorEligibility";
 import {
-  ACCESS_ROLES,
-  BUILT_IN_ASSIGNABLE_ROLES,
   RESEARCH_OFFICER_ROLE,
   resolveNavigationArea,
 } from "@shared/constants";
@@ -70,16 +67,33 @@ declare module "express-session" {
 
 // ── Auth mode ──────────────────────────────────────────────────────────────────
 
-export type AuthMode = "demo" | "local" | "ldap" | "oidc";
+export type AuthMode = "local" | "ldap" | "oidc";
 
 export function getAuthMode(): AuthMode {
   const mode = (process.env.AUTH_MODE || "local").toLowerCase();
-  if (mode === "demo" || mode === "ldap" || mode === "oidc") return mode;
+  // "demo" is retired: it used to inject a synthetic user and bypass every
+  // guard. A demo now runs `local` with DEMO_LOGIN=1 and real seeded
+  // accounts, so a stale AUTH_MODE=demo falls through to local.
+  if (mode === "ldap" || mode === "oidc") return mode;
   return "local";
 }
 
 export function isSsoEnabled(): boolean {
   return getAuthMode() === "oidc"; // only OIDC redirects to an external IDP
+}
+
+/**
+ * Whether the password-less "sign in as" picker is offered.
+ *
+ * A demo instance sets DEMO_LOGIN=1 and seeds accounts marked
+ * auth_provider='demo' (see scripts/seed-demo.ts). The picker then lets a
+ * visitor sign in as any of them with no password -- a real session, run
+ * through every guard, so what they see is exactly what that account may
+ * see. It is refused entirely outside local mode, where the external
+ * provider owns the identity, and it only ever admits a demo-marked row.
+ */
+export function isDemoLoginEnabled(): boolean {
+  return getAuthMode() === "local" && process.env.DEMO_LOGIN === "1";
 }
 
 export function logAuthStatus(): void {
@@ -102,11 +116,30 @@ export function logAuthStatus(): void {
     if (!process.env.OIDC_ISSUER_URL) authLog("WARN OIDC_ISSUER_URL is not set — SSO login will fail");
     if (!process.env.OIDC_CLIENT_ID)  authLog("WARN OIDC_CLIENT_ID is not set — SSO login will fail");
   }
-  if (mode === "demo") {
-    authLog(`Demo user: ${process.env.DEMO_NAME || "Demo User"} <${process.env.DEMO_EMAIL || "demo@researchvault.local"}> role=${process.env.DEMO_ROLE || "Management"}`);
+  if (isDemoLoginEnabled()) {
+    authLog("DEMO_LOGIN on: password-less sign-in offered for auth_provider='demo' accounts");
   }
   const superAdmin = process.env.SUPER_ADMIN_EMAIL?.trim().toLowerCase();
   if (superAdmin) authLog(`superadmin email=${superAdmin}`);
+}
+
+/**
+ * The demo accounts a visitor may sign in as, for the login picker. Only the
+ * fields the picker shows, and only demo-marked rows.
+ */
+export async function listDemoAccounts(): Promise<
+  Array<{ username: string; name: string; role: string }>
+> {
+  try {
+    const rows = await db
+      .select({ username: users.username, name: users.name, role: users.role })
+      .from(users)
+      .where(eq(users.authProvider, "demo"))
+      .orderBy(users.name);
+    return rows;
+  } catch {
+    return [];
+  }
 }
 
 // ── Password hashing ───────────────────────────────────────────────────────────
@@ -117,109 +150,7 @@ export function hashPassword(password: string): string {
 
 // ── Middleware ─────────────────────────────────────────────────────────────────
 
-/**
- * The staff record the demo session acts as.
- *
- * Demo mode has no real identity, so anything that asks "is this about me"
- * rather than "may I" -- which SDRs I am on, whose team I lead -- had nothing
- * to answer with and appeared broken while being merely inapplicable. Pointing
- * the demo session at a real person makes those features explorable in the
- * mode the application is actually demonstrated in.
- *
- * Resolved from DEMO_SCIENTIST_EMAIL, falling back to the configured
- * superadmin, so which person it is stays configuration rather than a name
- * compiled into the server. Looked up once: the demo identity does not change
- * while the process runs, and this is on every request.
- */
-let demoScientistId: number | null | undefined;
-
-async function resolveDemoScientistId(): Promise<number | null> {
-  if (demoScientistId !== undefined) return demoScientistId;
-
-  const email = (process.env.DEMO_SCIENTIST_EMAIL || process.env.SUPER_ADMIN_EMAIL || "")
-    .trim()
-    .toLowerCase();
-  if (!email) {
-    demoScientistId = null;
-    return demoScientistId;
-  }
-
-  try {
-    const [match] = await db
-      .select({ id: scientists.id })
-      .from(scientists)
-      .where(sql`lower(${scientists.email}) = ${email}`)
-      .limit(1);
-    demoScientistId = match?.id ?? null;
-    if (demoScientistId === null) {
-      authLog(`Demo session: no staff record matches ${email}; identity-based views stay empty`);
-    }
-  } catch {
-    // A demo session is not worth failing a request over.
-    demoScientistId = null;
-  }
-  return demoScientistId ?? null;
-}
-
-/**
- * The demo session is linked to a staff record only while it is emulating an
- * Investigator.
- *
- * Investigator is the role for whom "my SDRs" and "my team's SDRs" mean
- * anything, so that is when a real person behind the demo is useful. Emulating
- * Management or an office role and still being answered as a named researcher
- * would misrepresent what those roles see.
- */
-async function demoScientistIdForRoles(roles: readonly string[]): Promise<number | null> {
-  if (!roles.some((role) => role.trim() === INVESTIGATOR_ROLE)) return null;
-  return resolveDemoScientistId();
-}
-
-/**
- * Secondary roles the demo session holds alongside the one being emulated.
- *
- * An administrator is a person as well as a set of permissions. The account
- * this demo stands behind is a superadmin who also runs research, which is the
- * normal shape here -- administrator rights are held alongside a working role,
- * not instead of one. Emulating superadmin with no second role therefore
- * misrepresents it, and left the person unable to reach anything answered by
- * "which of these are mine".
- */
-function demoSecondaryRolesFor(role: string): string[] {
-  const administrators = new Set(["superadmin", "admin"]);
-  return administrators.has(role.trim()) ? [INVESTIGATOR_ROLE] : [];
-}
-
-// Demo mode: auto-inject a configurable guest user for every request
-export async function demoBannerMiddleware(req: Request, _res: Response, next: NextFunction) {
-  const startingRole = process.env.DEMO_ROLE || "Management";
-  const currentRole = req.session.user ? req.session.user.role : startingRole;
-  const secondaryRoles = req.session.user
-    ? req.session.user.secondaryRoles ?? []
-    : demoSecondaryRolesFor(startingRole);
-  const scientistId = await demoScientistIdForRoles([currentRole, ...secondaryRoles]);
-
-  if (!req.session.user) {
-    req.session.user = {
-      id: 0,
-      username: process.env.DEMO_USERNAME || "demo.user",
-      name: process.env.DEMO_NAME || "Demo User",
-      email: process.env.DEMO_EMAIL || "demo@researchvault.local",
-      role: startingRole,
-      secondaryRoles,
-      scientistId,
-      needsRegistration: false,
-    };
-  } else if (req.session.user.id === 0 && req.session.user.scientistId !== scientistId) {
-    // Sessions outlive restarts, so one created before this existed would keep
-    // its null forever and the feature would look broken to whoever had it.
-    req.session.user.scientistId = scientistId;
-  }
-  next();
-}
-
 export function requireAuth(req: Request, res: Response, next: NextFunction) {
-  if (getAuthMode() === "demo") return next(); // demo bypasses auth
   if (req.session?.user) return next();
   authLog(`401 unauthenticated request: ${req.method} ${req.path}`);
   res.status(401).json({ message: "Unauthorized. Please log in." });
@@ -230,13 +161,7 @@ export function requireAdmin(req: Request, res: Response, next: NextFunction) {
   const role = user?.role;
   // Administrator rights are normally held as a secondary role, so this checks
   // every slot rather than the primary alone.
-  // Demo role switching is intentionally client-side. The demo server session
-  // remains Management even when a tester selects the Super Admin persona, so
-  // treat that fixed demo session as the administrator for protected previews.
-  if (
-    isAdministrator(user) ||
-    (getAuthMode() === "demo" && role === "Management")
-  ) {
+  if (isAdministrator(user)) {
     return next();
   }
   authLog(`403 admin required: ${req.method} ${req.path} user=${req.session?.user?.username ?? "anonymous"} role=${role ?? "none"}`);
@@ -559,8 +484,9 @@ async function refreshSessionUserFromDatabase(
   const sessionUser = req.session?.user;
   if (!sessionUser) return null;
 
-  // Demo users are synthetic and do not have a corresponding database row.
-  if (getAuthMode() === "demo" || sessionUser.id <= 0) {
+  // A synthetic session (id 0 or below) has no database row to refresh from.
+  // Real accounts, demo-marked ones included, always do.
+  if (sessionUser.id <= 0) {
     return sessionUser;
   }
 
@@ -615,7 +541,7 @@ async function loadUserById(id: number) {
  */
 export function createRefreshSessionAuthorizationMiddleware(
   loadCurrentUser: LoadUserById = loadUserById,
-  shouldBypass: () => boolean = () => getAuthMode() === "demo"
+  shouldBypass: () => boolean = () => false
 ) {
   return async (req: Request, res: Response, next: NextFunction) => {
     const sessionUser = req.session?.user;
@@ -663,7 +589,12 @@ export function registerAuthRoutes(app: any) {
       providerName = getOidcConfig().providerName ?? null;
     }
     const ssoEnabled = mode === "oidc"; // LDAP uses username/password, not browser SSO redirect
-    res.json({ mode, ssoEnabled, provider: mode, providerName });
+    // When the "sign in as" picker is on, the client needs the accounts to
+    // offer. They are public by design in a demo instance -- the whole point
+    // is signing in without a secret.
+    const demoLogin = isDemoLoginEnabled();
+    const demoAccounts = demoLogin ? await listDemoAccounts() : [];
+    res.json({ mode, ssoEnabled, provider: mode, providerName, demoLogin, demoAccounts });
   });
 
   // Current user
@@ -697,14 +628,6 @@ export function registerAuthRoutes(app: any) {
   app.post("/api/auth/admin-preview", requireAuth, async (req: Request, res: Response) => {
     const off = (req.body as { off?: boolean } | undefined)?.off === true;
 
-    if (getAuthMode() === "demo") {
-      // Demo has the role selector already, and requireAdmin admits the demo
-      // Management session regardless -- the preview could not be honest here.
-      return res.status(400).json({
-        message: "Use the demo role selector to preview another role.",
-      });
-    }
-
     const sessionUser = req.session?.user;
     if (!sessionUser) return res.status(401).json({ message: "Not authenticated" });
 
@@ -734,44 +657,36 @@ export function registerAuthRoutes(app: any) {
     }
   });
 
-  // ── Demo role emulation ──
+  // ── Demo sign-in ("sign in as", no password) ──
   //
-  // The sidebar role selector exists so demo mode can be explored as each role.
-  // It used to change only React state, so the session kept whatever DEMO_ROLE
-  // said and the server answered every request as that role. That was survivable
-  // while the server barely enforced roles; once the permission matrix became
-  // server-enforced it meant the interface and the API disagreed about who you
-  // were — the selector appeared to work and changed nothing.
-  //
-  // Registered only in demo mode, so outside it the path does not exist at all
-  // rather than existing and refusing.
-  if (mode === "demo") {
-    app.post("/api/auth/demo-role", async (req: Request, res: Response) => {
-      const requested = typeof req.body?.role === "string" ? req.body.role.trim() : "";
-      if (!requested) {
-        return res.status(400).json({ message: "A role is required." });
+  // Replaces the old client-side role selector, which changed only React state
+  // and left the server answering as whatever DEMO_ROLE said -- so once the
+  // permission matrix was server-enforced, the interface and the API disagreed
+  // about who you were. This signs in as a real seeded account instead: a real
+  // session, run through every guard, so the account's access is exactly what
+  // it says it is. Registered only when DEMO_LOGIN is on, and it admits only a
+  // row marked auth_provider='demo', so it can never sign in as a real user.
+  if (isDemoLoginEnabled()) {
+    app.post("/api/auth/demo-login", async (req: Request, res: Response) => {
+      const username = typeof req.body?.username === "string" ? req.body.username.trim() : "";
+      const ip = req.ip || req.socket?.remoteAddress || "unknown";
+      if (!username) {
+        return res.status(400).json({ message: "An account is required." });
       }
-      // Only roles that really exist may be emulated, so the selector cannot
-      // put the session into a state no real account could reach.
-      const assignable = new Set<string>([...ACCESS_ROLES, ...BUILT_IN_ASSIGNABLE_ROLES, "superadmin"]);
-      if (!assignable.has(requested)) {
-        return res.status(400).json({ message: `"${requested}" is not an assignable role.` });
+      const [user] = await db
+        .select()
+        .from(users)
+        .where(and(eq(users.username, username), eq(users.authProvider, "demo")));
+      if (!user) {
+        authLog(`demo sign-in refused — no demo account ${username} ip=${ip}`);
+        return res.status(404).json({ message: "No such demo account." });
       }
-      if (!req.session.user) {
-        return res.status(401).json({ message: "No demo session to update." });
-      }
-      // Holding Investigator -- as the primary role or alongside it -- means
-      // being somebody, so the views answering "which of these are mine" have
-      // an answer to give.
-      const secondaryRoles = demoSecondaryRolesFor(requested);
-      const scientistId = await demoScientistIdForRoles([requested, ...secondaryRoles]);
-      req.session.user = { ...req.session.user, role: requested, secondaryRoles, scientistId };
-      authLog(
-        `demo role switched to ${requested}` +
-          (secondaryRoles.length ? ` + ${secondaryRoles.join(", ")}` : "") +
-          (scientistId ? ` (as scientist ${scientistId})` : ""),
-      );
-      res.json({ user: req.session.user });
+      const sessionUser = toSessionUser(user, await loadSecondaryRoles(user.id));
+      await recordSuccessfulLogin(user.id);
+      req.session.adminPreviewOff = undefined;
+      req.session.user = sessionUser;
+      authLog(`demo sign-in as ${user.username} id=${user.id} role=${user.role} ip=${ip}`);
+      res.json({ user: sessionUser });
     });
   }
 
@@ -890,9 +805,6 @@ export function registerAuthRoutes(app: any) {
 
   // Logout (all modes)
   app.post("/api/auth/logout", (req: Request, res: Response) => {
-    if (mode === "demo") {
-      return res.json({ message: "Demo mode — logout is a no-op" });
-    }
     const username = req.session?.user?.username ?? "unknown";
     req.session.destroy((err: any) => {
       if (err) {

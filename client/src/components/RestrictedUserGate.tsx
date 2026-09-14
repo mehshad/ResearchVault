@@ -19,13 +19,12 @@ export const restrictedUserNoticeKey = (userId: number) =>
   `restricted-user-notice:${userId}`;
 
 export function RestrictedUserGate({ children }: { children: ReactNode }) {
-  const { user, authConfig } = useAuth();
+  const { user } = useAuth();
   const [location] = useLocation();
   const [noticeOpen, setNoticeOpen] = useState(false);
   // The onboarding lockout lifts on any assignment, so it is "user and nothing
   // else", not "primary role is user". Granting a secondary counts.
-  const isRestricted =
-    authConfig.mode !== "demo" && isRestrictedOnly(user);
+  const isRestricted = isRestrictedOnly(user);
 
   useEffect(() => {
     if (!isRestricted || !user || user.needsRegistration) {

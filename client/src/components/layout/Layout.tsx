@@ -42,7 +42,7 @@ export default function Layout({ children }: LayoutProps) {
       <div className="flex flex-col flex-1 overflow-hidden min-w-0">
         <Header onMenuClick={toggleMobileSidebar} />
 
-        <main className="flex-1 overflow-y-auto p-6 bg-background">
+        <main className="relative flex-1 overflow-y-auto p-6 bg-background">
           <DatabaseStatus />
           {children}
         </main>

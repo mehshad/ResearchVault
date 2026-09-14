@@ -95,18 +95,13 @@ export default function PublicationDetail() {
   const [, navigate] = useLocation();
   const id = parseInt(params.id);
   const { toast } = useToast();
-  const { user, authConfig } = useAuth();
+  const { user } = useAuth();
   const { currentUser } = useCurrentUser();
-  const effectiveRole = authConfig.mode === "demo"
-    ? currentUser.role
-    : (user?.role ?? "user");
-  const effectiveScientistId = authConfig.mode === "demo"
-    ? currentUser.id
-    : user?.scientistId;
+  const effectiveScientistId = user?.scientistId;
   // The person, not one role string. Someone can sit in the Outcome Office
   // alongside a bench role, and admin is normally held as a secondary.
   const canManageAllPublications = hasAnyRole(
-    authConfig.mode === "demo" ? currentUser : user,
+    user,
     ["Outcome Officer", "Management", "admin", "superadmin"],
   );
 
@@ -146,11 +141,7 @@ export default function PublicationDetail() {
   >({
     queryKey: [`/api/publications/${id}`, currentUser.role, currentUser.id],
     queryFn: async () => {
-      const query = new URLSearchParams({
-        viewerRole: currentUser.role,
-        viewerScientistId: String(currentUser.id),
-        viewerUserId: String(currentUser.id),
-      });
+      const query = new URLSearchParams();
       if (canManageAllPublications) query.set("officeAccess", "true");
       const response = await fetch(`/api/publications/${id}?${query.toString()}`, {
         credentials: "include",
