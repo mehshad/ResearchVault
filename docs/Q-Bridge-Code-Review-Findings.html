@@ -74,12 +74,12 @@
   <aside class="rail">
     <div>
       <div class="label">Areas</div>
-      <nav><a href="#security">Security and authorization<span>10</span></a><a href="#data-model">Data model and storage<span>11</span></a><a href="#client">Client and user experience<span>2</span></a><a href="#operations">Data operations and deployment<span>12</span></a><a href="#ci-dx">Testing, CI and maintainability<span>8</span></a></nav>
+      <nav><a href="#security">Security and authorization<span>10</span></a><a href="#data-model">Data model and storage<span>11</span></a><a href="#client">Client and user experience<span>2</span></a><a href="#operations">Data operations and deployment<span>12</span></a><a href="#ci-dx">Testing, CI and maintainability<span>1</span></a></nav>
     </div>
     <div>
       <div class="label">Show</div>
       <div class="filters" role="group" aria-label="Filter by priority">
-        <button type="button" data-filter="all" aria-pressed="true">All 43</button>
+        <button type="button" data-filter="all" aria-pressed="true">All 36</button>
         <button type="button" data-filter="critical" aria-pressed="false">Critical</button>
         <button type="button" data-filter="high" aria-pressed="false">High</button>
         <button type="button" data-filter="medium" aria-pressed="false">Medium</button>
@@ -91,12 +91,12 @@
     <header class="top">
       <div class="label">ResearchVault · branch phase2 · 13 September 2026</div>
       <h1>Q-BRIDGE Code Review</h1>
-      <p class="sub">43 open findings from a read of the server, shared modules, client, migrations and CI on 13 September 2026, each verified against the code or the dev database. This page lists what is still to do; a finding that is fixed is removed from it, not marked closed. The dev database (Settings → Feature Requests, requester "Claude code review, 13 Sep 2026") is the record, with the same numbers.</p>
+      <p class="sub">36 open findings from a read of the server, shared modules, client, migrations and CI on 13 September 2026, each verified against the code or the dev database. This page lists what is still to do; a finding that is fixed is removed from it, not marked closed. The dev database (Settings → Feature Requests, requester "Claude code review, 13 Sep 2026") is the record, with the same numbers.</p>
       <div class="summary">
         <div class="critical"><b>3</b><span>Critical</span></div>
         <div class="high"><b>10</b><span>High</span></div>
-        <div class="medium"><b>21</b><span>Medium</span></div>
-        <div class="low"><b>9</b><span>Low</span></div>
+        <div class="medium"><b>17</b><span>Medium</span></div>
+        <div class="low"><b>6</b><span>Low</span></div>
       </div>
       <p class="where">To close one: fix it on the audit-fixes branch, mark the request implemented in the dev database with the commit, and regenerate this page from the database so it drops out.</p>
     </header>
@@ -444,7 +444,7 @@
         <header class="area-head">
           <h2>Testing, CI and maintainability</h2>
           <p class="lede">What the checks actually exercise, and what makes the codebase harder to change than it needs to be.</p>
-          <div class="chips"><span class="mini medium">5 medium</span><span class="mini low">3 low</span></div>
+          <div class="chips"><span class="mini medium">1 medium</span></div>
         </header><p class="empty">Nothing at this priority in this area.</p><article class="finding" data-priority="medium" id="fr-42">
           <div class="finding-head">
             <span class="sev medium">medium</span>
@@ -453,69 +453,6 @@
           </div>
           <p><code>server/routes.ts</code> is 12,565 lines under @ts-nocheck with 299 route registrations inside a single registerRoutes function that starts at line 1194; lines 440-1190 are also pure external-discovery helpers (fetchOrcidWorks, fetchCrossrefWork, fetchPubmedByDoi, discoverOpenAlex/Pubmed/Crossref/EuropePmc/Orcid) with no tests. The prefix counts show the natural seams: publications 33, ibc-applications 21, research-contracts 19, grants 16, research-activities 15, scientists 14, projects 14, journal-impact-factors 14, bulk-data 9. The repo already has ten dependency-injected modules (institutionRoutes.ts, researchPortfolioRoutes.ts, publicationWorkflowRoutes.ts, etc.) each with an express-level test, so move one prefix at a time into <code>server/routes/</code>&lt;domain&gt;.ts exposing register&lt;Domain&gt;Routes(app) and lift the discovery helpers into a publicationDiscovery.ts that can be unit tested with a mocked fetch.</p>
           <div class="tags"><span>refactor</span><span>maintainability</span><span>backend</span></div>
-        </article>
-        <article class="finding" data-priority="medium" id="fr-43">
-          <div class="finding-head">
-            <span class="sev medium">medium</span>
-            <h3>Route routes.ts logging through the structured logger</h3>
-            <span class="meta"><span class="id">#43</span> · backend · effort medium</span>
-          </div>
-          <p><code>server/logger.ts</code> emits JSON lines with timestamp, level, source and request fields, and index.ts logs every request and unhandled error through it, but only two non-test files import it. <code>server/routes.ts</code> alone has 267 console.error and 116 console.log calls (305/117 across server/), so route-level failures land as unstructured text with no userId, path or event, and cannot be correlated with the http_request records. Replace them with logError/log/logEvent carrying req.path and the session user, then raise the server no-console rule from warn to error so the count cannot grow back.</p>
-          <div class="tags"><span>observability</span><span>logging</span><span>backend</span></div>
-        </article>
-        <article class="finding" data-priority="medium" id="fr-44">
-          <div class="finding-head">
-            <span class="sev medium">medium</span>
-            <h3>Introduce a React test runner and start covering components</h3>
-            <span class="meta"><span class="id">#44</span> · enhancement · effort medium</span>
-          </div>
-          <p>client/src has 101 pages and 99 components and zero *.test.tsx files; <code>package.json</code> contains no vitest, jest, testing-library, playwright or cypress, and the 19 client tests that exist are plain-function .ts files run under node:test. 55 of the 58 @ts-nocheck files in the repo are client pages and components, so the most logic-heavy screens have neither type checking nor tests. Add vitest with jsdom and @testing-library/react, wire it into npm test and ci.yml, and start with the permission-gated pages that the existing server tests mirror.</p>
-          <div class="tags"><span>testing</span><span>frontend</span><span>dx</span></div>
-        </article>
-        <article class="finding" data-priority="medium" id="fr-45">
-          <div class="finding-head">
-            <span class="sev medium">medium</span>
-            <h3>Make the scheduled and advisory CI jobs meaningful or remove them</h3>
-            <span class="meta"><span class="id">#45</span> · backend · effort low</span>
-          </div>
-          <p>performance.yml defaults BASE_URL to http://172.32.79.20/demo, a private address GitHub-hosted runners cannot reach, so the nightly k6 job fails whenever PERF_TARGET_URL is not set. sonarqube.yml runs the tests with || true and continue-on-error: true, security.yml runs semgrep with || true, and review.yml's pr-hygiene step only emits a warning, so none of them can turn a PR red, while the ESLint job always does. With one job permanently red and several that cannot fail, the checks list carries no signal. Gate the perf job on the secret being present (or a self-hosted runner), make semgrep fail on ERROR-severity findings, and keep only the checks that are expected to pass.</p>
-          <div class="tags"><span>ci</span><span>dx</span></div>
-        </article>
-        <article class="finding" data-priority="medium" id="fr-60">
-          <div class="finding-head">
-            <span class="sev medium">medium</span>
-            <h3>Keep the dev server up when a client file fails to parse</h3>
-            <span class="meta"><span class="id">#60</span> · backend · effort low</span>
-          </div>
-          <p>In development the Express process hosts Vite in middleware mode, and a syntax error in any client file while it is being edited (an unbalanced JSX tag, a duplicate identifier) is thrown from Vite's transform as an uncaught error that ends the whole Node process, not just the one HMR update. It happened twice on 13 September 2026 while files were mid-edit; each time the API went down with it and had to be restarted by hand, and there is no watcher to bring it back. Vite on its own reports such errors in the browser overlay and keeps serving. Fix: catch transform errors in the middleware path (<code>server/vite.ts</code> or wherever createViteServer is wired) and answer the request with the error rather than letting it propagate, or run Vite as its own process in development and proxy to it, so an editing mistake in the client never stops the API.</p>
-          <div class="tags"><span>dx</span><span>dev-server</span></div>
-        </article>
-        <article class="finding" data-priority="low" id="fr-56">
-          <div class="finding-head">
-            <span class="sev low">low</span>
-            <h3>Remove unused dependencies and the dead AI-provider setting</h3>
-            <span class="meta"><span class="id">#56</span> · backend · effort low</span>
-          </div>
-          <p>@anthropic-ai/sdk, @sendgrid/mail, google-auth-library and @jridgewell/trace-mapping have no import anywhere in server/, client/src, shared/ or <code>scripts/.</code> better-sqlite3 is a regular dependency although it is only reached by await import('better-sqlite3') in <code>server/db.ts:41</code> for sqlite mode, so every install pays for a native build that group policy blocks locally; move it to optionalDependencies alongside bufferutil. <code>shared/schema.ts:1935</code> defines aiProvider ('groq, huggingface, together_ai') and <code>client/src/pages/settings/index.tsx:48-49</code> offers Groq and HuggingFace options, but no server file reads aiProvider, so the setting is inert UI. Drop the four packages, demote better-sqlite3, and remove or hide the provider picker.</p>
-          <div class="tags"><span>dependencies</span><span>dx</span><span>cleanup</span></div>
-        </article>
-        <article class="finding" data-priority="low" id="fr-57">
-          <div class="finding-head">
-            <span class="sev low">low</span>
-            <h3>Delete the orphaned scripts and the duplicated scientistDisplayName</h3>
-            <span class="meta"><span class="id">#57</span> · backend · effort low</span>
-          </div>
-          <p>Of the 15 files in scripts/, only container-runtime.sh (sourced by <code>setup.sh</code>) and generate-sqlite-schema.ts (<code>package.json</code> generate:sqlite) are referenced anywhere; db-setup.ts, init-db.ts, seed-db.ts (36 KB), setup-database.ts, push-ibc-schema.ts, run-migration.ts, migrate-journals-refactor.ts, import-impact-factors.js, enrich-journal-fields-from-openalex.js and its 790 KB journal-fields-openalex.csv, and post-merge.sh are wired into nothing, and seeding now lives in <code>migrations/demo_seed_data.sql.</code> <code>scripts/package.json</code> is a four-line stub. export function scientistDisplayName is defined twice with the same signature in <code>server/grantsImportExport.ts:58</code> and <code>server/publicationLinksImport.ts:94</code>. Remove the dead scripts (or move any still-useful one into docs/ with a runbook) and hoist the helper into <code>shared/.</code></p>
-          <div class="tags"><span>cleanup</span><span>dx</span></div>
-        </article>
-        <article class="finding" data-priority="low" id="fr-58">
-          <div class="finding-head">
-            <span class="sev low">low</span>
-            <h3>Bring the docs in line with the deployment and add CODEOWNERS and a PR template</h3>
-            <span class="meta"><span class="id">#58</span> · enhancement · effort low</span>
-          </div>
-          <p><code>README.md</code>:315 still recommends a Neon database, <code>replit.md</code> (257 lines) describes Neon serverless, WebSocket pooling and Replit deployments and is named by CHANGELOG_ARCHIVE.md as the active changelog, <code>threat_model.md</code> reasons about a public Replit app, and <code>sonar-project.properties</code> names the project 'ResearchVault (IRIS)' while <code>replit.md</code>:10 says IRIS is the retired name. .github/ contains only workflows/: no CODEOWNERS, no PULL_REQUEST_TEMPLATE.md, no dependabot.yml, although one person approves every PR. Fold the still-true parts of <code>replit.md</code> into README/docs, fix the Sonar name, and add CODEOWNERS naming the approver plus a short PR template that lists the checks expected to be green.</p>
-          <div class="tags"><span>docs</span><span>dx</span></div>
         </article>
       </section>
     <footer>Line numbers refer to the phase2 branch at commit 130a2df, where the review was made; later commits on audit-fixes may have moved them.</footer>

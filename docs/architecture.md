@@ -1,4 +1,6 @@
-# Research Portal System - Architecture Summary
+# Q-BRIDGE architecture summary
+
+> Moved from the repository root (`replit.md`) on 14 September 2026. The Replit and Neon specifics it once described no longer apply; the deployment is Docker Compose with PostgreSQL, as the README describes.
 
 ## Product
 
@@ -37,7 +39,7 @@ Q-BRIDGE replaces the scattered spreadsheets, email threads, and PDF forms that 
 - shadcn/ui on Radix primitives, Tailwind CSS, Framer Motion
 - TanStack Query, Wouter routing, React Hook Form + Zod
 - Express.js backend on Node.js with TypeScript
-- PostgreSQL (Neon serverless) via Drizzle ORM
+- PostgreSQL via Drizzle ORM
 - Session auth (express-session + connect-pg-simple, Passport local)
 - Google Cloud Storage with Uppy for document uploads
 
@@ -70,9 +72,8 @@ The Research Portal System is a full-stack web application built for managing sc
 - **Authentication**: Custom session-based authentication with password hashing
 
 ### Database Architecture
-- **Database**: PostgreSQL (via Neon serverless)
+- **Database**: PostgreSQL 16, in Docker alongside the app (see README)
 - **Schema Management**: Drizzle Kit for migrations and schema evolution
-- **Connection**: Neon serverless with WebSocket support for real-time capabilities
 
 ## Key Components
 
@@ -126,7 +127,7 @@ The Research Portal System is a full-stack web application built for managing sc
 1. Schema defined in shared TypeScript files
 2. Drizzle generates type-safe query builders
 3. Migrations managed through Drizzle Kit
-4. Connection pooling via Neon serverless client
+4. Connection pooling via the pg pool (a Neon serverless client is used only when DATABASE_URL points at neon.tech)
 
 ## External Dependencies
 
@@ -157,7 +158,7 @@ The Research Portal System is a full-stack web application built for managing sc
 ### Development Environment
 - Vite development server for frontend with hot module replacement
 - tsx for running TypeScript backend with file watching
-- Development database provisioned via Neon
+- Development database: PostgreSQL in Docker on port 5433 (see README)
 - Real-time error overlay for debugging
 
 ### Production Build
