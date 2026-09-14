@@ -1,8 +1,9 @@
 name: Code Review
 
 on:
+  # Every pull request, whatever it targets, so a PR stacked on another
+  # branch is reviewed like any other.
   pull_request:
-    branches: [main]
 
 jobs:
   pr-hygiene:
