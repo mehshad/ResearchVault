@@ -42,20 +42,16 @@ function runRequireAdmin(role: string, authMode: string) {
   return { nextCalled, statusCode, body };
 }
 
-test("demo Management session can exercise administrator-only previews", () => {
-  const result = runRequireAdmin("Management", "demo");
-  assert.equal(result.nextCalled, true);
-  assert.equal(result.statusCode, 200);
-});
-
-test("Management remains blocked outside demo mode", () => {
+test("Management alone is not an administrator", () => {
+  // Demo used to admit a Management session as admin; demo is real accounts
+  // now, and Management holds no administrator rights of its own.
   const result = runRequireAdmin("Management", "local");
   assert.equal(result.nextCalled, false);
   assert.equal(result.statusCode, 403);
   assert.deepEqual(result.body, { message: "Forbidden. Admin access required." });
 });
 
-test("admin and superadmin remain allowed outside demo mode", () => {
+test("admin and superadmin are allowed", () => {
   assert.equal(runRequireAdmin("admin", "local").nextCalled, true);
   assert.equal(runRequireAdmin("superadmin", "oidc").nextCalled, true);
 });

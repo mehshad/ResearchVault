@@ -17,7 +17,6 @@ import {
 } from "./sidraScoreService";
 import {
   isOwnScientistProfile,
-  isDemo,
   hasManagementRole,
   hasPublicationOfficerRole,
   canEditPublicationForLinkedScientists,
@@ -192,19 +191,6 @@ test("author matching: abbreviated self-link is rejected when citation identity 
     isUnambiguousAuthorMatch("Smith A, Jones B", alice, [alice]),
     true
   );
-});
-
-test("isDemo: reflects AUTH_MODE without changing authorization in real modes", () => {
-  const previous = process.env.AUTH_MODE;
-  try {
-    process.env.AUTH_MODE = "demo";
-    assert.equal(isDemo(), true);
-    process.env.AUTH_MODE = "local";
-    assert.equal(isDemo(), false);
-  } finally {
-    if (previous === undefined) delete process.env.AUTH_MODE;
-    else process.env.AUTH_MODE = previous;
-  }
 });
 
 // ── sidraScoreSettingsSchema validation ───────────────────────────────────────

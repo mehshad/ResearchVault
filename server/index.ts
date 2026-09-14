@@ -5,7 +5,6 @@ import {
   logAuthStatus,
   isSsoEnabled,
   getAuthMode,
-  demoBannerMiddleware,
   refreshSessionAuthorization,
 } from "./auth";
 import { serveStatic } from "./static";
@@ -113,8 +112,7 @@ if (isMSSQLMode) {
   });
 }
 
-// Distinct cookie name per auth mode so production and demo sessions never clash.
-const cookieName = getAuthMode() === 'demo' ? 'rv-demo.sid' : 'rv.sid';
+const cookieName = 'rv.sid';
 
 app.use(session({
   name: cookieName,
@@ -128,11 +126,6 @@ app.use(session({
     maxAge: 24 * 60 * 60 * 1000
   }
 }));
-
-// Demo mode: auto-inject a guest user so the app runs without login.
-if (getAuthMode() === "demo") {
-  app.use("/api", demoBannerMiddleware);
-}
 
 app.use((req: Request, res: Response, next: NextFunction) => {
   const start = Date.now();
