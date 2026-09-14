@@ -448,6 +448,37 @@ test("our own grants are untouched by any of this", () => {
   assert.equal(preview.data?.grantLpiName, undefined, "no external Lead PI on a grant we submitted");
 });
 
+test("a subaward that names the external lead in Grant LPI takes the Sidra lead from Sidra LPI", () => {
+  // The office's master gives both: the external Lead Name and our Sidra PI.
+  // When Grant LPI is filled, trust Sidra LPI directly rather than hunting the
+  // Co-Investigators column for one of ours.
+  const [preview] = previewGrantRows(
+    [{
+      "Project Number": "SUB-DIRECT",
+      "Title": "A subaward with both leads named",
+      "Submitting Institution": "Qatar University",
+      "Sidra LPI": "Dr Ammira Akil",
+      "Grant LPI": "Prof. External Lead",
+      "Status": "submitted",
+    }],
+    noExistingGrants, noScientistsByEmail, subawardStaff,
+  );
+  assert.equal(preview.action, "create");
+  assert.equal(preview.data?.lpiId, 27);
+  assert.equal(preview.data?.grantLpiName, "Prof. External Lead");
+});
+
+test("the old LPI Name header is still accepted as Sidra LPI", () => {
+  const [preview] = previewGrantRows(
+    [{ "Project Number": "LEGACY-HDR", "Title": "Old header", "LPI Email": "kfakhro@sidra.org" }],
+    noExistingGrants,
+    new Map([["kfakhro@sidra.org", { id: 35 } as Scientist]]),
+    subawardStaff,
+  );
+  assert.equal(preview.action, "create");
+  assert.equal(preview.data?.lpiId, 35);
+});
+
 test("an LPI email still wins over the co-investigator fallback", () => {
   // An explicit email is the office saying who it is. The fallback exists
   // because the file has none, not because it should override one.
