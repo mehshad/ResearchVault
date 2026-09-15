@@ -1,4 +1,5 @@
 import * as schema from "@shared/schema";
+import type { NodePgDatabase } from "drizzle-orm/node-postgres";
 
 export const DATABASE_URL_MISSING =
   "DATABASE_URL must be set. Did you forget to provision a database?";
@@ -44,7 +45,9 @@ const isMSSQL =
 const isNeon = !isSQLite && !isMSSQL && url.includes("neon.tech");
 
 let pool: any;
-let db: any;
+// Typed as the Postgres client whichever driver is behind it: the schema is
+// the same, and an untyped `db` had let every caller's rows become `any`.
+let db: NodePgDatabase<typeof schema>;
 
 if (!url) {
   // No database configured: a stand-in that refuses the first use with the
@@ -60,7 +63,7 @@ if (!url) {
     get: (target, prop) => (Object.prototype.hasOwnProperty.call(target, prop) ? (target as any)[prop] : refuse()),
     apply: refuse,
     construct: refuse,
-  });
+  }) as unknown as NodePgDatabase<typeof schema>;
   pool = null;
 } else if (isSQLite) {
   const filePath = url.startsWith("sqlite:") ? url.slice("sqlite:".length) : url;
@@ -88,13 +91,13 @@ if (!url) {
     );
   }
 
-  db   = drizzle(sqlite, { schema });
+  db   = drizzle(sqlite, { schema }) as unknown as NodePgDatabase<typeof schema>;
   pool = null;
 
 } else if (isMSSQL) {
   const { createMssqlDb } = await import("./db-mssql");
   const result = await createMssqlDb(url);
-  db   = result.db;
+  db   = result.db as unknown as NodePgDatabase<typeof schema>;
   pool = result.pool;
 
 } else if (isNeon) {
@@ -103,7 +106,7 @@ if (!url) {
   const { default: ws } = await import("ws");
   neonConfig.webSocketConstructor = ws;
   pool = new Pool({ connectionString: url });
-  db   = drizzle({ client: pool, schema });
+  db   = drizzle({ client: pool, schema }) as unknown as NodePgDatabase<typeof schema>;
 
 } else {
   // Standard PostgreSQL (local Docker, cloud-managed, on-prem)
