@@ -74,12 +74,12 @@
   <aside class="rail">
     <div>
       <div class="label">Areas</div>
-      <nav><a href="#security">Security and authorization<span>9</span></a><a href="#data-model">Data model and storage<span>11</span></a><a href="#client">Client and user experience<span>2</span></a><a href="#operations">Data operations and deployment<span>5</span></a><a href="#ci-dx">Testing, CI and maintainability<span>1</span></a></nav>
+      <nav><a href="#security">Security and authorization<span>9</span></a><a href="#data-model">Data model and storage<span>5</span></a><a href="#client">Client and user experience<span>2</span></a><a href="#operations">Data operations and deployment<span>5</span></a><a href="#ci-dx">Testing, CI and maintainability<span>1</span></a></nav>
     </div>
     <div>
       <div class="label">Show</div>
       <div class="filters" role="group" aria-label="Filter by priority">
-        <button type="button" data-filter="all" aria-pressed="true">All 28</button>
+        <button type="button" data-filter="all" aria-pressed="true">All 22</button>
         <button type="button" data-filter="critical" aria-pressed="false">Critical</button>
         <button type="button" data-filter="high" aria-pressed="false">High</button>
         <button type="button" data-filter="medium" aria-pressed="false">Medium</button>
@@ -91,11 +91,11 @@
     <header class="top">
       <div class="label">ResearchVault · branch phase2 · 13 September 2026</div>
       <h1>Q-BRIDGE Code Review</h1>
-      <p class="sub">28 open findings from a read of the server, shared modules, client, migrations and CI on 13 September 2026, each verified against the code or the dev database. This page lists what is still to do; a finding that is fixed is removed from it, not marked closed. The dev database (Settings → Feature Requests, requester "Claude code review, 13 Sep 2026") is the record, with the same numbers.</p>
+      <p class="sub">22 open findings from a read of the server, shared modules, client, migrations and CI on 13 September 2026, each verified against the code or the dev database. This page lists what is still to do; a finding that is fixed is removed from it, not marked closed. The dev database (Settings → Feature Requests, requester "Claude code review, 13 Sep 2026") is the record, with the same numbers.</p>
       <div class="summary">
         <div class="critical"><b>2</b><span>Critical</span></div>
-        <div class="high"><b>7</b><span>High</span></div>
-        <div class="medium"><b>14</b><span>Medium</span></div>
+        <div class="high"><b>5</b><span>High</span></div>
+        <div class="medium"><b>10</b><span>Medium</span></div>
         <div class="low"><b>5</b><span>Low</span></div>
       </div>
       <p class="where">To close one: fix it on the audit-fixes branch, mark the request implemented in the dev database with the commit, and regenerate this page from the database so it drops out.</p>
@@ -192,7 +192,7 @@
         <header class="area-head">
           <h2>Data model and storage</h2>
           <p class="lede">Schema integrity, the storage layer, and the queries behind the busiest pages.</p>
-          <div class="chips"><span class="mini critical">1 critical</span><span class="mini high">3 high</span><span class="mini medium">5 medium</span><span class="mini low">2 low</span></div>
+          <div class="chips"><span class="mini critical">1 critical</span><span class="mini high">1 high</span><span class="mini medium">1 medium</span><span class="mini low">2 low</span></div>
         </header><p class="empty">Nothing at this priority in this area.</p><article class="finding" data-priority="critical" id="fr-1">
           <div class="finding-head">
             <span class="sev critical">critical</span>
@@ -202,15 +202,6 @@
           <p><code>server/routes.ts</code> calls storage.getPmoApplication (11477, 11534), storage.updatePmoApplication (11567, 11578) and storage.deletePmoApplication (11603), and IStorage declares all five PMO methods (<code>server/storage.ts:373-377</code>), but DatabaseStorage (the only runtime class) implements none of them; it has only getAllPmoApplications (<code>server/databaseStorage.ts:4035</code>). GET/PUT/DELETE <code>/api/pmo-applications/:id</code> therefore throw 'storage.getPmoApplication is not a function' and return a 500. tsc passes only because routes.ts, storage.ts and databaseStorage.ts all open with // @ts-nocheck. Add the methods (dispatching on form_type to the existing ra200/ra205a helpers) or drop the routes.</p>
           <div class="tags"><span>storage</span><span>pmo</span><span>ts-nocheck</span></div>
         </article>
-        <article class="finding" data-priority="high" id="fr-6">
-          <div class="finding-head">
-            <span class="sev high">high</span>
-            <h3>Guard SDR, project and program deletes against orphaning dependents</h3>
-            <span class="meta"><span class="id">#6</span> · bugfix · effort medium</span>
-          </div>
-          <p>deleteResearchActivity (<code>server/databaseStorage.ts:368</code>), deleteProject (:228) and deleteProgram (:185) are bare single-row deletes, and their routes (<code>server/routes.ts:3789, 2997, 2888</code>) call them with no dependent check, while DELETE <code>/api/scientists/:id</code> (routes.ts:3504) does have a 409 'blocked' path. None of the referencing columns has a foreign key, so deleting one SDR in the dev DB today would silently orphan its rows in project_members (26 total), publications.research_activity_id (32), and grant_research_activities (2); 5 projects own SDRs and 2 programs own projects. Add the same dependent-count 409 check the scientist route uses, or add ON DELETE RESTRICT foreign keys so Postgres refuses.</p>
-          <div class="tags"><span>integrity</span><span>delete</span></div>
-        </article>
         <article class="finding" data-priority="high" id="fr-7">
           <div class="finding-head">
             <span class="sev high">high</span>
@@ -219,51 +210,6 @@
           </div>
           <p><code>shared/schema.ts</code> has 60+ columns whose only constraint is a '// references X.id' comment (publication_authors, project_members, publication_research_activities, grant_research_activities, publications.research_activity_id, research_activities.project_id/budget_holder_id, projects.principal_investigator_id, grants.lpi_id, scientists.supervisor_id, irb/ibc PI columns, manuscript_history, certifications). The live DB has 29 FKs, almost all on newer tables. Orphan counts on every core column are currently 0 (only manuscript_history.changed_by has 5), so this is the cheap moment to add them via .references() plus a migration, choosing cascade for pure link tables and restrict for ownership columns. Also clean two pieces of drift: publications.created_by_user_id has two FK constraints (<code>migrations/20260824_add_publication_creator.sql:12</code> plus the drizzle-generated one), and ibc_application_research_activities has two identical unique indexes (<code>migrations/20260609_missing_tables.sql:106</code> plus schema.ts:814).</p>
           <div class="tags"><span>foreign-keys</span><span>migrations</span></div>
-        </article>
-        <article class="finding" data-priority="high" id="fr-8">
-          <div class="finding-head">
-            <span class="sev high">high</span>
-            <h3>Make manuscript_history.changed_by a users FK and stop writing 0</h3>
-            <span class="meta"><span class="id">#8</span> · bugfix · effort low</span>
-          </div>
-          <p><code>shared/schema.ts:439</code> documents changed_by as 'references scientists.id', but every writer stores a user id: routes.ts:5284/5298 (creatorUserId ?? 1), :5404 (req.session.user.id ?? 1), bulkDataHub.ts:5412 (applyingUserId, which lands as 0 when there is no actor). The dev DB has 71 rows: 66 match both a user and a scientist id (the two id ranges overlap), 5 hold 0 and match nothing. The GET history route (routes.ts:5587-5589) left-joins users AND scientists on the same value and prefers users.name, so a row written with a scientist id by an older path shows the wrong person's name. Declare it .references(() =&gt; users.id, { onDelete: 'set null' }), make it nullable, backfill 0 to NULL, drop the '?? 1' fallbacks and the scientists join.</p>
-          <div class="tags"><span>publications</span><span>audit</span></div>
-        </article>
-        <article class="finding" data-priority="medium" id="fr-27">
-          <div class="finding-head">
-            <span class="sev medium">medium</span>
-            <h3>Replace per-row storage.getScientist loops with one bulk lookup</h3>
-            <span class="meta"><span class="id">#27</span> · enhancement · effort medium</span>
-          </div>
-          <p>At least ten list endpoints decorate rows with names by issuing one query per row inside Promise.all: <code>/api/projects</code> (routes.ts:3817-3819), project members (:3852), project activities' members (:3984), <code>/api/research-activities/:id/members</code> (:4136), <code>/api/irb-applications</code> (:6737-6739, two queries per row), <code>/api/ibc-applications</code> (:7016), IBC personnel (:7349), <code>/api/research-contracts</code> (:8081-8085, three per row), SDR contracts (:8696) and pdf-import-history (:11269-11270). Each is a hand-rolled copy of the same 'enhance with scientist name' logic. Replace with a single join in storage or one inArray fetch into a Map, in one shared helper; getScientistsWithActivityCount (databaseStorage.ts:246-270) already shows the single-query style to copy.</p>
-          <div class="tags"><span>performance</span><span>n+1</span><span>routes</span></div>
-        </article>
-        <article class="finding" data-priority="medium" id="fr-28">
-          <div class="finding-head">
-            <span class="sev medium">medium</span>
-            <h3>Stop loading every publication author row to answer one request</h3>
-            <span class="meta"><span class="id">#28</span> · enhancement · effort medium</span>
-          </div>
-          <p>storage.getAllPublicationAuthors() (a full publication_authors x scientists x users join, databaseStorage.ts:1222) is called in seven routes (routes.ts:4531, 4648, 4665, 4712, 4834, 4870, 5076). GET <code>/api/publications/:id</code> (:5076) loads all of it then filters to one publication even though getPublicationAuthors(publicationId) exists. GET <code>/api/publications</code> (:4525-4600) loads getPublications(), all authors, all research activities and all SDR links, enhances every row, and only then slices the requested page. getPublicationsForScientist (databaseStorage.ts:1122-1187) fetches every row for the scientist and applies the yearsSince cutoff in JavaScript. Fine at 66 publications / 92 author rows, but the 25k-row journals table shows the app expects real volume. Push the filter, cutoff and pagination into SQL.</p>
-          <div class="tags"><span>performance</span><span>publications</span><span>pagination</span></div>
-        </article>
-        <article class="finding" data-priority="medium" id="fr-29">
-          <div class="finding-head">
-            <span class="sev medium">medium</span>
-            <h3>Index the scientist- and project-side of every hot lookup</h3>
-            <span class="meta"><span class="id">#29</span> · backend · effort low</span>
-          </div>
-          <p>Postgres does not index FK columns automatically, and the only indexes on the link tables lead with the other column: publication_scientist_idx is (publication_id, scientist_id) and project_scientist_idx is (research_activity_id, scientist_id). Queries filtering on the second column run unindexed: publication_authors.scientist_id (databaseStorage.ts:1127, 1198, 1274, 1285), project_members.scientist_id (:339, 398, 410, and the correlated subquery at :255-259 executed once per scientist on the directory page), research_activities.project_id (:331, 440, 1311, 1707), research_activities.budget_holder_id (:259), publications.research_activity_id (:476). Add plain indexes on these in <code>shared/schema.ts</code> table callbacks with a migration.</p>
-          <div class="tags"><span>performance</span><span>indexes</span></div>
-        </article>
-        <article class="finding" data-priority="medium" id="fr-30">
-          <div class="finding-head">
-            <span class="sev medium">medium</span>
-            <h3>Remove the legacy duplicate columns and the dead project_groups table</h3>
-            <span class="meta"><span class="id">#30</span> · backend · effort medium</span>
-          </div>
-          <p>grants.co_investigators text[] (<code>shared/schema.ts:1424</code>) and grants.collaborators text[] duplicate the grant_co_investigators and grant_collaborating_institutions tables: 58 grants have co-investigator names in the array but only 13 link rows exist and 45 of those grants have no link at all, while <code>client/src/pages/grants/edit.tsx:345-364</code> and create.tsx:142-152 still write the array and researchPortfolioRoutes.ts:179-188 reads the table (so the portfolio page misses co-investigators recorded only as text). research_activities.line_manager_id and staff_scientist_id are marked legacy, have 0 populated rows and no reader; the live DB still has research_activities.lead_scientist_id, which schema.ts:264 says was removed, and an empty project_groups table with <code>client/src/pages/project-groups/*</code> surviving with no server route. scientists.department free text (16 rows) coexists with department_id (60 rows). Pick the table as the source of truth for grant people, migrate the arrays into link rows, then drop the columns, the DB-only column and the dead table and pages.</p>
-          <div class="tags"><span>legacy</span><span>cleanup</span></div>
         </article>
         <article class="finding" data-priority="medium" id="fr-31">
           <div class="finding-head">
