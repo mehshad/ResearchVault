@@ -153,7 +153,7 @@ import { registerReferenceListAdminRoutes } from "./referenceListAdmin";
 import { getInvestigatorAssignmentError } from "./investigatorAssignment";
 import { deleteRefusal } from "./deleteBlockers";
 import { getObjectStorageService, isLocalStorage } from "./objectStorageService";
-import { writeFailureDetail } from "./writeFailureDetail";
+import { respondWriteFailure } from "./writeFailureDetail";
 import { registerCertificateOcrRoutes } from "./routes/certificateOcrRoutes";
 import { registerGrantRoutes } from "./routes/grantRoutes";
 import { registerSdrImportRoutes } from "./routes/sdrImportRoutes";
@@ -1294,10 +1294,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         logError("Failed to update scientist (unique constraint)", "routes", error);
         return res.status(409).json({ message: conflict });
       }
-      logError("Failed to update scientist", "routes", error);
-      res.status(500).json({
-        message: `Failed to update scientist: ${writeFailureDetail(error)}`,
-      });
+      respondWriteFailure(res, "Failed to update scientist", error);
     }
   });
 
@@ -1355,10 +1352,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       await req.audit.logDelete("scientists", id, existing as Record<string, unknown>);
       res.status(204).send();
     } catch (error) {
-      logError("Error deleting scientist", "routes", error);
-      res.status(500).json({
-        message: `Failed to delete scientist: ${writeFailureDetail(error)}`,
-      });
+      respondWriteFailure(res, "Failed to delete scientist", error);
     }
   });
 

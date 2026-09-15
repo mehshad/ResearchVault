@@ -10,7 +10,7 @@ import { storage } from "../databaseStorage";
 import { db } from "../db";
 import { requireInvestigatorDesignationManager } from "../investigatorDesignationPolicy";
 import { logError } from "../logger";
-import { writeFailureDetail } from "../writeFailureDetail";
+import { respondWriteFailure } from "../writeFailureDetail";
 import { ACCESS_ROLES, JOB_TITLE_TAB_ALIASES, matchesJobTitle } from "@shared/constants";
 import { roleGroups, scientists, userRoleAssignments, users } from "@shared/schema";
 import { and, eq, inArray, isNull, sql } from "drizzle-orm";
@@ -229,10 +229,7 @@ export function registerAdminUserRoutes(app: Express): void {
 
       res.json(updated);
     } catch (err) {
-      logError('Error updating user role', "routes", err);
-      res.status(500).json({
-        message: `Failed to update role: ${writeFailureDetail(err)}`,
-      });
+      respondWriteFailure(res, 'Failed to update role', err);
     }
   });
 
