@@ -17,6 +17,7 @@ import { createHash } from "crypto";
 import { restrictDefaultUserApiAccess } from "./restrictedUserPolicy";
 import { registerNavigationAccessGuards } from "./navigationAccess";
 import { auditContextMiddleware } from "./auditContext";
+import { originCheck } from "./originCheck";
 import { startBulkDataArchiveScheduler } from "./bulkDataArchives";
 import { db, isDatabaseConfigured, DATABASE_URL_MISSING } from "./db";
 import { sql } from "drizzle-orm";
@@ -71,6 +72,10 @@ app.set('trust proxy', 1);
 
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ limit: '50mb', extended: false }));
+
+// A browser request that changes state must come from this site: the second
+// CSRF layer beside the session cookie's SameSite=Lax (server/originCheck.ts).
+app.use("/api", originCheck({ appUrl: process.env.APP_URL }));
 
 // When the app is served under a sub-path via nginx (e.g. /demo), nginx passes
 // the full path. Strip the prefix here so all routes and static file serving
