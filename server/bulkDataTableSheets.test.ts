@@ -32,7 +32,7 @@ function refIndex(entries: Partial<Record<RefKind, Array<[number, string]>>>): R
 }
 
 const links = TABLE_SHEET_BY_NAME.get("Grant SDR Links")!;
-const refs = refIndex({ grant: [[10, "QNRF-2024-01"], [11, "IRF-2025-07"]], sdr: [[5, "SDR-100"], [6, "SDR-101"]], user: [[1, "whendrickx"]] });
+const refs = refIndex({ grant: [[10, "QNRF-2024-01"], [11, "IRF-2025-07"]], sdr: [[5, "SDR-100"], [6, "SDR-101"]], scientist: [[1, "w@sidra.org"]], user: [[1, "whendrickx"]] });
 
 test("every declared sheet has a business key and its columns exist once", () => {
   for (const sheet of TABLE_SHEETS) {
@@ -87,15 +87,15 @@ test("a reference nobody has is an error, unless the workbook itself creates it"
 test("required, duplicate and malformed cells are reported together", () => {
   const reports = TABLE_SHEET_BY_NAME.get("Grant Progress Reports")!;
   const rows = [
-    { grantId: "QNRF-2024-01", reportTitle: "Year 1", uploadedBy: "whendrickx", fileSize: "big", submissionDate: "01/02/2026" },
-    { grantId: "QNRF-2024-01", reportTitle: "Year 1", uploadedBy: "whendrickx" },
+    { grantId: "QNRF-2024-01", reportTitle: "Year 1", uploadedBy: "w@sidra.org", fileSize: "big", submissionDate: "01/02/2026" },
+    { grantId: "QNRF-2024-01", reportTitle: "Year 1", uploadedBy: "w@sidra.org" },
     { grantId: "QNRF-2024-01", reportTitle: "Year 2" },
   ];
   const entries = previewTableSheet(reports, rows, [], refs);
   assert.match(entries[0].reason ?? "", /Duplicate/);
   assert.match(entries[0].reason ?? "", /File Size: expected a whole number/);
   assert.match(entries[0].reason ?? "", /Submission Date: expected YYYY-MM-DD/);
-  assert.match(entries[2].reason ?? "", /Uploaded By Username is required/);
+  assert.match(entries[2].reason ?? "", /Uploaded By Email is required/);
 });
 
 test("CLEAR erases an optional value and is refused on a required one", () => {

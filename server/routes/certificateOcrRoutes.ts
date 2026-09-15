@@ -156,7 +156,8 @@ export function registerCertificateOcrRoutes(app: Express): void {
           const historyEntry = await storage.createPdfImportHistoryEntry({
             fileName: detectedData.fileName || 'unknown',
             fileUrl: fileUrl,
-            uploadedBy: 1, // TODO: Get from session/auth
+            // The account that ran the import: the route requires a session.
+            uploadedBy: req.session!.user!.id,
             processingStatus: 'processing',
             ocrProvider: 'unknown'
           });
@@ -1161,10 +1162,13 @@ export function registerCertificateOcrRoutes(app: Express): void {
   // Certificate batch confirmation
   app.post("/api/certificates/confirm-batch", requireAuth, async (req: any, res) => {
     try {
-      // uploaded_by is NOT NULL. The session user holds the identity in every
-      // auth mode (demo/local/ldap/oidc); the old req.user.claims.sub path was
-      // always undefined here, which made every certificate insert fail.
-      const userId = req.session?.user?.scientistId ?? req.session?.user?.id ?? 1;
+      // uploaded_by is the uploader's staff profile (a scientists foreign key,
+      // #7). It used to fall back to the account id and then to 1, which wrote
+      // another person's id whenever the account had no profile.
+      const userId = req.session?.user?.scientistId;
+      if (!userId) {
+        return res.status(400).json({ message: "Your account is not linked to a staff profile, which a certificate record needs as its uploader." });
+      }
       const { certifications } = req.body;
 
       if (!certifications || !Array.isArray(certifications)) {

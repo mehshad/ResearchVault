@@ -185,7 +185,7 @@ export const TABLE_SHEETS: TableSheet[] = [
       col("File Name", "fileName"),
       col("File Path", "filePath"),
       col("File Size", "fileSize", { type: "int" }),
-      col("Uploaded By Username", "uploadedBy", { required: true, ref: "user" }),
+      col("Uploaded By Email", "uploadedBy", { required: true, ref: "scientist", description: "Staff email of whoever filed the report" }),
       col("Notes", "notes"),
     ],
   },

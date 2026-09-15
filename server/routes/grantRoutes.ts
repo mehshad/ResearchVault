@@ -635,10 +635,16 @@ export function registerGrantRoutes(app: Express): void {
         });
       }
 
+      // uploaded_by is the staff profile of whoever files the report (a
+      // scientists foreign key, #7); an account with no profile cannot file one.
+      const uploadedBy = req.session?.user?.scientistId;
+      if (!uploadedBy) {
+        return res.status(400).json({ message: "Your account is not linked to a staff profile, which a progress report needs as its uploader." });
+      }
       const reportData = {
         ...req.body,
         grantId,
-        uploadedBy: 1 // TODO: Get from authenticated user
+        uploadedBy,
       };
 
       const newReport = await storage.createGrantProgressReport(reportData);
