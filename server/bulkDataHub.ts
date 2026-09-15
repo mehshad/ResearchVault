@@ -103,6 +103,23 @@ import {
   GrantLifecycleError,
 } from "@shared/grantLifecycle";
 import { ACCESS_LEVELS, RESTRICTED_USER_ROLE } from "@shared/constants";
+import {
+  ARCHIVE_EXCLUSIONS,
+  TABLE_SHEETS,
+  TABLE_SHEET_BY_NAME,
+  applyTableSheetRow,
+  collectInFileRefs,
+  exportRows,
+  hubColumns,
+  loadRefIndex,
+  loadTableRows,
+  previewTableSheet,
+  refKindsFor,
+  tableSheetsFor,
+  type RefIndex,
+  type TableSheet,
+} from "./bulkDataTableSheets";
+export { ARCHIVE_EXCLUSIONS };
 import { inferPlacementFromLineManagers } from "@shared/sectionInference";
 import {
   isRoomManagerEligible,
@@ -122,9 +139,12 @@ const MAX_WORKBOOK_BYTES = 20 * 1024 * 1024; // 20 MB base64 cap
 // 10,758 Journal Impact Factor rows against a 5,000-row sheet cap, so no
 // backup containing a full JCR set could be restored. Reference tables grow
 // with each yearly release, so the headroom is deliberate.
+// It happened again at 50,000: the 2026 JCR release is 87,557 metric rows,
+// so research-output exported fine and could not be previewed back (#14).
+// The caps now sit well above any table the application exports.
 // Override per-deployment if a larger corpus is expected.
-const MAX_TOTAL_ROWS = Number(process.env.BULK_IMPORT_MAX_TOTAL_ROWS ?? 120_000);
-const MAX_ROWS_PER_SHEET = Number(process.env.BULK_IMPORT_MAX_ROWS_PER_SHEET ?? 50_000);
+const MAX_TOTAL_ROWS = Number(process.env.BULK_IMPORT_MAX_TOTAL_ROWS ?? 500_000);
+const MAX_ROWS_PER_SHEET = Number(process.env.BULK_IMPORT_MAX_ROWS_PER_SHEET ?? 250_000);
 function getHmacSecret(): string {
   const secret = process.env.SESSION_SECRET;
   if (secret) return secret;
@@ -146,7 +166,8 @@ export type SectionId =
   | "research-compliance"
   | "research-services"
   | "research-output"
-  | "access-control";
+  | "access-control"
+  | "platform";
 
 export interface SheetSpec {
   name: string;
@@ -233,6 +254,26 @@ export const SECTION_META: SectionMeta[] = [
     ],
   },
 ];
+
+// The table sheets (bulkDataTableSheets.ts) join each section's list --
+// reference lists before the hand-written sheets, links and children after
+// them -- and the Platform section is theirs alone. Declared there so a new
+// table is one declaration, here so the interface, the templates and the
+// archive all see one list.
+SECTION_META.push({
+  id: "platform",
+  label: "Platform",
+  description: "Settings, ownership rules, feature requests, the team page and the audit log",
+  sheets: [],
+});
+for (const section of SECTION_META) {
+  const spec = (sheet: TableSheet): SheetSpec => ({ name: sheet.name, description: sheet.description, businessKey: sheet.businessKey });
+  section.sheets = [
+    ...tableSheetsFor(section.id, "before").map(spec),
+    ...section.sheets,
+    ...tableSheetsFor(section.id, "after").map(spec),
+  ];
+}
 
 export function getSectionMeta(sectionId: SectionId): SectionMeta {
   const meta = SECTION_META.find((s) => s.id === sectionId);
@@ -627,6 +668,7 @@ const SHEET_COLS: Record<string, ColDef[]> = {
 };
 
 // All valid sheet names across all sections
+for (const sheet of TABLE_SHEETS) SHEET_COLS[sheet.name] = hubColumns(sheet);
 const ALL_SHEET_NAMES = new Set(Object.keys(SHEET_COLS));
 
 // ---------------------------------------------------------------------------
@@ -825,6 +867,7 @@ function addInstructionsSheet(wb: ExcelJS.Workbook, sectionId: SectionId): void 
     "• Rooms: Building Name + Room Number",
     "• Certification Modules: Module Name",
     "• Certifications: Scientist Email + Module Name + Start Date",
+    ...tableSheetsFor(sectionId).map((sheet) => `• ${sheet.name}: ${sheet.businessKey}`),
     "",
     "RELATIONSHIPS",
     "• Staff references use email addresses.",
@@ -1437,6 +1480,7 @@ interface DbContext {
   userById?: Map<number, User>;
   userRoleAssignmentList?: UserRoleAssignment[];
   userRoleAssignmentByKey?: Map<string, UserRoleAssignment>; // userId + NUL + roleGroupId
+  tableSheets?: { refs: RefIndex; rowsBySheet: Record<string, Record<string, unknown>[]> };
 }
 
 async function loadDbContext(sectionId: SectionId, executor: any = db): Promise<DbContext> {
@@ -1743,6 +1787,12 @@ async function loadDbContext(sectionId: SectionId, executor: any = db): Promise<
     });
   }
 
+  // Table sheets: their reference index and current rows, for export, preview
+  // and the staleness fingerprint alike (bulkDataTableSheets.ts).
+  const rowsBySheet: Record<string, Record<string, unknown>[]> = {};
+  for (const sheet of tableSheetsFor(sectionId)) rowsBySheet[sheet.name] = await loadTableRows(sheet, executor);
+  ctx.tableSheets = { refs: await loadRefIndex(refKindsFor(sectionId), executor), rowsBySheet };
+
   return ctx;
 }
 
@@ -1785,6 +1835,10 @@ export async function buildExportWorkbook(sectionId: SectionId): Promise<Buffer>
     addDataSheet(wb, "Role Permissions", ROLE_PERMISSION_COLS, rolePermissionsToRows(ctx.rolePermissionList!, ctx.roleGroupById!));
     addDataSheet(wb, "User Accounts", USER_ACCOUNT_COLS, userAccountsToRows(ctx.userList!, ctx.scientistById));
     addDataSheet(wb, "User Roles", USER_ROLE_COLS, userRolesToRows(ctx.userRoleAssignmentList!, ctx.userById!, ctx.roleGroupById!));
+  }
+
+  for (const sheet of tableSheetsFor(sectionId)) {
+    addDataSheet(wb, sheet.name, SHEET_COLS[sheet.name], exportRows(sheet, ctx.tableSheets!.rowsBySheet[sheet.name] ?? [], ctx.tableSheets!.refs));
   }
 
   const buf = await wb.xlsx.writeBuffer();
@@ -4359,6 +4413,7 @@ function buildPreviewResult(
   }
 
   const allRows: RowEntry[] = [];
+  const inFileRefs = collectInFileRefs(sheets);
 
   for (const sheet of sheets) {
     let sheetEntries: RowEntry[] = [];
@@ -4435,6 +4490,12 @@ function buildPreviewResult(
       case "User Roles":
         sheetEntries = previewUserRoleRows(sheet.rows, ctx, inFileUsernames, inFileRoleNames);
         break;
+      default: {
+        const tableSheet = TABLE_SHEET_BY_NAME.get(sheet.name);
+        if (tableSheet && ctx.tableSheets) {
+          sheetEntries = previewTableSheet(tableSheet, sheet.rows, ctx.tableSheets.rowsBySheet[sheet.name] ?? [], ctx.tableSheets.refs, inFileRefs);
+        }
+      }
     }
     allRows.push(...sheetEntries);
   }
@@ -4500,6 +4561,9 @@ function buildDbSnapshot(ctx: DbContext): Record<string, unknown> {
     userRoleAssignments: (ctx.userRoleAssignmentList ?? [])
       .map((a) => [a.id, a.assignedAt?.toISOString() ?? null])
       .sort((a, b) => Number(a[0]) - Number(b[0])),
+    tableSheets: Object.fromEntries(
+      Object.entries(ctx.tableSheets?.rowsBySheet ?? {}).map(([name, rows]) => [name, versions(rows as Array<{ id: number; updatedAt?: Date | null }>)]),
+    ),
   };
 }
 
@@ -4556,9 +4620,10 @@ async function lockBulkDataSection(tx: any, sectionId: SectionId): Promise<void>
       "users",
       "user_role_assignments",
     ],
+    "platform": ["users"],
   };
   await tx.execute(
-    sql.raw(`LOCK TABLE ${tablesBySection[sectionId].join(", ")} IN SHARE ROW EXCLUSIVE MODE`),
+    sql.raw(`LOCK TABLE ${[...tablesBySection[sectionId], ...tableSheetsFor(sectionId).map((sheet) => sheet.tableName)].join(", ")} IN SHARE ROW EXCLUSIVE MODE`),
   );
 }
 
@@ -4908,6 +4973,10 @@ export async function applySection(
           await applyUserRoleRow(tx, entry, rowData, newUserByKey, newRoleGroupByKey);
           if (entry.action === "create") sheetCounts.created++;
           else sheetCounts.updated++;
+        } else if (TABLE_SHEET_BY_NAME.has(sheetName)) {
+          await applyTableSheetRow(tx, TABLE_SHEET_BY_NAME.get(sheetName)!, entry);
+          if (entry.action === "create") sheetCounts.created++;
+          else sheetCounts.updated++;
         }
         };
 
@@ -4993,6 +5062,11 @@ export async function applySection(
 }
 
 function getSectionSheetOrder(sectionId: SectionId): string[] {
+  const names = (position: "before" | "after") => tableSheetsFor(sectionId, position).map((sheet) => sheet.name);
+  return [...names("before"), ...handWrittenSheetOrder(sectionId), ...names("after")];
+}
+
+function handWrittenSheetOrder(sectionId: SectionId): string[] {
   switch (sectionId) {
     case "research-management": return ["Branches", "Departments", "Sections", "Scientists", "Buildings", "Rooms", "Certification Modules", "Certifications"];
     case "pmo-office": return ["Programs", "Projects", "Research Activities", "Research Activity Members"];
@@ -5002,6 +5076,7 @@ function getSectionSheetOrder(sectionId: SectionId): string[] {
     // Roles before the matrix and before accounts; accounts before the
     // secondary-role links that point at them.
     case "access-control": return ["Access Roles", "Role Permissions", "User Accounts", "User Roles"];
+    case "platform": return [];
   }
 }
 
