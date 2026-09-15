@@ -451,7 +451,11 @@ export const manuscriptHistory = pgTable("manuscript_history", {
   changedField: text("changed_field"), // 'title' or 'authors'
   oldValue: text("old_value"),
   newValue: text("new_value"),
-  changedBy: integer("changed_by").notNull(), // references scientists.id
+  // The account that made the change. Nullable: a bulk restore with no actor
+  // and rows older than the audit trail have nobody to name, and every writer
+  // used to invent one (0, or the legacy default user 1). A users FK that
+  // clears itself when the account goes -- history outlives accounts.
+  changedBy: integer("changed_by").references(() => users.id, { onDelete: "set null" }),
   changeReason: text("change_reason"),
   createdAt: timestamp("created_at").defaultNow(),
 });

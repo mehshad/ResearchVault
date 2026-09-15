@@ -5465,7 +5465,7 @@ async function applyPublicationRow(
       publicationId: created.id,
       fromStatus: "",
       toStatus: restoredStatus,
-      changedBy: applyingUserId,
+      changedBy: applyingUserId ?? null,
       // Record how the row arrived, so a restored state is never mistaken for
       // one that walked the workflow.
       changeReason: restoredStatus === "Concept"
