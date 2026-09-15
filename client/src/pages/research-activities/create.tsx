@@ -21,7 +21,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
-import { insertResearchActivitySchema } from "@shared/schema";
+import { insertResearchActivitySchema, RESEARCH_ACTIVITY_STATUS_VALUES } from "@shared/schema";
 import { Scientist, Project } from "@shared/schema";
 import { CalendarIcon, ArrowLeft } from "lucide-react";
 import { format } from "date-fns";
@@ -44,7 +44,7 @@ const createResearchActivitySchema = insertResearchActivitySchema.extend({
   additionalNotificationEmail: z.string().email().optional().or(z.literal("")),
   startDate: z.date().optional(),
   endDate: z.date().optional(),
-  status: z.enum(["planning", "active", "completed", "on_hold", "pending", "suspended"], {
+  status: z.enum(RESEARCH_ACTIVITY_STATUS_VALUES, {
     required_error: "Please select a status",
   }),
   sidraBranch: z.string().optional(),
@@ -109,8 +109,10 @@ export default function CreateResearchActivity() {
     // Convert Date objects to ISO strings for API submission
     const apiData = {
       ...data,
-      startDate: data.startDate ? data.startDate.toISOString() : undefined,
-      endDate: data.endDate ? data.endDate.toISOString() : undefined,
+      // The day as picked, not its UTC instant: toISOString() on a local
+      // midnight is the previous day east of Greenwich.
+      startDate: data.startDate ? format(data.startDate, "yyyy-MM-dd") : undefined,
+      endDate: data.endDate ? format(data.endDate, "yyyy-MM-dd") : undefined,
     };
     createResearchActivityMutation.mutate(apiData);
   };
@@ -293,9 +295,7 @@ export default function CreateResearchActivity() {
                         <SelectContent>
                           <SelectItem value="planning">Planning</SelectItem>
                           <SelectItem value="active">Active</SelectItem>
-                          <SelectItem value="pending">Pending</SelectItem>
                           <SelectItem value="on_hold">On Hold</SelectItem>
-                          <SelectItem value="suspended">Suspended</SelectItem>
                           <SelectItem value="completed">Completed</SelectItem>
                         </SelectContent>
                       </Select>

@@ -154,8 +154,9 @@ export default function PublicationImport({ onClose }: PublicationImportProps) {
       doi: data.doi,
       pmid: data.pmid,
       abstract: data.abstract,
-      publicationDate: data.publicationDate ? new Date(data.publicationDate) : undefined,
-      status: 'published',
+      publicationDate: data.publicationDate ? String(data.publicationDate).slice(0, 10) : undefined,
+      // The workflow's own spelling: the status column is checked against it now.
+      status: 'Published',
       researchActivityId: selectedResearchActivityId ? parseInt(selectedResearchActivityId) : undefined
     });
   };

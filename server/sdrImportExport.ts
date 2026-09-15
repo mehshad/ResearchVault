@@ -9,6 +9,7 @@
 // A project that does not exist yet is created from the number and name given,
 // which is why both are asked for.
 
+import { RESEARCH_ACTIVITY_STATUS_VALUES } from "@shared/schema";
 import ExcelJS from "exceljs";
 import type { InsertResearchActivity, Project, ResearchActivity, Scientist } from "@shared/schema";
 import { matchStaffByName, type StaffNameIndex } from "@shared/staffNameMatching";
@@ -37,7 +38,7 @@ const HEADER_TO_KEY: Record<string, string> = SDR_COLUMNS.reduce((acc, col) => {
 }, {} as Record<string, string>);
 
 /** Statuses the SDR form offers; anything else is refused rather than guessed. */
-export const SDR_STATUSES = ["planning", "active", "completed", "on_hold"] as const;
+export const SDR_STATUSES = RESEARCH_ACTIVITY_STATUS_VALUES;
 
 const GUIDANCE: Record<string, string> = {
   sdrNumber: "Required. Unique. An existing number updates that SDR.",

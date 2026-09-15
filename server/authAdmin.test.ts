@@ -65,7 +65,7 @@ test("every mutating role-permission route is behind an administrator guard", as
   // asserted at the source rather than trusted to stay.
   const fs = await import("node:fs");
   const routes = fs.readFileSync(
-    new URL("./routes.ts", import.meta.url),
+    new URL("./routes/rolePermissionRoutes.ts", import.meta.url),
     "utf-8",
   );
 

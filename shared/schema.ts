@@ -1,9 +1,10 @@
-import { pgTable, text, serial, integer, timestamp, boolean, json, index, uniqueIndex, unique, date, numeric, check } from "drizzle-orm/pg-core";
+import { pgTable, text, serial, integer, timestamp, boolean, json, index, uniqueIndex, unique, date, numeric, check, type AnyPgColumn } from "drizzle-orm/pg-core";
 import { stageOfGrantStatus } from "./grantStatusRegistry";
 import { sql } from "drizzle-orm";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 import { GRANT_STATUS_VALUES } from "./grantLifecycle";
+import { PUBLICATION_STATUS_VALUES } from "./publicationWorkflow";
 
 // Contract type definitions - shared across all components
 export const CONTRACT_TYPES = [
@@ -16,6 +17,28 @@ export const CONTRACT_TYPES = [
   "Consulting Agreement",
   "Licensing Agreement"
 ] as const;
+
+/** The states an SDR can be in; the CHECK on research_activities.status lists exactly these (#48). */
+export const RESEARCH_ACTIVITY_STATUS_VALUES = ["planning", "active", "completed", "on_hold"] as const;
+export type ResearchActivityStatus = (typeof RESEARCH_ACTIVITY_STATUS_VALUES)[number];
+
+/**
+ * A calendar date as a form or an import sends it -- a Date, an ISO date-time,
+ * or YYYY-MM-DD -- normalised to YYYY-MM-DD, or null when cleared. The date
+ * columns hold a day, so the time part is dropped, not converted (#49).
+ */
+export const dateOnlyInput = z.preprocess(
+  (value) => {
+    if (value === "" || value == null) return null;
+    if (value instanceof Date) return Number.isNaN(value.getTime()) ? value : value.toISOString().slice(0, 10);
+    if (typeof value === "string" && /^\d{4}-\d{2}-\d{2}/.test(value)) return value.slice(0, 10);
+    return value;
+  },
+  z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Expected a date as YYYY-MM-DD").nullable().optional(),
+);
+
+/** `'a', 'b'` for a CHECK ... IN (...) clause; the values are ours, never user input. */
+const sqlList = (values: readonly string[]) => sql.raw(values.map((v) => `'${v.replace(/'/g, "''")}'`).join(", "));
 
 export const CONTRACT_STATUS_VALUES = [
   "submitted",
@@ -61,7 +84,7 @@ export const users = pgTable("users", {
   authProvider: text("auth_provider").notNull().default("local"), // 'local' | 'demo' | 'ldap' | 'oidc'
   entraOid: text("entra_oid").unique(), // stable external subject id (OIDC `sub`)
   // Link to the scientist/staff profile — null until the user completes registration.
-  scientistId: integer("scientist_id"),
+  scientistId: integer("scientist_id").references((): AnyPgColumn => scientists.id, { onDelete: "set null" }),
   lastLoginAt: timestamp("last_login_at"),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
@@ -88,11 +111,11 @@ export const scientists = pgTable("scientists", {
   email: text("email").notNull().unique(),
   staffId: text("staff_id").unique(), // 5-digit staff ID for badges
   department: text("department"), // legacy free-text department (kept for display)
-  departmentId: integer("department_id"), // references departments.id (structured org)
-  sectionId: integer("section_id"), // references sections.id (structured org)
+  departmentId: integer("department_id").references((): AnyPgColumn => departments.id, { onDelete: "set null" }),
+  sectionId: integer("section_id").references((): AnyPgColumn => sections.id, { onDelete: "set null" }),
   bio: text("bio"),
   profileImageInitials: text("profile_image_initials"), // Storing initials for avatar
-  supervisorId: integer("supervisor_id"), // Line manager, references scientists.id (optional)
+  supervisorId: integer("supervisor_id").references((): AnyPgColumn => scientists.id, { onDelete: "set null" }),
   staffType: text("staff_type").notNull().default("scientific"), // scientific, administrative
   // No investigatorType column here on purpose: researcher or clinician is
   // read off jobTitle. See shared/investigatorType.ts.
@@ -116,7 +139,7 @@ export const branches = pgTable("branches", {
   id: serial("id").primaryKey(),
   name: text("name").notNull(),
   description: text("description"),
-  headId: integer("head_id"), // references scientists.id (optional)
+  headId: integer("head_id").references((): AnyPgColumn => scientists.id, { onDelete: "set null" }),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 });
@@ -129,10 +152,10 @@ export const insertBranchSchema = createInsertSchema(branches).omit({
 
 export const departments = pgTable("departments", {
   id: serial("id").primaryKey(),
-  branchId: integer("branch_id").notNull(), // references branches.id
+  branchId: integer("branch_id").references((): AnyPgColumn => branches.id, { onDelete: "restrict" }).notNull(),
   name: text("name").notNull(),
   description: text("description"),
-  headId: integer("head_id"), // references scientists.id (optional)
+  headId: integer("head_id").references((): AnyPgColumn => scientists.id, { onDelete: "set null" }),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 });
@@ -147,11 +170,11 @@ export const SECTION_TYPES = ["Laboratory", "Office", "Core", "Clinic"] as const
 
 export const sections = pgTable("sections", {
   id: serial("id").primaryKey(),
-  departmentId: integer("department_id").notNull(), // references departments.id
+  departmentId: integer("department_id").references((): AnyPgColumn => departments.id, { onDelete: "restrict" }).notNull(),
   name: text("name").notNull(),
   type: text("type").notNull(), // one of SECTION_TYPES
   description: text("description"),
-  headId: integer("head_id"), // references scientists.id (optional)
+  headId: integer("head_id").references((): AnyPgColumn => scientists.id, { onDelete: "set null" }),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 });
@@ -179,10 +202,10 @@ export const programs = pgTable("programs", {
   programId: text("program_id").notNull().unique(), // PRM number
   name: text("name").notNull(),
   description: text("description"),
-  programDirectorId: integer("program_director_id"), // Program Director (references scientists.id)
-  researchCoLeadId: integer("research_co_lead_id"), // Research Co-Lead (references scientists.id)
-  clinicalCoLead1Id: integer("clinical_co_lead_1_id"), // Clinical Co-Lead 1 (references scientists.id)
-  clinicalCoLead2Id: integer("clinical_co_lead_2_id"), // Clinical Co-Lead 2 (references scientists.id)
+  programDirectorId: integer("program_director_id").references((): AnyPgColumn => scientists.id, { onDelete: "set null" }),
+  researchCoLeadId: integer("research_co_lead_id").references((): AnyPgColumn => scientists.id, { onDelete: "set null" }),
+  clinicalCoLead1Id: integer("clinical_co_lead_1_id").references((): AnyPgColumn => scientists.id, { onDelete: "set null" }),
+  clinicalCoLead2Id: integer("clinical_co_lead_2_id").references((): AnyPgColumn => scientists.id, { onDelete: "set null" }),
   sharepointUrl: text("sharepoint_url"), // The program's SharePoint site
   websiteUrl: text("website_url"), // The program's public web page
   createdAt: timestamp("created_at").defaultNow(),
@@ -225,10 +248,10 @@ export const insertProgramSchema = createInsertSchema(programs)
 export const projects = pgTable("projects", {
   id: serial("id").primaryKey(),
   projectId: text("project_id").notNull().unique(), // PRJ number
-  programId: integer("program_id"), // references programs.id
+  programId: integer("program_id").references((): AnyPgColumn => programs.id, { onDelete: "restrict" }),
   name: text("name").notNull(),
   description: text("description"),
-  principalInvestigatorId: integer("principal_investigator_id"), // Principal Investigator (references scientists.id)
+  principalInvestigatorId: integer("principal_investigator_id").references((): AnyPgColumn => scientists.id, { onDelete: "set null" }),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 });
@@ -243,14 +266,15 @@ export const insertProjectSchema = createInsertSchema(projects).omit({
 export const researchActivities = pgTable("research_activities", {
   id: serial("id").primaryKey(),
   sdrNumber: text("sdr_number").notNull().unique(), // SDR number
-  projectId: integer("project_id"), // references projects.id
+  projectId: integer("project_id").references((): AnyPgColumn => projects.id, { onDelete: "restrict" }),
   title: text("title").notNull(),
   shortTitle: text("short_title"), // Short, catchy title for better recognition
   description: text("description"),
   status: text("status").notNull().default("planning"), // planning, active, completed, on_hold
-  startDate: timestamp("start_date"),
-  endDate: timestamp("end_date"),
-  budgetHolderId: integer("budget_holder_id"), // references scientists.id (Principal Investigator/Budget Holder)
+  // A day, not a moment (#49): stored as date so no zone can shift it.
+  startDate: date("start_date"),
+  endDate: date("end_date"),
+  budgetHolderId: integer("budget_holder_id").references((): AnyPgColumn => scientists.id, { onDelete: "set null" }),
   additionalNotificationEmail: text("additional_notification_email"),
   sidraBranch: text("sidra_branch"), // Research, Clinical, External
   budgetSource: text("budget_source").array(), // IRF, PI Budget, QNRF, etc.
@@ -267,6 +291,8 @@ export const researchActivities = pgTable("research_activities", {
   // filters on. Mirrored in migrations/20260915_hot_lookup_indexes.sql.
   projectIdx: index("research_activities_project_idx").on(table.projectId),
   budgetHolderIdx: index("research_activities_budget_holder_idx").on(table.budgetHolderId),
+  // A typo cannot invent a state. Mirrored in migrations/20260916_status_checks.sql.
+  statusValid: check("research_activities_status_valid", sql`${table.status} IN (${sqlList(RESEARCH_ACTIVITY_STATUS_VALUES)})`),
 }));
 
 export const insertResearchActivitySchema = createInsertSchema(researchActivities).omit({
@@ -276,17 +302,8 @@ export const insertResearchActivitySchema = createInsertSchema(researchActivitie
   startDate: true,
   endDate: true,
 }).extend({
-  // Accept both Date objects and ISO string dates
-  startDate: z.union([
-    z.date(),
-    z.string().datetime().transform((val) => new Date(val)),
-    z.literal("").transform(() => undefined)
-  ]).nullable().optional(),
-  endDate: z.union([
-    z.date(),
-    z.string().datetime().transform((val) => new Date(val)),
-    z.literal("").transform(() => undefined)
-  ]).nullable().optional(),
+  startDate: dateOnlyInput,
+  endDate: dateOnlyInput,
 });
 
 // This is no longer needed as we have a proper Projects schema now
@@ -295,8 +312,8 @@ export const insertResearchActivitySchema = createInsertSchema(researchActivitie
 // Project Team Members (Many-to-Many relationship)
 export const projectMembers = pgTable("project_members", {
   id: serial("id").primaryKey(),
-  researchActivityId: integer("research_activity_id").notNull(), // references researchActivities.id
-  scientistId: integer("scientist_id").notNull(), // references scientists.id
+  researchActivityId: integer("research_activity_id").references((): AnyPgColumn => researchActivities.id, { onDelete: "cascade" }).notNull(),
+  scientistId: integer("scientist_id").references((): AnyPgColumn => scientists.id, { onDelete: "cascade" }).notNull(),
   role: text("role"), // PI, Co-PI, Researcher, Lab Technician, etc.
 }, (table) => {
   return {
@@ -314,7 +331,7 @@ export const insertProjectMemberSchema = createInsertSchema(projectMembers).omit
 // Data Management Plans
 export const dataManagementPlans = pgTable("data_management_plans", {
   id: serial("id").primaryKey(),
-  researchActivityId: integer("research_activity_id").notNull(), // references researchActivities.id
+  researchActivityId: integer("research_activity_id").references((): AnyPgColumn => researchActivities.id, { onDelete: "cascade" }).notNull(),
   dmpNumber: text("dmp_number").notNull().unique(), // DMP number
   title: text("title").notNull(),
   description: text("description"),
@@ -335,7 +352,7 @@ export const insertDataManagementPlanSchema = createInsertSchema(dataManagementP
 // Publications
 export const publications = pgTable("publications", {
   id: serial("id").primaryKey(),
-  researchActivityId: integer("research_activity_id"), // references researchActivities.id
+  researchActivityId: integer("research_activity_id").references((): AnyPgColumn => researchActivities.id, { onDelete: "restrict" }),
   title: text("title").notNull(),
   abstract: text("abstract"),
   authors: text("authors"),
@@ -345,7 +362,7 @@ export const publications = pgTable("publications", {
   pages: text("pages"),
   doi: text("doi"), // Digital Object Identifier
   pmid: text("pmid"), // PubMed ID for imported publications
-  publicationDate: timestamp("publication_date"),
+  publicationDate: date("publication_date"), // a day, not a moment (#49)
   publicationType: text("publication_type"), // Journal Article, Conference Paper, Book, etc.
   status: text("status").default("Concept"), // Workflow status
   invalidReason: text("invalid_reason"),
@@ -370,6 +387,10 @@ export const publications = pgTable("publications", {
 }, (table) => ({
   // The publications under an SDR; see migrations/20260915_hot_lookup_indexes.sql.
   researchActivityIdx: index("publications_research_activity_idx").on(table.researchActivityId),
+  // Every value is a workflow stage or one of the two outcomes; "Published *"
+  // stays a value because the sealed stage is read from it in a dozen places.
+  // Mirrored in migrations/20260916_status_checks.sql.
+  statusValid: check("publications_status_valid", sql`${table.status} IN (${sqlList(PUBLICATION_STATUS_VALUES)})`),
 }));
 
 export const insertPublicationSchema = createInsertSchema(publications).omit({
@@ -378,32 +399,20 @@ export const insertPublicationSchema = createInsertSchema(publications).omit({
   createdAt: true,
   updatedAt: true,
 }).extend({
-  publicationDate: z.preprocess(
-    (val) => {
-      // Empty string from a cleared <input type="date"> must become null —
-      // `new Date("")` produces an Invalid Date which then fails z.date()
-      // validation, blocking the user from clearing a publication date.
-      if (val === '' || val == null) return null;
-      if (typeof val === 'string') {
-        return new Date(val);
-      }
-      return val;
-    },
-    z.date().nullable().optional()
-  )
+  publicationDate: dateOnlyInput,
 });
 
 // Publication Authors (Many-to-Many relationship to track authorship types)
 export const publicationAuthors = pgTable("publication_authors", {
   id: serial("id").primaryKey(),
-  publicationId: integer("publication_id").notNull(), // references publications.id
-  scientistId: integer("scientist_id").notNull(), // references scientists.id
+  publicationId: integer("publication_id").references((): AnyPgColumn => publications.id, { onDelete: "cascade" }).notNull(),
+  scientistId: integer("scientist_id").references((): AnyPgColumn => scientists.id, { onDelete: "cascade" }).notNull(),
   authorshipType: text("authorship_type").notNull(), // First Author, Co-First Author, Contributing Author, Second or Second Last Author, Last Author, Co-Last Author, Corresponding Author (comma-separated combinations allowed)
   authorPosition: integer("author_position"), // Position in author list (1, 2, 3, etc.)
   // Attribution: who created this link and whether it was made manually (on the
   // detail page) or automatically (auto-connect / discovery import). Nullable so
   // legacy links created before attribution keep working (they show no actor).
-  linkedByUserId: integer("linked_by_user_id"), // references users.id
+  linkedByUserId: integer("linked_by_user_id").references((): AnyPgColumn => users.id, { onDelete: "set null" }),
   linkMethod: text("link_method").notNull().default("manual"), // 'manual' | 'automatic'
 }, (table) => {
   return {
@@ -425,8 +434,8 @@ export const insertPublicationAuthorSchema = createInsertSchema(publicationAutho
 // others. Optional, and they carry no rule of their own.
 export const publicationResearchActivities = pgTable("publication_research_activities", {
   id: serial("id").primaryKey(),
-  publicationId: integer("publication_id").notNull(), // references publications.id
-  researchActivityId: integer("research_activity_id").notNull(), // references researchActivities.id
+  publicationId: integer("publication_id").references((): AnyPgColumn => publications.id, { onDelete: "cascade" }).notNull(),
+  researchActivityId: integer("research_activity_id").references((): AnyPgColumn => researchActivities.id, { onDelete: "cascade" }).notNull(),
   createdAt: timestamp("created_at").defaultNow(),
 }, (table) => {
   return {
@@ -445,7 +454,7 @@ export type InsertPublicationResearchActivity = z.infer<typeof insertPublication
 // Manuscript History - Track changes in title/authorship during status changes
 export const manuscriptHistory = pgTable("manuscript_history", {
   id: serial("id").primaryKey(),
-  publicationId: integer("publication_id").notNull(), // references publications.id
+  publicationId: integer("publication_id").references((): AnyPgColumn => publications.id, { onDelete: "cascade" }).notNull(),
   fromStatus: text("from_status"),
   toStatus: text("to_status").notNull(),
   changedField: text("changed_field"), // 'title' or 'authors'
@@ -468,11 +477,11 @@ export const insertManuscriptHistorySchema = createInsertSchema(manuscriptHistor
 // Patents
 export const patents = pgTable("patents", {
   id: serial("id").primaryKey(),
-  researchActivityId: integer("research_activity_id"), // references researchActivities.id
+  researchActivityId: integer("research_activity_id").references((): AnyPgColumn => researchActivities.id, { onDelete: "restrict" }),
   title: text("title").notNull(),
   inventors: text("inventors").notNull(),
-  filingDate: timestamp("filing_date"),
-  grantDate: timestamp("grant_date"),
+  filingDate: date("filing_date"), // days, not moments (#49)
+  grantDate: date("grant_date"),
   patentNumber: text("patent_number"),
   status: text("status").notNull(), // Filed, Granted, Rejected, etc.
   description: text("description"),
@@ -484,18 +493,21 @@ export const insertPatentSchema = createInsertSchema(patents).omit({
   id: true,
   createdAt: true,
   updatedAt: true,
+}).extend({
+  filingDate: dateOnlyInput,
+  grantDate: dateOnlyInput,
 });
 
 // IRB Applications (Institutional Review Board)
 export const irbApplications = pgTable("irb_applications", {
   id: serial("id").primaryKey(),
-  researchActivityId: integer("research_activity_id"), // references researchActivities.id
+  researchActivityId: integer("research_activity_id").references((): AnyPgColumn => researchActivities.id, { onDelete: "restrict" }),
   irbNumber: text("irb_number").notNull().unique(), // Sidra IRB number
   irbNetNumber: text("irb_net_number"), // IRBNet allocated number
   oldNumber: text("old_number"), // Old allocated number
   title: text("title").notNull(),
   shortTitle: text("short_title"), // Short title for better recognition
-  principalInvestigatorId: integer("principal_investigator_id").notNull(), // references scientists.id
+  principalInvestigatorId: integer("principal_investigator_id").references((): AnyPgColumn => scientists.id, { onDelete: "restrict" }).notNull(),
   additionalNotificationEmail: text("additional_notification_email"),
   protocolType: text("protocol_type"), // Exempt, Expedited, Full Board, etc.
   isInterventional: boolean("is_interventional").default(false), // Is interventional clinical study
@@ -547,10 +559,10 @@ export const insertIrbApplicationSchema = createInsertSchema(irbApplications).om
 // IRB Submissions - Track individual submission instances within an application
 export const irbSubmissions = pgTable("irb_submissions", {
   id: serial("id").primaryKey(),
-  applicationId: integer("application_id").notNull(), // references irbApplications.id
+  applicationId: integer("application_id").references((): AnyPgColumn => irbApplications.id, { onDelete: "cascade" }).notNull(),
   submissionType: text("submission_type").notNull(), // initial, amendment, continuing_review, closure, adverse_event
   version: integer("version").notNull().default(1),
-  submittedBy: integer("submitted_by").notNull(), // references scientists.id
+  submittedBy: integer("submitted_by").references((): AnyPgColumn => scientists.id, { onDelete: "restrict" }).notNull(),
   submissionDate: timestamp("submission_date").defaultNow(),
   dueDate: timestamp("due_date"), // For continuing reviews, etc.
   
@@ -581,15 +593,15 @@ export const insertIrbSubmissionSchema = createInsertSchema(irbSubmissions).omit
 // IRB Documents - Track all documents associated with applications
 export const irbDocuments = pgTable("irb_documents", {
   id: serial("id").primaryKey(),
-  applicationId: integer("application_id"), // references irbApplications.id
-  submissionId: integer("submission_id"), // references irbSubmissions.id (optional, for submission-specific docs)
+  applicationId: integer("application_id").references((): AnyPgColumn => irbApplications.id, { onDelete: "cascade" }),
+  submissionId: integer("submission_id").references((): AnyPgColumn => irbSubmissions.id, { onDelete: "cascade" }),
   documentType: text("document_type").notNull(), // protocol, consent_form, investigator_brochure, cv, etc.
   fileName: text("file_name").notNull(),
   filePath: text("file_path").notNull(),
   fileSize: integer("file_size"),
   mimeType: text("mime_type"),
   version: integer("version").default(1),
-  uploadedBy: integer("uploaded_by").notNull(), // references scientists.id
+  uploadedBy: integer("uploaded_by").references((): AnyPgColumn => scientists.id, { onDelete: "restrict" }).notNull(),
   isRequired: boolean("is_required").default(false),
   status: text("status").default("active"), // active, superseded, deleted
   
@@ -611,7 +623,7 @@ export const ibcApplications = pgTable("ibc_applications", {
   irbnetIbcNumber: text("irbnet_ibc_number"), // IRBnet IBC Number
   title: text("title").notNull(),
   shortTitle: text("short_title"), // Short title for recognition
-  principalInvestigatorId: integer("principal_investigator_id").notNull(), // references scientists.id
+  principalInvestigatorId: integer("principal_investigator_id").references((): AnyPgColumn => scientists.id, { onDelete: "restrict" }).notNull(),
   additionalNotificationEmail: text("additional_notification_email"),
   
   // Enhanced biosafety-specific fields
@@ -795,10 +807,10 @@ export const ibcApplications = pgTable("ibc_applications", {
 // IBC Application Comments - separate table for tracking communication history
 export const ibcApplicationComments = pgTable("ibc_application_comments", {
   id: serial("id").primaryKey(),
-  applicationId: integer("application_id").notNull(), // references ibcApplications.id
+  applicationId: integer("application_id").references((): AnyPgColumn => ibcApplications.id, { onDelete: "cascade" }).notNull(),
   commentType: text("comment_type").notNull(), // 'office_comment', 'reviewer_feedback', 'pi_response', 'status_change'
   authorType: text("author_type").notNull(), // 'office', 'reviewer', 'pi', 'system'
-  authorId: integer("author_id"), // references scientists.id (optional for system comments)
+  authorId: integer("author_id").references((): AnyPgColumn => scientists.id, { onDelete: "set null" }),
   authorName: text("author_name").notNull(), // Display name for the comment author
   comment: text("comment").notNull(),
   recommendation: text("recommendation"), // For reviewer feedback: 'approve', 'reject', 'minor_revisions', 'major_revisions'
@@ -826,11 +838,11 @@ export const insertIbcApplicationSchema = createInsertSchema(ibcApplications).om
 // Junction table for IBC Applications and Research Activities (many-to-many)
 export const ibcApplicationResearchActivities = pgTable("ibc_application_research_activities", {
   id: serial("id").primaryKey(),
-  ibcApplicationId: integer("ibc_application_id").notNull(), // references ibcApplications.id
-  researchActivityId: integer("research_activity_id").notNull(), // references researchActivities.id
+  ibcApplicationId: integer("ibc_application_id").references((): AnyPgColumn => ibcApplications.id, { onDelete: "cascade" }).notNull(),
+  researchActivityId: integer("research_activity_id").references((): AnyPgColumn => researchActivities.id, { onDelete: "cascade" }).notNull(),
   createdAt: timestamp("created_at").defaultNow(),
 }, (table) => ({
-  uniqueIbcSdr: uniqueIndex().on(table.ibcApplicationId, table.researchActivityId)
+  uniqueIbcSdr: uniqueIndex("ibc_app_ra_unique_idx").on(table.ibcApplicationId, table.researchActivityId)
 }));
 
 export const insertIbcApplicationResearchActivitySchema = createInsertSchema(ibcApplicationResearchActivities).omit({
@@ -841,10 +853,10 @@ export const insertIbcApplicationResearchActivitySchema = createInsertSchema(ibc
 // Research Contracts
 export const researchContracts = pgTable("research_contracts", {
   id: serial("id").primaryKey(),
-  researchActivityId: integer("research_activity_id"), // references researchActivities.id
+  researchActivityId: integer("research_activity_id").references((): AnyPgColumn => researchActivities.id, { onDelete: "restrict" }),
   contractNumber: text("contract_number").notNull().unique(), // Contract Number
   title: text("title").notNull(),
-  leadPIId: integer("lead_pi_id"), // references scientists.id
+  leadPIId: integer("lead_pi_id").references((): AnyPgColumn => scientists.id, { onDelete: "set null" }),
   irbProtocol: text("irb_protocol"), // Related IRB Protocol
   ibcProtocol: text("ibc_protocol"), // Related IBC Protocol
   qnrfNumber: text("qnrf_number"), // QNRF Number if applicable
@@ -868,7 +880,7 @@ export const researchContracts = pgTable("research_contracts", {
   documents: json("documents"), // Store metadata for contract documents
   
   // Enhanced workflow and role-based fields
-  requestedByUserId: integer("requested_by_user_id"), // references users.id
+  requestedByUserId: integer("requested_by_user_id").references((): AnyPgColumn => users.id, { onDelete: "set null" }),
   contractValue: numeric("contract_value", { precision: 15, scale: 2 }), // Contract value amount
   currency: text("currency").default("QAR"), // Currency type (QAR, USD, EUR, etc.)
   initiationRequestedAt: timestamp("initiation_requested_at"), // When initiation was requested
@@ -884,7 +896,7 @@ export const researchContracts = pgTable("research_contracts", {
 // Research Contract Scope Items - Track deliverables and scope items
 export const researchContractScopeItems = pgTable("research_contract_scope_items", {
   id: serial("id").primaryKey(),
-  contractId: integer("contract_id").notNull(), // references researchContracts.id
+  contractId: integer("contract_id").references((): AnyPgColumn => researchContracts.id, { onDelete: "cascade" }).notNull(),
   party: text("party", { 
     enum: ["sidra", "counterparty"] 
   }).notNull(), // Which party is responsible
@@ -899,7 +911,7 @@ export const researchContractScopeItems = pgTable("research_contract_scope_items
 // Research Contract Extensions - Track contract extensions
 export const researchContractExtensions = pgTable("research_contract_extensions", {
   id: serial("id").primaryKey(),
-  contractId: integer("contract_id").notNull(), // references researchContracts.id
+  contractId: integer("contract_id").references((): AnyPgColumn => researchContracts.id, { onDelete: "cascade" }).notNull(),
   sequenceNumber: integer("sequence_number").notNull(), // Extension number (1, 2, 3, etc.)
   requestedAt: timestamp("requested_at").defaultNow(), // When extension was requested
   approvedAt: timestamp("approved_at"), // When extension was approved
@@ -913,8 +925,8 @@ export const researchContractExtensions = pgTable("research_contract_extensions"
 // Research Contract Documents - Track contract documents
 export const researchContractDocuments = pgTable("research_contract_documents", {
   id: serial("id").primaryKey(),
-  contractId: integer("contract_id"), // references researchContracts.id (nullable for extension docs)
-  extensionId: integer("extension_id"), // references researchContractExtensions.id (nullable for main contract docs)
+  contractId: integer("contract_id").references((): AnyPgColumn => researchContracts.id, { onDelete: "cascade" }),
+  extensionId: integer("extension_id").references((): AnyPgColumn => researchContractExtensions.id, { onDelete: "cascade" }),
   documentType: text("document_type", { 
     enum: ["contract", "amendment", "extension", "sow", "invoice", "report", "correspondence", "other"] 
   }).notNull(), // Type of document
@@ -922,7 +934,7 @@ export const researchContractDocuments = pgTable("research_contract_documents", 
   fileName: text("file_name").notNull(), // Original filename
   mimeType: text("mime_type"), // File MIME type
   fileSize: integer("file_size"), // File size in bytes
-  uploadedByUserId: integer("uploaded_by_user_id").notNull(), // references users.id
+  uploadedByUserId: integer("uploaded_by_user_id").references((): AnyPgColumn => users.id, { onDelete: "restrict" }).notNull(),
   uploadedAt: timestamp("uploaded_at").defaultNow(), // Upload timestamp
   notes: text("notes"), // Additional notes about the document
   createdAt: timestamp("created_at").defaultNow(),
@@ -981,15 +993,15 @@ export const insertBuildingSchema = createInsertSchema(buildings).omit({
 
 export const rooms = pgTable("rooms", {
   id: serial("id").primaryKey(),
-  buildingId: integer("buildingId").notNull(), // references buildings.id
+  buildingId: integer("buildingId").references((): AnyPgColumn => buildings.id, { onDelete: "restrict" }).notNull(),
   roomNumber: text("roomNumber").notNull(),
   floor: integer("floor"),
   roomType: text("roomType"),
   capacity: integer("capacity"),
   area: numeric("area"),
   biosafetyLevel: text("biosafetyLevel"),
-  roomSupervisorId: integer("roomSupervisorId"), // references scientists.id (must have title "Investigator")
-  roomManagerId: integer("roomManagerId"), // references scientists.id (must have title containing "Scientific Staff")
+  roomSupervisorId: integer("roomSupervisorId").references((): AnyPgColumn => scientists.id, { onDelete: "set null" }),
+  roomManagerId: integer("roomManagerId").references((): AnyPgColumn => scientists.id, { onDelete: "set null" }),
   certifications: json("certifications"), // Array of certification types
   availablePpe: json("availablePpe"), // Array of available PPE equipment
   equipment: text("equipment"),
@@ -1005,8 +1017,8 @@ export const insertRoomSchema = createInsertSchema(rooms).omit({
 // IBC Application Facilities Integration
 export const ibcApplicationRooms = pgTable("ibc_application_rooms", {
   id: serial("id").primaryKey(),
-  applicationId: integer("application_id").notNull(), // references ibcApplications.id
-  roomId: integer("room_id").notNull(), // references rooms.id
+  applicationId: integer("application_id").references((): AnyPgColumn => ibcApplications.id, { onDelete: "cascade" }).notNull(),
+  roomId: integer("room_id").references((): AnyPgColumn => rooms.id, { onDelete: "cascade" }).notNull(),
   createdAt: timestamp("created_at").defaultNow(),
 });
 
@@ -1018,9 +1030,9 @@ export const insertIbcApplicationRoomSchema = createInsertSchema(ibcApplicationR
 // Backbone Source Room Assignments
 export const ibcBackboneSourceRooms = pgTable("ibc_backbone_source_rooms", {
   id: serial("id").primaryKey(),
-  applicationId: integer("application_id").notNull(), // references ibcApplications.id
+  applicationId: integer("application_id").references((): AnyPgColumn => ibcApplications.id, { onDelete: "cascade" }).notNull(),
   backboneSource: text("backbone_source").notNull(), // Must match a backbone source from the application's synthetic experiments
-  roomId: integer("room_id").notNull(), // references rooms.id (must be a room assigned to this application)
+  roomId: integer("room_id").references((): AnyPgColumn => rooms.id, { onDelete: "cascade" }).notNull(),
   createdAt: timestamp("created_at").defaultNow(),
 });
 
@@ -1032,8 +1044,8 @@ export const insertIbcBackboneSourceRoomSchema = createInsertSchema(ibcBackboneS
 // PPE Usage for IBC Applications
 export const ibcApplicationPpe = pgTable("ibc_application_ppe", {
   id: serial("id").primaryKey(),
-  applicationId: integer("application_id").notNull(), // references ibcApplications.id
-  roomId: integer("room_id").notNull(), // references rooms.id (must be a room assigned to this application)
+  applicationId: integer("application_id").references((): AnyPgColumn => ibcApplications.id, { onDelete: "cascade" }).notNull(),
+  roomId: integer("room_id").references((): AnyPgColumn => rooms.id, { onDelete: "cascade" }).notNull(),
   ppeItem: text("ppe_item").notNull(), // Must be available in the room's availablePpe array
   createdAt: timestamp("created_at").defaultNow(),
 });
@@ -1079,7 +1091,7 @@ export const rolePermissions = pgTable("role_permissions", {
   id: serial("id").primaryKey(),
   // A declared foreign key, not a documented one. Before it was declared,
   // deleting a role left its permission rows behind, invisible to every read.
-  roleGroupId: integer("role_group_id")
+  roleGroupId: integer("role_group_id").references((): AnyPgColumn => roleGroups.id, { onDelete: "cascade" })
     .notNull()
     .references(() => roleGroups.id, { onDelete: "cascade" }),
   navigationItem: text("navigation_item").notNull(), // e.g., "facilities", "programs", etc.
@@ -1100,7 +1112,7 @@ export const insertRolePermissionSchema = createInsertSchema(rolePermissions).om
 // IRB Board Members
 export const irbBoardMembers = pgTable("irb_board_members", {
   id: serial("id").primaryKey(),
-  scientistId: integer("scientist_id").notNull(), // references scientists.id
+  scientistId: integer("scientist_id").references((): AnyPgColumn => scientists.id, { onDelete: "restrict" }).notNull(),
   role: text("role").notNull(), // member, chair, deputy_chair
   expertise: text("expertise").array(), // Areas of expertise
   appointmentDate: timestamp("appointment_date").defaultNow(),
@@ -1119,7 +1131,7 @@ export const insertIrbBoardMemberSchema = createInsertSchema(irbBoardMembers).om
 // IBC Board Members (similar to IRB Board Members)
 export const ibcBoardMembers = pgTable("ibc_board_members", {
   id: serial("id").primaryKey(),
-  scientistId: integer("scientist_id").notNull(), // references scientists.id
+  scientistId: integer("scientist_id").references((): AnyPgColumn => scientists.id, { onDelete: "restrict" }).notNull(),
   role: text("role").notNull(), // member, chair, deputy_chair
   expertise: text("expertise").array(), // Areas of expertise (microbiology, biosafety, etc.)
   biosafetyTraining: json("biosafety_training"), // Training certifications
@@ -1139,14 +1151,14 @@ export const insertIbcBoardMemberSchema = createInsertSchema(ibcBoardMembers).om
 // IBC Submissions (tracking workflow submissions)
 export const ibcSubmissions = pgTable("ibc_submissions", {
   id: serial("id").primaryKey(),
-  applicationId: integer("application_id").notNull(), // references ibcApplications.id
+  applicationId: integer("application_id").references((): AnyPgColumn => ibcApplications.id, { onDelete: "cascade" }).notNull(),
   submissionType: text("submission_type").notNull(), // initial, amendment, renewal, continuation
   submissionDate: timestamp("submission_date").defaultNow(),
-  submittedBy: integer("submitted_by").notNull(), // references scientists.id
+  submittedBy: integer("submitted_by").references((): AnyPgColumn => scientists.id, { onDelete: "restrict" }).notNull(),
   documents: json("documents"), // Documents submitted with this submission
   reviewStatus: text("review_status").notNull().default("pending"), // pending, in_review, approved, rejected
   reviewDate: timestamp("review_date"),
-  reviewedBy: integer("reviewed_by"), // references scientists.id
+  reviewedBy: integer("reviewed_by").references((): AnyPgColumn => scientists.id, { onDelete: "set null" }),
   reviewComments: text("review_comments"),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
@@ -1161,13 +1173,13 @@ export const insertIbcSubmissionSchema = createInsertSchema(ibcSubmissions).omit
 // IBC Documents (tracking protocol documents)
 export const ibcDocuments = pgTable("ibc_documents", {
   id: serial("id").primaryKey(),
-  applicationId: integer("application_id"), // references ibcApplications.id
-  submissionId: integer("submission_id"), // references ibcSubmissions.id
+  applicationId: integer("application_id").references((): AnyPgColumn => ibcApplications.id, { onDelete: "cascade" }),
+  submissionId: integer("submission_id").references((): AnyPgColumn => ibcSubmissions.id, { onDelete: "cascade" }),
   documentType: text("document_type").notNull(), // protocol, sop, training_records, etc.
   fileName: text("file_name").notNull(),
   fileSize: integer("file_size"),
   mimeType: text("mime_type"),
-  uploadedBy: integer("uploaded_by").notNull(), // references scientists.id
+  uploadedBy: integer("uploaded_by").references((): AnyPgColumn => scientists.id, { onDelete: "restrict" }).notNull(),
   uploadDate: timestamp("upload_date").defaultNow(),
   version: integer("version").notNull().default(1),
   isCurrentVersion: boolean("is_current_version").default(true),
@@ -1413,7 +1425,7 @@ export const grants = pgTable("grants", {
    */
   programId: integer("program_id").references(() => programs.id),
   projectNumber: text("project_number").notNull().unique(), // Project identifier
-  lpiId: integer("lpi_id"), // Lead Principal Investigator (references scientists.id)
+  lpiId: integer("lpi_id").references((): AnyPgColumn => scientists.id, { onDelete: "set null" }),
   investigatorType: text("investigator_type"), // "Researcher" or "Clinician"
   title: text("title").notNull(),
   requestedAmount: numeric("requested_amount", { precision: 12, scale: 2 }), // Amount requested
@@ -1645,7 +1657,7 @@ export type Institution = typeof institutions.$inferSelect;
 
 export const grantCollaboratingInstitutions = pgTable("grant_collaborating_institutions", {
   id: serial("id").primaryKey(),
-  grantId: integer("grant_id")
+  grantId: integer("grant_id").references((): AnyPgColumn => grants.id, { onDelete: "cascade" })
     .notNull()
     .references(() => grants.id, { onDelete: "cascade" }),
   name: text("name").notNull(),
@@ -1672,10 +1684,10 @@ export const grantCollaboratingInstitutions = pgTable("grant_collaborating_insti
  */
 export const grantCoInvestigators = pgTable("grant_co_investigators", {
   id: serial("id").primaryKey(),
-  grantId: integer("grant_id")
+  grantId: integer("grant_id").references((): AnyPgColumn => grants.id, { onDelete: "cascade" })
     .notNull()
     .references(() => grants.id, { onDelete: "cascade" }),
-  scientistId: integer("scientist_id")
+  scientistId: integer("scientist_id").references((): AnyPgColumn => scientists.id, { onDelete: "cascade" })
     .notNull()
     .references(() => scientists.id, { onDelete: "cascade" }),
   /** Their part in the work, free text: "Co-Investigator", "Statistician". */
@@ -1704,7 +1716,7 @@ export type GrantCoInvestigatorList = Array<{
 
 export const grantInstitutionCollaborators = pgTable("grant_institution_collaborators", {
   id: serial("id").primaryKey(),
-  institutionId: integer("institution_id")
+  institutionId: integer("institution_id").references((): AnyPgColumn => grantCollaboratingInstitutions.id, { onDelete: "cascade" })
     .notNull()
     .references(() => grantCollaboratingInstitutions.id, { onDelete: "cascade" }),
   name: text("name").notNull(),
@@ -1739,7 +1751,7 @@ export type GrantCollaborationTree = Array<{
 
 export const grantProgressReports = pgTable("grant_progress_reports", {
   id: serial("id").primaryKey(),
-  grantId: integer("grant_id").notNull(), // references grants.id
+  grantId: integer("grant_id").references((): AnyPgColumn => grants.id, { onDelete: "cascade" }).notNull(),
   reportTitle: text("report_title").notNull(),
   reportPeriod: text("report_period"), // e.g., "Q1 2024", "Year 1", etc.
   submissionDate: date("submission_date"), // Date submitted to funding agency
@@ -1747,7 +1759,7 @@ export const grantProgressReports = pgTable("grant_progress_reports", {
   filePath: text("file_path"), // Path to uploaded PDF file
   fileName: text("file_name"), // Original filename
   fileSize: integer("file_size"), // File size in bytes
-  uploadedBy: integer("uploaded_by").notNull(), // references scientists.id
+  uploadedBy: integer("uploaded_by").references((): AnyPgColumn => scientists.id, { onDelete: "restrict" }).notNull(),
   notes: text("notes"), // Additional notes about the report
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
@@ -1765,8 +1777,8 @@ export type GrantProgressReport = typeof grantProgressReports.$inferSelect;
 // Junction table for grants and research activities (many-to-many relationship)
 export const grantResearchActivities = pgTable("grant_research_activities", {
   id: serial("id").primaryKey(),
-  grantId: integer("grant_id").notNull(), // references grants.id
-  researchActivityId: integer("research_activity_id").notNull(), // references research_activities.id
+  grantId: integer("grant_id").references((): AnyPgColumn => grants.id, { onDelete: "cascade" }).notNull(),
+  researchActivityId: integer("research_activity_id").references((): AnyPgColumn => researchActivities.id, { onDelete: "cascade" }).notNull(),
   linkedDate: timestamp("linked_date").defaultNow(), // When the link was created
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
@@ -1811,8 +1823,8 @@ export type CertificationModule = typeof certificationModules.$inferSelect;
 // Individual certifications
 export const certifications = pgTable("certifications", {
   id: serial("id").primaryKey(),
-  scientistId: integer("scientist_id").notNull(), // references scientists.id
-  moduleId: integer("module_id").notNull(), // references certification_modules.id
+  scientistId: integer("scientist_id").references((): AnyPgColumn => scientists.id, { onDelete: "cascade" }).notNull(),
+  moduleId: integer("module_id").references((): AnyPgColumn => certificationModules.id, { onDelete: "restrict" }).notNull(),
   startDate: date("start_date").notNull(), // Certification start date
   endDate: date("end_date").notNull(), // Certification expiration date
   certificateFilePath: text("certificate_file_path"), // Path to certificate PDF
@@ -1820,7 +1832,7 @@ export const certifications = pgTable("certifications", {
   reportFilePath: text("report_file_path"), // Path to report PDF
   reportFileName: text("report_file_name"), // Original report filename
   extractedData: json("extracted_data"), // OCR extracted data for debugging/verification
-  uploadedBy: integer("uploaded_by").notNull(), // references scientists.id
+  uploadedBy: integer("uploaded_by").references((): AnyPgColumn => scientists.id, { onDelete: "restrict" }).notNull(),
   notes: text("notes"), // Additional notes
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
@@ -1910,7 +1922,7 @@ export const pdfImportHistory = pgTable("pdf_import_history", {
   fileName: text("file_name").notNull(), // Original filename
   fileUrl: text("file_url").notNull(), // Storage URL
   fileSize: integer("file_size"), // File size in bytes
-  uploadedBy: integer("uploaded_by").notNull(), // references scientists.id (who uploaded)
+  uploadedBy: integer("uploaded_by").references((): AnyPgColumn => users.id, { onDelete: "restrict" }).notNull(),
   processingStatus: text("processing_status").notNull().default("processing"), // processing, success, failed, ocr_failed
   ocrProvider: text("ocr_provider"), // tesseract, ocr_space
   documentType: text("document_type"), // certificate, report, unknown
@@ -1926,7 +1938,7 @@ export const pdfImportHistory = pgTable("pdf_import_history", {
   expirationDate: date("expiration_date"), // Date of expiration
   recordId: text("record_id"), // Certificate record ID
   institution: text("institution"), // Issuing institution
-  assignedScientistId: integer("assigned_scientist_id"), // Who the certificate was assigned to (if any)
+  assignedScientistId: integer("assigned_scientist_id").references((): AnyPgColumn => scientists.id, { onDelete: "set null" }), // Who the certificate was assigned to (if any)
   notes: text("notes"), // Manual notes added by user
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),

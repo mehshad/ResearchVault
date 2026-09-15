@@ -5,7 +5,7 @@
 import type { Express, Request, Response } from "express";
 import { requireAdmin } from "../auth";
 import { ARCHIVE_MIME, buildBulkDataArchive, bulkArchiveFileName, createBulkDataArchive, downloadBulkDataArchive, getBulkDataArchive, listBulkDataArchives, queueBulkDataArchive } from "../bulkDataArchives";
-import { BulkApplyRowError, SECTION_META as BULK_DATA_SECTIONS, applySection as applyBulkDataSection, buildExportWorkbook as buildBulkDataExportWorkbook, buildTemplateWorkbook as buildBulkDataTemplateWorkbook, getSectionMeta as getBulkDataSectionMeta, previewSection as previewBulkDataSection } from "../bulkDataHub";
+import { ARCHIVE_EXCLUSIONS, BulkApplyRowError, SECTION_META as BULK_DATA_SECTIONS, applySection as applyBulkDataSection, buildExportWorkbook as buildBulkDataExportWorkbook, buildTemplateWorkbook as buildBulkDataTemplateWorkbook, getSectionMeta as getBulkDataSectionMeta, previewSection as previewBulkDataSection } from "../bulkDataHub";
 import type { SectionId as BulkDataSectionId } from "../bulkDataHub";
 import { logError } from "../logger";
 import { ObjectNotFoundError } from "../objectStorage";
@@ -90,7 +90,9 @@ export function registerBulkDataRoutes(app: Express): void {
   });
 
   app.get('/api/bulk-data/sections', requireAdmin, (_req: Request, res: Response) => {
-    res.json({ sections: BULK_DATA_SECTIONS });
+    // What the archive leaves out travels with the section list, so the
+    // interface states it beside the workbooks rather than implying a backup.
+    res.json({ sections: BULK_DATA_SECTIONS, excluded: ARCHIVE_EXCLUSIONS });
   });
 
   const resolveBulkDataSection = (value: string): BulkDataSectionId => {

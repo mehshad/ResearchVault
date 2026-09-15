@@ -132,6 +132,9 @@ function mergeUniquePublications(...lists: Publication[][]): Publication[] {
 
 // This class is the storage contract: storage.ts exports its instance type
 // as IStorage. There is no separate hand-written interface to drift from it.
+/** db or a transaction: what the grant link seeders write through. */
+type GrantWriter = Pick<typeof db, "insert">;
+
 export type PmoFormType = 'RA-200' | 'RA-205A';
 export type PmoApplication =
   | (Ra200Application & { form_type: 'RA-200' })
@@ -642,9 +645,17 @@ export class DatabaseStorage {
     return newPublication;
   }
 
+  /**
+   * A publication and everything a new one carries -- its "created" history
+   * entries and any additional SDR links -- in one transaction. The route used
+   * to run these as separate statements, and a failure after the first left a
+   * publication with no timeline row or missing links, which the exemption and
+   * finalise rules then misread (#31).
+   */
   async createPublicationWithHistory(
     publication: InsertPublication & { createdByUserId?: number | null },
-    history: Omit<InsertManuscriptHistory, "publicationId">,
+    history: Omit<InsertManuscriptHistory, "publicationId"> | Array<Omit<InsertManuscriptHistory, "publicationId">>,
+    additionalResearchActivityIds: number[] = [],
   ): Promise<Publication> {
     const publicationData = { ...publication };
     if (publicationData.authors && typeof publicationData.authors === "string") {
@@ -653,28 +664,29 @@ export class DatabaseStorage {
     if (publicationData.title && typeof publicationData.title === "string") {
       publicationData.title = this.capitalizeTitle(publicationData.title);
     }
+    const entries = Array.isArray(history) ? history : [history];
+    const linkIds = [...new Set(additionalResearchActivityIds)];
 
     return await db.transaction(async (tx) => {
       const [created] = await tx
         .insert(publications)
         .values(publicationData)
         .returning();
-      await tx.insert(manuscriptHistory).values({
-        ...history,
-        publicationId: created.id,
-      });
+      if (entries.length > 0) {
+        await tx.insert(manuscriptHistory).values(entries.map((entry) => ({ ...entry, publicationId: created.id })));
+      }
+      if (linkIds.length > 0) {
+        await tx.insert(publicationResearchActivities).values(
+          linkIds.map((researchActivityId) => ({ publicationId: created.id, researchActivityId })),
+        );
+      }
       return created;
     });
   }
 
   async updatePublication(id: number, publication: Partial<InsertPublication>): Promise<Publication | undefined> {
-    // Handle date conversions properly
     const updateData = { ...publication };
     
-    // Convert date strings to Date objects if needed
-    if (updateData.publicationDate && typeof updateData.publicationDate === 'string') {
-      updateData.publicationDate = new Date(updateData.publicationDate);
-    }
     
     // Standardize author names if provided
     if (updateData.authors && typeof updateData.authors === 'string') {
@@ -947,9 +959,6 @@ export class DatabaseStorage {
           .find((publication) => publication.createdByUserId != null)
           ?.createdByUserId ??
         null;
-      if (updateData.publicationDate && typeof updateData.publicationDate === "string") {
-        updateData.publicationDate = new Date(updateData.publicationDate);
-      }
 
       // Preserve preprint linkage: when a preprint is merged into its published
       // version, the published DOI correctly wins, but the preprint's own
@@ -3130,7 +3139,7 @@ export class DatabaseStorage {
    * replace would also throw away the people someone had recorded under an
    * institution, since those hang off the institution row.
    */
-  async addGrantCollaboratingInstitutions(grantId: number, names: string[]): Promise<number> {
+  async addGrantCollaboratingInstitutions(grantId: number, names: string[], executor: GrantWriter = db): Promise<number> {
     const seen = new Set<string>();
     const rows = names
       .map((name) => name.trim())
@@ -3146,7 +3155,7 @@ export class DatabaseStorage {
     if (rows.length === 0) return 0;
     // The unique constraint on (grant_id, name) makes re-running the same
     // import a no-op rather than a pile of duplicates.
-    const inserted = await db
+    const inserted = await executor
       .insert(grantCollaboratingInstitutions)
       .values(rows)
       .onConflictDoNothing()
@@ -3155,10 +3164,10 @@ export class DatabaseStorage {
   }
 
   /** Same, for Sidra co-investigators already resolved to staff records. */
-  async addGrantCoInvestigators(grantId: number, scientistIds: number[]): Promise<number> {
+  async addGrantCoInvestigators(grantId: number, scientistIds: number[], executor: GrantWriter = db): Promise<number> {
     const ids = [...new Set(scientistIds.filter((id) => Number.isInteger(id) && id > 0))];
     if (ids.length === 0) return 0;
-    const inserted = await db
+    const inserted = await executor
       .insert(grantCoInvestigators)
       .values(ids.map((scientistId) => ({ grantId, scientistId })))
       .onConflictDoNothing()
@@ -3169,6 +3178,27 @@ export class DatabaseStorage {
   async getGrantByProjectNumber(projectNumber: string): Promise<Grant | undefined> {
     const [grant] = await db.select().from(grants).where(eq(grants.projectNumber, projectNumber));
     return grant;
+  }
+
+  /**
+   * A grant with its collaborating institutions and co-investigators in one
+   * transaction, for the import: a grant that exists without the links it
+   * came with is what a failure between the statements used to leave (#31).
+   */
+  async createGrantWithLinks(
+    grant: InsertGrant,
+    actorUserId: number | null | undefined,
+    links: { institutions: string[]; coInvestigatorIds: number[] },
+  ): Promise<Grant> {
+    return await db.transaction(async (tx) => {
+      const [newGrant] = await tx
+        .insert(grants)
+        .values({ ...grant, createdByUserId: actorUserId || null, updatedByUserId: actorUserId || null })
+        .returning();
+      await this.addGrantCollaboratingInstitutions(newGrant.id, links.institutions, tx);
+      await this.addGrantCoInvestigators(newGrant.id, links.coInvestigatorIds, tx);
+      return newGrant;
+    });
   }
 
   async createGrant(grant: InsertGrant, actorUserId?: number | null): Promise<Grant> {

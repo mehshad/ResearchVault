@@ -157,7 +157,10 @@ for migration in \
     "migrations/20260914_project_principal_investigator.sql" \
     "migrations/20260915_hot_lookup_indexes.sql" \
     "migrations/20260915_manuscript_history_changed_by_users.sql" \
-    "migrations/20260915_retire_legacy_columns.sql"; do
+    "migrations/20260915_retire_legacy_columns.sql" \
+    "migrations/20260916_status_checks.sql" \r
+    "migrations/20260916_date_only_columns.sql" \
+    "migrations/20260916_foreign_keys.sql"; do
   if [ -f "/app/$migration" ]; then
     echo "  Applying $migration..."
     # Run the whole file (ON_ERROR_STOP=0) so a statement that is simply

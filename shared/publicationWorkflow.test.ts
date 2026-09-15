@@ -40,7 +40,7 @@ test("workflow stages cover every status the server can transition to", async ()
   const { PUBLICATION_WORKFLOW_STAGES, PUBLICATION_OFF_FLOW_STATES } =
     await import("./publicationWorkflow.js");
   const fs = await import("node:fs");
-  const routes = fs.readFileSync(new URL("../server/routes.ts", import.meta.url), "utf-8");
+  const routes = fs.readFileSync(new URL("../server/routes/publicationRoutes.ts", import.meta.url), "utf-8");
 
   // Pull the keys out of the validTransitions map so the UI stage model cannot
   // silently drift from the workflow the server actually enforces.
