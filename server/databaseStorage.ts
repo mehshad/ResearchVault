@@ -333,6 +333,20 @@ export class DatabaseStorage {
     }));
   }
 
+  /**
+   * One query for a set of ids, keyed for lookup. The list routes used to call
+   * getScientist once per row inside Promise.all -- a query per grant lead,
+   * per team member, per uploader -- each a hand-rolled copy of the same
+   * "decorate with a name" step (finding #27). Ids that are null, absent or
+   * repeated cost nothing; an empty set costs no query.
+   */
+  async getScientistsByIds(ids: Iterable<number | null | undefined>): Promise<Map<number, Scientist>> {
+    const wanted = [...new Set([...ids].filter((id): id is number => typeof id === "number" && Number.isFinite(id)))];
+    if (wanted.length === 0) return new Map();
+    const rows: Scientist[] = await db.select().from(scientists).where(inArray(scientists.id, wanted));
+    return new Map(rows.map((row) => [row.id, row]));
+  }
+
   async getScientist(id: number): Promise<Scientist | undefined> {
     const [scientist] = await db.select().from(scientists).where(eq(scientists.id, id));
     if (!scientist) return undefined;

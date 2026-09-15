@@ -26,14 +26,15 @@ export function registerResearchContractRoutes(app: Express): void {
       }
       
       // Enhance contracts with project and PI details
+      // One lookup for every lead PI in the list, not one per contract.
+      const leadById = await storage.getScientistsByIds(contracts.map((contract) => contract.leadPIId));
       const enhancedContracts = await Promise.all(contracts.map(async (contract) => {
         const researchActivity = contract.researchActivityId ? 
           await storage.getResearchActivity(contract.researchActivityId) : null;
         const project = researchActivity?.projectId ? 
           await storage.getProject(researchActivity.projectId) : null;
-        const pi = contract.leadPIId ? 
-          await storage.getScientist(contract.leadPIId) : null;
-        
+        const pi = contract.leadPIId ? leadById.get(contract.leadPIId) ?? null : null;
+
         return {
           ...contract,
           researchActivity: researchActivity ? {
@@ -641,10 +642,11 @@ export function registerResearchContractRoutes(app: Express): void {
       const contracts = await storage.getResearchContractsForResearchActivity(researchActivityId);
 
       // Enhance contracts with related details
+      // One lookup for every lead PI in the list, not one per contract.
+      const leadById = await storage.getScientistsByIds(contracts.map((contract) => contract.leadPIId));
       const enhancedContracts = await Promise.all(contracts.map(async (contract) => {
-        const pi = contract.leadPIId ? 
-          await storage.getScientist(contract.leadPIId) : null;
-        
+        const pi = contract.leadPIId ? leadById.get(contract.leadPIId) ?? null : null;
+
         return {
           ...contract,
           leadPI: pi ? {

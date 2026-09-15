@@ -2752,11 +2752,9 @@ function writeFailureDetail(error: unknown): string {
       // Get all project members for this research activity
       const members = await storage.getProjectMembers(id);
       
-      // Get scientist details for each member
-      const staffPromises = members.map(async (member) => {
-        const scientist = await storage.getScientist(member.scientistId);
-        return scientist;
-      });
+      // One query for every member, not one per member.
+      const scientistById = await storage.getScientistsByIds(members.map((member) => member.scientistId));
+      const staffPromises = members.map(async (member) => scientistById.get(member.scientistId));
       
       const staff = await Promise.all(staffPromises);
       // Filter out any null values and return only the staff
@@ -2920,9 +2918,10 @@ function writeFailureDetail(error: unknown): string {
         projects = await storage.getProjects();
       }
       
-      // Enhance projects with lead scientist details
+      // Enhance projects with lead scientist details -- one lookup for the list.
+      const leadById = await storage.getScientistsByIds(projects.map((project) => project.principalInvestigatorId));
       const enhancedProjects = await Promise.all(projects.map(async (project) => {
-        const leadScientist = await storage.getScientist(project.principalInvestigatorId);
+        const leadScientist = project.principalInvestigatorId != null ? leadById.get(project.principalInvestigatorId) : undefined;
         return {
           ...project,
           leadScientist: leadScientist ? {
@@ -2954,10 +2953,11 @@ function writeFailureDetail(error: unknown): string {
       // Get lead scientist
       const leadScientist = await storage.getScientist(project.leadScientistId);
       
-      // Get team members
+      // Get team members, and their staff records in one query
       const teamMembers = await storage.getProjectMembers(id);
+      const memberById = await storage.getScientistsByIds(teamMembers.map((member) => member.scientistId));
       const enhancedTeamMembers = await Promise.all(teamMembers.map(async (member) => {
-        const scientist = await storage.getScientist(member.scientistId);
+        const scientist = memberById.get(member.scientistId);
         return {
           ...member,
           scientist: scientist ? {
@@ -3071,9 +3071,10 @@ function writeFailureDetail(error: unknown): string {
       for (const activity of activities) {
         const members = await storage.getProjectMembers(activity.id);
         
-        // Enhance team members with scientist details
+        // Enhance team members with scientist details, one query per activity
+        const memberById = await storage.getScientistsByIds(members.map((member) => member.scientistId));
         const enhancedMembers = await Promise.all(members.map(async (member) => {
-          const scientist = await storage.getScientist(member.scientistId);
+          const scientist = memberById.get(member.scientistId);
           return {
             ...member,
             researchActivityTitle: activity.title,
@@ -3223,9 +3224,10 @@ function writeFailureDetail(error: unknown): string {
 
       const members = await storage.getProjectMembers(id);
       
-      // Enhance team members with scientist details
+      // Enhance team members with scientist details, one query for the list
+      const memberById = await storage.getScientistsByIds(members.map((member) => member.scientistId));
       const enhancedMembers = await Promise.all(members.map(async (member) => {
-        const scientist = await storage.getScientist(member.scientistId);
+        const scientist = memberById.get(member.scientistId);
         return {
           ...member,
           scientist: scientist ? {
@@ -5840,10 +5842,13 @@ function writeFailureDetail(error: unknown): string {
         applications = await storage.getIrbApplications();
       }
       
-      // Enhance applications with research activity and PI details
+      // Enhance applications with research activity and PI details. Two
+      // queries for the list, where it used to be two per application.
+      const activityById = new Map((await storage.getResearchActivities()).map((activity) => [activity.id, activity]));
+      const piById = await storage.getScientistsByIds(applications.map((app) => app.principalInvestigatorId));
       const enhancedApplications = await Promise.all(applications.map(async (app) => {
-        const researchActivity = app.researchActivityId ? await storage.getResearchActivity(app.researchActivityId) : null;
-        const pi = await storage.getScientist(app.principalInvestigatorId);
+        const researchActivity = app.researchActivityId ? activityById.get(app.researchActivityId) ?? null : null;
+        const pi = app.principalInvestigatorId != null ? piById.get(app.principalInvestigatorId) : undefined;
         
         return {
           ...app,

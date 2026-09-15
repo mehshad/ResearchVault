@@ -21,10 +21,12 @@ export function registerIbcRoutes(app: Express): void {
       // IBC applications are not directly linked to projects, so ignore projectId filter
       const applications = await storage.getIbcApplications();
       
-      // Enhance applications with PI details (IBC applications are not directly linked to projects)
+      // Enhance applications with PI details (IBC applications are not directly
+      // linked to projects) -- one lookup for the list.
+      const piById = await storage.getScientistsByIds(applications.map((app) => app.principalInvestigatorId));
       const enhancedApplications = await Promise.all(applications.map(async (app) => {
-        const pi = await storage.getScientist(app.principalInvestigatorId);
-        
+        const pi = app.principalInvestigatorId != null ? piById.get(app.principalInvestigatorId) : undefined;
+
         return {
           ...app,
           principalInvestigator: pi ? {
@@ -350,10 +352,13 @@ export function registerIbcRoutes(app: Express): void {
       // Get personnel from the application's protocolTeamMembers field if it exists
       if (application.protocolTeamMembers && Array.isArray(application.protocolTeamMembers)) {
         // Enhance personnel data with scientist details
+        const personnelById = await storage.getScientistsByIds(
+          application.protocolTeamMembers.map((person: any) => person.scientistId),
+        );
         const enhancedPersonnel = await Promise.all(
           application.protocolTeamMembers.map(async (person: any) => {
             if (person.scientistId) {
-              const scientist = await storage.getScientist(person.scientistId);
+              const scientist = personnelById.get(person.scientistId);
               return {
                 ...person,
                 scientist: scientist ? {
