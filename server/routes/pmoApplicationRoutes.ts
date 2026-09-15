@@ -1,14 +1,40 @@
 /**
  * PMO applications (RA-200, RA-205A) and team members.
- * Moved out of server/routes.ts as one domain, unchanged; see #42.
+ * Moved out of server/routes.ts as one domain (#42). The two forms live in
+ * their own tables and share an id space, so a form type travels with every
+ * single-record request: ?type= on GET/DELETE, formType in a PUT/POST body,
+ * or the form-specific path (#61).
  */
 import type { Express, Request, Response } from "express";
-import { storage } from "../databaseStorage";
+import { storage, type PmoFormType } from "../databaseStorage";
 import { log, logError } from "../logger";
 import { insertRa200ApplicationSchema, insertRa205aApplicationSchema, insertTeamMemberSchema } from "@shared/schema";
-import { and } from "drizzle-orm";
 import { ZodError } from "zod";
 import { fromZodError } from "zod-validation-error";
+
+const FORM_TYPES: readonly PmoFormType[] = ['RA-200', 'RA-205A'];
+
+/** The form type named by a request, or undefined when it did not say. */
+function formTypeOf(value: unknown): PmoFormType | undefined {
+  return typeof value === 'string' && (FORM_TYPES as readonly string[]).includes(value)
+    ? (value as PmoFormType)
+    : undefined;
+}
+
+function updateSchemaFor(formType: PmoFormType) {
+  return formType === 'RA-200'
+    ? insertRa200ApplicationSchema.partial()
+    : insertRa205aApplicationSchema.partial();
+}
+
+function sendZodOr500(res: Response, error: unknown, what: string, message: string) {
+  if (error instanceof ZodError) {
+    res.status(400).json({ message: fromZodError(error).message });
+  } else {
+    logError(what, "routes", error);
+    res.status(500).json({ message });
+  }
+}
 
 export function registerPmoApplicationRoutes(app: Express): void {
   // PMO Applications routes
@@ -29,7 +55,7 @@ export function registerPmoApplicationRoutes(app: Express): void {
         return res.status(400).json({ message: "Invalid application ID" });
       }
 
-      const application = await storage.getPmoApplication(id);
+      const application = await storage.getPmoApplication(id, formTypeOf(req.query.type));
       if (!application) {
         return res.status(404).json({ message: "Application not found" });
       }
@@ -41,6 +67,22 @@ export function registerPmoApplicationRoutes(app: Express): void {
     }
   });
 
+  // Create either form from one endpoint; the body says which.
+  app.post('/api/pmo-applications', async (req: Request, res: Response) => {
+    const formType = formTypeOf(req.body?.formType);
+    if (!formType) {
+      return res.status(400).json({ message: "formType must be RA-200 or RA-205A" });
+    }
+    try {
+      const application = formType === 'RA-200'
+        ? await storage.createRa200Application(insertRa200ApplicationSchema.parse(req.body))
+        : await storage.createRa205aApplication(insertRa205aApplicationSchema.parse(req.body));
+      res.status(201).json({ ...application, form_type: formType });
+    } catch (error) {
+      sendZodOr500(res, error, `Error creating ${formType} application`, "Failed to create application");
+    }
+  });
+
   // Create RA-200 Application
   app.post('/api/ra200-applications', async (req: Request, res: Response) => {
     try {
@@ -48,13 +90,7 @@ export function registerPmoApplicationRoutes(app: Express): void {
       const application = await storage.createRa200Application(applicationData);
       res.status(201).json(application);
     } catch (error) {
-      if (error instanceof ZodError) {
-        const validationError = fromZodError(error);
-        res.status(400).json({ message: validationError.message });
-      } else {
-        logError("Error creating RA-200 application", "routes", error);
-        res.status(500).json({ message: "Failed to create application" });
-      }
+      sendZodOr500(res, error, "Error creating RA-200 application", "Failed to create application");
     }
   });
 
@@ -65,15 +101,49 @@ export function registerPmoApplicationRoutes(app: Express): void {
       const application = await storage.createRa205aApplication(applicationData);
       res.status(201).json(application);
     } catch (error) {
-      if (error instanceof ZodError) {
-        const validationError = fromZodError(error);
-        res.status(400).json({ message: validationError.message });
-      } else {
-        logError("Error creating RA-205A application", "routes", error);
-        res.status(500).json({ message: "Failed to create application" });
-      }
+      sendZodOr500(res, error, "Error creating RA-205A application", "Failed to create application");
     }
   });
+
+  // The edit pages read and save one form by its own path.
+  for (const [path, formType] of [
+    ['/api/ra200-applications/:id', 'RA-200'],
+    ['/api/ra205a-applications/:id', 'RA-205A'],
+  ] as const) {
+    app.get(path, async (req: Request, res: Response) => {
+      try {
+        const id = parseInt(req.params.id);
+        if (isNaN(id)) {
+          return res.status(400).json({ message: "Invalid application ID" });
+        }
+        const application = await storage.getPmoApplication(id, formType);
+        if (!application) {
+          return res.status(404).json({ message: "Application not found" });
+        }
+        res.json(application);
+      } catch (error) {
+        logError(`Error fetching ${formType} application`, "routes", error);
+        res.status(500).json({ message: "Failed to fetch application" });
+      }
+    });
+
+    app.put(path, async (req: Request, res: Response) => {
+      try {
+        const id = parseInt(req.params.id);
+        if (isNaN(id)) {
+          return res.status(400).json({ message: "Invalid application ID" });
+        }
+        const updateData = updateSchemaFor(formType).parse(req.body);
+        const updatedApp = await storage.updatePmoApplication(id, updateData, formType);
+        if (!updatedApp) {
+          return res.status(404).json({ message: "Application not found" });
+        }
+        res.json(updatedApp);
+      } catch (error) {
+        sendZodOr500(res, error, `Error updating ${formType} application`, "Failed to update application");
+      }
+    });
+  }
 
   app.put('/api/pmo-applications/:id', async (req: Request, res: Response) => {
     try {
@@ -81,15 +151,15 @@ export function registerPmoApplicationRoutes(app: Express): void {
       if (isNaN(id)) {
         return res.status(400).json({ message: "Invalid application ID" });
       }
+      const requestedType = formTypeOf(req.body?.formType) ?? formTypeOf(req.query.type);
+      const currentApp = await storage.getPmoApplication(id, requestedType);
+      if (!currentApp) {
+        return res.status(404).json({ message: "Application not found" });
+      }
 
       // Handle status changes and comments
       if (req.body.statusChange) {
         const { status, comment, userId } = req.body.statusChange;
-
-        const currentApp = await storage.getPmoApplication(id);
-        if (!currentApp) {
-          return res.status(404).json({ message: "Application not found" });
-        }
 
         // Add to review history
         const newHistory = [
@@ -123,14 +193,14 @@ export function registerPmoApplicationRoutes(app: Express): void {
           status,
           reviewHistory: newHistory,
           officeComments: newOfficeComments
-        });
+        }, currentApp.form_type);
 
         return res.json(updatedApp);
       }
 
-      // Regular update
-      const updateData = insertPmoApplicationSchema.partial().parse(req.body);
-      const updatedApp = await storage.updatePmoApplication(id, updateData);
+      // Regular update, validated against the form the record belongs to
+      const updateData = updateSchemaFor(currentApp.form_type).parse(req.body);
+      const updatedApp = await storage.updatePmoApplication(id, updateData, currentApp.form_type);
 
       if (!updatedApp) {
         return res.status(404).json({ message: "Application not found" });
@@ -138,13 +208,7 @@ export function registerPmoApplicationRoutes(app: Express): void {
 
       res.json(updatedApp);
     } catch (error) {
-      if (error instanceof ZodError) {
-        const validationError = fromZodError(error);
-        res.status(400).json({ message: validationError.message });
-      } else {
-        logError("Error updating PMO application", "routes", error);
-        res.status(500).json({ message: "Failed to update application" });
-      }
+      sendZodOr500(res, error, "Error updating PMO application", "Failed to update application");
     }
   });
 
@@ -155,7 +219,7 @@ export function registerPmoApplicationRoutes(app: Express): void {
         return res.status(400).json({ message: "Invalid application ID" });
       }
 
-      const deleted = await storage.deletePmoApplication(id);
+      const deleted = await storage.deletePmoApplication(id, formTypeOf(req.query.type));
       if (!deleted) {
         return res.status(404).json({ message: "Application not found" });
       }
@@ -214,13 +278,7 @@ export function registerPmoApplicationRoutes(app: Express): void {
       const newMember = await storage.createTeamMember(memberData);
       res.status(201).json(newMember);
     } catch (error) {
-      if (error instanceof ZodError) {
-        const validationError = fromZodError(error);
-        res.status(400).json({ message: validationError.message });
-      } else {
-        logError("Error creating team member", "routes", error);
-        res.status(500).json({ message: "Failed to create team member" });
-      }
+      sendZodOr500(res, error, "Error creating team member", "Failed to create team member");
     }
   });
 
@@ -240,13 +298,7 @@ export function registerPmoApplicationRoutes(app: Express): void {
 
       res.json(updatedMember);
     } catch (error) {
-      if (error instanceof ZodError) {
-        const validationError = fromZodError(error);
-        res.status(400).json({ message: validationError.message });
-      } else {
-        logError("Error updating team member", "routes", error);
-        res.status(500).json({ message: "Failed to update team member" });
-      }
+      sendZodOr500(res, error, "Error updating team member", "Failed to update team member");
     }
   });
 

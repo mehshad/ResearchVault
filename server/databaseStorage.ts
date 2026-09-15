@@ -132,6 +132,11 @@ function mergeUniquePublications(...lists: Publication[][]): Publication[] {
 
 // This class is the storage contract: storage.ts exports its instance type
 // as IStorage. There is no separate hand-written interface to drift from it.
+export type PmoFormType = 'RA-200' | 'RA-205A';
+export type PmoApplication =
+  | (Ra200Application & { form_type: 'RA-200' })
+  | (Ra205aApplication & { form_type: 'RA-205A' });
+
 export class DatabaseStorage {
   
   // User operations
@@ -4098,7 +4103,7 @@ export class DatabaseStorage {
   }
 
   // Combined view for PMO Applications (for listing both types together)
-  async getAllPmoApplications(): Promise<Array<Ra200Application & { form_type: 'RA-200' } | Ra205aApplication & { form_type: 'RA-205A' }>> {
+  async getAllPmoApplications(): Promise<PmoApplication[]> {
     const ra200Apps = await this.getRa200Applications();
     const ra205aApps = await this.getRa205aApplications();
     
@@ -4108,6 +4113,46 @@ export class DatabaseStorage {
     return [...ra200WithType, ...ra205aWithType].sort((a, b) =>
       new Date(b.createdAt ?? 0).getTime() - new Date(a.createdAt ?? 0).getTime()
     );
+  }
+
+  /**
+   * Both PMO forms live in their own table and share an id space, so a lookup
+   * by id alone tries RA-200 first and RA-205A second. Callers that know the
+   * form pass it and only that table is read.
+   */
+  async getPmoApplication(id: number, formType?: PmoFormType): Promise<PmoApplication | null> {
+    if (formType !== 'RA-205A') {
+      const ra200 = await this.getRa200Application(id);
+      if (ra200) return { ...ra200, form_type: 'RA-200' as const };
+    }
+    if (formType !== 'RA-200') {
+      const ra205a = await this.getRa205aApplication(id);
+      if (ra205a) return { ...ra205a, form_type: 'RA-205A' as const };
+    }
+    return null;
+  }
+
+  async updatePmoApplication(
+    id: number,
+    updates: Partial<InsertRa200Application> | Partial<InsertRa205aApplication>,
+    formType?: PmoFormType,
+  ): Promise<PmoApplication | null> {
+    const current = await this.getPmoApplication(id, formType);
+    if (!current) return null;
+    if (current.form_type === 'RA-200') {
+      const updated = await this.updateRa200Application(id, updates as Partial<InsertRa200Application>);
+      return updated ? { ...updated, form_type: 'RA-200' as const } : null;
+    }
+    const updated = await this.updateRa205aApplication(id, updates as Partial<InsertRa205aApplication>);
+    return updated ? { ...updated, form_type: 'RA-205A' as const } : null;
+  }
+
+  async deletePmoApplication(id: number, formType?: PmoFormType): Promise<boolean> {
+    const current = await this.getPmoApplication(id, formType);
+    if (!current) return false;
+    return current.form_type === 'RA-200'
+      ? this.deleteRa200Application(id)
+      : this.deleteRa205aApplication(id);
   }
 
   // Recent activity feed — aggregated from real records across the app
