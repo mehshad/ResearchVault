@@ -251,16 +251,16 @@ export const researchActivities = pgTable("research_activities", {
   startDate: timestamp("start_date"),
   endDate: timestamp("end_date"),
   budgetHolderId: integer("budget_holder_id"), // references scientists.id (Principal Investigator/Budget Holder)
-  lineManagerId: integer("line_manager_id"), // references scientists.id (legacy field, not used in forms)
   additionalNotificationEmail: text("additional_notification_email"),
   sidraBranch: text("sidra_branch"), // Research, Clinical, External
   budgetSource: text("budget_source").array(), // IRF, PI Budget, QNRF, etc.
   objectives: text("objectives"),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
-  staffScientistId: integer("staff_scientist_id"), // references scientists.id (legacy field)
   grantCodes: text("grant_codes").array(), // Grant codes corresponding to budget sources
-  // NOTE: leadScientistId removed - Lead Scientist is now managed through projectMembers table only
+  // Lead Scientist is managed through projectMembers; the legacy
+  // line_manager_id, staff_scientist_id and lead_scientist_id columns were
+  // dropped by migrations/20260915_retire_legacy_columns.sql.
 }, (table) => ({
   // Postgres does not index a referencing column on its own; these are what
   // every "SDRs under this project" and "SDRs this person holds" lookup
