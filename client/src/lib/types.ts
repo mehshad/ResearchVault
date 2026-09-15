@@ -25,10 +25,11 @@ export interface EnhancedProjectMember extends ProjectMember {
 }
 
 export interface EnhancedDataManagementPlan extends DataManagementPlan {
-  project?: {
+  researchActivity?: {
     id: number;
+    sdrNumber: string;
     title: string;
-  };
+  } | null;
 }
 
 export interface EnhancedPublication extends Publication {
@@ -44,10 +45,11 @@ export interface EnhancedPublication extends Publication {
 }
 
 export interface EnhancedPatent extends Patent {
-  project?: {
+  researchActivity?: {
     id: number;
+    sdrNumber: string;
     title: string;
-  };
+  } | null;
 }
 
 export interface EnhancedIrbApplication extends IrbApplication {

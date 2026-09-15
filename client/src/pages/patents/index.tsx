@@ -84,7 +84,7 @@ export default function PatentsList() {
                   <TableHead className="w-[40%]">Title & Inventors</TableHead>
                   <TableHead>Patent Number</TableHead>
                   <TableHead>Dates</TableHead>
-                  <TableHead>Project</TableHead>
+                  <TableHead>Research activity</TableHead>
                   <TableHead>Status</TableHead>
                   <TableHead className="w-[80px]"></TableHead>
                 </TableRow>
@@ -125,10 +125,10 @@ export default function PatentsList() {
                       </div>
                     </TableCell>
                     <TableCell>
-                      {patent.project ? (
-                        <Link href={`/projects/${patent.project.id}`}>
+                      {patent.researchActivity ? (
+                        <Link href={`/research-activities/${patent.researchActivity.id}`}>
                           <a className="text-primary-500 hover:text-primary-600 transition-colors text-sm">
-                            {patent.project.title}
+                            {patent.researchActivity.sdrNumber} — {patent.researchActivity.title}
                           </a>
                         </Link>
                       ) : (
