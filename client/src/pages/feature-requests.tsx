@@ -30,7 +30,6 @@ type RequestForm = {
   category: string;
   priority: string;
   tags: string;
-  requestedBy: string;
 };
 
 const initialForm: RequestForm = {
@@ -39,7 +38,6 @@ const initialForm: RequestForm = {
   category: "feature",
   priority: "medium",
   tags: "",
-  requestedBy: "",
 };
 
 export default function FeatureRequestsPage() {
@@ -57,7 +55,7 @@ export default function FeatureRequestsPage() {
           category: request.category,
           priority: request.priority,
           originalRequest: request.description,
-          requestedBy: request.requestedBy.trim() || "Anonymous User",
+          // requestedBy is the signed-in account's name; the server sets it.
           tags: request.tags
             .split(",")
             .map((tag) => tag.trim())
@@ -180,16 +178,6 @@ export default function FeatureRequestsPage() {
                 value={form.tags}
                 onChange={(event) => setForm({ ...form, tags: event.target.value })}
                 placeholder="reporting, export, mobile"
-              />
-            </div>
-
-            <div className="space-y-2">
-              <Label htmlFor="feature-request-name">Your name (optional)</Label>
-              <Input
-                id="feature-request-name"
-                value={form.requestedBy}
-                onChange={(event) => setForm({ ...form, requestedBy: event.target.value })}
-                placeholder="Leave blank to submit anonymously"
               />
             </div>
 
