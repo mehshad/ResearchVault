@@ -753,6 +753,10 @@ export default function ScientistDetail() {
             showMissingPapers={isOwner && !isRestrictedRealUser}
             showInvalidIssues={isOwner || hasAnyRole(user, ["Outcome Officer", "Management", "admin", "superadmin"])}
             canActOnInvalid={isOwner}
+            // Someone else's profile, and not an administrator: the list reads
+            // but carries no buttons. The time-range toggle and expand/copy were
+            // still showing to every role on every colleague's page.
+            readOnly={!isOwner && !isAdministrator(user)}
           />
         )}
         </div>

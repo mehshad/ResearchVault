@@ -21,6 +21,8 @@ interface PublicationsPanelProps {
   showMissingPapers?: boolean;
   showInvalidIssues?: boolean;
   canActOnInvalid?: boolean;
+  /** A colleague's profile seen by a non-administrator: the list without controls. */
+  readOnly?: boolean;
 }
 
 export function PublicationsPanel({
@@ -33,6 +35,7 @@ export function PublicationsPanel({
   showMissingPapers = true,
   showInvalidIssues = false,
   canActOnInvalid = false,
+  readOnly = false,
 }: PublicationsPanelProps) {
   const showMissing = showMissingPapers && (hasOrcid || hasScholar);
 
@@ -61,6 +64,7 @@ export function PublicationsPanel({
           scientistId={scientistId}
           yearsSince={yearsSince}
           embedded
+          readOnly={readOnly}
         />
         {showAuthorFixes && (
           <>

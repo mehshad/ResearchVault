@@ -1521,6 +1521,9 @@ export default function PublicationOffice({ embeddedTab }: PublicationOfficeProp
     const BATCH = 500;
     let imported = 0;
     let sent = 0;
+    // Rows the server could not write, each named. "Imported 460 of 500" on
+    // its own gave the office no way to find the other forty or learn why.
+    const failed: Array<{ rowNumber: number; journalName: string; year: number | string | null; reason: string }> = [];
     try {
       for (let start = 0; start < data.length; start += BATCH) {
         const batch = data.slice(start, start + BATCH);
@@ -1534,15 +1537,33 @@ export default function PublicationOffice({ embeddedTab }: PublicationOfficeProp
         }
         const result = await response.json();
         imported += result.imported ?? 0;
+        for (const failure of result.failed ?? []) {
+          // Row numbers come back relative to the batch; make them file-wide.
+          failed.push({ ...failure, rowNumber: start + (failure.rowNumber ?? 0) });
+        }
         sent += batch.length;
         setCsvImportProgress({ done: sent, total: data.length });
       }
       queryClient.invalidateQueries({ queryKey: ['/api/journal-impact-factors'] });
       queryClient.invalidateQueries({ queryKey: ['/api/journal-impact-factors/years'] });
       queryClient.invalidateQueries({ queryKey: ['/api/journal-impact-factors/fields'] });
-      toast({
-        description: `Imported ${imported} of ${data.length} records${skipped > 0 ? ` (${skipped} skipped — missing required fields)` : ''}`,
-      });
+      if (failed.length > 0) {
+        console.warn("Impact factor rows the server rejected:", failed);
+        const shown = failed
+          .slice(0, 5)
+          .map((f) => `row ${f.rowNumber} ${f.journalName || "(no journal)"}${f.year ? ` ${f.year}` : ""}: ${f.reason}`);
+        toast({
+          title: `Imported ${imported} of ${data.length}; ${failed.length} row${failed.length === 1 ? "" : "s"} rejected`,
+          description:
+            shown.join("\n") +
+            (failed.length > 5 ? `\n…and ${failed.length - 5} more (the full list is in the browser console)` : ""),
+          variant: "destructive",
+        });
+      } else {
+        toast({
+          description: `Imported ${imported} of ${data.length} records${skipped > 0 ? ` (${skipped} skipped — missing required fields)` : ''}`,
+        });
+      }
     } catch (error) {
       // Says how far it got, because the rows already written are still there
       // and the office needs to know the year is half loaded.

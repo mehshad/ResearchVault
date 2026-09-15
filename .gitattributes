@@ -1,0 +1,8 @@
+# Shell scripts and SQL run inside Linux containers. A checkout with
+# core.autocrlf on turns "#!/bin/sh" into "#!/bin/sh\r", and an image built
+# from it exits at once with "no such file or directory" for the entrypoint;
+# psql tolerates a stray \r in a migration, the shell does not. Pin both to LF
+# on every checkout, whatever the client's autocrlf setting. setup.sh already
+# strips \r from .env for the same reason.
+*.sh  text eol=lf
+*.sql text eol=lf

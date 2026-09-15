@@ -1,5 +1,5 @@
 import React from "react";
-import { useLocation } from "wouter";
+import { Link, useLocation } from "wouter";
 import { useQuery } from "@tanstack/react-query";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -84,6 +84,14 @@ interface PublicationsListProps {
   yearsSince?: number;
   /** Render as a section inside another card (no own Card chrome). */
   embedded?: boolean;
+  /**
+   * Somebody else's bibliography, viewed by someone who is neither its owner
+   * nor an administrator: the list reads, but carries no controls -- no time
+   * range toggle, no expand-all or copy, and the row actions are plain links.
+   * A colleague's profile is for looking at, and every button on it read as
+   * an invitation to change something.
+   */
+  readOnly?: boolean;
 }
 
 const authorshipColors = {
@@ -151,11 +159,13 @@ function PublicationRow({
   isOpen,
   onToggle,
   showStatus = false,
+  readOnly = false,
 }: {
   pub: Publication;
   isOpen: boolean;
   onToggle: () => void;
   showStatus?: boolean;
+  readOnly?: boolean;
 }) {
   const [, navigate] = useLocation();
   const year = pub.publicationDate ? format(new Date(pub.publicationDate), 'yyyy') : null;
@@ -261,16 +271,36 @@ function PublicationRow({
           )}
 
           <div className="flex flex-wrap items-center gap-2 pt-1">
-            <Button
-              size="sm"
-              className="h-8"
-              onClick={() => navigate(`/publications/${pub.id}`)}
-              data-testid={`button-view-publication-${pub.id}`}
-            >
-              View publication page
-              <ArrowRight className="h-3 w-3 ml-1" />
-            </Button>
-            {pub.doi && (
+            {readOnly ? (
+              <Link
+                href={`/publications/${pub.id}`}
+                className="text-sm text-blue-600 hover:underline dark:text-blue-400"
+                data-testid={`link-view-publication-${pub.id}`}
+              >
+                View publication page
+              </Link>
+            ) : (
+              <Button
+                size="sm"
+                className="h-8"
+                onClick={() => navigate(`/publications/${pub.id}`)}
+                data-testid={`button-view-publication-${pub.id}`}
+              >
+                View publication page
+                <ArrowRight className="h-3 w-3 ml-1" />
+              </Button>
+            )}
+            {pub.doi && readOnly && (
+              <a
+                href={`https://doi.org/${pub.doi}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-sm text-blue-600 hover:underline dark:text-blue-400"
+              >
+                DOI: {pub.doi}
+              </a>
+            )}
+            {pub.doi && !readOnly && (
               <Button variant="ghost" size="sm" className="h-8 px-2" asChild>
                 <a
                   href={`https://doi.org/${pub.doi}`}
@@ -297,6 +327,7 @@ export function PublicationsList({
   scientistId,
   yearsSince = 5,
   embedded = false,
+  readOnly = false,
 }: PublicationsListProps) {
   const [expandedIds, setExpandedIds] = React.useState<Set<number>>(new Set());
   // The viewer's own choice outlives the visit: reopening a profile should show
@@ -526,6 +557,7 @@ export function PublicationsList({
                   {sectionHeader("Unpublished", unpublished.length)}
                   {unpublished.map((pub: Publication) => (
                     <PublicationRow
+                      readOnly={readOnly}
                       key={pub.id}
                       pub={pub}
                       isOpen={expandedIds.has(pub.id)}
@@ -540,6 +572,7 @@ export function PublicationsList({
                   {sectionHeader("Pre-publications", preprints.length)}
                   {preprints.map((pub: Publication) => (
                     <PublicationRow
+                      readOnly={readOnly}
                       key={pub.id}
                       pub={pub}
                       isOpen={expandedIds.has(pub.id)}
@@ -553,6 +586,7 @@ export function PublicationsList({
                   {sectionHeader(year, pubs.length)}
                   {pubs.map((pub: Publication) => (
                     <PublicationRow
+                      readOnly={readOnly}
                       key={pub.id}
                       pub={pub}
                       isOpen={expandedIds.has(pub.id)}
@@ -576,7 +610,7 @@ export function PublicationsList({
                 <FileText className="h-4 w-4" />
                 {titleLabel}
               </h3>
-              {yearsToggle}
+              {!readOnly && yearsToggle}
             </div>
             {!isLoading && (
               <p className="text-sm text-muted-foreground">
@@ -584,7 +618,7 @@ export function PublicationsList({
               </p>
             )}
           </div>
-          {!isLoading && headerActions}
+          {!readOnly && !isLoading && headerActions}
         </div>
         {isLoading ? loadingBody : listBody}
       </div>
@@ -615,13 +649,13 @@ export function PublicationsList({
                 <FileText className="h-5 w-5" />
                 {titleLabel}
               </CardTitle>
-              {yearsToggle}
+              {!readOnly && yearsToggle}
             </div>
             <CardDescription>
               {publications.length} publications (Published or In Press only) with external collaborator tracking
             </CardDescription>
           </div>
-          {headerActions}
+          {!readOnly && headerActions}
         </div>
       </CardHeader>
       <CardContent>{listBody}</CardContent>

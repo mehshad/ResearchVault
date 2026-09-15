@@ -73,11 +73,53 @@ WHERE navigation_item IN ('programs', 'projects', 'research-activities', 'grants
 -- 3. Ownership overrides are configured against the same area names, so any
 --    rule naming a retired area would stop matching. Point them at the
 --    surviving area instead of leaving them silently inert.
-UPDATE ownership_overrides SET module = 'pmo-office'
-WHERE module IN ('programs', 'projects', 'research-activities');
+--
+--    Merged, not renamed. Two retired areas fold into one row -- (programs,
+--    is_pi) and (projects, is_pi) both become (pmo-office, is_pi) -- and the
+--    unique index on (module, relationship) refused the second rename. Inside
+--    BEGIN...COMMIT that aborted every statement after it and turned the COMMIT
+--    into a rollback, silently, on every start: this migration had never
+--    applied. The surviving row keeps the most permissive access, same rule as
+--    the matrix above, and the folded rows are removed afterwards.
+WITH mapping(source, target) AS (
+  VALUES ('programs', 'pmo-office'),
+         ('projects', 'pmo-office'),
+         ('research-activities', 'pmo-office'),
+         ('grants', 'research-office'),
+         ('contracts', 'research-office')
+),
+ranked AS (
+  SELECT
+    m.target AS module,
+    o.relationship,
+    o.granted_access,
+    o.description,
+    CASE o.granted_access
+      WHEN 'edit' THEN 4 WHEN 'create' THEN 3 WHEN 'view' THEN 2 ELSE 1
+    END AS rank
+  FROM ownership_overrides o
+  JOIN mapping m ON m.source = o.module
+),
+best AS (
+  SELECT DISTINCT ON (module, relationship)
+    module, relationship, granted_access, description
+  FROM ranked
+  ORDER BY module, relationship, rank DESC
+)
+INSERT INTO ownership_overrides (module, relationship, granted_access, description)
+SELECT module, relationship, granted_access, description FROM best
+ON CONFLICT (module, relationship) DO UPDATE
+  SET granted_access = CASE
+        WHEN CASE EXCLUDED.granted_access
+               WHEN 'edit' THEN 4 WHEN 'create' THEN 3 WHEN 'view' THEN 2 ELSE 1 END
+           > CASE ownership_overrides.granted_access
+               WHEN 'edit' THEN 4 WHEN 'create' THEN 3 WHEN 'view' THEN 2 ELSE 1 END
+        THEN EXCLUDED.granted_access
+        ELSE ownership_overrides.granted_access
+      END;
 
-UPDATE ownership_overrides SET module = 'research-office'
-WHERE module IN ('grants', 'contracts');
+DELETE FROM ownership_overrides
+WHERE module IN ('programs', 'projects', 'research-activities', 'grants', 'contracts');
 
 -- 4. Give every role a row for certifications. It was already stored for the
 --    roles the client happened to seed; an absent row means hide, so without
