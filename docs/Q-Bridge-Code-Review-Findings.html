@@ -65,6 +65,7 @@
   .meta { grid-column: 2; color: var(--muted); font-size: 12.5px; }
   .meta .id { font-family: "IBM Plex Mono", monospace; }
   .finding p { margin: 10px 0 8px; max-width: 76ch; }
+  .finding p.progress { color: var(--muted); font-size: 14px; border-left: 3px solid var(--line); padding-left: 12px; }
   .tags span { font-size: 11.5px; color: var(--muted); border: 1px solid var(--line); border-radius: 4px; padding: 1px 6px; }
   .empty { color: var(--muted); font-style: italic; padding: 12px 0; display: none; }
   .area.all-hidden .empty { display: block; }
@@ -74,12 +75,12 @@
   <aside class="rail">
     <div>
       <div class="label">Areas</div>
-      <nav><a href="#security">Security and authorization<span>9</span></a><a href="#data-model">Data model and storage<span>5</span></a><a href="#client">Client and user experience<span>2</span></a><a href="#operations">Data operations and deployment<span>5</span></a><a href="#ci-dx">Testing, CI and maintainability<span>1</span></a></nav>
+      <nav><a href="#security">Security and authorization<span>9</span></a><a href="#data-model">Data model and storage<span>4</span></a><a href="#client">Client and user experience<span>2</span></a><a href="#operations">Data operations and deployment<span>5</span></a><a href="#ci-dx">Testing, CI and maintainability<span>1</span></a></nav>
     </div>
     <div>
       <div class="label">Show</div>
       <div class="filters" role="group" aria-label="Filter by priority">
-        <button type="button" data-filter="all" aria-pressed="true">All 22</button>
+        <button type="button" data-filter="all" aria-pressed="true">All 21</button>
         <button type="button" data-filter="critical" aria-pressed="false">Critical</button>
         <button type="button" data-filter="high" aria-pressed="false">High</button>
         <button type="button" data-filter="medium" aria-pressed="false">Medium</button>
@@ -91,9 +92,9 @@
     <header class="top">
       <div class="label">ResearchVault · branch phase2 · 13 September 2026</div>
       <h1>Q-BRIDGE Code Review</h1>
-      <p class="sub">22 open findings from a read of the server, shared modules, client, migrations and CI on 13 September 2026, each verified against the code or the dev database. This page lists what is still to do; a finding that is fixed is removed from it, not marked closed. The dev database (Settings → Feature Requests, requester "Claude code review, 13 Sep 2026") is the record, with the same numbers.</p>
+      <p class="sub">21 open findings from a read of the server, shared modules, client, migrations and CI on 13 September 2026, each verified against the code or the dev database. This page lists what is still to do; a finding that is fixed is removed from it, not marked closed. The dev database (Settings → Feature Requests, requester "Claude code review, 13 Sep 2026") is the record, with the same numbers.</p>
       <div class="summary">
-        <div class="critical"><b>2</b><span>Critical</span></div>
+        <div class="critical"><b>1</b><span>Critical</span></div>
         <div class="high"><b>5</b><span>High</span></div>
         <div class="medium"><b>10</b><span>Medium</span></div>
         <div class="low"><b>5</b><span>Low</span></div>
@@ -113,6 +114,7 @@
             <span class="meta"><span class="id">#4</span> · backend · effort medium</span>
           </div>
           <p>The local/LDAP login handler at <code>server/auth.ts:780-838</code> has no per-IP or per-account throttle and no lockout; <code>package.json</code> contains no express-rate-limit or equivalent. Combined with AC-04, which is still open exactly as registered (hashPassword at <code>server/auth.ts:114-116</code> is a single unsalted SHA-256, compared with plain !== at line 802), an online guess is cheap and an offline crack of a leaked hash is cheaper. Fix: add express-rate-limit keyed on ip+username to <code>/api/auth/login</code> (and the LDAP path, which otherwise lets the app be used to brute-force directory accounts), and migrate to bcrypt/argon2 with rehash-on-login as the register recommends. The same limiter belongs on the OCR routes (tesseract.js and pdf-parse at routes.ts:1668 and 1817), the ORCID/Crossref/PubMed/OpenAlex discovery routes and the 50mb <code>/api/bulk-data</code> uploads, all currently unbounded; <code>threat_model.md</code>'s Denial of Service section already requires it. Add helmet for baseline headers while there.</p>
+          
           <div class="tags"><span>auth</span><span>AC-04</span></div>
         </article>
         <article class="finding" data-priority="medium" id="fr-21">
@@ -122,6 +124,7 @@
             <span class="meta"><span class="id">#21</span> · backend · effort low</span>
           </div>
           <p>The role-change route (<code>server/routes.ts:11891-11935</code>) ends with res.json(updated) where updated comes from storage.updateUser, which is db.update(users)...returning() with no column list (<code>server/databaseStorage.ts:142-145</code>). The users table has a password column (<code>shared/schema.ts:55</code>), so every role change ships the target's SHA-256 hash to the browser, where it sits in the network log and React Query cache. The sibling GET <code>/api/admin/users</code> (routes.ts:11720-11745) already selects an explicit column list and maps through toAdminUserResponse; this route should return the same shape. Fix: respond with toAdminUserResponse(...) or an explicit projection, and add a test that no <code>/api/admin</code> response contains a password key.</p>
+          
           <div class="tags"><span>information-leak</span></div>
         </article>
         <article class="finding" data-priority="medium" id="fr-22">
@@ -131,6 +134,7 @@
             <span class="meta"><span class="id">#22</span> · backend · effort medium</span>
           </div>
           <p>The feature-request routes (<code>server/routes.ts:11336-11455</code>) carry no route-level guard; they are covered only by the prefix rule mapping <code>/api/feature-requests</code> to the 'dashboard' area (<code>server/navigationAccess.ts:108</code>). PUT <code>/api/feature-requests/:id</code> trusts req.body.upvoteUserId as the identity of the voter (routes.ts:11388-11417), so a caller can add or strip votes under any user id. The non-vote branch parses with insertFeatureRequestSchema.partial(), which omits only id/createdAt/updatedAt, so anyone with dashboard 'edit' can set upvotes, upvotedBy, requestedBy, status and approvedPrompt directly. DELETE (routes.ts:11440) has no owner-or-admin check at all. Fix: derive the voter from req.session.user, strip upvotes/upvotedBy/requestedBy from the client-writable schema, and restrict status/approvedPrompt changes and delete to the requester or an administrator.</p>
+          
           <div class="tags"><span>idor</span><span>feature-requests</span></div>
         </article>
         <article class="finding" data-priority="medium" id="fr-23">
@@ -140,6 +144,7 @@
             <span class="meta"><span class="id">#23</span> · bugfix · effort low</span>
           </div>
           <p>POST and PATCH <code>/api/irb-board-members</code> pass req.body straight to storage (<code>server/routes.ts:8791, 8822</code>). irbBoardMembers has two timestamp columns, appointmentDate and termEndDate (<code>shared/schema.ts:1087-1088</code>); createIrbBoardMember coerces them with new Date() (<code>server/databaseStorage.ts:1981-1987</code>) but updateIrbBoardMember spreads the body unchanged (databaseStorage.ts:1996-2003), so a PATCH carrying a date string throws inside drizzle before any SQL and surfaces as a generic 500. Both handlers then return { error: error.message } (routes.ts:8796, 8830), handing internal driver messages to the browser. PUT <code>/api/grant-progress-reports/:id</code> (routes.ts:10919) has the same raw-body pattern and its POST hard-codes uploadedBy: 1 (routes.ts:10905), so uploads are attributed to the wrong person. Fix: zod-parse with z.coerce.date() on the timestamp fields, take uploadedBy from the session, and log the driver message server-side only.</p>
+          
           <div class="tags"><span>validation</span><span>information-leak</span></div>
         </article>
         <article class="finding" data-priority="medium" id="fr-24">
@@ -149,6 +154,7 @@
             <span class="meta"><span class="id">#24</span> · backend · effort medium</span>
           </div>
           <p><code>server/routes.ts</code> registers 42 DELETE routes but req.audit appears only 23 times in the file, and reading the handlers shows most deletes record nothing: DELETE <code>/api/programs/:id</code> (routes.ts:2888), <code>/api/irb-applications/:id</code> (6988), <code>/api/ibc-applications/:id</code> (7299), <code>/api/publications/:id</code> (5424) and the bulk DELETE <code>/api/grants/cleanup/incomplete</code> (10554) all call storage.delete* and return without logging, while DELETE <code>/api/scientists/:id</code> (3563) and <code>/api/grants/:id</code> (10290) do call req.audit.logDelete. An auditor therefore cannot tell who removed a program, an IRB application, or a batch of grants. Fix: call req.audit.logDelete with the pre-delete row in each handler, or move the logging into the storage delete methods so a new route cannot forget it.</p>
+          
           <div class="tags"><span>audit</span></div>
         </article>
         <article class="finding" data-priority="medium" id="fr-25">
@@ -158,6 +164,7 @@
             <span class="meta"><span class="id">#25</span> · backend · effort low</span>
           </div>
           <p>PATCH <code>/api/admin/users/:id/role</code> (<code>server/routes.ts:11891-11935</code>) and PUT <code>/api/admin/users/:id/secondary-roles</code> (11792-11888) never compare :id with req.session.user.id and never count how many administrators would remain. Because refreshSessionAuthorization rebuilds the principal on every request (<code>server/auth.ts:616-648</code>), an admin who moves their own primary role to 'user' and clears their secondaries is locked out on the very next call, and if they were the only admin nobody can undo it through the interface. This is the one path that locks out an administrator. Fix: reject the request when the target is the caller and the result would remove administrator rights, and when the target is the last account holding admin or superadmin.</p>
+          
           <div class="tags"><span>admin</span><span>lockout</span></div>
         </article>
         <article class="finding" data-priority="medium" id="fr-26">
@@ -167,6 +174,7 @@
             <span class="meta"><span class="id">#26</span> · backend · effort low</span>
           </div>
           <p>AC-05 remains open. resolveRole (<code>server/auth.ts:415-419</code>) is applied on every local login (auth.ts:806-810) and every LDAP/OIDC sign-in (auth.ts:477-486), rewriting users.role to 'superadmin' whenever the email matches the environment variable; a demotion made through PATCH <code>/api/admin/users/:id/role</code> is therefore undone silently at the next sign-in, and the escalation is written to the auth log but not to the audit table. Fix: promote only when no superadmin row exists, record the promotion through the AuditService, and surface the configured address in Settings so an auditor can see where the privilege comes from.</p>
+          
           <div class="tags"><span>privilege</span><span>AC-05</span></div>
         </article>
         <article class="finding" data-priority="low" id="fr-46">
@@ -176,6 +184,7 @@
             <span class="meta"><span class="id">#46</span> · backend · effort low</span>
           </div>
           <p>writeFailureDetail (<code>server/routes.ts:3435-3441</code>) concatenates error.message with cause.message and cause.detail from the driver and the result is sent to the client on 500 from PATCH <code>/api/scientists/:id</code> (3496), DELETE <code>/api/scientists/:id</code> (3567) and PATCH <code>/api/admin/users/:id/role</code> (11932). Postgres detail strings include column names, constraint names and the offending values, which is more than a caller needs. The unique-constraint case is already handled separately with a friendly 409, so the remaining 500 path can safely return a generic message while the detail goes to logError.</p>
+          
           <div class="tags"><span>information-leak</span></div>
         </article>
         <article class="finding" data-priority="low" id="fr-47">
@@ -185,6 +194,7 @@
             <span class="meta"><span class="id">#47</span> · backend · effort low</span>
           </div>
           <p>CSRF protection currently rests entirely on the session cookie's sameSite: 'lax' (<code>server/index.ts:117-121</code>); there is no token and no Origin check, and <code>package.json</code> has no csurf/helmet. Lax does block cookie-bearing cross-site POST/PUT/DELETE in current browsers, but express.urlencoded is enabled (index.ts:66) so a form-encoded cross-site POST would parse if the cookie ever arrived, and the app sits behind nginx where a misconfigured APP_URL leaves secure: false. A cheap belt-and-braces fix is a small middleware on /api that rejects state-changing requests whose Origin (or Referer) host does not match APP_URL.</p>
+          
           <div class="tags"><span>csrf</span></div>
         </article>
       </section>
@@ -192,23 +202,15 @@
         <header class="area-head">
           <h2>Data model and storage</h2>
           <p class="lede">Schema integrity, the storage layer, and the queries behind the busiest pages.</p>
-          <div class="chips"><span class="mini critical">1 critical</span><span class="mini high">1 high</span><span class="mini medium">1 medium</span><span class="mini low">2 low</span></div>
-        </header><p class="empty">Nothing at this priority in this area.</p><article class="finding" data-priority="critical" id="fr-1">
-          <div class="finding-head">
-            <span class="sev critical">critical</span>
-            <h3>Implement the five PMO application methods DatabaseStorage never got</h3>
-            <span class="meta"><span class="id">#1</span> · bugfix · effort low</span>
-          </div>
-          <p><code>server/routes.ts</code> calls storage.getPmoApplication (11477, 11534), storage.updatePmoApplication (11567, 11578) and storage.deletePmoApplication (11603), and IStorage declares all five PMO methods (<code>server/storage.ts:373-377</code>), but DatabaseStorage (the only runtime class) implements none of them; it has only getAllPmoApplications (<code>server/databaseStorage.ts:4035</code>). GET/PUT/DELETE <code>/api/pmo-applications/:id</code> therefore throw 'storage.getPmoApplication is not a function' and return a 500. tsc passes only because routes.ts, storage.ts and databaseStorage.ts all open with // @ts-nocheck. Add the methods (dispatching on form_type to the existing ra200/ra205a helpers) or drop the routes.</p>
-          <div class="tags"><span>storage</span><span>pmo</span><span>ts-nocheck</span></div>
-        </article>
-        <article class="finding" data-priority="high" id="fr-7">
+          <div class="chips"><span class="mini high">1 high</span><span class="mini medium">1 medium</span><span class="mini low">2 low</span></div>
+        </header><p class="empty">Nothing at this priority in this area.</p><article class="finding" data-priority="high" id="fr-7">
           <div class="finding-head">
             <span class="sev high">high</span>
             <h3>Add real foreign keys to the core relationship columns</h3>
             <span class="meta"><span class="id">#7</span> · backend · effort high</span>
           </div>
           <p><code>shared/schema.ts</code> has 60+ columns whose only constraint is a '// references X.id' comment (publication_authors, project_members, publication_research_activities, grant_research_activities, publications.research_activity_id, research_activities.project_id/budget_holder_id, projects.principal_investigator_id, grants.lpi_id, scientists.supervisor_id, irb/ibc PI columns, manuscript_history, certifications). The live DB has 29 FKs, almost all on newer tables. Orphan counts on every core column are currently 0 (only manuscript_history.changed_by has 5), so this is the cheap moment to add them via .references() plus a migration, choosing cascade for pure link tables and restrict for ownership columns. Also clean two pieces of drift: publications.created_by_user_id has two FK constraints (<code>migrations/20260824_add_publication_creator.sql:12</code> plus the drizzle-generated one), and ibc_application_research_activities has two identical unique indexes (<code>migrations/20260609_missing_tables.sql:106</code> plus schema.ts:814).</p>
+          
           <div class="tags"><span>foreign-keys</span><span>migrations</span></div>
         </article>
         <article class="finding" data-priority="medium" id="fr-31">
@@ -218,6 +220,7 @@
             <span class="meta"><span class="id">#31</span> · bugfix · effort low</span>
           </div>
           <p>POST <code>/api/publications</code> (routes.ts:5267-5300) runs createPublication, setPublicationResearchActivities, one or two createManuscriptHistoryEntry calls and the audit insert as separate autocommit statements; a failure after the first leaves a publication with no 'Publication created' timeline row or missing SDR links, which the exemption and finalise rules then misread. The grant bulk import (routes.ts:10446-10500) creates each grant and only in a later pass (seedGrantLinks, :10427) adds its collaborator and co-investigator rows. databaseStorage.ts already uses db.transaction in ten places for status changes and merges; apply the same pattern here, ideally by moving the whole create into a storage method.</p>
+          
           <div class="tags"><span>transactions</span><span>publications</span><span>grants</span></div>
         </article>
         <article class="finding" data-priority="low" id="fr-48">
@@ -227,6 +230,7 @@
             <span class="meta"><span class="id">#48</span> · backend · effort low</span>
           </div>
           <p>grants.status has a CHECK listing its 13 values (<code>shared/schema.ts:1455</code>); publications.status (:341) and research_activities.status (:249) are unconstrained text. The publication workflow encodes a distinct stage as the same column value with a trailing asterisk: 'Published *' is stage 8 in <code>shared/publicationOrdering.ts:20</code>, and getPublicationsForScientist matches with LOWER(TRIM(...)) IN ('published', 'published *') (databaseStorage.ts:1130). Add CHECK constraints from the shared stage lists so a typo cannot create a new stage, and consider a separate boolean or column for the sealed state instead of the asterisk.</p>
+          
           <div class="tags"><span>status</span><span>publications</span></div>
         </article>
         <article class="finding" data-priority="low" id="fr-49">
@@ -236,6 +240,7 @@
             <span class="meta"><span class="id">#49</span> · backend · effort medium</span>
           </div>
           <p>grants uses date for start_date/end_date (schema.ts:1431-1432), but research_activities.start_date/end_date (:251-252), publications.publication_date (:339), patents.filing_date/grant_date (:455-456), irb submission/decision/due dates (:483, 535-549), ibc milestone dates (:688-691) and board-member term dates (:1087-1108) are timestamp without time zone. A calendar date stored as midnight then serialised and shown in a different zone displays the previous day, and insertResearchActivitySchema (:268-277) accepts only z.string().datetime(), so a plain 'YYYY-MM-DD' from a date input is rejected. Migrate these to date and accept plain date strings in the insert schemas.</p>
+          
           <div class="tags"><span>dates</span></div>
         </article>
       </section>
@@ -251,6 +256,7 @@
             <span class="meta"><span class="id">#61</span> · bugfix · effort medium</span>
           </div>
           <p>The PMO application pages cannot complete a round trip. <code>client/src/pages/pmo/applications/edit-ra200.tsx</code> and edit-ra205a.tsx fetch [&quot;<code>/api/ra200-applications</code>&quot;, id] and [&quot;<code>/api/ra205a-applications</code>&quot;, id] and PUT to the same paths, and create-ra205a.tsx POSTs to <code>/api/pmo-applications</code>; none of those routes exist in <code>server/routes.ts</code> (only GET <code>/api/pmo-applications</code> and GET/PUT/DELETE <code>/api/pmo-applications/:id</code>, and the latter three call storage.getPmoApplication / updatePmoApplication / deletePmoApplication, which DatabaseStorage never implemented -- see the critical finding about them). edit-ra205a also reads selectedSdrId, newTitle and approvals, which are not columns of ra205a_applications, so they are stripped on save and fall back to defaults on load. Found while removing @ts-nocheck from these pages, which also fixed a useRoute destructuring that meant the edit pages never had an id, and a create page that navigated to /undefined after saving. Fix: implement the three storage methods, add GET/PUT for the two form types under <code>/api/pmo-applications</code> (dispatching on form_type), add the POST the RA-205A create needs, and either add the three RA-205A columns or drop those fields from the form.</p>
+          <p class="progress"><b>Progress so far.</b> Server side fixed on branch audit-fixes-5 in commit ae6ef81: DatabaseStorage has getPmoApplication/updatePmoApplication/deletePmoApplication (dispatching on form type; a bare id tries RA-200 then RA-205A), and GET+PUT <code>/api/ra200-applications/:id</code>, GET+PUT <code>/api/ra205a-applications/:id</code> and POST <code>/api/pmo-applications</code> (formType in the body) exist. Verified with a create/read/update/delete round trip of each form. STILL OPEN: edit-ra205a.tsx sends selectedSdrId, newTitle and approvals, which are not ra205a_applications columns and are stripped by validation on save (they fall back to defaults on load) -- add the columns or drop the fields.</p>
           <div class="tags"><span>backend</span><span>bugfix</span><span>pmo</span></div>
         </article>
         <article class="finding" data-priority="high" id="fr-59">
@@ -260,6 +266,7 @@
             <span class="meta"><span class="id">#59</span> · bugfix · effort low</span>
           </div>
           <p>POST and PATCH <code>/api/patents</code> (<code>server/routes.ts</code>) validate the body with a schema whose filingDate and grantDate are z.date(), so a date that arrives as a JSON string is refused with 400; the client can only send strings, so creating or editing a patent with a date cannot succeed. The same route checks validateData.projectId, a column patents does not have. Separately, <code>client/src/pages/programs/create.tsx</code> sends a category field the programs table lacks (stripped server-side, so the choice is silently discarded). Found while removing @ts-nocheck from the patent and program pages (commit on audit-fixes). Fix: coerce the two patent dates with z.coerce.date() or z.preprocess as insertPublicationSchema does, drop the projectId check, and either add category to programs or remove it from the form.</p>
+          
           <div class="tags"><span>backend</span><span>bugfix</span><span>patents</span><span>programs</span></div>
         </article>
       </section>
@@ -275,6 +282,7 @@
             <span class="meta"><span class="id">#14</span> · backend · effort medium</span>
           </div>
           <p>The daily scheduled archive (startBulkDataArchiveScheduler, <code>server/index.ts</code> line 197) and Export All (routes.ts line 12302) build the six SECTION_META workbooks (bulkDataHub.ts lines 164-235); the apply path writes 26 schema tables. Never exported: grant_research_activities (GRANT_COLS lines 297-327 has no SDR column), publication_research_activities, manuscript_history, data_management_plans, grant_progress_reports, irb_submissions/irb_documents, ibc_submissions/ibc_documents/ibc_application_comments/_rooms/_ppe, research_contract_scope_items/_extensions/_documents, institutions, contract_types, grant_statuses, certification_configurations, ownership_overrides, system_configurations, irb/ibc_board_members, team_members, feature_requests, audit_log. <code>README.md</code> never mentions the archive, so it is easy to treat it as a backup. Either add sheets for the link tables (grant-SDR, publication-SDR, manuscript history) or state in the UI and README that pg_dump is the backup and the archive is a data-exchange format.</p>
+          
           <div class="tags"><span>bulk-data</span><span>documentation</span></div>
         </article>
         <article class="finding" data-priority="high" id="fr-15">
@@ -284,6 +292,7 @@
             <span class="meta"><span class="id">#15</span> · backend · effort medium</span>
           </div>
           <p><code>docker-compose.mssql.yml</code>, <code>.env.example</code> (mssql rows), <code>docker-entrypoint.sh</code> (mssql branch) and <code>server/db-mssql.ts</code> present SQL Server / Azure SQL as a supported production target, but <code>migrations/mssql/0001_initial_schema.sql</code> creates only 14 of the 58 tables in <code>shared/schema.ts</code> (no grants, publications, irb_applications, ibc_applications, research_contracts, scientists, users among others). <code>migrations/mssql/README.md</code> 'Migration order' lists 0002_indexes.sql and 0003_views.sql that do not exist. A deployment following the docs boots, then fails on the first query. Delete the mssql compose file and docs, or generate the full T-SQL schema the way <code>scripts/generate-sqlite-schema.ts</code> does for SQLite.</p>
+          
           <div class="tags"><span>migrations</span><span>documentation</span></div>
         </article>
         <article class="finding" data-priority="medium" id="fr-37">
@@ -293,6 +302,7 @@
             <span class="meta"><span class="id">#37</span> · backend · effort low</span>
           </div>
           <p><code>docker-compose.yml</code> falls back to 'postgres' for POSTGRES_PASSWORD (lines 19, 37, 76) and to the literal change-me-in-production-use-a-long-random-string for SESSION_SECRET (line 77) when <code>.env</code> leaves them unset; <code>.env.example</code> ships change-me values and <code>setup.sh</code> (lines 30-33) only warns after copying it, with no validation later. A deployment that skips the edit runs with a public session-signing key and database password. Use ${SESSION_SECRET:?set SESSION_SECRET in <code>.env</code>} syntax in compose, have <code>setup.sh</code> reject change-me values (or generate them with openssl rand -hex 32), and have <code>server/index.ts</code> refuse to boot on the known default. The server itself has the same gap: <code>server/index.ts:114</code> falls back to a fixed, source-visible session secret (sha256 of 'research-portal-session-secret') when SESSION_SECRET is missing, and the upload finalize HMAC at <code>server/routes.ts:214</code> falls back to the literal 'dev-fallback-secret', with no warning at startup. Throw at boot when AUTH_MODE is not demo and SESSION_SECRET is absent, shorter than 32 bytes, or the known default, and derive the finalize secret from the checked value.</p>
+          
           <div class="tags"><span>docker</span></div>
         </article>
         <article class="finding" data-priority="medium" id="fr-39">
@@ -302,6 +312,7 @@
             <span class="meta"><span class="id">#39</span> · bugfix · effort medium</span>
           </div>
           <p><code>migrations/sqlite/0001_schema.sql</code> is in full parity (58 tables) and <code>server/db.ts</code> applies it at startup, but the runtime SQL is Postgres-only: sql`now()` appears 35 times across <code>server/databaseStorage.ts</code>, <code>server/routes.ts</code> and <code>server/bulkDataHub.ts</code> (e.g. databaseStorage.ts line 2673 updatedAt: sql`now()`), plus 3 EXTRACT( and 2 jsonb uses. SQLite has no now() function, so every update that touches updated_at fails. <code>docker-compose.sqlite.yml</code> and <code>.env.example</code> advertise this mode for air-gapped deploys. Either replace sql`now()` with a JS new Date() (works on every driver) or drop the SQLite compose file and docs until the storage layer is dialect-neutral.</p>
+          
           <div class="tags"><span>sqlite</span><span>parity</span></div>
         </article>
         <article class="finding" data-priority="low" id="fr-54">
@@ -311,6 +322,7 @@
             <span class="meta"><span class="id">#54</span> · enhancement · effort low</span>
           </div>
           <p><code>README.md</code> line 304 says 'Database schema changes are applied automatically at startup via drizzle-kit push' and line 338 lists npm run db:push; production runs the psql loop in <code>docker-entrypoint.sh</code> and drizzle-kit push is never invoked in the image, so an operator debugging a missing column looks in the wrong place. The Backup/Restore section (lines 257-279) covers only pg_dump and the uploads tar: it omits the demo volume, the scheduled bulk archives, that docker compose stop app also stops the daily archive, and that a restored local-mode database contains no account that can sign in (the User Accounts sheet carries no credentials, bulkDataHub.ts line 231). Rewrite the Updating and Backup sections to describe the entrypoint migration loop and a tested restore sequence.</p>
+          
           <div class="tags"><span>documentation</span></div>
         </article>
       </section>
@@ -326,6 +338,7 @@
             <span class="meta"><span class="id">#42</span> · backend · effort high</span>
           </div>
           <p><code>server/routes.ts</code> is 12,565 lines under @ts-nocheck with 299 route registrations inside a single registerRoutes function that starts at line 1194; lines 440-1190 are also pure external-discovery helpers (fetchOrcidWorks, fetchCrossrefWork, fetchPubmedByDoi, discoverOpenAlex/Pubmed/Crossref/EuropePmc/Orcid) with no tests. The prefix counts show the natural seams: publications 33, ibc-applications 21, research-contracts 19, grants 16, research-activities 15, scientists 14, projects 14, journal-impact-factors 14, bulk-data 9. The repo already has ten dependency-injected modules (institutionRoutes.ts, researchPortfolioRoutes.ts, publicationWorkflowRoutes.ts, etc.) each with an express-level test, so move one prefix at a time into <code>server/routes/</code>&lt;domain&gt;.ts exposing register&lt;Domain&gt;Routes(app) and lift the discovery helpers into a publicationDiscovery.ts that can be unit tested with a mocked fetch.</p>
+          <p class="progress"><b>Progress so far.</b> Partly done. audit-fixes-2 (5fd4f63): publication discovery helpers -&gt; <code>server/publicationDiscovery.ts.</code> audit-fixes-4 (df37544): ibc (36 routes), research-contracts (20), organisation+facilities (23) and journal-impact-factors (15) moved. audit-fixes-5 (607b473): certificate OCR (3), grants (20), SDR import (3), certifications (13), settings + PDF import history (12), PMO applications + team members (17 after #61), admin users + registration (6), access checks (5), bulk data (9), audit log (2) moved; object-storage factory -&gt; <code>server/objectStorageService.ts</code>, writeFailureDetail -&gt; <code>server/writeFailureDetail.ts</code>; <code>server/db.ts</code> exports a typed db (NodePgDatabase&lt;typeof schema&gt;) so the moved modules compile without @ts-nocheck. routes.ts is 5,484 lines (was 13,200) and still holds publications, staff/scientists, projects, research activities, IRB, dashboards/reports and the /objects routes, plus @ts-nocheck. routeInventory.test.ts pins 14 modules / 184 routes.</p>
           <div class="tags"><span>refactor</span><span>maintainability</span><span>backend</span></div>
         </article>
       </section>
