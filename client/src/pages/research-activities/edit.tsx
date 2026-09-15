@@ -237,7 +237,7 @@ export default function EditResearchActivity() {
                         <SelectContent>
                           <SelectItem value="planning">Planning</SelectItem>
                           <SelectItem value="active">Active</SelectItem>
-                          <SelectItem value="on-hold">On Hold</SelectItem>
+                          <SelectItem value="on_hold">On Hold</SelectItem>
                           <SelectItem value="completed">Completed</SelectItem>
                         </SelectContent>
                       </Select>

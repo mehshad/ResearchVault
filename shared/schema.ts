@@ -4,6 +4,7 @@ import { sql } from "drizzle-orm";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 import { GRANT_STATUS_VALUES } from "./grantLifecycle";
+import { PUBLICATION_STATUS_VALUES } from "./publicationWorkflow";
 
 // Contract type definitions - shared across all components
 export const CONTRACT_TYPES = [
@@ -16,6 +17,13 @@ export const CONTRACT_TYPES = [
   "Consulting Agreement",
   "Licensing Agreement"
 ] as const;
+
+/** The states an SDR can be in; the CHECK on research_activities.status lists exactly these (#48). */
+export const RESEARCH_ACTIVITY_STATUS_VALUES = ["planning", "active", "completed", "on_hold"] as const;
+export type ResearchActivityStatus = (typeof RESEARCH_ACTIVITY_STATUS_VALUES)[number];
+
+/** `'a', 'b'` for a CHECK ... IN (...) clause; the values are ours, never user input. */
+const sqlList = (values: readonly string[]) => sql.raw(values.map((v) => `'${v.replace(/'/g, "''")}'`).join(", "));
 
 export const CONTRACT_STATUS_VALUES = [
   "submitted",
@@ -267,6 +275,8 @@ export const researchActivities = pgTable("research_activities", {
   // filters on. Mirrored in migrations/20260915_hot_lookup_indexes.sql.
   projectIdx: index("research_activities_project_idx").on(table.projectId),
   budgetHolderIdx: index("research_activities_budget_holder_idx").on(table.budgetHolderId),
+  // A typo cannot invent a state. Mirrored in migrations/20260916_status_checks.sql.
+  statusValid: check("research_activities_status_valid", sql`${table.status} IN (${sqlList(RESEARCH_ACTIVITY_STATUS_VALUES)})`),
 }));
 
 export const insertResearchActivitySchema = createInsertSchema(researchActivities).omit({
@@ -370,6 +380,10 @@ export const publications = pgTable("publications", {
 }, (table) => ({
   // The publications under an SDR; see migrations/20260915_hot_lookup_indexes.sql.
   researchActivityIdx: index("publications_research_activity_idx").on(table.researchActivityId),
+  // Every value is a workflow stage or one of the two outcomes; "Published *"
+  // stays a value because the sealed stage is read from it in a dozen places.
+  // Mirrored in migrations/20260916_status_checks.sql.
+  statusValid: check("publications_status_valid", sql`${table.status} IN (${sqlList(PUBLICATION_STATUS_VALUES)})`),
 }));
 
 export const insertPublicationSchema = createInsertSchema(publications).omit({
