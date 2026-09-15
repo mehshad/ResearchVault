@@ -141,6 +141,17 @@ export const PUBLICATION_WORKFLOW_STAGES: PublicationWorkflowStage[] = [
 ];
 
 /**
+ * Every value publications.status may hold: the stages in order, then the two
+ * outcomes. The database CHECK lists exactly these (#48), so a new status is
+ * added here and in a migration, never by typing it into a form.
+ */
+export const PUBLICATION_STATUS_VALUES: readonly string[] = [
+  ...PUBLICATION_WORKFLOW_STAGES.flatMap((stage) => stage.statuses),
+  PUBLISHED_INVALID_STATUS,
+  WITHDRAWN_STATUS,
+];
+
+/**
  * Outcomes drawn beside the sequence, as cards rather than as steps.
  *
  * Published - Invalid is where a published record goes when the office sends it
