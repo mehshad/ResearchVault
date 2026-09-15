@@ -16,6 +16,7 @@ import { ArrowLeft, Save, Calendar, Loader2 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { insertResearchActivitySchema, type InsertResearchActivity, type ResearchActivity, type Project, type Scientist } from "@shared/schema";
 import { apiRequest } from "@/lib/queryClient";
+import { z } from "zod";
 import { CalendarIcon } from "lucide-react";
 import { format } from "date-fns";
 import { cn } from "@/lib/utils";
@@ -58,8 +59,15 @@ export default function EditResearchActivity() {
 
 
 
-  const form = useForm<InsertResearchActivity>({
-    resolver: zodResolver(insertResearchActivitySchema),
+  // The calendar works in Dates; the API takes the day as YYYY-MM-DD, which
+  // onSubmit produces.
+  const editFormSchema = insertResearchActivitySchema.extend({
+    startDate: z.date().nullable().optional(),
+    endDate: z.date().nullable().optional(),
+  });
+  type EditForm = z.infer<typeof editFormSchema>;
+  const form = useForm<EditForm>({
+    resolver: zodResolver(editFormSchema),
     defaultValues: {
       sdrNumber: "",
       title: "",
@@ -121,12 +129,13 @@ export default function EditResearchActivity() {
     },
   });
 
-  const onSubmit = (data: InsertResearchActivity) => {
+  const onSubmit = (data: EditForm) => {
     // Convert Date objects to ISO strings for API, handle null values properly  
     const formattedData = {
       ...data,
-      startDate: data.startDate ? data.startDate.toISOString() : null,
-      endDate: data.endDate ? data.endDate.toISOString() : null,
+      // The day as picked, not its UTC instant (see create.tsx).
+      startDate: data.startDate ? format(data.startDate, "yyyy-MM-dd") : null,
+      endDate: data.endDate ? format(data.endDate, "yyyy-MM-dd") : null,
       description: data.description || null,
       objectives: data.objectives || null,
       budgetSource: data.budgetSource || null,

@@ -1110,8 +1110,8 @@ function sdrsToRows(
     shortTitle: a.shortTitle ?? "",
     description: a.description ?? "",
     status: a.status,
-    startDate: a.startDate ? new Date(a.startDate).toISOString().slice(0, 10) : "",
-    endDate: a.endDate ? new Date(a.endDate).toISOString().slice(0, 10) : "",
+    startDate: a.startDate ?? "",
+    endDate: a.endDate ?? "",
     budgetHolderEmail: a.budgetHolderId ? (scientistById.get(a.budgetHolderId)?.email ?? "") : "",
     additionalNotificationEmail: a.additionalNotificationEmail ?? "",
     sidraBranch: a.sidraBranch ?? "",
@@ -1205,8 +1205,8 @@ function patentsToRows(
     title: p.title,
     inventors: p.inventors,
     status: p.status,
-    filingDate: p.filingDate ? new Date(p.filingDate).toISOString().slice(0, 10) : "",
-    grantDate: p.grantDate ? new Date(p.grantDate).toISOString().slice(0, 10) : "",
+    filingDate: p.filingDate ?? "",
+    grantDate: p.grantDate ?? "",
     sdrNumber: p.researchActivityId ? (sdrByDbId.get(p.researchActivityId)?.sdrNumber ?? "") : "",
     description: p.description ?? "",
   }));
@@ -1228,7 +1228,7 @@ function publicationsToRows(
     pages: p.pages ?? "",
     doi: p.doi ?? "",
     pmid: p.pmid ?? "",
-    publicationDate: p.publicationDate ? p.publicationDate.toISOString().slice(0, 10) : "",
+    publicationDate: p.publicationDate ?? "",
     publicationType: p.publicationType ?? "",
     prepublicationUrl: p.prepublicationUrl ?? "",
     prepublicationSite: p.prepublicationSite ?? "",
@@ -2812,10 +2812,10 @@ function previewSdrRows(
     if (ane !== undefined) data.additionalNotificationEmail = ane;
 
     if (row.startDate && row.startDate !== "") {
-      data.startDate = parseDateTimestamp(row.startDate, "Start Date", errors);
+      data.startDate = parseDateStr(row.startDate, "Start Date", errors);
     }
     if (row.endDate && row.endDate !== "") {
-      data.endDate = parseDateTimestamp(row.endDate, "End Date", errors);
+      data.endDate = parseDateStr(row.endDate, "End Date", errors);
     }
 
     if (row.budgetSource !== undefined && row.budgetSource !== "") {
@@ -3258,10 +3258,10 @@ function previewPatentRows(
     if (desc !== undefined) data.description = desc;
 
     if (row.filingDate && row.filingDate !== "") {
-      data.filingDate = parseDateTimestamp(row.filingDate, "Filing Date", errors);
+      data.filingDate = parseDateStr(row.filingDate, "Filing Date", errors);
     }
     if (row.grantDate && row.grantDate !== "") {
-      data.grantDate = parseDateTimestamp(row.grantDate, "Grant Date", errors);
+      data.grantDate = parseDateStr(row.grantDate, "Grant Date", errors);
     }
 
     // Resolve SDR
@@ -3387,9 +3387,9 @@ function previewPublicationRows(
     const doiRaw = (row.doi ?? "").trim();
     const doi = doiRaw && !isClear(doiRaw) ? normalizeDoi(doiRaw) : "";
     const pmid = normalizeScalarKey(row.pmid);
-    let publicationDate: Date | null | undefined;
+    let publicationDate: string | null | undefined;
     if ((row.publicationDate ?? "") !== "") {
-      publicationDate = parseDateTimestamp(row.publicationDate, "Publication Date", errors);
+      publicationDate = parseDateStr(row.publicationDate, "Publication Date", errors);
     }
     const composite = publicationCompositeKey(row.title, publicationDate, row.journal);
     // Fallback identity for records that have not been published yet and so

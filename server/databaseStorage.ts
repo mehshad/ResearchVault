@@ -685,13 +685,8 @@ export class DatabaseStorage {
   }
 
   async updatePublication(id: number, publication: Partial<InsertPublication>): Promise<Publication | undefined> {
-    // Handle date conversions properly
     const updateData = { ...publication };
     
-    // Convert date strings to Date objects if needed
-    if (updateData.publicationDate && typeof updateData.publicationDate === 'string') {
-      updateData.publicationDate = new Date(updateData.publicationDate);
-    }
     
     // Standardize author names if provided
     if (updateData.authors && typeof updateData.authors === 'string') {
@@ -964,9 +959,6 @@ export class DatabaseStorage {
           .find((publication) => publication.createdByUserId != null)
           ?.createdByUserId ??
         null;
-      if (updateData.publicationDate && typeof updateData.publicationDate === "string") {
-        updateData.publicationDate = new Date(updateData.publicationDate);
-      }
 
       // Preserve preprint linkage: when a preprint is merged into its published
       // version, the published DOI correctly wins, but the preprint's own

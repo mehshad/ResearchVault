@@ -22,6 +22,21 @@ export const CONTRACT_TYPES = [
 export const RESEARCH_ACTIVITY_STATUS_VALUES = ["planning", "active", "completed", "on_hold"] as const;
 export type ResearchActivityStatus = (typeof RESEARCH_ACTIVITY_STATUS_VALUES)[number];
 
+/**
+ * A calendar date as a form or an import sends it -- a Date, an ISO date-time,
+ * or YYYY-MM-DD -- normalised to YYYY-MM-DD, or null when cleared. The date
+ * columns hold a day, so the time part is dropped, not converted (#49).
+ */
+export const dateOnlyInput = z.preprocess(
+  (value) => {
+    if (value === "" || value == null) return null;
+    if (value instanceof Date) return Number.isNaN(value.getTime()) ? value : value.toISOString().slice(0, 10);
+    if (typeof value === "string" && /^\d{4}-\d{2}-\d{2}/.test(value)) return value.slice(0, 10);
+    return value;
+  },
+  z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Expected a date as YYYY-MM-DD").nullable().optional(),
+);
+
 /** `'a', 'b'` for a CHECK ... IN (...) clause; the values are ours, never user input. */
 const sqlList = (values: readonly string[]) => sql.raw(values.map((v) => `'${v.replace(/'/g, "''")}'`).join(", "));
 
@@ -256,8 +271,9 @@ export const researchActivities = pgTable("research_activities", {
   shortTitle: text("short_title"), // Short, catchy title for better recognition
   description: text("description"),
   status: text("status").notNull().default("planning"), // planning, active, completed, on_hold
-  startDate: timestamp("start_date"),
-  endDate: timestamp("end_date"),
+  // A day, not a moment (#49): stored as date so no zone can shift it.
+  startDate: date("start_date"),
+  endDate: date("end_date"),
   budgetHolderId: integer("budget_holder_id"), // references scientists.id (Principal Investigator/Budget Holder)
   additionalNotificationEmail: text("additional_notification_email"),
   sidraBranch: text("sidra_branch"), // Research, Clinical, External
@@ -286,17 +302,8 @@ export const insertResearchActivitySchema = createInsertSchema(researchActivitie
   startDate: true,
   endDate: true,
 }).extend({
-  // Accept both Date objects and ISO string dates
-  startDate: z.union([
-    z.date(),
-    z.string().datetime().transform((val) => new Date(val)),
-    z.literal("").transform(() => undefined)
-  ]).nullable().optional(),
-  endDate: z.union([
-    z.date(),
-    z.string().datetime().transform((val) => new Date(val)),
-    z.literal("").transform(() => undefined)
-  ]).nullable().optional(),
+  startDate: dateOnlyInput,
+  endDate: dateOnlyInput,
 });
 
 // This is no longer needed as we have a proper Projects schema now
@@ -355,7 +362,7 @@ export const publications = pgTable("publications", {
   pages: text("pages"),
   doi: text("doi"), // Digital Object Identifier
   pmid: text("pmid"), // PubMed ID for imported publications
-  publicationDate: timestamp("publication_date"),
+  publicationDate: date("publication_date"), // a day, not a moment (#49)
   publicationType: text("publication_type"), // Journal Article, Conference Paper, Book, etc.
   status: text("status").default("Concept"), // Workflow status
   invalidReason: text("invalid_reason"),
@@ -392,19 +399,7 @@ export const insertPublicationSchema = createInsertSchema(publications).omit({
   createdAt: true,
   updatedAt: true,
 }).extend({
-  publicationDate: z.preprocess(
-    (val) => {
-      // Empty string from a cleared <input type="date"> must become null —
-      // `new Date("")` produces an Invalid Date which then fails z.date()
-      // validation, blocking the user from clearing a publication date.
-      if (val === '' || val == null) return null;
-      if (typeof val === 'string') {
-        return new Date(val);
-      }
-      return val;
-    },
-    z.date().nullable().optional()
-  )
+  publicationDate: dateOnlyInput,
 });
 
 // Publication Authors (Many-to-Many relationship to track authorship types)
@@ -485,8 +480,8 @@ export const patents = pgTable("patents", {
   researchActivityId: integer("research_activity_id"), // references researchActivities.id
   title: text("title").notNull(),
   inventors: text("inventors").notNull(),
-  filingDate: timestamp("filing_date"),
-  grantDate: timestamp("grant_date"),
+  filingDate: date("filing_date"), // days, not moments (#49)
+  grantDate: date("grant_date"),
   patentNumber: text("patent_number"),
   status: text("status").notNull(), // Filed, Granted, Rejected, etc.
   description: text("description"),
@@ -498,6 +493,9 @@ export const insertPatentSchema = createInsertSchema(patents).omit({
   id: true,
   createdAt: true,
   updatedAt: true,
+}).extend({
+  filingDate: dateOnlyInput,
+  grantDate: dateOnlyInput,
 });
 
 // IRB Applications (Institutional Review Board)
