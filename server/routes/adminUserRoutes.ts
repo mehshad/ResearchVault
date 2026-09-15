@@ -5,7 +5,8 @@
 import type { Express, Request, Response } from "express";
 import { toAdminUserResponse } from "../adminUsers";
 import { buildAssignableRoles } from "../assignableRoles";
-import { requireAdmin, requireAuth } from "../auth";
+import { adminChangeRefusal, countOtherAdministrators } from "../adminSafety";
+import { loadSecondaryRoles, requireAdmin, requireAuth } from "../auth";
 import { storage } from "../databaseStorage";
 import { db } from "../db";
 import { requireInvestigatorDesignationManager } from "../investigatorDesignationPolicy";
@@ -114,6 +115,24 @@ export function registerAdminUserRoutes(app: Express): void {
       const [target] = await db.select({ id: users.id, role: users.role }).from(users).where(eq(users.id, id)).limit(1);
       if (!target) return res.status(404).json({ message: 'User not found' });
 
+      // Snapshot current secondary roles before replacing them.
+      const prevAssignments = await db
+        .select({ name: roleGroups.name })
+        .from(userRoleAssignments)
+        .innerJoin(roleGroups, eq(userRoleAssignments.roleGroupId, roleGroups.id))
+        .where(eq(userRoleAssignments.userId, id));
+      const prevRoles = prevAssignments.map((a) => a.name).sort();
+
+      // Never the caller's own administrator rights, never the last ones (#25).
+      const refusal = adminChangeRefusal({
+        targetId: id,
+        callerId: req.session?.user?.id ?? null,
+        before: { role: target.role, secondaryRoles: prevRoles },
+        after: { role: target.role, secondaryRoles: requested },
+        otherAdministrators: await countOtherAdministrators(id),
+      });
+      if (refusal) return res.status(409).json({ message: refusal });
+
       await ensureDefaultRoleGroups();
       const groups = requested.length
         ? await db.select({ id: roleGroups.id, name: roleGroups.name })
@@ -147,14 +166,6 @@ export function registerAdminUserRoutes(app: Express): void {
       // holding one role in both costs nothing.
       void target.role;
       const keep = groups;
-
-      // Snapshot current secondary roles before replacing them.
-      const prevAssignments = await db
-        .select({ name: roleGroups.name })
-        .from(userRoleAssignments)
-        .innerJoin(roleGroups, eq(userRoleAssignments.roleGroupId, roleGroups.id))
-        .where(eq(userRoleAssignments.userId, id));
-      const prevRoles = prevAssignments.map((a) => a.name).sort();
 
       await db.transaction(async (tx: any) => {
         await tx.delete(userRoleAssignments).where(eq(userRoleAssignments.userId, id));
@@ -217,6 +228,19 @@ export function registerAdminUserRoutes(app: Express): void {
       }
 
       const [before] = await db.select({ id: users.id, role: users.role }).from(users).where(eq(users.id, id)).limit(1);
+      if (!before) return res.status(404).json({ message: 'User not found' });
+
+      // Never the caller's own administrator rights, never the last ones (#25).
+      const secondaryRoles = await loadSecondaryRoles(id);
+      const refusal = adminChangeRefusal({
+        targetId: id,
+        callerId: req.session?.user?.id ?? null,
+        before: { role: before.role, secondaryRoles },
+        after: { role, secondaryRoles },
+        otherAdministrators: await countOtherAdministrators(id),
+      });
+      if (refusal) return res.status(409).json({ message: refusal });
+
       const updated = await storage.updateUser(id, { role } as any);
       if (!updated) return res.status(404).json({ message: 'User not found' });
 
