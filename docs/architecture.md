@@ -73,7 +73,7 @@ The Research Portal System is a full-stack web application built for managing sc
 
 ### Database Architecture
 - **Database**: PostgreSQL 16, in Docker alongside the app (see README)
-- **Schema Management**: Drizzle Kit for migrations and schema evolution
+- **Schema Management**: `shared/schema.ts` is the source of truth; production applies the SQL files listed in `docker-entrypoint.sh` at container start (README → Updating). `drizzle-kit push` is a development shortcut and is never run in the image
 
 ## Key Components
 
@@ -126,7 +126,7 @@ The Research Portal System is a full-stack web application built for managing sc
 ### Database Operations
 1. Schema defined in shared TypeScript files
 2. Drizzle generates type-safe query builders
-3. Migrations managed through Drizzle Kit
+3. Migrations are hand-written SQL under `migrations/`, listed in `docker-entrypoint.sh` and applied at container start
 4. Connection pooling via the pg pool (a Neon serverless client is used only when DATABASE_URL points at neon.tech)
 
 ## External Dependencies
@@ -168,10 +168,10 @@ The Research Portal System is a full-stack web application built for managing sc
 - Production database with connection pooling
 
 ### Database Management
-- Schema migrations via `drizzle-kit push`
+- Schema migrations via the entrypoint's SQL list (`drizzle-kit push` in development only)
 - Seed data scripts for initial setup
 - Environment-based configuration
-- Backup and recovery procedures (external to application)
+- Backup: `pg_dump` plus the uploads directory; the application also writes a daily bulk-data archive of Excel workbooks that restores through the interface (README → Backup)
 
 ## Authentication (multi-provider, SSO off by default)
 
