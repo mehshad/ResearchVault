@@ -21,7 +21,8 @@ import { dirname, join } from "node:path";
  * before it reaches the column.
  */
 const here = dirname(fileURLToPath(import.meta.url));
-const routes = readFileSync(join(here, "routes.ts"), "utf-8");
+// The publication routes live in their own module since the split (#42).
+const routes = readFileSync(join(here, "routes", "publicationRoutes.ts"), "utf-8");
 
 const statusRoute = (() => {
   const start = routes.indexOf("app.patch('/api/publications/:id/status'");

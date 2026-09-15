@@ -35,7 +35,7 @@ export default function DataManagementList() {
       (plan.dataCollectionMethods && plan.dataCollectionMethods.toLowerCase().includes(searchQuery.toLowerCase())) ||
       (plan.dataStoragePlan && plan.dataStoragePlan.toLowerCase().includes(searchQuery.toLowerCase())) ||
       (plan.dataSharingPlan && plan.dataSharingPlan.toLowerCase().includes(searchQuery.toLowerCase())) ||
-      (plan.project && plan.project.title.toLowerCase().includes(searchQuery.toLowerCase()))
+      (plan.researchActivity && `${plan.researchActivity.sdrNumber} ${plan.researchActivity.title}`.toLowerCase().includes(searchQuery.toLowerCase()))
     );
   });
 
@@ -95,7 +95,7 @@ export default function DataManagementList() {
               <TableHeader>
                 <TableRow>
                   <TableHead className="w-[40%]">Plan Title</TableHead>
-                  <TableHead>Project</TableHead>
+                  <TableHead>Research activity</TableHead>
                   <TableHead>Data Collection Methods</TableHead>
                   <TableHead>Storage & Sharing</TableHead>
                   <TableHead>Retention Period</TableHead>
@@ -119,10 +119,10 @@ export default function DataManagementList() {
                       )}
                     </TableCell>
                     <TableCell>
-                      {plan.project ? (
-                        <Link href={`/projects/${plan.project.id}`}>
+                      {plan.researchActivity ? (
+                        <Link href={`/research-activities/${plan.researchActivity.id}`}>
                           <a className="text-primary-500 hover:text-primary-600 transition-colors text-sm">
-                            {plan.project.title}
+                            {plan.researchActivity.sdrNumber} — {plan.researchActivity.title}
                           </a>
                         </Link>
                       ) : (
