@@ -49,7 +49,7 @@ cd ResearchVault
 #      POSTGRES_PASSWORD   — database password
 #      SESSION_SECRET      — long random string (e.g. openssl rand -hex 32)
 #      APP_URL             — public URL users will access (e.g. https://rv.hospital.org)
-#      AUTH_MODE           — demo | local | ldap | oidc (see below)
+#      AUTH_MODE           — local | ldap | oidc (see below; DEMO_LOGIN=1 adds demo sign-in)
 nano .env
 
 # 4. Re-run to build and start
@@ -98,21 +98,15 @@ UPLOADS_DATA_DIR=/mnt/data/researchvault/uploads
 
 Set `AUTH_MODE` in `.env` to one of: `demo`, `local`, `ldap`, `oidc`.
 
-### Demo mode
+### Demo sign-in (any mode)
+
+There is no demo *mode* any more: every request goes through the same authentication and the same guards. For demonstrations, seed the demo accounts (see *Seeding demo data* below) and turn on password-less sign-in for them:
 
 ```bash
-AUTH_MODE=demo
+DEMO_LOGIN=1
 ```
 
-No login page. A guest user is automatically injected for every session. Ideal for demonstrations and evaluations. All features are fully accessible.
-
-Optionally customise the demo user:
-
-```bash
-DEMO_NAME=Demo User
-DEMO_EMAIL=demo@hospital.org
-DEMO_ROLE=Management   # any role in the system
-```
+The login page then offers an account picker — one account per access role, from `demo.investigator` to `demo.superadmin` — and the sidebar lets you switch between them. Only accounts marked `auth_provider = 'demo'` can be entered this way; real accounts still sign in normally. Leave `DEMO_LOGIN` unset in production.
 
 ---
 
@@ -256,29 +250,44 @@ All persistent data lives in two host directories:
 
 ### Backup
 
-```bash
-# Stop the app to ensure a consistent database snapshot
-docker compose stop app
+There are two layers, and they are not interchangeable.
 
-# Back up the database
+**The database dump is the backup.** It holds everything the application stores, including the parts the workbooks below leave out. `pg_dump` takes a consistent snapshot on its own, so the app can keep running. Uploaded files live outside the database in `UPLOADS_DATA_DIR`; back them up alongside.
+
+```bash
+# Database
 docker compose exec postgres pg_dump -U postgres researchvault > backup-$(date +%Y%m%d).sql
 
-# Back up uploaded files
+# Uploaded files (this directory also holds the daily bulk-data archives)
 tar -czf uploads-$(date +%Y%m%d).tar.gz -C $UPLOADS_DATA_DIR .
-
-# Restart
-docker compose start app
 ```
+
+**The bulk-data archive is a second, readable copy.** Every day at 02:00 (Asia/Riyadh) the app writes a ZIP of seven Excel workbooks — one per section — to `UPLOADS_DATA_DIR/bulk-data-archives/` and keeps the newest 30. An administrator can also generate or download one at any time under **Settings → Data Import & Export → Export all**. It covers every table the application uses and restores through the interface, section by section, with a preview before anything is written — so it is the right tool for moving data between environments, repairing one section, or reading the data without the app. It is not a substitute for the dump:
+
+- It does not carry the PMO application forms (RA-200 / RA-205A), the IRB and IBC working records (submissions, documents, comments, rooms, board members), the PDF import log, uploaded files themselves, or any credential (passwords, sessions, the CITI API key). The same list is shown next to the workbooks in the interface.
+- The scheduler runs inside the `app` container. While `app` is stopped no archive is written, and an archive is only as fresh as the last 02:00 at which the app was running.
+
+The demo stack (`postgres-demo`, `app-demo`) uses its own volumes (`pg-demo-data`, `demo-uploads`). Nothing above touches them and they need no backup.
 
 ### Restore
 
-```bash
-# Restore database
-cat backup-20240101.sql | docker compose exec -T postgres psql -U postgres researchvault
+**From a database dump** — the normal path. Stop the app first so nothing writes during the restore; the migrations that run at the next start are idempotent.
 
-# Restore uploads
+```bash
+docker compose stop app
+cat backup-20240101.sql | docker compose exec -T postgres psql -U postgres researchvault
 tar -xzf uploads-20240101.tar.gz -C $UPLOADS_DATA_DIR
+docker compose start app
 ```
+
+**From the bulk-data archive** — a new environment, or one section of an existing one. This sequence has been run end to end; the order and the account step are the two things that are not obvious.
+
+1. Start the stack on an empty database. The entrypoint creates the schema by running the migration list.
+2. Get one account that can sign in. The User Accounts sheet carries no credentials, so a database restored from workbooks alone has **nobody who can log in**.
+   - Local mode: create the first administrator as shown under *Local mode* above, or — after restoring Access Control — set a password on one of the restored accounts: `UPDATE users SET password = encode(sha256('your-password'::bytea), 'hex') WHERE username = '…';`
+   - LDAP / OIDC: sign in as `SUPER_ADMIN_EMAIL`; that account is promoted on login.
+3. Restore the sections in this order under **Settings → Data Import & Export → Bulk data workbook** (choose the section, upload its workbook from the ZIP, review the preview, apply): **Research Management → Access Control → PMO Office → Research Office → Research Output → Research Compliance → Platform**. Each later section refers to staff, accounts, programmes or SDRs created by an earlier one. A preview must show no errors before it can be applied; a row that fails at write time is reported by sheet and row number, and ticking "Skip the rows that failed validation" imports the rest.
+4. Link the restoring account to its staff profile (`users.scientist_id`, or Settings → Users) once Research Management is in: publications and certifications are only created on behalf of an account with a profile. If Research Management was applied before that link existed, apply it once more to pick up the certifications it had to skip.
 
 ---
 
@@ -303,6 +312,8 @@ docker compose up -d
 
 Database schema changes are applied at container start by `docker-entrypoint.sh`, which runs the SQL files it lists under `migrations/` with `psql`. `drizzle-kit push` is never run in the image; it is a development convenience only (see below). A new table or column therefore needs a migration file **and** a line in the entrypoint's list, or it will exist in development and not in production.
 
+Each file is run in full, and the container stops on any error other than "already exists" or a duplicate-key clash, which is what a migration reports when it has run before. So a start that fails right after `docker compose up` is usually a migration: `docker compose logs app` shows the file and the statement. Before adding a migration, replay the whole list twice against a scratch database — once empty, once again — and expect no errors on the first pass and only those two kinds on the second.
+
 ---
 
 ## Development Setup
@@ -320,7 +331,7 @@ npm install
 
 # Create a local .env (or set env vars directly)
 cp .env.example .env
-# Edit .env: set DATABASE_URL, AUTH_MODE=demo for easiest local dev
+# Edit .env: set DATABASE_URL, AUTH_MODE=local and DEMO_LOGIN=1 for the easiest local dev
 
 # Start development server (hot-reload)
 npm run dev
