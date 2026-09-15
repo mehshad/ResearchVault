@@ -620,7 +620,7 @@ export class DatabaseStorage {
     return updatedPublication;
   }
 
-  async repairPreprintPublication(id: number, changedBy: number): Promise<{ publication?: Publication; reason?: string }> {
+  async repairPreprintPublication(id: number, changedBy: number | null): Promise<{ publication?: Publication; reason?: string }> {
     return await db.transaction(async (tx) => {
       const [current] = await tx
         .select()
@@ -776,7 +776,7 @@ export class DatabaseStorage {
     survivorId: number,
     mergeIds: number[],
     overrides: Partial<InsertPublication>,
-    changedBy: number,
+    changedBy: number | null,
   ): Promise<Publication | undefined> {
     const ids = Array.from(new Set(mergeIds)).filter((id) => id !== survivorId);
 
@@ -1042,7 +1042,7 @@ export class DatabaseStorage {
   async updatePublicationStatus(
     id: number,
     status: string,
-    changedBy: number,
+    changedBy: number | null,
     changes?: {field: string, oldValue: string, newValue: string}[],
     expectedStatus?: string,
     updatedFields?: Partial<InsertPublication>,
@@ -1102,7 +1102,7 @@ export class DatabaseStorage {
     expectedStatus: string,
     status: string,
     invalidReason: string | null,
-    changedBy: number,
+    changedBy: number | null,
     changeReason: string,
   ): Promise<Publication | undefined> {
     return db.transaction(async (tx) => {

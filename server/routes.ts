@@ -4075,7 +4075,7 @@ function writeFailureDetail(error: unknown): string {
         });
       }
 
-      const changedBy = req.session?.user?.id || 1;
+      const changedBy = req.session?.user?.id ?? null;
 
       const survivor = await storage.mergePublications(
         survivorId,
@@ -4378,14 +4378,15 @@ function writeFailureDetail(error: unknown): string {
         await storage.setPublicationResearchActivities(publication.id, additionalIds);
       }
 
-      // Create initial history entry for publication creation. Attribute it
-      // to the session user so the timeline shows who created the record;
-      // fall back to the legacy default user id 1 only if no session exists.
+      // Create initial history entry for publication creation, attributed to
+      // the session user so the timeline shows who created the record. With
+      // no session there is nobody to name, and the row says so (null) rather
+      // than crediting the legacy default user 1.
       await storage.createManuscriptHistoryEntry({
         publicationId: publication.id,
         fromStatus: '',
         toStatus: publication.status || 'Concept',
-        changedBy: creatorUserId ?? 1,
+        changedBy: creatorUserId ?? null,
         changeReason: 'Publication created',
       });
 
@@ -4399,7 +4400,7 @@ function writeFailureDetail(error: unknown): string {
           changedField: 'sdrExemption',
           oldValue: null,
           newValue: exemption.fields.sdrExemptionReason as string,
-          changedBy: creatorUserId ?? 1,
+          changedBy: creatorUserId ?? null,
           changeReason: `No SDR: ${exemption.fields.sdrExemptionReason}`,
         });
       }
@@ -4505,7 +4506,7 @@ function writeFailureDetail(error: unknown): string {
           changedField: 'sdrExemption',
           oldValue: existing.sdrExemptionReason ?? null,
           newValue: exemption.fields.sdrExemptionReason as string,
-          changedBy: req.session?.user?.id ?? 1,
+          changedBy: req.session?.user?.id ?? null,
           changeReason: `No SDR: ${exemption.fields.sdrExemptionReason}`,
         });
       }
@@ -4668,10 +4669,10 @@ function writeFailureDetail(error: unknown): string {
             author.scientistId === req.session.user!.scientistId
           ));
 
-      // Status changes now record the real session user id in `changed_by`.
-      // Older rows may instead hold a scientist id (or the legacy default
-      // user id 1), so we left-join both tables and prefer the users.name
-      // when it exists, falling back to the scientist's full name.
+      // changed_by is the account that made the change (a users FK since
+      // finding #8), so the name comes from users alone. It used to left-join
+      // scientists on the same value as well, and a row written with a
+      // scientist id by an older path showed whichever user shared that id.
       const rows = await db
         .select({
           id: manuscriptHistory.id,
@@ -4685,19 +4686,13 @@ function writeFailureDetail(error: unknown): string {
           changeReason: manuscriptHistory.changeReason,
           createdAt: manuscriptHistory.createdAt,
           userName: users.name,
-          scientistFirstName: scientists.firstName,
-          scientistLastName: scientists.lastName,
         })
         .from(manuscriptHistory)
         .leftJoin(users, eq(manuscriptHistory.changedBy, users.id))
-        .leftJoin(scientists, eq(manuscriptHistory.changedBy, scientists.id))
         .where(eq(manuscriptHistory.publicationId, id))
         .orderBy(desc(manuscriptHistory.createdAt));
 
       const history = rows.map((r) => {
-        const scientistName = r.scientistFirstName || r.scientistLastName
-          ? `${r.scientistFirstName ?? ''} ${r.scientistLastName ?? ''}`.trim()
-          : null;
         return {
           id: r.id,
           publicationId: r.publicationId,
@@ -4707,7 +4702,7 @@ function writeFailureDetail(error: unknown): string {
           oldValue: r.oldValue,
           newValue: r.newValue,
           changedBy: r.changedBy,
-          changedByName: r.userName ?? scientistName ?? null,
+          changedByName: r.userName ?? null,
           changeReason:
             canSeeCorrectionReason ||
             (

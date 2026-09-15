@@ -156,6 +156,7 @@ for migration in \
     "migrations/20260914_institution_country.sql" \
     "migrations/20260914_project_principal_investigator.sql" \
     "migrations/20260915_hot_lookup_indexes.sql" \
+    "migrations/20260915_manuscript_history_changed_by_users.sql" \
     "migrations/20260915_retire_legacy_columns.sql"; do
   if [ -f "/app/$migration" ]; then
     echo "  Applying $migration..."
