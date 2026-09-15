@@ -473,7 +473,16 @@ export function registerGrantRoutes(app: Express): void {
         return res.status(400).json({ message: "No valid grant ids were sent." });
       }
 
+      // Snapshot first: the audit entry for each deleted grant needs the row.
+      const snapshots = new Map(
+        (await Promise.all(ids.map((id) => storage.getGrant(id))))
+          .flatMap((grant) => (grant ? [[grant.id, grant] as const] : [])),
+      );
       const result = await storage.deleteIncompleteGrants(ids);
+      for (const id of result.deleted) {
+        const row = snapshots.get(id);
+        if (row) await req.audit.logDelete("grants", id, row as Record<string, unknown>, "Clean-up of incomplete grants");
+      }
       res.json({
         ...result,
         deletedCount: result.deleted.length,
