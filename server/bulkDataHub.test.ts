@@ -16,6 +16,8 @@ import ExcelJS from "exceljs";
 
 import {
   SECTION_META,
+  BulkApplyRowError,
+  describeRowFailure,
   buildTemplateWorkbook,
   applySection,
   getSectionMeta,
@@ -673,4 +675,34 @@ test("skipInvalidRows is opt-in and never the default", () => {
     source.includes("rejected.push("),
     "rejected rows must be reported, never dropped silently",
   );
+});
+
+// ── A strict apply that fails at write time names the row ─────────────────
+// Postgres says "null value in column ... violates not-null constraint" and
+// nothing about which sheet or row; the preview had said the file was fine.
+
+test("BulkApplyRowError says which sheet and row failed, and why", () => {
+  const error = new BulkApplyRowError(
+    { sheetName: "Grants", rowNumber: 42, key: "NPRP-99", reason: "null value in column \"title\" violates not-null constraint" },
+    new Error("driver detail"),
+  );
+  assert.equal(error.name, "BulkApplyRowError");
+  assert.equal(error.message, "Grants row 42 (NPRP-99): null value in column \"title\" violates not-null constraint");
+  assert.ok(error instanceof Error, "it is a real Error, so existing catch blocks still see one");
+});
+
+test("BulkApplyRowError reports itself in the same shape as a skipped row", () => {
+  const error = new BulkApplyRowError({ sheetName: "Scientists", rowNumber: 3, key: "jdoe@sidra.org", reason: "no such department" });
+  assert.deepEqual(error.toRejectedRow(), {
+    sheetName: "Scientists",
+    rowNumber: 3,
+    key: "jdoe@sidra.org",
+    reason: "no such department",
+  });
+});
+
+test("describeRowFailure falls back to a plain message for a non-Error throw", () => {
+  assert.equal(describeRowFailure(new Error("boom")), "boom");
+  assert.equal(describeRowFailure("a string"), "Row could not be applied");
+  assert.equal(describeRowFailure(new Error("")), "Row could not be applied");
 });

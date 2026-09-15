@@ -152,6 +152,7 @@ import { registerGrantStatusRoutes, refreshGrantStatusRegistry } from "./grantSt
 import { registerReferenceListAdminRoutes } from "./referenceListAdmin";
 import {
   applySection as applyBulkDataSection,
+  BulkApplyRowError,
   buildExportWorkbook as buildBulkDataExportWorkbook,
   buildTemplateWorkbook as buildBulkDataTemplateWorkbook,
   getSectionMeta as getBulkDataSectionMeta,
@@ -11598,6 +11599,13 @@ function writeFailureDetail(error: unknown): string {
       );
       res.json(result);
     } catch (error) {
+      if (error instanceof BulkApplyRowError) {
+        // One row failed at write time and the section rolled back. Name the
+        // row, in the shape the lenient path uses for a skipped one, and make
+        // it a 400: the file is what needs fixing, not the server.
+        logError('Bulk data apply refused a row', "routes", error);
+        return res.status(400).json({ message: error.message, rejected: [error.toRejectedRow()] });
+      }
       const message = error instanceof Error ? error.message : 'Failed to apply section import';
       const status = /fingerprint|preview|row error|unknown section|only \.xlsx|required|auditable applying user|limit|not found|duplicate/i.test(message)
         ? 400

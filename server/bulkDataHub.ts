@@ -1863,6 +1863,42 @@ export interface RejectedRow {
   reason: string;
 }
 
+/**
+ * A strict apply (skipInvalidRows off) that failed at write time, on one row.
+ *
+ * Postgres names neither the sheet nor the row -- "null value in column ...
+ * violates not-null constraint" is all it says -- and the preview had passed
+ * the file, so the administrator was left with a bare driver message and a
+ * rolled-back section. This carries what the lenient path already reports for
+ * a skipped row, so both paths answer "which row, and why" the same way.
+ */
+export class BulkApplyRowError extends Error {
+  readonly sheetName: string;
+  readonly rowNumber: number;
+  readonly key: string;
+  readonly reason: string;
+  readonly cause?: unknown;
+
+  constructor(row: RejectedRow, cause?: unknown) {
+    super(`${row.sheetName} row ${row.rowNumber} (${row.key}): ${row.reason}`);
+    this.name = "BulkApplyRowError";
+    this.sheetName = row.sheetName;
+    this.rowNumber = row.rowNumber;
+    this.key = row.key;
+    this.reason = row.reason;
+    this.cause = cause;
+  }
+
+  toRejectedRow(): RejectedRow {
+    return { sheetName: this.sheetName, rowNumber: this.rowNumber, key: this.key, reason: this.reason };
+  }
+}
+
+/** The message to report for a failed row write. */
+export function describeRowFailure(error: unknown): string {
+  return error instanceof Error && error.message ? error.message : "Row could not be applied";
+}
+
 export interface ApplySectionOptions {
   /**
    * Apply the valid rows and report the rest instead of refusing the whole
@@ -4876,7 +4912,15 @@ export async function applySection(
         };
 
         if (!skipInvalidRows) {
-          await applyOne(tx);
+          try {
+            await applyOne(tx);
+          } catch (error) {
+            // The section rolls back; say which row so the file can be fixed.
+            throw new BulkApplyRowError(
+              { sheetName, rowNumber: entry.rowNumber, key: entry.key, reason: describeRowFailure(error) },
+              error,
+            );
+          }
           appliedEntries.push(entry);
         } else {
           try {
@@ -4904,8 +4948,20 @@ export async function applySection(
       if (sheetName === "Scientists") {
         for (const entry of appliedEntries) {
           if (!skipInvalidRows) {
-            await applyScientistSupervisor(tx, entry, entry.data ?? {});
-            await applyScientistOrgPlacement(tx, entry, entry.data ?? {}, newDepartmentByKey, newSectionByKey);
+            try {
+              await applyScientistSupervisor(tx, entry, entry.data ?? {});
+              await applyScientistOrgPlacement(tx, entry, entry.data ?? {}, newDepartmentByKey, newSectionByKey);
+            } catch (error) {
+              throw new BulkApplyRowError(
+                {
+                  sheetName,
+                  rowNumber: entry.rowNumber,
+                  key: entry.key,
+                  reason: `Record imported, but linking failed: ${describeRowFailure(error)}`,
+                },
+                error,
+              );
+            }
             continue;
           }
           try {
