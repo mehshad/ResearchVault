@@ -709,12 +709,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const blockers = await storage.getProgramDeleteBlockers(id);
       if (blockers.length > 0) return res.status(409).json(deleteRefusal(blockers));
 
+      const existing = await storage.getProgram(id);
       const success = await storage.deleteProgram(id);
       
       if (!success) {
         return res.status(404).json({ message: "Program not found" });
       }
       
+      if (existing) await req.audit.logDelete("programs", id, existing as Record<string, unknown>);
       res.status(204).send();
     } catch (error) {
       res.status(500).json({ message: "Failed to delete program" });
@@ -822,12 +824,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const blockers = await storage.getProjectDeleteBlockers(id);
       if (blockers.length > 0) return res.status(409).json(deleteRefusal(blockers));
 
+      const existing = await storage.getProject(id);
       const success = await storage.deleteProject(id);
       
       if (!success) {
         return res.status(404).json({ message: "Project not found" });
       }
       
+      if (existing) await req.audit.logDelete("projects", id, existing as Record<string, unknown>);
       res.status(204).send();
     } catch (error) {
       res.status(500).json({ message: "Failed to delete project" });
@@ -1584,10 +1588,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const blockers = await storage.getResearchActivityDeleteBlockers(id);
       if (blockers.length > 0) return res.status(409).json(deleteRefusal(blockers));
 
+      const existing = await storage.getResearchActivity(id);
       const success = await storage.deleteResearchActivity(id);
       if (!success) {
         return res.status(404).json({ message: "Research activity not found" });
       }
+      if (existing) await req.audit.logDelete("research_activities", id, existing as Record<string, unknown>);
       res.status(204).send();
 } catch (error) {
       logError("Error deleting research activity", "routes", error);
@@ -2166,12 +2172,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).json({ message: "Invalid data management plan ID" });
       }
 
+      const existing = await storage.getDataManagementPlan(id);
       const success = await storage.deleteDataManagementPlan(id);
       
       if (!success) {
         return res.status(404).json({ message: "Data management plan not found" });
       }
       
+      if (existing) await req.audit.logDelete("data_management_plans", id, existing as Record<string, unknown>);
       res.status(204).send();
     } catch (error) {
       res.status(500).json({ message: "Failed to delete data management plan" });
@@ -3245,6 +3253,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(404).json({ message: "Publication not found" });
       }
       
+      if (sealedCheck) await req.audit.logDelete("publications", id, sealedCheck as Record<string, unknown>);
       res.status(204).send();
     } catch (error) {
       res.status(500).json({ message: "Failed to delete publication" });
@@ -4499,12 +4508,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).json({ message: "Invalid patent ID" });
       }
 
+      const existing = await storage.getPatent(id);
       const success = await storage.deletePatent(id);
       
       if (!success) {
         return res.status(404).json({ message: "Patent not found" });
       }
       
+      if (existing) await req.audit.logDelete("patents", id, existing as Record<string, unknown>);
       res.status(204).send();
     } catch (error) {
       res.status(500).json({ message: "Failed to delete patent" });
@@ -4793,12 +4804,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).json({ message: "Invalid IRB application ID" });
       }
 
+      const existing = await storage.getIrbApplication(id);
       const success = await storage.deleteIrbApplication(id);
       
       if (!success) {
         return res.status(404).json({ message: "IRB application not found" });
       }
       
+      if (existing) await req.audit.logDelete("irb_applications", id, existing as Record<string, unknown>);
       res.status(204).send();
     } catch (error) {
       res.status(500).json({ message: "Failed to delete IRB application" });

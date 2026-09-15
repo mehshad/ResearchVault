@@ -309,12 +309,14 @@ export function registerIbcRoutes(app: Express): void {
         return res.status(400).json({ message: "Invalid IBC application ID" });
       }
 
+      const existing = await storage.getIbcApplication(id);
       const success = await storage.deleteIbcApplication(id);
       
       if (!success) {
         return res.status(404).json({ message: "IBC application not found" });
       }
       
+      if (existing) await req.audit.logDelete("ibc_applications", id, existing as Record<string, unknown>);
       res.status(204).send();
     } catch (error) {
       res.status(500).json({ message: "Failed to delete IBC application" });
