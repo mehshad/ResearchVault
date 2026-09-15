@@ -225,12 +225,17 @@ test("registerSettingsRoutes registers exactly its 12 routes", () => {
     ["delete", "/api/feature-requests/:id"],
   ]);
 });
-test("registerPmoApplicationRoutes registers exactly its 12 routes", () => {
+test("registerPmoApplicationRoutes registers exactly its 17 routes", () => {
   assert.deepEqual(registered(registerPmoApplicationRoutes), [
     ["get", "/api/pmo-applications"],
     ["get", "/api/pmo-applications/:id"],
+    ["post", "/api/pmo-applications"],
     ["post", "/api/ra200-applications"],
     ["post", "/api/ra205a-applications"],
+    ["get", "/api/ra200-applications/:id"],
+    ["put", "/api/ra200-applications/:id"],
+    ["get", "/api/ra205a-applications/:id"],
+    ["put", "/api/ra205a-applications/:id"],
     ["put", "/api/pmo-applications/:id"],
     ["delete", "/api/pmo-applications/:id"],
     ["get", "/api/team-members"],
