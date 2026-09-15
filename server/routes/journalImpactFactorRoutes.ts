@@ -256,7 +256,31 @@ export function registerJournalImpactFactorRoutes(app: Express): void {
       }
 
       const results = [];
-      for (const row of csvData) {
+      // Every row the server could not write, named. The response used to say
+      // only "imported 460 of 500", which gave the office no way to find the
+      // other forty or learn why. Rows are keyed by journal and year, so a
+      // re-run upserts the good ones and the bad ones stay missing until fixed.
+      const failed: Array<{ rowNumber: number; journalName: string; year: number | string | null; reason: string }> = [];
+      for (const [index, row] of (csvData as any[]).entries()) {
+        // Validate before touching the database. The storage call finds or
+        // creates the journal first and only then writes the metric, so a row
+        // missing its year or impact factor used to leave an orphan journal
+        // behind and come back as a raw insert failure. Same three fields the
+        // client checks before sending.
+        const missing = [
+          !row?.journalName ? 'journalName' : null,
+          row?.year == null || row?.year === '' ? 'year' : null,
+          row?.impactFactor == null || row?.impactFactor === '' ? 'impactFactor' : null,
+        ].filter(Boolean);
+        if (missing.length > 0) {
+          failed.push({
+            rowNumber: index + 1,
+            journalName: String(row?.journalName ?? ''),
+            year: row?.year ?? null,
+            reason: `${missing.join(', ')} ${missing.length === 1 ? 'is' : 'are'} required`,
+          });
+          continue;
+        }
         try {
           const impactFactor = {
             journalName: row.journalName,
@@ -289,11 +313,22 @@ export function registerJournalImpactFactorRoutes(app: Express): void {
           const created = await storage.createJournalImpactFactor(impactFactor);
           results.push(created);
         } catch (error) {
-          logError(`Error importing row ${row}`, "routes", error);
+          // The driver's own message (the constraint or type that was violated),
+          // not the whole failed statement drizzle wraps around it.
+          const cause = (error as { cause?: { message?: string } } | null)?.cause;
+          const reason = cause?.message
+            || (error instanceof Error ? error.message.split(String.fromCharCode(10))[0] : String(error));
+          failed.push({
+            rowNumber: index + 1,
+            journalName: String(row?.journalName ?? ""),
+            year: row?.year ?? null,
+            reason,
+          });
+          logError(`Impact factor row ${index + 1} (${row?.journalName ?? "?"} ${row?.year ?? ""}) not imported`, "routes", error);
         }
       }
 
-      res.json({ imported: results.length, total: csvData.length });
+      res.json({ imported: results.length, total: csvData.length, failed });
     } catch (error) {
       logError('Error importing CSV data', "routes", error);
       res.status(500).json({ message: "Failed to import CSV data" });
