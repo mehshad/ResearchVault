@@ -93,7 +93,9 @@ type ArchiveListResponse = {
   };
 };
 
-const MAX_FILE_BYTES = 8 * 1024 * 1024;
+// The same cap as the engine's: a full research-output export is over 7 MB
+// already and grows with every JCR release, so 8 MB would refuse our own file.
+const MAX_FILE_BYTES = 20 * 1024 * 1024;
 
 const operations = [
   {
@@ -250,10 +252,11 @@ export default function BulkDataHub() {
   // nothing offered it.
   const [skipInvalidRows, setSkipInvalidRows] = useState(false);
 
-  const sectionsQuery = useQuery<{ sections: Section[] }>({
+  const sectionsQuery = useQuery<{ sections: Section[]; excluded?: Array<{ area: string; detail: string }> }>({
     queryKey: ["/api/bulk-data/sections"],
   });
   const sections = sectionsQuery.data?.sections ?? [];
+  const excluded = sectionsQuery.data?.excluded ?? [];
   const selectedSection = sections.find((section) => section.id === sectionId);
   const archivesQuery = useQuery<ArchiveListResponse>({
     queryKey: ["/api/bulk-data/archives"],
@@ -349,7 +352,7 @@ export default function BulkDataHub() {
       return;
     }
     if (selected.size > MAX_FILE_BYTES) {
-      toast({ title: "Workbook is too large", description: "Files must be 8 MB or smaller.", variant: "destructive" });
+      toast({ title: "Workbook is too large", description: "Files must be 20 MB or smaller.", variant: "destructive" });
       return;
     }
     try {
@@ -484,8 +487,18 @@ export default function BulkDataHub() {
             </div>
           )}
 
+          {excluded.length > 0 && (
+            <div className="rounded-md border border-amber-300/60 bg-amber-50/60 p-3 dark:border-amber-700/50 dark:bg-amber-950/20" data-testid="bulk-archive-exclusions">
+              <div className="mb-2 flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-amber-800 dark:text-amber-300"><Info className="h-3.5 w-3.5" />Not in the workbooks or the archive</div>
+              <ul className="grid gap-1.5 text-sm sm:grid-cols-2">
+                {excluded.map((item) => <li key={item.area}><span className="font-medium">{item.area}.</span> <span className="text-muted-foreground">{item.detail}</span></li>)}
+              </ul>
+              <p className="mt-2 text-xs text-muted-foreground">Everything else in use is exported and can be restored from these workbooks. For a byte-for-byte copy of the database, including the parts above, use a database dump.</p>
+            </div>
+          )}
+
           <div className="flex flex-col gap-3 rounded-md border border-dashed p-4 sm:flex-row sm:items-center sm:justify-between">
-            <div><div className="font-medium">Upload edited workbook</div><div className="text-xs text-muted-foreground">.xlsx only · maximum 8 MB · existing keys are matched for updates</div></div>
+            <div><div className="font-medium">Upload edited workbook</div><div className="text-xs text-muted-foreground">.xlsx only · maximum 20 MB · existing keys are matched for updates</div></div>
             <div className="flex items-center gap-2">
               <Input ref={inputRef} id="bulk-file" type="file" accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" onChange={handleFileChange} className="max-w-[230px]" data-testid="input-bulk-file" />
               {file && <Badge variant="secondary" className="max-w-[180px] truncate">{file.name}</Badge>}
