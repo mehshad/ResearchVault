@@ -74,12 +74,12 @@
   <aside class="rail">
     <div>
       <div class="label">Areas</div>
-      <nav><a href="#security">Security and authorization<span>9</span></a><a href="#data-model">Data model and storage<span>11</span></a><a href="#client">Client and user experience<span>2</span></a><a href="#operations">Data operations and deployment<span>10</span></a><a href="#ci-dx">Testing, CI and maintainability<span>1</span></a></nav>
+      <nav><a href="#security">Security and authorization<span>9</span></a><a href="#data-model">Data model and storage<span>11</span></a><a href="#client">Client and user experience<span>2</span></a><a href="#operations">Data operations and deployment<span>5</span></a><a href="#ci-dx">Testing, CI and maintainability<span>1</span></a></nav>
     </div>
     <div>
       <div class="label">Show</div>
       <div class="filters" role="group" aria-label="Filter by priority">
-        <button type="button" data-filter="all" aria-pressed="true">All 33</button>
+        <button type="button" data-filter="all" aria-pressed="true">All 28</button>
         <button type="button" data-filter="critical" aria-pressed="false">Critical</button>
         <button type="button" data-filter="high" aria-pressed="false">High</button>
         <button type="button" data-filter="medium" aria-pressed="false">Medium</button>
@@ -91,12 +91,12 @@
     <header class="top">
       <div class="label">ResearchVault · branch phase2 · 13 September 2026</div>
       <h1>Q-BRIDGE Code Review</h1>
-      <p class="sub">33 open findings from a read of the server, shared modules, client, migrations and CI on 13 September 2026, each verified against the code or the dev database. This page lists what is still to do; a finding that is fixed is removed from it, not marked closed. The dev database (Settings → Feature Requests, requester "Claude code review, 13 Sep 2026") is the record, with the same numbers.</p>
+      <p class="sub">28 open findings from a read of the server, shared modules, client, migrations and CI on 13 September 2026, each verified against the code or the dev database. This page lists what is still to do; a finding that is fixed is removed from it, not marked closed. The dev database (Settings → Feature Requests, requester "Claude code review, 13 Sep 2026") is the record, with the same numbers.</p>
       <div class="summary">
         <div class="critical"><b>2</b><span>Critical</span></div>
-        <div class="high"><b>8</b><span>High</span></div>
-        <div class="medium"><b>17</b><span>Medium</span></div>
-        <div class="low"><b>6</b><span>Low</span></div>
+        <div class="high"><b>7</b><span>High</span></div>
+        <div class="medium"><b>14</b><span>Medium</span></div>
+        <div class="low"><b>5</b><span>Low</span></div>
       </div>
       <p class="where">To close one: fix it on the audit-fixes branch, mark the request implemented in the dev database with the commit, and regenerate this page from the database so it drops out.</p>
     </header>
@@ -321,17 +321,8 @@
         <header class="area-head">
           <h2>Data operations and deployment</h2>
           <p class="lede">Migrations, the bulk archive, container configuration and the alternative database targets.</p>
-          <div class="chips"><span class="mini high">3 high</span><span class="mini medium">5 medium</span><span class="mini low">2 low</span></div>
-        </header><p class="empty">Nothing at this priority in this area.</p><article class="finding" data-priority="high" id="fr-13">
-          <div class="finding-head">
-            <span class="sev high">high</span>
-            <h3>Stop swallowing migration errors for 44 of the 51 entrypoint migrations</h3>
-            <span class="meta"><span class="id">#13</span> · backend · effort low</span>
-          </div>
-          <p><code>docker-entrypoint.sh</code> runs only 7 named files with -v ON_ERROR_STOP=1; the other 44 (every file added since 20260830, including 20260907_*, 20260908_* and 20260913_*) run with ON_ERROR_STOP=0, pipe through grep -v 'already exists|does not exist|NOTICE' and end in || true, so a real ERROR (e.g. a missing column referenced by a data migration) is printed once and the container starts anyway. <code>migrations/20260831_consolidate_navigation_areas.sql</code> wraps its work in BEGIN/COMMIT (lines 26-91): under ON_ERROR_STOP=0 any failing statement aborts the transaction, COMMIT becomes ROLLBACK, and the migration silently never applies on every restart. Make the loop fail on any ^ERROR line (or run everything strict now that files are idempotent) and require new migrations to be added to the strict list.</p>
-          <div class="tags"><span>migrations</span></div>
-        </article>
-        <article class="finding" data-priority="high" id="fr-14">
+          <div class="chips"><span class="mini high">2 high</span><span class="mini medium">2 medium</span><span class="mini low">1 low</span></div>
+        </header><p class="empty">Nothing at this priority in this area.</p><article class="finding" data-priority="high" id="fr-14">
           <div class="finding-head">
             <span class="sev high">high</span>
             <h3>Document the bulk archive as partial: it restores 26 of 58 tables</h3>
@@ -358,15 +349,6 @@
           <p><code>docker-compose.yml</code> falls back to 'postgres' for POSTGRES_PASSWORD (lines 19, 37, 76) and to the literal change-me-in-production-use-a-long-random-string for SESSION_SECRET (line 77) when <code>.env</code> leaves them unset; <code>.env.example</code> ships change-me values and <code>setup.sh</code> (lines 30-33) only warns after copying it, with no validation later. A deployment that skips the edit runs with a public session-signing key and database password. Use ${SESSION_SECRET:?set SESSION_SECRET in <code>.env</code>} syntax in compose, have <code>setup.sh</code> reject change-me values (or generate them with openssl rand -hex 32), and have <code>server/index.ts</code> refuse to boot on the known default. The server itself has the same gap: <code>server/index.ts:114</code> falls back to a fixed, source-visible session secret (sha256 of 'research-portal-session-secret') when SESSION_SECRET is missing, and the upload finalize HMAC at <code>server/routes.ts:214</code> falls back to the literal 'dev-fallback-secret', with no warning at startup. Throw at boot when AUTH_MODE is not demo and SESSION_SECRET is absent, shorter than 32 bytes, or the known default, and derive the finalize secret from the checked value.</p>
           <div class="tags"><span>docker</span></div>
         </article>
-        <article class="finding" data-priority="medium" id="fr-38">
-          <div class="finding-head">
-            <span class="sev medium">medium</span>
-            <h3>Report sheet and row when a strict bulk apply fails at write time</h3>
-            <span class="meta"><span class="id">#38</span> · bugfix · effort low</span>
-          </div>
-          <p>In <code>server/bulkDataHub.ts</code> applySection, when skipInvalidRows is false the per-row write is await applyOne(tx); appliedEntries.push(entry); (lines 4879-4881) with no try/catch, so a constraint or type error thrown by Postgres propagates raw. The route at routes.ts line 12436 then classifies it by regex on the message (line 12464) and returns a 500 with the bare driver text (e.g. null value in column ... violates not-null constraint), while the whole section transaction rolls back. The administrator sees no sheet name, row number or business key, and the preview said the file was fine. Wrap the strict path's error with '&lt;sheetName&gt; row &lt;rowNumber&gt; (&lt;key&gt;): &lt;message&gt;' and return 400 for it, matching the RejectedRow shape the lenient path already produces.</p>
-          <div class="tags"><span>bulk-data</span><span>error-handling</span></div>
-        </article>
         <article class="finding" data-priority="medium" id="fr-39">
           <div class="finding-head">
             <span class="sev medium">medium</span>
@@ -376,24 +358,6 @@
           <p><code>migrations/sqlite/0001_schema.sql</code> is in full parity (58 tables) and <code>server/db.ts</code> applies it at startup, but the runtime SQL is Postgres-only: sql`now()` appears 35 times across <code>server/databaseStorage.ts</code>, <code>server/routes.ts</code> and <code>server/bulkDataHub.ts</code> (e.g. databaseStorage.ts line 2673 updatedAt: sql`now()`), plus 3 EXTRACT( and 2 jsonb uses. SQLite has no now() function, so every update that touches updated_at fails. <code>docker-compose.sqlite.yml</code> and <code>.env.example</code> advertise this mode for air-gapped deploys. Either replace sql`now()` with a JS new Date() (works on every driver) or drop the SQLite compose file and docs until the storage layer is dialect-neutral.</p>
           <div class="tags"><span>sqlite</span><span>parity</span></div>
         </article>
-        <article class="finding" data-priority="medium" id="fr-40">
-          <div class="finding-head">
-            <span class="sev medium">medium</span>
-            <h3>Add log rotation for the app log file and container logs</h3>
-            <span class="meta"><span class="id">#40</span> · backend · effort low</span>
-          </div>
-          <p><code>docker-compose.yml</code> sets LOG_FILE: /var/log/app/qbridge.log on the app-logs named volume and <code>server/logger.ts</code> line 14 opens it with createWriteStream(LOG_FILE, { flags: 'a' }) and never rotates. No compose file has a logging: block, so the Docker json-file driver also grows without bound; console.error output from every import row failure lands there too. Over months the volume and /var/lib/docker fill and Postgres shares the disk. Add logging: {driver: json-file, options: {max-size: 10m, max-file: '5'}} to each service and either rotate the file (size-based, in logger.ts) or drop file logging in favour of docker logs.</p>
-          <div class="tags"><span>docker</span><span>logging</span></div>
-        </article>
-        <article class="finding" data-priority="medium" id="fr-41">
-          <div class="finding-head">
-            <span class="sev medium">medium</span>
-            <h3>Return per-row failures from the impact factor CSV import</h3>
-            <span class="meta"><span class="id">#41</span> · bugfix · effort low</span>
-          </div>
-          <p>POST <code>/api/journal-impact-factors/import-csv</code> (<code>server/routes.ts</code> lines 9613-9660) loops over rows, calls storage.createJournalImpactFactor for each, and on failure only does console.error('Error importing row:', row, error); the response is { imported, total }. A file with 40 bad rows reports 'imported 460 of 500' with no way to learn which journals or why, and there is no transaction so re-running upserts the good rows again while the bad ones stay missing. Collect {rowNumber, journalName, year, reason} for each failure and return it, as <code>/api/grants/import/apply</code> already does with its failed array.</p>
-          <div class="tags"><span>import</span><span>error-handling</span></div>
-        </article>
         <article class="finding" data-priority="low" id="fr-54">
           <div class="finding-head">
             <span class="sev low">low</span>
@@ -402,15 +366,6 @@
           </div>
           <p><code>README.md</code> line 304 says 'Database schema changes are applied automatically at startup via drizzle-kit push' and line 338 lists npm run db:push; production runs the psql loop in <code>docker-entrypoint.sh</code> and drizzle-kit push is never invoked in the image, so an operator debugging a missing column looks in the wrong place. The Backup/Restore section (lines 257-279) covers only pg_dump and the uploads tar: it omits the demo volume, the scheduled bulk archives, that docker compose stop app also stops the daily archive, and that a restored local-mode database contains no account that can sign in (the User Accounts sheet carries no credentials, bulkDataHub.ts line 231). Rewrite the Updating and Backup sections to describe the entrypoint migration loop and a tested restore sequence.</p>
           <div class="tags"><span>documentation</span></div>
-        </article>
-        <article class="finding" data-priority="low" id="fr-55">
-          <div class="finding-head">
-            <span class="sev low">low</span>
-            <h3>Pin LF line endings for shell scripts and SQL with .gitattributes</h3>
-            <span class="meta"><span class="id">#55</span> · enhancement · effort low</span>
-          </div>
-          <p>There is no <code>.gitattributes</code>; git ls-files --eol shows <code>docker-entrypoint.sh</code>, <code>setup.sh</code>, <code>scripts/post-merge.sh</code> and 35 migration .sql files as i/lf w/crlf on this Windows checkout. An image built from such a checkout copies '#!/bin/sh\r' into /<code>docker-entrypoint.sh</code> and the container exits immediately with 'no such file or directory'; psql on CRLF migrations is tolerant but the shell is not. <code>setup.sh</code> already strips \r from <code>.env</code> (lines 40-42), showing the hazard is known. Add *.sh text eol=lf and *.sql text eol=lf so every checkout builds a working image.</p>
-          <div class="tags"><span>docker</span></div>
         </article>
       </section>
       <section class="area" id="ci-dx">
