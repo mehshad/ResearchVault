@@ -109,8 +109,10 @@ export default function CreateResearchActivity() {
     // Convert Date objects to ISO strings for API submission
     const apiData = {
       ...data,
-      startDate: data.startDate ? data.startDate.toISOString() : undefined,
-      endDate: data.endDate ? data.endDate.toISOString() : undefined,
+      // The day as picked, not its UTC instant: toISOString() on a local
+      // midnight is the previous day east of Greenwich.
+      startDate: data.startDate ? format(data.startDate, "yyyy-MM-dd") : undefined,
+      endDate: data.endDate ? format(data.endDate, "yyyy-MM-dd") : undefined,
     };
     createResearchActivityMutation.mutate(apiData);
   };

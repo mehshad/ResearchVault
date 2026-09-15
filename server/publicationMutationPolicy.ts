@@ -110,16 +110,17 @@ export function getStatusTransitionWorkflowViolation(
  *
  * The status endpoint used to hand `updatedFields` to the storage layer exactly
  * as the browser sent it. `publicationDate` leaves an `<input type="date">` as
- * "2026-07-03", but the column is a timestamp and Drizzle calls `.toISOString()`
- * on whatever it is given -- so moving a publication to Published threw
- * `value.toISOString is not a function` before any SQL ran, and the endpoint
- * answered a bare 500. Published is the only stage that writes a date, which is
- * why every earlier stage worked and this one could never be reached.
+ * "2026-07-03"; when the column was a timestamp Drizzle called `.toISOString()`
+ * on the string, so moving a publication to Published threw before any SQL
+ * ran and the endpoint answered a bare 500. Published is the only stage that
+ * writes a date, which is why every earlier stage worked and this one could
+ * never be reached.
  *
  * The generic edit endpoint never had the problem because it parses its body
- * through `insertPublicationSchema`, which converts the date. Sharing that
- * schema here removes the asymmetry, rather than converting this one field at
- * the call site and leaving the next timestamp to fail the same way.
+ * through `insertPublicationSchema`, which normalises the date (to YYYY-MM-DD
+ * now that the column is a calendar date, #49). Sharing that schema here
+ * removes the asymmetry, rather than converting this one field at the call
+ * site and leaving the next date to fail the same way.
  */
 export function parsePublicationStatusFields(
   updatedFields: unknown
