@@ -1,3 +1,12 @@
+# Bounded container logs. The json-file driver otherwise grows without limit
+# and shares the disk with Postgres; every import-row failure lands here too.
+# 10 MB x 5 files per service (see LOG_MAX_* on the app for the file log).
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "5"
+
 networks:
   rv-net:
     driver: bridge
@@ -14,6 +23,7 @@ services:
   postgres:
     image: postgres:16-alpine
     restart: unless-stopped
+    logging: *default-logging
     environment:
       POSTGRES_DB: researchvault
       POSTGRES_USER: postgres
@@ -32,6 +42,7 @@ services:
   postgres-demo:
     image: postgres:16-alpine
     restart: unless-stopped
+    logging: *default-logging
     environment:
       POSTGRES_DB: researchvault_demo
       POSTGRES_USER: postgres
@@ -53,6 +64,7 @@ services:
   nginx:
     image: nginx:alpine
     restart: unless-stopped
+    logging: *default-logging
     ports:
       - "80:80"
       - "${DEMO_PORT:-8080}:8080"
@@ -72,6 +84,7 @@ services:
   app:
     build: .
     restart: unless-stopped
+    logging: *default-logging
     environment:
       NODE_ENV: production
       DATABASE_URL: postgresql://postgres:${POSTGRES_PASSWORD:-postgres}@postgres:5432/researchvault
@@ -82,6 +95,9 @@ services:
       SUPER_ADMIN_EMAIL: ${SUPER_ADMIN_EMAIL:-}
       AUTH_MODE: ${AUTH_MODE:-local}
       LOG_FILE: /var/log/app/qbridge.log
+      # The file log rotates itself: qbridge.log -> .1 -> .2 ... (see server/logger.ts).
+      LOG_MAX_BYTES: ${LOG_MAX_BYTES:-10485760}
+      LOG_MAX_FILES: ${LOG_MAX_FILES:-5}
       DEMO_PORT: ${DEMO_PORT:-8080}
       # LDAP (only used when AUTH_MODE=ldap)
       LDAP_URL: ${LDAP_URL:-}
@@ -117,6 +133,7 @@ services:
   app-demo:
     build: .
     restart: unless-stopped
+    logging: *default-logging
     environment:
       NODE_ENV: production
       DATABASE_URL: postgresql://postgres:${POSTGRES_PASSWORD:-postgres}@postgres-demo:5432/researchvault_demo
