@@ -2,7 +2,7 @@ import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "wouter";
 import { AlertTriangle, ArrowRight, BarChart3, CalendarDays, RefreshCw } from "lucide-react";
-import { Bar, BarChart, CartesianGrid, Legend, Line, LineChart, Tooltip, XAxis, YAxis } from "recharts";
+import { Bar, BarChart, CartesianGrid, LabelList, Legend, Line, LineChart, Tooltip, XAxis, YAxis } from "recharts";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -14,6 +14,7 @@ import {
   type DashboardBucket,
   type OfficeDashboardKind,
 } from "@/lib/officeDashboard";
+import { buildPublicationQueues } from "@/lib/publicationQueues";
 
 type Kind = OfficeDashboardKind;
 type Bucket = DashboardBucket;
@@ -55,6 +56,34 @@ function FundingCard({ funding }: { funding?: Dashboard["fundingTotalsByCurrency
   return <Card><CardHeader className="pb-2"><CardTitle className="text-base">Funding totals by currency</CardTitle><CardDescription>Amounts remain separated by currency.</CardDescription></CardHeader><CardContent className="space-y-2">{rows.length ? rows.map(row => <div className="grid grid-cols-[1fr_auto_auto] gap-3 border-b pb-2 text-sm last:border-0" key={row.currency}><span className="font-medium">{row.currency}</span><span className="font-mono text-muted-foreground">Req. {row.requested.toLocaleString()}</span><span className="font-mono">Award. {row.awarded.toLocaleString()}</span></div>) : <p className="py-3 text-sm text-muted-foreground">No funding totals reported.</p>}</CardContent></Card>;
 }
 
+/**
+ * The publication queues as a chart: stages in workflow order, one bar each,
+ * and the sealed "Published *" total as the one big number. That total is
+ * every finished record the office has ever passed, so it outgrows the
+ * queues without limit; on the same axis it flattened every other bar to a
+ * sliver, and the old list also showed one status twice under two spellings.
+ */
+function PublicationQueueCard({ values }: { values?: Stock }) {
+  const { sealed, bars } = buildPublicationQueues(values ?? {});
+  const rows = bars.map(bar => ({ label: bar.label, count: bar.count }));
+  const height = Math.max(180, rows.length * 30 + 12);
+  return <Card><CardHeader className="pb-2"><CardTitle className="text-base">Current publication queues</CardTitle><CardDescription>Current stock, not historical activity, in workflow order.</CardDescription></CardHeader>
+    <CardContent className="space-y-5">
+      <div className="flex flex-wrap items-end gap-x-5 gap-y-1 rounded-lg border bg-muted/30 px-5 py-4" data-testid="stat-published-final">
+        <div><p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Published *</p><p className="mt-1 text-5xl font-semibold leading-none">{sealed.toLocaleString()}</p></div>
+        <p className="max-w-[26ch] pb-1 text-xs text-muted-foreground">Sealed final records, kept off the chart: this total outgrows every queue.</p>
+      </div>
+      <div style={{ height }}>{rows.length ? <ChartContainer config={{ count: { label: "Publications", color: colors[0] } }} className="h-full w-full aspect-auto">
+        <BarChart data={rows} layout="vertical" margin={{ left: 0, right: 40, top: 2, bottom: 2 }} barCategoryGap={6}>
+          <XAxis type="number" hide allowDecimals={false} />
+          <YAxis type="category" dataKey="label" width={138} tickLine={false} axisLine={false} interval={0} tick={{ fontSize: 12 }} />
+          <Tooltip cursor={{ fill: "hsl(var(--muted))" }} content={<ChartTooltipContent hideIndicator />} />
+          <Bar dataKey="count" fill={colors[0]} radius={[0, 4, 4, 0]} maxBarSize={18} isAnimationActive={false}>
+            <LabelList dataKey="count" position="right" offset={8} className="fill-foreground" fontSize={12} formatter={(value: number) => Number(value).toLocaleString()} />
+          </Bar>
+        </BarChart></ChartContainer> : <p className="py-3 text-sm text-muted-foreground">No current stock reported.</p>}</div>
+    </CardContent></Card>;
+}
 export function OfficeDashboard({ kind }: { kind: Kind }) {
   const [from, setFrom] = useState(() => ago(11)); const [to, setTo] = useState(() => new Date().toISOString().slice(0, 10)); const [interval, setInterval] = useState("month");
   const query = useMemo(() => new URLSearchParams({ from, to, interval }).toString(), [from, to, interval]);
@@ -65,6 +94,6 @@ export function OfficeDashboard({ kind }: { kind: Kind }) {
     {isLoading ? <div className="grid gap-4 md:grid-cols-2"><Skeleton className="h-[300px]" /><Skeleton className="h-[300px]" /></div> : isError ? <Card><CardContent className="flex min-h-40 flex-col items-center justify-center gap-3 text-center"><AlertTriangle className="h-6 w-6 text-destructive" /><div><p className="font-medium">The dashboard is unavailable</p><p className="text-sm text-muted-foreground">Workflows remain available while the reporting feed is retried.</p></div><Button variant="outline" onClick={() => refetch()}><RefreshCw className="mr-2 h-4 w-4" />Retry</Button></CardContent></Card> : data ? <><details className="rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-sm"><summary className="cursor-pointer font-medium">Data notes & reporting boundaries</summary><ul className="mt-2 list-disc space-y-1 pl-5 text-muted-foreground">{(data.metadata.partialData ?? []).map(note => <li key={note}>{note}</li>)}</ul></details>
       {kind === "pmo" && <><div className="grid gap-4 xl:grid-cols-2"><ChartCard heading="Intake by application form" note="Created applications by recorded period." buckets={data.intakeByType ?? []} /><ChartCard heading="Review transitions & outcomes" note="Timestamped review-history events only." buckets={data.transitionsByOutcome ?? []} type="bar" /></div><StockCard label="Current workload by status" values={data.currentStatusStocks} /></>}
       {kind === "research" && <><div className="grid gap-4 xl:grid-cols-2"><YearChart data={data.grantsByRecordedYear} /><ChartCard heading="Contract intake" note="Initiation-requested dates, with named fallbacks." buckets={data.contractIntake ?? []} /></div><div className="grid gap-4 xl:grid-cols-2"><ChartCard heading="Contract starts & expirations" note="Recorded contract start events." buckets={data.contractStarts ?? []} /><ChartCard heading="Contract ends" note="Recorded contract end events." buckets={data.contractEnds ?? []} type="bar" /></div><div className="grid gap-4 xl:grid-cols-3"><FundingCard funding={data.fundingTotalsByCurrency} /><StockCard label="Current grant workload" values={data.currentGrantStatusStocks} /><StockCard label="Current contract workload" values={data.currentContractStatusStocks} /></div></>}
-      {kind === "outcome" && <><div className="grid gap-4 xl:grid-cols-2"><ChartCard heading="Publication volume by type" note="Publication dates by recorded type." buckets={data.publicationVolumeByType ?? []} type="bar" /><ChartCard heading="Recorded manuscript transitions" note="Workflow history events by destination status." buckets={data.manuscriptTransitions ?? []} /></div><div className="grid gap-4 xl:grid-cols-2"><ChartCard heading="IP-vetting activity" note="Explicitly recorded vetting transitions only." buckets={data.ipVettingActivity ?? []} type="bar" /><StockCard label="Current publication queues" values={data.currentStatusStocks} /></div></>}
+      {kind === "outcome" && <><div className="grid gap-4 xl:grid-cols-2"><ChartCard heading="Publication volume by type" note="Publication dates by recorded type." buckets={data.publicationVolumeByType ?? []} type="bar" /><ChartCard heading="Recorded manuscript transitions" note="Workflow history events by destination status." buckets={data.manuscriptTransitions ?? []} /></div><div className="grid gap-4 xl:grid-cols-2"><ChartCard heading="IP-vetting activity" note="Explicitly recorded vetting transitions only." buckets={data.ipVettingActivity ?? []} type="bar" /><PublicationQueueCard values={data.currentStatusStocks} /></div></>}
       <Card><CardHeader><CardTitle className="text-base">Workflow routes</CardTitle><CardDescription>Continue into the records behind this dashboard.</CardDescription></CardHeader><CardContent className="flex flex-wrap gap-2">{links.map(item => <Link key={item.href} href={item.href} className="inline-flex items-center rounded-md border px-3 py-2 text-sm font-medium hover:bg-accent">{item.label}<ArrowRight className="ml-2 h-3.5 w-3.5" /></Link>)}</CardContent></Card></> : null}</section>;
 }
