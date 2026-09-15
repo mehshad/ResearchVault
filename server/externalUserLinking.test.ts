@@ -19,7 +19,8 @@ import { dirname, join } from "node:path";
  */
 const here = dirname(fileURLToPath(import.meta.url));
 const auth = readFileSync(join(here, "auth.ts"), "utf-8");
-const routes = readFileSync(join(here, "routes.ts"), "utf-8");
+// Registration lives with the other account routes now (see #42).
+const routes = readFileSync(join(here, "routes", "adminUserRoutes.ts"), "utf-8");
 
 const externalUserFn = (() => {
   const start = auth.indexOf("async function findOrCreateExternalUser(");
@@ -57,10 +58,9 @@ test("an existing account with no profile is adopted on a later sign-in", () => 
 });
 
 test("registration looks for an existing profile before inserting one", () => {
-  const register = routes.slice(
-    routes.indexOf("'/api/register'"),
-    routes.indexOf("// ── Access level helpers"),
-  );
+  const start = routes.indexOf("'/api/register'");
+  assert.ok(start > -1, "the registration route has moved again");
+  const register = routes.slice(start);
   const lookupAt = register.indexOf("lower(${scientists.email})");
   const insertAt = register.indexOf(".insert(scientists)");
   assert.ok(lookupAt > -1, "registration must look for an existing staff profile");

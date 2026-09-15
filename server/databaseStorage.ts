@@ -11,6 +11,8 @@ import { sumInQar } from "@shared/currency";
 import type { GrantDashboardStats } from "@shared/dashboardStats";
 import { db as rawDb } from "./db";
 import type { NodePgDatabase } from "drizzle-orm/node-postgres";
+import type { PgColumn, PgTable } from "drizzle-orm/pg-core";
+import type { DeleteBlocker } from "./deleteBlockers";
 import * as schema from "@shared/schema";
 
 // db.ts hands back `any` because it can build a SQLite, Neon or node-postgres
@@ -130,6 +132,11 @@ function mergeUniquePublications(...lists: Publication[][]): Publication[] {
 
 // This class is the storage contract: storage.ts exports its instance type
 // as IStorage. There is no separate hand-written interface to drift from it.
+export type PmoFormType = 'RA-200' | 'RA-205A';
+export type PmoApplication =
+  | (Ra200Application & { form_type: 'RA-200' })
+  | (Ra205aApplication & { form_type: 'RA-205A' });
+
 export class DatabaseStorage {
   
   // User operations
@@ -189,6 +196,59 @@ export class DatabaseStorage {
       .where(eq(programs.id, id))
       .returning();
     return updatedProgram;
+  }
+
+  /**
+   * Rows in other tables that still point at a record, before a delete.
+   *
+   * None of these referencing columns carries a foreign key, so Postgres would
+   * let the parent go and leave the children pointing at nothing -- a deleted
+   * SDR used to orphan its team rows, publications and grant links silently.
+   * The route turns a non-empty answer into a 409 (finding #6).
+   */
+  private async referencingRows(
+    id: number,
+    refs: Array<{ table: PgTable; column: PgColumn; name: string; columnName: string }>,
+  ): Promise<DeleteBlocker[]> {
+    const counts = await Promise.all(
+      refs.map(async (ref) => {
+        const [row] = await db
+          .select({ count: sql<number>`count(*)`.mapWith(Number) })
+          .from(ref.table)
+          .where(eq(ref.column, id));
+        return { table: ref.name, column: ref.columnName, count: row?.count ?? 0 };
+      }),
+    );
+    return counts.filter((row) => row.count > 0);
+  }
+
+  async getProgramDeleteBlockers(id: number): Promise<DeleteBlocker[]> {
+    return this.referencingRows(id, [
+      { table: schema.projects, column: schema.projects.programId, name: "projects", columnName: "program_id" },
+      { table: schema.grants, column: schema.grants.programId, name: "grants", columnName: "program_id" },
+    ]);
+  }
+
+  async getProjectDeleteBlockers(id: number): Promise<DeleteBlocker[]> {
+    return this.referencingRows(id, [
+      { table: schema.researchActivities, column: schema.researchActivities.projectId, name: "research_activities", columnName: "project_id" },
+      { table: schema.ra200Applications, column: schema.ra200Applications.projectId, name: "ra200_applications", columnName: "project_id" },
+      { table: schema.ra205aApplications, column: schema.ra205aApplications.projectId, name: "ra205a_applications", columnName: "project_id" },
+    ]);
+  }
+
+  async getResearchActivityDeleteBlockers(id: number): Promise<DeleteBlocker[]> {
+    return this.referencingRows(id, [
+      { table: schema.projectMembers, column: schema.projectMembers.researchActivityId, name: "project_members", columnName: "research_activity_id" },
+      { table: schema.publications, column: schema.publications.researchActivityId, name: "publications", columnName: "research_activity_id" },
+      { table: schema.publicationResearchActivities, column: schema.publicationResearchActivities.researchActivityId, name: "publication_research_activities", columnName: "research_activity_id" },
+      { table: schema.grantResearchActivities, column: schema.grantResearchActivities.researchActivityId, name: "grant_research_activities", columnName: "research_activity_id" },
+      { table: schema.irbApplications, column: schema.irbApplications.researchActivityId, name: "irb_applications", columnName: "research_activity_id" },
+      { table: schema.ibcApplicationResearchActivities, column: schema.ibcApplicationResearchActivities.researchActivityId, name: "ibc_application_research_activities", columnName: "research_activity_id" },
+      { table: schema.dataManagementPlans, column: schema.dataManagementPlans.researchActivityId, name: "data_management_plans", columnName: "research_activity_id" },
+      { table: schema.patents, column: schema.patents.researchActivityId, name: "patents", columnName: "research_activity_id" },
+      { table: schema.researchContracts, column: schema.researchContracts.researchActivityId, name: "research_contracts", columnName: "research_activity_id" },
+    ]);
   }
 
   async deleteProgram(id: number): Promise<boolean> {
@@ -276,6 +336,20 @@ export class DatabaseStorage {
       ...r.scientist,
       activeResearchActivities: r.count ?? 0,
     }));
+  }
+
+  /**
+   * One query for a set of ids, keyed for lookup. The list routes used to call
+   * getScientist once per row inside Promise.all -- a query per grant lead,
+   * per team member, per uploader -- each a hand-rolled copy of the same
+   * "decorate with a name" step (finding #27). Ids that are null, absent or
+   * repeated cost nothing; an empty set costs no query.
+   */
+  async getScientistsByIds(ids: Iterable<number | null | undefined>): Promise<Map<number, Scientist>> {
+    const wanted = [...new Set([...ids].filter((id): id is number => typeof id === "number" && Number.isFinite(id)))];
+    if (wanted.length === 0) return new Map();
+    const rows: Scientist[] = await db.select().from(scientists).where(inArray(scientists.id, wanted));
+    return new Map(rows.map((row) => [row.id, row]));
   }
 
   async getScientist(id: number): Promise<Scientist | undefined> {
@@ -620,7 +694,7 @@ export class DatabaseStorage {
     return updatedPublication;
   }
 
-  async repairPreprintPublication(id: number, changedBy: number): Promise<{ publication?: Publication; reason?: string }> {
+  async repairPreprintPublication(id: number, changedBy: number | null): Promise<{ publication?: Publication; reason?: string }> {
     return await db.transaction(async (tx) => {
       const [current] = await tx
         .select()
@@ -776,7 +850,7 @@ export class DatabaseStorage {
     survivorId: number,
     mergeIds: number[],
     overrides: Partial<InsertPublication>,
-    changedBy: number,
+    changedBy: number | null,
   ): Promise<Publication | undefined> {
     const ids = Array.from(new Set(mergeIds)).filter((id) => id !== survivorId);
 
@@ -1042,7 +1116,7 @@ export class DatabaseStorage {
   async updatePublicationStatus(
     id: number,
     status: string,
-    changedBy: number,
+    changedBy: number | null,
     changes?: {field: string, oldValue: string, newValue: string}[],
     expectedStatus?: string,
     updatedFields?: Partial<InsertPublication>,
@@ -1102,7 +1176,7 @@ export class DatabaseStorage {
     expectedStatus: string,
     status: string,
     invalidReason: string | null,
-    changedBy: number,
+    changedBy: number | null,
     changeReason: string,
   ): Promise<Publication | undefined> {
     return db.transaction(async (tx) => {
@@ -1140,8 +1214,16 @@ export class DatabaseStorage {
       );
     }
 
-    // Get all publications for the scientist first, then filter by date in JavaScript
-    const allResults = await db
+    // The time window in SQL: within `yearsSince` years, or undated (an undated
+    // record is not excluded for lacking a date). This used to load every
+    // publication the person has and cut the list down in JavaScript.
+    const cutoffDate = new Date();
+    cutoffDate.setFullYear(cutoffDate.getFullYear() - yearsSince);
+    visibilityConditions.push(
+      sql`(${publications.publicationDate} IS NULL OR ${publications.publicationDate} >= ${cutoffDate.toISOString()})`,
+    );
+
+    return await db
       .select({
         publication: publications,
         authorshipType: publicationAuthors.authorshipType,
@@ -1150,7 +1232,8 @@ export class DatabaseStorage {
       .from(publications)
       .innerJoin(publicationAuthors, eq(publications.id, publicationAuthors.publicationId))
       .where(and(...visibilityConditions))
-      .orderBy(desc(publications.id))
+      // Newest first; undated last; ties by id so paging is stable.
+      .orderBy(sql`${publications.publicationDate} DESC NULLS LAST`, desc(publications.id))
       // The whole row, so a column added to publications reaches the profile
       // without a second list to maintain here -- minus the correction reason,
       // which the profile route sends to anyone and other routes show only to
@@ -1159,28 +1242,6 @@ export class DatabaseStorage {
         const { invalidReason: _private, ...safe } = publication;
         return { ...safe, authorshipType, authorPosition };
       }));
-    
-    // Filter by date in JavaScript to avoid SQL date issues
-    const cutoffDate = new Date();
-    cutoffDate.setFullYear(cutoffDate.getFullYear() - yearsSince);
-    
-    const filteredResults = allResults.filter(pub => {
-      if (!pub.publicationDate) return true; // Include publications without date
-      const pubDate = new Date(pub.publicationDate);
-      return pubDate >= cutoffDate;
-    });
-    
-    // Sort by publication date (most recent first), then by ID for consistent ordering
-    filteredResults.sort((a, b) => {
-      if (a.publicationDate && b.publicationDate) {
-        return new Date(b.publicationDate).getTime() - new Date(a.publicationDate).getTime();
-      }
-      if (a.publicationDate && !b.publicationDate) return -1;
-      if (!a.publicationDate && b.publicationDate) return 1;
-      return b.id - a.id;
-    });
-    
-    return filteredResults;
   }
 
   async getAuthorshipStatsByYear(
@@ -1234,6 +1295,46 @@ export class DatabaseStorage {
       .leftJoin(users, eq(publicationAuthors.linkedByUserId, users.id));
 
     return results as (PublicationAuthor & { scientist: Scientist })[];
+  }
+
+  /**
+   * The linked authors of a set of publications, in one query. The list routes
+   * used to load every author row in the database and filter in memory
+   * (finding #28); an empty set costs no query.
+   */
+  async getPublicationAuthorsForPublications(publicationIds: number[]): Promise<(PublicationAuthor & { scientist: Scientist })[]> {
+    const ids = [...new Set(publicationIds)];
+    if (ids.length === 0) return [];
+    const results = await db
+      .select({
+        id: publicationAuthors.id,
+        publicationId: publicationAuthors.publicationId,
+        scientistId: publicationAuthors.scientistId,
+        authorshipType: publicationAuthors.authorshipType,
+        authorPosition: publicationAuthors.authorPosition,
+        linkedByUserId: publicationAuthors.linkedByUserId,
+        linkMethod: publicationAuthors.linkMethod,
+        linkedByName: users.name,
+        scientist: scientists
+      })
+      .from(publicationAuthors)
+      .innerJoin(scientists, eq(publicationAuthors.scientistId, scientists.id))
+      .leftJoin(users, eq(publicationAuthors.linkedByUserId, users.id))
+      .where(inArray(publicationAuthors.publicationId, ids))
+      .orderBy(publicationAuthors.publicationId, publicationAuthors.authorPosition);
+    return results as (PublicationAuthor & { scientist: Scientist })[];
+  }
+
+  /**
+   * One page of publications, newest first, with the total -- so the office
+   * list never loads every row to show twenty of them.
+   */
+  async getPublicationsPage(limit: number, offset: number): Promise<{ rows: Publication[]; total: number }> {
+    const [rows, [{ total }]] = await Promise.all([
+      db.select().from(publications).orderBy(desc(publications.id)).limit(limit).offset(offset),
+      db.select({ total: sql<number>`count(*)`.mapWith(Number) }).from(publications),
+    ]);
+    return { rows, total: total ?? 0 };
   }
 
   async getPublicationAuthors(publicationId: number): Promise<(PublicationAuthor & { scientist: Scientist })[]> {
@@ -4002,7 +4103,7 @@ export class DatabaseStorage {
   }
 
   // Combined view for PMO Applications (for listing both types together)
-  async getAllPmoApplications(): Promise<Array<Ra200Application & { form_type: 'RA-200' } | Ra205aApplication & { form_type: 'RA-205A' }>> {
+  async getAllPmoApplications(): Promise<PmoApplication[]> {
     const ra200Apps = await this.getRa200Applications();
     const ra205aApps = await this.getRa205aApplications();
     
@@ -4012,6 +4113,46 @@ export class DatabaseStorage {
     return [...ra200WithType, ...ra205aWithType].sort((a, b) =>
       new Date(b.createdAt ?? 0).getTime() - new Date(a.createdAt ?? 0).getTime()
     );
+  }
+
+  /**
+   * Both PMO forms live in their own table and share an id space, so a lookup
+   * by id alone tries RA-200 first and RA-205A second. Callers that know the
+   * form pass it and only that table is read.
+   */
+  async getPmoApplication(id: number, formType?: PmoFormType): Promise<PmoApplication | null> {
+    if (formType !== 'RA-205A') {
+      const ra200 = await this.getRa200Application(id);
+      if (ra200) return { ...ra200, form_type: 'RA-200' as const };
+    }
+    if (formType !== 'RA-200') {
+      const ra205a = await this.getRa205aApplication(id);
+      if (ra205a) return { ...ra205a, form_type: 'RA-205A' as const };
+    }
+    return null;
+  }
+
+  async updatePmoApplication(
+    id: number,
+    updates: Partial<InsertRa200Application> | Partial<InsertRa205aApplication>,
+    formType?: PmoFormType,
+  ): Promise<PmoApplication | null> {
+    const current = await this.getPmoApplication(id, formType);
+    if (!current) return null;
+    if (current.form_type === 'RA-200') {
+      const updated = await this.updateRa200Application(id, updates as Partial<InsertRa200Application>);
+      return updated ? { ...updated, form_type: 'RA-200' as const } : null;
+    }
+    const updated = await this.updateRa205aApplication(id, updates as Partial<InsertRa205aApplication>);
+    return updated ? { ...updated, form_type: 'RA-205A' as const } : null;
+  }
+
+  async deletePmoApplication(id: number, formType?: PmoFormType): Promise<boolean> {
+    const current = await this.getPmoApplication(id, formType);
+    if (!current) return false;
+    return current.form_type === 'RA-200'
+      ? this.deleteRa200Application(id)
+      : this.deleteRa205aApplication(id);
   }
 
   // Recent activity feed — aggregated from real records across the app

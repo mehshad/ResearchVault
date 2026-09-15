@@ -93,7 +93,6 @@ type GrantFormState = {
   sourceRecordKey: string;
   submittingInstitution: string;
   grantLpiName: string;
-  coInvestigators: string;
   investigatorType: string;
   lpiId: string;
   requestedAmount: string;
@@ -106,7 +105,6 @@ type GrantFormState = {
   startDate: string;
   endDate: string;
   reportingIntervalMonths: string;
-  collaborators: string;
   subawardCompletedYear: string;
   contributionType: string;
   contributionDetails: string;
@@ -142,7 +140,6 @@ export default function EditGrant() {
     sourceRecordKey: "",
     submittingInstitution: "",
     grantLpiName: "",
-    coInvestigators: "",
     investigatorType: "",
     lpiId: "",
     requestedAmount: "",
@@ -155,7 +152,6 @@ export default function EditGrant() {
     startDate: "",
     endDate: "",
     reportingIntervalMonths: "",
-    collaborators: "",
     subawardCompletedYear: "",
     contributionType: "",
     contributionDetails: "",
@@ -238,8 +234,7 @@ export default function EditGrant() {
         sourceRecordKey: grant.sourceRecordKey || "",
         submittingInstitution: grant.submittingInstitution || "",
         grantLpiName: grant.grantLpiName || "",
-        coInvestigators: Array.isArray(grant.coInvestigators) ? grant.coInvestigators.join('\n') : "",
-        // Carried through untouched rather than defaulted. The form no longer
+// Carried through untouched rather than defaulted. The form no longer
         // asks, so defaulting an empty one to "Researcher" would write an
         // answer nobody gave.
         investigatorType: grant.investigatorType || "",
@@ -254,7 +249,6 @@ export default function EditGrant() {
         startDate: grant.startDate ? grant.startDate.split('T')[0] : "",
         endDate: grant.endDate ? grant.endDate.split('T')[0] : "",
         reportingIntervalMonths: grant.reportingIntervalMonths?.toString() || "",
-        collaborators: Array.isArray(grant.collaborators) ? grant.collaborators.join('\n') : "",
         subawardCompletedYear: grant.subawardCompletedYear?.toString() || "",
         contributionType: grant.contributionType || "",
         contributionDetails: grant.contributionDetails || "",
@@ -400,12 +394,16 @@ export default function EditGrant() {
       return;
     }
 
-    const collaborators = formData.collaborators
-      ? formData.collaborators.split('\n').map((line) => line.trim()).filter(Boolean)
-      : [];
-    const coInvestigators = formData.coInvestigators
-      ? formData.coInvestigators.split('\n').map((line) => line.trim()).filter(Boolean)
-      : [];
+    // The legacy text columns, kept in step with the pickers rather than held
+    // as a second copy: the form used to carry its own string fields for these
+    // that nothing displayed, so a save wrote back whatever was loaded while
+    // the link tables moved on. Exports and older screens still read the arrays.
+    const collaborators = collaboratingInstitutions
+      .map((institution) => (institution.name ?? "").trim())
+      .filter(Boolean);
+    const coInvestigators = coInvestigatorLinks
+      .map((link) => (link.name ?? "").trim())
+      .filter(Boolean);
 
     const toIntOrNull = (v: string) => (v && String(v).trim() ? parseInt(String(v)) : null);
 

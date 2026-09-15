@@ -182,10 +182,11 @@ export default function Settings() {
     }
   });
 
+  // The vote is the signed-in account's; the server knows who that is.
   const upvoteRequestMutation = useMutation({
-    mutationFn: ({ id, userId }: { id: number; userId: string }) => fetch(`/api/feature-requests/${id}`, {
+    mutationFn: ({ id }: { id: number }) => fetch(`/api/feature-requests/${id}`, {
       method: 'PUT',
-      body: JSON.stringify({ upvoteUserId: userId }),
+      body: JSON.stringify({ upvote: true }),
       headers: { 'Content-Type': 'application/json' }
     }).then(res => res.json()),
     onSuccess: () => {
@@ -272,9 +273,7 @@ Q-BRIDGE is a research governance and information management platform built with
 
   const handleUpvote = (requestId: number) => {
     setVotingRequest(requestId);
-    // Simple user ID simulation - in real app, use actual user ID from auth
-    const userId = `user_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-    upvoteRequestMutation.mutate({ id: requestId, userId });
+    upvoteRequestMutation.mutate({ id: requestId });
   };
 
   const toggleRequestExpanded = (requestId: number) => {
