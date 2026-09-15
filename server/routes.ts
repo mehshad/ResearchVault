@@ -151,6 +151,7 @@ import { registerContractTypeRoutes } from "./contractTypeRoutes";
 import { registerGrantStatusRoutes, refreshGrantStatusRegistry } from "./grantStatusRoutes";
 import { registerReferenceListAdminRoutes } from "./referenceListAdmin";
 import { getInvestigatorAssignmentError } from "./investigatorAssignment";
+import { deleteRefusal } from "./deleteBlockers";
 import { registerIbcRoutes } from "./routes/ibcRoutes";
 import { registerResearchContractRoutes } from "./routes/researchContractRoutes";
 import { registerOrganisationRoutes } from "./routes/organisationRoutes";
@@ -1990,6 +1991,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).json({ message: "Invalid program ID" });
       }
 
+      // Refuse while projects or grants still belong to it: nothing enforces
+      // the reference in the database, so the delete would orphan them.
+      const blockers = await storage.getProgramDeleteBlockers(id);
+      if (blockers.length > 0) return res.status(409).json(deleteRefusal(blockers));
+
       const success = await storage.deleteProgram(id);
       
       if (!success) {
@@ -2098,6 +2104,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (isNaN(id)) {
         return res.status(400).json({ message: "Invalid project ID" });
       }
+
+      // Refuse while SDRs or PMO applications still sit under it.
+      const blockers = await storage.getProjectDeleteBlockers(id);
+      if (blockers.length > 0) return res.status(409).json(deleteRefusal(blockers));
 
       const success = await storage.deleteProject(id);
       
@@ -2639,17 +2649,7 @@ function writeFailureDetail(error: unknown): string {
       }
 
       if (blockers.length > 0) {
-        const blockedBy: Record<string, number> = {};
-        let totalRows = 0;
-        for (const r of blockers) {
-          blockedBy[r.table] = (blockedBy[r.table] ?? 0) + r.count;
-          totalRows += r.count;
-        }
-        return res.status(409).json({
-          message: `Cannot delete: referenced by ${totalRows} record${totalRows === 1 ? "" : "s"} across ${blockers.length} table${blockers.length === 1 ? "" : "s"}.`,
-          blockedBy,
-          details: blockers,
-        });
+        return res.status(409).json(deleteRefusal(blockers));
       }
 
       const success = await storage.deleteScientist(id);
@@ -2891,9 +2891,18 @@ function writeFailureDetail(error: unknown): string {
         return res.status(400).json({ message: "Invalid research activity ID" });
       }
 
-      await storage.deleteResearchActivity(id);
+      // Refuse while team members, publications, grants, applications, plans,
+      // patents or contracts still point at it -- in the dev database one SDR
+      // delete would have orphaned rows in three tables without a word.
+      const blockers = await storage.getResearchActivityDeleteBlockers(id);
+      if (blockers.length > 0) return res.status(409).json(deleteRefusal(blockers));
+
+      const success = await storage.deleteResearchActivity(id);
+      if (!success) {
+        return res.status(404).json({ message: "Research activity not found" });
+      }
       res.status(204).send();
-    } catch (error) {
+} catch (error) {
       logError("Error deleting research activity", "routes", error);
       res.status(500).json({ message: "Failed to delete research activity" });
     }
@@ -3021,24 +3030,8 @@ function writeFailureDetail(error: unknown): string {
     }
   });
 
-  app.delete('/api/projects/:id', async (req: Request, res: Response) => {
-    try {
-      const id = parseInt(req.params.id);
-      if (isNaN(id)) {
-        return res.status(400).json({ message: "Invalid project ID" });
-      }
-
-      const success = await storage.deleteProject(id);
-      
-      if (!success) {
-        return res.status(404).json({ message: "Project not found" });
-      }
-      
-      res.status(204).send();
-    } catch (error) {
-      res.status(500).json({ message: "Failed to delete project" });
-    }
-  });
+  // (A second DELETE /api/projects/:id used to be registered here, identical to
+  // the one above and unreachable behind it; removed with finding #6.)
 
   // Project Research Activities
   app.get('/api/projects/:id/research-activities', async (req: Request, res: Response) => {

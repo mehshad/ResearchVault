@@ -11,6 +11,8 @@ import { sumInQar } from "@shared/currency";
 import type { GrantDashboardStats } from "@shared/dashboardStats";
 import { db as rawDb } from "./db";
 import type { NodePgDatabase } from "drizzle-orm/node-postgres";
+import type { PgColumn, PgTable } from "drizzle-orm/pg-core";
+import type { DeleteBlocker } from "./deleteBlockers";
 import * as schema from "@shared/schema";
 
 // db.ts hands back `any` because it can build a SQLite, Neon or node-postgres
@@ -189,6 +191,59 @@ export class DatabaseStorage {
       .where(eq(programs.id, id))
       .returning();
     return updatedProgram;
+  }
+
+  /**
+   * Rows in other tables that still point at a record, before a delete.
+   *
+   * None of these referencing columns carries a foreign key, so Postgres would
+   * let the parent go and leave the children pointing at nothing -- a deleted
+   * SDR used to orphan its team rows, publications and grant links silently.
+   * The route turns a non-empty answer into a 409 (finding #6).
+   */
+  private async referencingRows(
+    id: number,
+    refs: Array<{ table: PgTable; column: PgColumn; name: string; columnName: string }>,
+  ): Promise<DeleteBlocker[]> {
+    const counts = await Promise.all(
+      refs.map(async (ref) => {
+        const [row] = await db
+          .select({ count: sql<number>`count(*)`.mapWith(Number) })
+          .from(ref.table)
+          .where(eq(ref.column, id));
+        return { table: ref.name, column: ref.columnName, count: row?.count ?? 0 };
+      }),
+    );
+    return counts.filter((row) => row.count > 0);
+  }
+
+  async getProgramDeleteBlockers(id: number): Promise<DeleteBlocker[]> {
+    return this.referencingRows(id, [
+      { table: schema.projects, column: schema.projects.programId, name: "projects", columnName: "program_id" },
+      { table: schema.grants, column: schema.grants.programId, name: "grants", columnName: "program_id" },
+    ]);
+  }
+
+  async getProjectDeleteBlockers(id: number): Promise<DeleteBlocker[]> {
+    return this.referencingRows(id, [
+      { table: schema.researchActivities, column: schema.researchActivities.projectId, name: "research_activities", columnName: "project_id" },
+      { table: schema.ra200Applications, column: schema.ra200Applications.projectId, name: "ra200_applications", columnName: "project_id" },
+      { table: schema.ra205aApplications, column: schema.ra205aApplications.projectId, name: "ra205a_applications", columnName: "project_id" },
+    ]);
+  }
+
+  async getResearchActivityDeleteBlockers(id: number): Promise<DeleteBlocker[]> {
+    return this.referencingRows(id, [
+      { table: schema.projectMembers, column: schema.projectMembers.researchActivityId, name: "project_members", columnName: "research_activity_id" },
+      { table: schema.publications, column: schema.publications.researchActivityId, name: "publications", columnName: "research_activity_id" },
+      { table: schema.publicationResearchActivities, column: schema.publicationResearchActivities.researchActivityId, name: "publication_research_activities", columnName: "research_activity_id" },
+      { table: schema.grantResearchActivities, column: schema.grantResearchActivities.researchActivityId, name: "grant_research_activities", columnName: "research_activity_id" },
+      { table: schema.irbApplications, column: schema.irbApplications.researchActivityId, name: "irb_applications", columnName: "research_activity_id" },
+      { table: schema.ibcApplicationResearchActivities, column: schema.ibcApplicationResearchActivities.researchActivityId, name: "ibc_application_research_activities", columnName: "research_activity_id" },
+      { table: schema.dataManagementPlans, column: schema.dataManagementPlans.researchActivityId, name: "data_management_plans", columnName: "research_activity_id" },
+      { table: schema.patents, column: schema.patents.researchActivityId, name: "patents", columnName: "research_activity_id" },
+      { table: schema.researchContracts, column: schema.researchContracts.researchActivityId, name: "research_contracts", columnName: "research_activity_id" },
+    ]);
   }
 
   async deleteProgram(id: number): Promise<boolean> {
