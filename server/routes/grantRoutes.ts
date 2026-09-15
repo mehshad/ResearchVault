@@ -322,26 +322,23 @@ export function registerGrantRoutes(app: Express): void {
       // and dedupes rather than overwriting, so a re-run adds nothing and
       // never removes a partner someone recorded by hand.
       const staffIndex = buildStaffNameIndex(await storage.getScientists() as any);
-      const seedGrantLinks = async (grantId: number, data: any): Promise<number> => {
-        let added = 0;
-
+      const grantLinksOf = (data: any): { institutions: string[]; coInvestigatorIds: number[] } => {
         const institutions: string[] = Array.isArray(data.collaborators) ? data.collaborators : [];
-        if (institutions.length > 0) {
-          added += await storage.addGrantCollaboratingInstitutions(grantId, institutions);
-        }
-
         const names: string[] = Array.isArray(data.coInvestigators) ? data.coInvestigators : [];
-        if (names.length > 0) {
-          // Same rule as the Lead PI: a name matching nobody, or matching two
-          // people, is left unlinked rather than guessed at. These are our own
-          // staff, so an unmatched one means no record exists yet.
-          const ids = names
-            .map((name) => matchStaffByName(staffIndex, name))
-            .filter((match) => match.status === "matched")
-            .map((match) => (match as { scientist: { id: number } }).scientist.id);
-          if (ids.length > 0) added += await storage.addGrantCoInvestigators(grantId, ids);
-        }
-
+        // Same rule as the Lead PI: a name matching nobody, or matching two
+        // people, is left unlinked rather than guessed at. These are our own
+        // staff, so an unmatched one means no record exists yet.
+        const coInvestigatorIds = names
+          .map((name) => matchStaffByName(staffIndex, name))
+          .filter((match) => match.status === "matched")
+          .map((match) => (match as { scientist: { id: number } }).scientist.id);
+        return { institutions, coInvestigatorIds };
+      };
+      const seedGrantLinks = async (grantId: number, data: any): Promise<number> => {
+        const { institutions, coInvestigatorIds } = grantLinksOf(data);
+        let added = 0;
+        if (institutions.length > 0) added += await storage.addGrantCollaboratingInstitutions(grantId, institutions);
+        if (coInvestigatorIds.length > 0) added += await storage.addGrantCoInvestigators(grantId, coInvestigatorIds);
         return added;
       };
       for (const p of previews) {
@@ -353,11 +350,14 @@ export function registerGrantRoutes(app: Express): void {
             // Same audit trail as a hand-entered grant. Without this the
             // provenance columns stayed empty on exactly the path they were
             // added for: a bulk import is where "who put this here" is
-            // hardest to answer afterwards.
-            const createdGrant = await storage.createGrant(insertGrantSchema.parse({
-              ...parsedData,
-              ...lifecycle,
-            }), req.session?.user?.id);
+            // hardest to answer afterwards. The grant and the links it came
+            // with are one transaction (#31); the second pass below is then a
+            // no-op for this row.
+            await storage.createGrantWithLinks(
+              insertGrantSchema.parse({ ...parsedData, ...lifecycle }),
+              req.session?.user?.id,
+              grantLinksOf(p.data),
+            );
             created++;
           } else {
             const existing = await storage.getGrants().then((gs: any[]) =>

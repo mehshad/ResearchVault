@@ -921,42 +921,36 @@ export function registerPublicationRoutes(app: Express): void {
       }
 
       const creatorUserId = req.session?.user?.id || null;
-      const publication = await storage.createPublication({
-        ...publicationData,
-        ...exemption.fields,
-        createdByUserId: creatorUserId,
-      } as any);
-
-      if (additionalIds && additionalIds.length > 0) {
-        await storage.setPublicationResearchActivities(publication.id, additionalIds);
-      }
-
-      // Create initial history entry for publication creation, attributed to
-      // the session user so the timeline shows who created the record. With
-      // no session there is nobody to name, and the row says so (null) rather
-      // than crediting the legacy default user 1.
-      await storage.createManuscriptHistoryEntry({
-        publicationId: publication.id,
-        fromStatus: '',
-        toStatus: publication.status || 'Concept',
-        changedBy: creatorUserId ?? null,
-        changeReason: 'Publication created',
-      });
-
-      // The exception is a claim someone made. Record it in the timeline so it
-      // survives a later correction and can be traced to whoever made it.
-      if (typeof exemption.fields.sdrExemptionReason === 'string') {
-        await storage.createManuscriptHistoryEntry({
-          publicationId: publication.id,
-          fromStatus: publication.status || 'Concept',
-          toStatus: publication.status || 'Concept',
-          changedField: 'sdrExemption',
-          oldValue: null,
-          newValue: exemption.fields.sdrExemptionReason as string,
-          changedBy: creatorUserId ?? null,
-          changeReason: `No SDR: ${exemption.fields.sdrExemptionReason}`,
-        });
-      }
+      const status = publicationData.status || 'Concept';
+      // The record, its SDR links and its first history entries are one
+      // transaction (#31): a publication with no "created" row or missing
+      // links is what the exemption and finalise rules misread. The history
+      // is attributed to the session user; with no session there is nobody to
+      // name and the row says so (null) rather than crediting user 1.
+      const publication = await storage.createPublicationWithHistory(
+        {
+          ...publicationData,
+          ...exemption.fields,
+          createdByUserId: creatorUserId,
+        } as any,
+        [
+          { fromStatus: '', toStatus: status, changedBy: creatorUserId, changeReason: 'Publication created' },
+          // The exception is a claim someone made. Record it in the timeline so
+          // it survives a later correction and can be traced to whoever made it.
+          ...(typeof exemption.fields.sdrExemptionReason === 'string'
+            ? [{
+                fromStatus: status,
+                toStatus: status,
+                changedField: 'sdrExemption',
+                oldValue: null,
+                newValue: exemption.fields.sdrExemptionReason as string,
+                changedBy: creatorUserId,
+                changeReason: `No SDR: ${exemption.fields.sdrExemptionReason}`,
+              }]
+            : []),
+        ],
+        additionalIds ?? [],
+      );
 
       await req.audit.logInsert("publications", publication.id, publication as Record<string, unknown>);
       res.status(201).json(publication);
