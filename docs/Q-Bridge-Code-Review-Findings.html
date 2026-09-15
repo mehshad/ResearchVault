@@ -75,12 +75,12 @@
   <aside class="rail">
     <div>
       <div class="label">Areas</div>
-      <nav><a href="#security">Security and authorization<span>9</span></a><a href="#data-model">Data model and storage<span>4</span></a><a href="#client">Client and user experience<span>2</span></a><a href="#operations">Data operations and deployment<span>5</span></a><a href="#ci-dx">Testing, CI and maintainability<span>1</span></a></nav>
+      <nav><a href="#security">Security and authorization<span>4</span></a><a href="#data-model">Data model and storage<span>4</span></a><a href="#client">Client and user experience<span>2</span></a><a href="#operations">Data operations and deployment<span>5</span></a><a href="#ci-dx">Testing, CI and maintainability<span>1</span></a></nav>
     </div>
     <div>
       <div class="label">Show</div>
       <div class="filters" role="group" aria-label="Filter by priority">
-        <button type="button" data-filter="all" aria-pressed="true">All 21</button>
+        <button type="button" data-filter="all" aria-pressed="true">All 16</button>
         <button type="button" data-filter="critical" aria-pressed="false">Critical</button>
         <button type="button" data-filter="high" aria-pressed="false">High</button>
         <button type="button" data-filter="medium" aria-pressed="false">Medium</button>
@@ -92,12 +92,12 @@
     <header class="top">
       <div class="label">ResearchVault · branch phase2 · 13 September 2026</div>
       <h1>Q-BRIDGE Code Review</h1>
-      <p class="sub">21 open findings from a read of the server, shared modules, client, migrations and CI on 13 September 2026, each verified against the code or the dev database. This page lists what is still to do; a finding that is fixed is removed from it, not marked closed. The dev database (Settings → Feature Requests, requester "Claude code review, 13 Sep 2026") is the record, with the same numbers.</p>
+      <p class="sub">16 open findings from a read of the server, shared modules, client, migrations and CI on 13 September 2026, each verified against the code or the dev database. This page lists what is still to do; a finding that is fixed is removed from it, not marked closed. The dev database (Settings → Feature Requests, requester "Claude code review, 13 Sep 2026") is the record, with the same numbers.</p>
       <div class="summary">
         <div class="critical"><b>1</b><span>Critical</span></div>
         <div class="high"><b>5</b><span>High</span></div>
-        <div class="medium"><b>10</b><span>Medium</span></div>
-        <div class="low"><b>5</b><span>Low</span></div>
+        <div class="medium"><b>7</b><span>Medium</span></div>
+        <div class="low"><b>3</b><span>Low</span></div>
       </div>
       <p class="where">To close one: fix it on the audit-fixes branch, mark the request implemented in the dev database with the commit, and regenerate this page from the database so it drops out.</p>
     </header>
@@ -106,7 +106,7 @@
         <header class="area-head">
           <h2>Security and authorization</h2>
           <p class="lede">Who may do what, and what the server lets through. Findings marked AC-nn are already in the access control register and remain open.</p>
-          <div class="chips"><span class="mini high">1 high</span><span class="mini medium">6 medium</span><span class="mini low">2 low</span></div>
+          <div class="chips"><span class="mini high">1 high</span><span class="mini medium">3 medium</span></div>
         </header><p class="empty">Nothing at this priority in this area.</p><article class="finding" data-priority="high" id="fr-4">
           <div class="finding-head">
             <span class="sev high">high</span>
@@ -127,16 +127,6 @@
           
           <div class="tags"><span>information-leak</span></div>
         </article>
-        <article class="finding" data-priority="medium" id="fr-22">
-          <div class="finding-head">
-            <span class="sev medium">medium</span>
-            <h3>Take the feature-request voter from the session and check ownership on edit/delete</h3>
-            <span class="meta"><span class="id">#22</span> · backend · effort medium</span>
-          </div>
-          <p>The feature-request routes (<code>server/routes.ts:11336-11455</code>) carry no route-level guard; they are covered only by the prefix rule mapping <code>/api/feature-requests</code> to the 'dashboard' area (<code>server/navigationAccess.ts:108</code>). PUT <code>/api/feature-requests/:id</code> trusts req.body.upvoteUserId as the identity of the voter (routes.ts:11388-11417), so a caller can add or strip votes under any user id. The non-vote branch parses with insertFeatureRequestSchema.partial(), which omits only id/createdAt/updatedAt, so anyone with dashboard 'edit' can set upvotes, upvotedBy, requestedBy, status and approvedPrompt directly. DELETE (routes.ts:11440) has no owner-or-admin check at all. Fix: derive the voter from req.session.user, strip upvotes/upvotedBy/requestedBy from the client-writable schema, and restrict status/approvedPrompt changes and delete to the requester or an administrator.</p>
-          
-          <div class="tags"><span>idor</span><span>feature-requests</span></div>
-        </article>
         <article class="finding" data-priority="medium" id="fr-23">
           <div class="finding-head">
             <span class="sev medium">medium</span>
@@ -147,26 +137,6 @@
           
           <div class="tags"><span>validation</span><span>information-leak</span></div>
         </article>
-        <article class="finding" data-priority="medium" id="fr-24">
-          <div class="finding-head">
-            <span class="sev medium">medium</span>
-            <h3>Write an audit entry for every DELETE, not only scientists, grants and publications</h3>
-            <span class="meta"><span class="id">#24</span> · backend · effort medium</span>
-          </div>
-          <p><code>server/routes.ts</code> registers 42 DELETE routes but req.audit appears only 23 times in the file, and reading the handlers shows most deletes record nothing: DELETE <code>/api/programs/:id</code> (routes.ts:2888), <code>/api/irb-applications/:id</code> (6988), <code>/api/ibc-applications/:id</code> (7299), <code>/api/publications/:id</code> (5424) and the bulk DELETE <code>/api/grants/cleanup/incomplete</code> (10554) all call storage.delete* and return without logging, while DELETE <code>/api/scientists/:id</code> (3563) and <code>/api/grants/:id</code> (10290) do call req.audit.logDelete. An auditor therefore cannot tell who removed a program, an IRB application, or a batch of grants. Fix: call req.audit.logDelete with the pre-delete row in each handler, or move the logging into the storage delete methods so a new route cannot forget it.</p>
-          
-          <div class="tags"><span>audit</span></div>
-        </article>
-        <article class="finding" data-priority="medium" id="fr-25">
-          <div class="finding-head">
-            <span class="sev medium">medium</span>
-            <h3>Refuse an administrator demoting themselves or the last administrator</h3>
-            <span class="meta"><span class="id">#25</span> · backend · effort low</span>
-          </div>
-          <p>PATCH <code>/api/admin/users/:id/role</code> (<code>server/routes.ts:11891-11935</code>) and PUT <code>/api/admin/users/:id/secondary-roles</code> (11792-11888) never compare :id with req.session.user.id and never count how many administrators would remain. Because refreshSessionAuthorization rebuilds the principal on every request (<code>server/auth.ts:616-648</code>), an admin who moves their own primary role to 'user' and clears their secondaries is locked out on the very next call, and if they were the only admin nobody can undo it through the interface. This is the one path that locks out an administrator. Fix: reject the request when the target is the caller and the result would remove administrator rights, and when the target is the last account holding admin or superadmin.</p>
-          
-          <div class="tags"><span>admin</span><span>lockout</span></div>
-        </article>
         <article class="finding" data-priority="medium" id="fr-26">
           <div class="finding-head">
             <span class="sev medium">medium</span>
@@ -176,26 +146,6 @@
           <p>AC-05 remains open. resolveRole (<code>server/auth.ts:415-419</code>) is applied on every local login (auth.ts:806-810) and every LDAP/OIDC sign-in (auth.ts:477-486), rewriting users.role to 'superadmin' whenever the email matches the environment variable; a demotion made through PATCH <code>/api/admin/users/:id/role</code> is therefore undone silently at the next sign-in, and the escalation is written to the auth log but not to the audit table. Fix: promote only when no superadmin row exists, record the promotion through the AuditService, and surface the configured address in Settings so an auditor can see where the privilege comes from.</p>
           
           <div class="tags"><span>privilege</span><span>AC-05</span></div>
-        </article>
-        <article class="finding" data-priority="low" id="fr-46">
-          <div class="finding-head">
-            <span class="sev low">low</span>
-            <h3>Log Postgres error detail server-side instead of returning it from writeFailureDetail</h3>
-            <span class="meta"><span class="id">#46</span> · backend · effort low</span>
-          </div>
-          <p>writeFailureDetail (<code>server/routes.ts:3435-3441</code>) concatenates error.message with cause.message and cause.detail from the driver and the result is sent to the client on 500 from PATCH <code>/api/scientists/:id</code> (3496), DELETE <code>/api/scientists/:id</code> (3567) and PATCH <code>/api/admin/users/:id/role</code> (11932). Postgres detail strings include column names, constraint names and the offending values, which is more than a caller needs. The unique-constraint case is already handled separately with a friendly 409, so the remaining 500 path can safely return a generic message while the detail goes to logError.</p>
-          
-          <div class="tags"><span>information-leak</span></div>
-        </article>
-        <article class="finding" data-priority="low" id="fr-47">
-          <div class="finding-head">
-            <span class="sev low">low</span>
-            <h3>Add an Origin/Referer check as a second CSRF layer beside SameSite=Lax</h3>
-            <span class="meta"><span class="id">#47</span> · backend · effort low</span>
-          </div>
-          <p>CSRF protection currently rests entirely on the session cookie's sameSite: 'lax' (<code>server/index.ts:117-121</code>); there is no token and no Origin check, and <code>package.json</code> has no csurf/helmet. Lax does block cookie-bearing cross-site POST/PUT/DELETE in current browsers, but express.urlencoded is enabled (index.ts:66) so a form-encoded cross-site POST would parse if the cookie ever arrived, and the app sits behind nginx where a misconfigured APP_URL leaves secure: false. A cheap belt-and-braces fix is a small middleware on /api that rejects state-changing requests whose Origin (or Referer) host does not match APP_URL.</p>
-          
-          <div class="tags"><span>csrf</span></div>
         </article>
       </section>
       <section class="area" id="data-model">
