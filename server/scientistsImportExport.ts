@@ -654,8 +654,6 @@ const SCIENTIST_REF_COLUMNS: Array<{ table: string; column: string }> = [
   { table: "programs", column: "clinical_co_lead_2_id" },
   { table: "projects", column: "principal_investigator_id" },
   { table: "research_activities", column: "budget_holder_id" },
-  { table: "research_activities", column: "line_manager_id" },
-  { table: "research_activities", column: "staff_scientist_id" },
   { table: "project_members", column: "scientist_id" },
   { table: "publication_authors", column: "scientist_id" },
   { table: "manuscript_history", column: "changed_by" },
