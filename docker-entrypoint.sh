@@ -154,7 +154,8 @@ for migration in \
     "migrations/20260908_clear_preprint_server_from_journal.sql" \
     "migrations/20260913_publication_additional_sdrs.sql" \
     "migrations/20260914_institution_country.sql" \
-    "migrations/20260914_project_principal_investigator.sql"; do
+    "migrations/20260914_project_principal_investigator.sql" \
+    "migrations/20260915_hot_lookup_indexes.sql"; do
   if [ -f "/app/$migration" ]; then
     echo "  Applying $migration..."
     # Run the whole file (ON_ERROR_STOP=0) so a statement that is simply
