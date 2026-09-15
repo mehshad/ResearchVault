@@ -93,6 +93,12 @@ elif [ "$_db_type" = "mssql" ]; then
 else
 
 echo "==> Running database migrations..."
+# What an idempotent re-run is allowed to say. Deliberately NOT "does not
+# exist": that is exactly the message a real failure carries (a column a data
+# migration references), and it was being filtered out.
+_MIGRATION_BENIGN='already exists|duplicate key value violates unique constraint'
+# Lines not worth printing on every start: blank, NOTICEs, and the benign errors.
+_MIGRATION_QUIET='^$|NOTICE:|already exists|duplicate key value violates unique constraint'
 # Run each migration file in order using psql.
 # Files use IF NOT EXISTS / IF EXISTS so they are safe to re-run.
 for migration in \
@@ -151,18 +157,24 @@ for migration in \
     "migrations/20260914_project_principal_investigator.sql"; do
   if [ -f "/app/$migration" ]; then
     echo "  Applying $migration..."
-    if [ "$migration" = "migrations/20260820_grant_lifecycle_consistency.sql" ] || \
-       [ "$migration" = "migrations/20260826_add_bulk_data_archives.sql" ] || \
-       [ "$migration" = "migrations/20260901_grant_audit_and_not_awarded.sql" ] || \
-       [ "$migration" = "migrations/20260901_grant_collaborating_institutions.sql" ] || \
-       [ "$migration" = "migrations/20260902_grant_external_lpi.sql" ] || \
-       [ "$migration" = "migrations/20260831_audit_log.sql" ] || \
-       [ "$migration" = "migrations/20260827_add_publication_invalid_reason.sql" ]; then
-      # This migration installs lifecycle constraints and concurrency guards.
-      # Do not start the application if those protections fail to apply.
-      psql "$DATABASE_URL" -f "/app/$migration" -v ON_ERROR_STOP=1
-    else
-      psql "$DATABASE_URL" -f "/app/$migration" -v ON_ERROR_STOP=0 2>&1 | grep -v "^$\|already exists\|does not exist\|NOTICE" || true
+    # Run the whole file (ON_ERROR_STOP=0) so a statement that is simply
+    # already applied does not skip the statements after it, then read the
+    # output: an idempotent re-run may say "already exists" or "duplicate key",
+    # and nothing else. Any other ERROR -- a missing column, a type that does
+    # not exist, or the "current transaction is aborted" that follows a failed
+    # statement inside BEGIN...COMMIT and turns its COMMIT into a rollback --
+    # stops the container. 44 of these files used to pipe through
+    # `grep -v ... || true`, so such a failure was printed once and the app
+    # started on a schema it did not have.
+    _out=$(psql "$DATABASE_URL" -v ON_ERROR_STOP=0 -f "/app/$migration" 2>&1) || _psql_status=$?
+    printf '%s\n' "$_out" | grep -vE "$_MIGRATION_QUIET" || true
+    if printf '%s\n' "$_out" | grep -E 'ERROR:' | grep -vE "$_MIGRATION_BENIGN" | grep -q .; then
+      echo "==> ERROR: $migration did not apply cleanly (see above). Refusing to start on an incomplete schema."
+      exit 1
+    fi
+    if [ "${_psql_status:-0}" != "0" ]; then
+      echo "==> ERROR: psql exited with status ${_psql_status} on $migration."
+      exit 1
     fi
   fi
 done
