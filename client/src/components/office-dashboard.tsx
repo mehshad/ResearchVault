@@ -71,7 +71,6 @@ function PublicationQueueCard({ values }: { values?: Stock }) {
     <CardContent className="space-y-5">
       <div className="flex flex-wrap items-end gap-x-5 gap-y-1 rounded-lg border bg-muted/30 px-5 py-4" data-testid="stat-published-final">
         <div><p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Published *</p><p className="mt-1 text-5xl font-semibold leading-none">{sealed.toLocaleString()}</p></div>
-        <p className="max-w-[26ch] pb-1 text-xs text-muted-foreground">Sealed final records, kept off the chart: this total outgrows every queue.</p>
       </div>
       <div style={{ height }}>{rows.length ? <ChartContainer config={{ count: { label: "Publications", color: colors[0] } }} className="h-full w-full aspect-auto">
         <BarChart data={rows} layout="vertical" margin={{ left: 0, right: 40, top: 2, bottom: 2 }} barCategoryGap={6}>
