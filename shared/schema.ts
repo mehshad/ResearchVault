@@ -1,4 +1,4 @@
-import { pgTable, text, serial, integer, timestamp, boolean, json, uniqueIndex, unique, date, numeric, check } from "drizzle-orm/pg-core";
+import { pgTable, text, serial, integer, timestamp, boolean, json, index, uniqueIndex, unique, date, numeric, check } from "drizzle-orm/pg-core";
 import { stageOfGrantStatus } from "./grantStatusRegistry";
 import { sql } from "drizzle-orm";
 import { createInsertSchema } from "drizzle-zod";
@@ -261,7 +261,13 @@ export const researchActivities = pgTable("research_activities", {
   staffScientistId: integer("staff_scientist_id"), // references scientists.id (legacy field)
   grantCodes: text("grant_codes").array(), // Grant codes corresponding to budget sources
   // NOTE: leadScientistId removed - Lead Scientist is now managed through projectMembers table only
-});
+}, (table) => ({
+  // Postgres does not index a referencing column on its own; these are what
+  // every "SDRs under this project" and "SDRs this person holds" lookup
+  // filters on. Mirrored in migrations/20260915_hot_lookup_indexes.sql.
+  projectIdx: index("research_activities_project_idx").on(table.projectId),
+  budgetHolderIdx: index("research_activities_budget_holder_idx").on(table.budgetHolderId),
+}));
 
 export const insertResearchActivitySchema = createInsertSchema(researchActivities).omit({
   id: true,
@@ -295,6 +301,9 @@ export const projectMembers = pgTable("project_members", {
 }, (table) => {
   return {
     projectScientistIdx: uniqueIndex("project_scientist_idx").on(table.researchActivityId, table.scientistId),
+    // Same reason as publication_authors: the directory's per-person SDR
+    // count filters on scientist_id alone.
+    scientistIdx: index("project_members_scientist_idx").on(table.scientistId),
   };
 });
 
@@ -358,7 +367,10 @@ export const publications = pgTable("publications", {
   createdByUserId: integer("created_by_user_id").references(() => users.id),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
-});
+}, (table) => ({
+  // The publications under an SDR; see migrations/20260915_hot_lookup_indexes.sql.
+  researchActivityIdx: index("publications_research_activity_idx").on(table.researchActivityId),
+}));
 
 export const insertPublicationSchema = createInsertSchema(publications).omit({
   id: true,
@@ -396,6 +408,9 @@ export const publicationAuthors = pgTable("publication_authors", {
 }, (table) => {
   return {
     publicationScientistIdx: uniqueIndex("publication_scientist_idx").on(table.publicationId, table.scientistId),
+    // The unique index leads with publication_id, so "this scientist's
+    // publications" could not use it. See migrations/20260915_hot_lookup_indexes.sql.
+    scientistIdx: index("publication_authors_scientist_idx").on(table.scientistId),
   };
 });
 
@@ -1755,6 +1770,7 @@ export const grantResearchActivities = pgTable("grant_research_activities", {
   return {
     grantResearchActivityUniqueIdx: uniqueIndex("grant_research_activity_unique_idx")
       .on(table.grantId, table.researchActivityId),
+    researchActivityIdx: index("grant_research_activities_research_activity_idx").on(table.researchActivityId),
   };
 });
 
