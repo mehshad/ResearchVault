@@ -3,11 +3,12 @@
  * Moved out of server/routes.ts as one domain, unchanged; see #42.
  */
 import type { Express, Request, Response, NextFunction } from "express";
-import { requireAdmin } from "../auth";
+import { requireAdmin, requireAuth } from "../auth";
 import { storage } from "../databaseStorage";
 import { logError } from "../logger";
 import { hasPublicationOfficerRole } from "../sidraScoreRoutes";
 import { insertFeatureRequestSchema } from "@shared/schema";
+import { isAdministrator } from "@shared/effectiveRoles";
 import { SIDRA_SCORE_SETTINGS_KEY } from "@shared/sidraScore";
 import { ZodError } from "zod";
 import { fromZodError } from "zod-validation-error";
@@ -199,8 +200,25 @@ export function registerSettingsRoutes(app: Express): void {
     }
   });
 
-  // Feature Request routes
-  app.get('/api/feature-requests', async (req: Request, res: Response) => {
+  // Feature Request routes. Signed in only; the vote and the requester's name
+  // are the session's, never the body's, and a request is changed or removed
+  // by its requester or an administrator (#22).
+  const featureRequestWriteSchema = insertFeatureRequestSchema.omit({
+    upvotes: true,
+    upvotedBy: true,
+    requestedBy: true,
+  });
+  const requesterName = (req: Request): string | null => {
+    const user = req.session?.user;
+    return user ? (user.name?.trim() || user.username) : null;
+  };
+  const mayManage = (req: Request, request: { requestedBy: string }): boolean => {
+    const user = req.session?.user;
+    if (!user) return false;
+    return isAdministrator(user) || [user.name, user.username].includes(request.requestedBy);
+  };
+
+  app.get('/api/feature-requests', requireAuth, async (req: Request, res: Response) => {
     try {
       const requests = await storage.getFeatureRequests();
       res.json(requests);
@@ -210,7 +228,7 @@ export function registerSettingsRoutes(app: Express): void {
     }
   });
 
-  app.get('/api/feature-requests/:id', async (req: Request, res: Response) => {
+  app.get('/api/feature-requests/:id', requireAuth, async (req: Request, res: Response) => {
     try {
       const id = parseInt(req.params.id);
       if (isNaN(id)) {
@@ -229,10 +247,13 @@ export function registerSettingsRoutes(app: Express): void {
     }
   });
 
-  app.post('/api/feature-requests', async (req: Request, res: Response) => {
+  app.post('/api/feature-requests', requireAuth, async (req: Request, res: Response) => {
     try {
-      const featureRequestData = insertFeatureRequestSchema.parse(req.body);
-      const newRequest = await storage.createFeatureRequest(featureRequestData);
+      const featureRequestData = featureRequestWriteSchema.parse(req.body);
+      const newRequest = await storage.createFeatureRequest({
+        ...featureRequestData,
+        requestedBy: requesterName(req) ?? "Anonymous User",
+      });
       res.status(201).json(newRequest);
     } catch (error) {
       if (error instanceof ZodError) {
@@ -245,49 +266,37 @@ export function registerSettingsRoutes(app: Express): void {
     }
   });
 
-  app.put('/api/feature-requests/:id', async (req: Request, res: Response) => {
+  app.put('/api/feature-requests/:id', requireAuth, async (req: Request, res: Response) => {
     try {
       const id = parseInt(req.params.id);
       if (isNaN(id)) {
         return res.status(400).json({ message: "Invalid feature request ID" });
       }
+      const currentRequest = await storage.getFeatureRequest(id);
+      if (!currentRequest) {
+        return res.status(404).json({ message: "Feature request not found" });
+      }
 
-      // Handle upvoting logic
-      if (req.body.upvoteUserId) {
-        const currentRequest = await storage.getFeatureRequest(id);
-        if (!currentRequest) {
-          return res.status(404).json({ message: "Feature request not found" });
-        }
-
+      // A vote toggles for the signed-in account. `upvoteUserId` still works
+      // as the trigger for an older client, but its value is ignored.
+      if (req.body.upvote !== undefined || req.body.upvoteUserId !== undefined) {
+        const voter = String(req.session!.user!.id);
         const upvotedBy = currentRequest.upvotedBy || [];
-        const userId = req.body.upvoteUserId;
-
-        // Toggle upvote
-        let newUpvotedBy;
-        let newUpvotes;
-        
-        if (upvotedBy.includes(userId)) {
-          // Remove upvote
-          newUpvotedBy = upvotedBy.filter(id => id !== userId);
-          newUpvotes = Math.max(0, currentRequest.upvotes - 1);
-        } else {
-          // Add upvote
-          newUpvotedBy = [...upvotedBy, userId];
-          newUpvotes = currentRequest.upvotes + 1;
-        }
-
+        const newUpvotedBy = upvotedBy.includes(voter)
+          ? upvotedBy.filter((v) => v !== voter)
+          : [...upvotedBy, voter];
         const updatedRequest = await storage.updateFeatureRequest(id, {
-          upvotes: newUpvotes,
-          upvotedBy: newUpvotedBy
+          upvotes: newUpvotedBy.length,
+          upvotedBy: newUpvotedBy,
         });
-
         return res.json(updatedRequest);
       }
 
-      // Regular update logic
-      const updateData = insertFeatureRequestSchema.partial().parse(req.body);
+      if (!mayManage(req, currentRequest)) {
+        return res.status(403).json({ message: "Only the requester or an administrator can change this request." });
+      }
+      const updateData = featureRequestWriteSchema.partial().parse(req.body);
       const updatedRequest = await storage.updateFeatureRequest(id, updateData);
-      
       if (!updatedRequest) {
         return res.status(404).json({ message: "Feature request not found" });
       }
@@ -304,17 +313,25 @@ export function registerSettingsRoutes(app: Express): void {
     }
   });
 
-  app.delete('/api/feature-requests/:id', async (req: Request, res: Response) => {
+  app.delete('/api/feature-requests/:id', requireAuth, async (req: Request, res: Response) => {
     try {
       const id = parseInt(req.params.id);
       if (isNaN(id)) {
         return res.status(400).json({ message: "Invalid feature request ID" });
+      }
+      const existing = await storage.getFeatureRequest(id);
+      if (!existing) {
+        return res.status(404).json({ message: "Feature request not found" });
+      }
+      if (!mayManage(req, existing)) {
+        return res.status(403).json({ message: "Only the requester or an administrator can delete this request." });
       }
 
       const deleted = await storage.deleteFeatureRequest(id);
       if (!deleted) {
         return res.status(404).json({ message: "Feature request not found" });
       }
+      await req.audit.logDelete("feature_requests", id, existing as Record<string, unknown>);
 
       res.json({ message: "Feature request deleted successfully" });
     } catch (error) {
