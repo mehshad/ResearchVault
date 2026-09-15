@@ -75,12 +75,12 @@
   <aside class="rail">
     <div>
       <div class="label">Areas</div>
-      <nav><a href="#security">Security and authorization<span>4</span></a><a href="#data-model">Data model and storage<span>4</span></a><a href="#client">Client and user experience<span>2</span></a><a href="#operations">Data operations and deployment<span>3</span></a><a href="#ci-dx">Testing, CI and maintainability<span>0</span></a></nav>
+      <nav><a href="#security">Security and authorization<span>4</span></a><a href="#data-model">Data model and storage<span>0</span></a><a href="#client">Client and user experience<span>2</span></a><a href="#operations">Data operations and deployment<span>3</span></a><a href="#ci-dx">Testing, CI and maintainability<span>0</span></a></nav>
     </div>
     <div>
       <div class="label">Show</div>
       <div class="filters" role="group" aria-label="Filter by priority">
-        <button type="button" data-filter="all" aria-pressed="true">All 14</button>
+        <button type="button" data-filter="all" aria-pressed="true">All 10</button>
         <button type="button" data-filter="critical" aria-pressed="false">Critical</button>
         <button type="button" data-filter="high" aria-pressed="false">High</button>
         <button type="button" data-filter="medium" aria-pressed="false">Medium</button>
@@ -92,12 +92,12 @@
     <header class="top">
       <div class="label">ResearchVault · branch phase2 · 13 September 2026</div>
       <h1>Q-BRIDGE Code Review</h1>
-      <p class="sub">14 open findings from a read of the server, shared modules, client, migrations and CI on 13 September 2026, each verified against the code or the dev database. This page lists what is still to do; a finding that is fixed is removed from it, not marked closed. The dev database (Settings → Feature Requests, requester "Claude code review, 13 Sep 2026") is the record, with the same numbers.</p>
+      <p class="sub">10 open findings from a read of the server, shared modules, client, migrations and CI on 13 September 2026, each verified against the code or the dev database. This page lists what is still to do; a finding that is fixed is removed from it, not marked closed. The dev database (Settings → Feature Requests, requester "Claude code review, 13 Sep 2026") is the record, with the same numbers.</p>
       <div class="summary">
         <div class="critical"><b>1</b><span>Critical</span></div>
-        <div class="high"><b>5</b><span>High</span></div>
-        <div class="medium"><b>6</b><span>Medium</span></div>
-        <div class="low"><b>2</b><span>Low</span></div>
+        <div class="high"><b>4</b><span>High</span></div>
+        <div class="medium"><b>5</b><span>Medium</span></div>
+        <div class="low"><b>0</b><span>Low</span></div>
       </div>
       <p class="where">To close one: fix it on the audit-fixes branch, mark the request implemented in the dev database with the commit, and regenerate this page from the database so it drops out.</p>
     </header>
@@ -152,47 +152,9 @@
         <header class="area-head">
           <h2>Data model and storage</h2>
           <p class="lede">Schema integrity, the storage layer, and the queries behind the busiest pages.</p>
-          <div class="chips"><span class="mini high">1 high</span><span class="mini medium">1 medium</span><span class="mini low">2 low</span></div>
-        </header><p class="empty">Nothing at this priority in this area.</p><article class="finding" data-priority="high" id="fr-7">
-          <div class="finding-head">
-            <span class="sev high">high</span>
-            <h3>Add real foreign keys to the core relationship columns</h3>
-            <span class="meta"><span class="id">#7</span> · backend · effort high</span>
-          </div>
-          <p><code>shared/schema.ts</code> has 60+ columns whose only constraint is a '// references X.id' comment (publication_authors, project_members, publication_research_activities, grant_research_activities, publications.research_activity_id, research_activities.project_id/budget_holder_id, projects.principal_investigator_id, grants.lpi_id, scientists.supervisor_id, irb/ibc PI columns, manuscript_history, certifications). The live DB has 29 FKs, almost all on newer tables. Orphan counts on every core column are currently 0 (only manuscript_history.changed_by has 5), so this is the cheap moment to add them via .references() plus a migration, choosing cascade for pure link tables and restrict for ownership columns. Also clean two pieces of drift: publications.created_by_user_id has two FK constraints (<code>migrations/20260824_add_publication_creator.sql:12</code> plus the drizzle-generated one), and ibc_application_research_activities has two identical unique indexes (<code>migrations/20260609_missing_tables.sql:106</code> plus schema.ts:814).</p>
-          
-          <div class="tags"><span>foreign-keys</span><span>migrations</span></div>
-        </article>
-        <article class="finding" data-priority="medium" id="fr-31">
-          <div class="finding-head">
-            <span class="sev medium">medium</span>
-            <h3>Wrap publication and grant creation in one transaction</h3>
-            <span class="meta"><span class="id">#31</span> · bugfix · effort low</span>
-          </div>
-          <p>POST <code>/api/publications</code> (routes.ts:5267-5300) runs createPublication, setPublicationResearchActivities, one or two createManuscriptHistoryEntry calls and the audit insert as separate autocommit statements; a failure after the first leaves a publication with no 'Publication created' timeline row or missing SDR links, which the exemption and finalise rules then misread. The grant bulk import (routes.ts:10446-10500) creates each grant and only in a later pass (seedGrantLinks, :10427) adds its collaborator and co-investigator rows. databaseStorage.ts already uses db.transaction in ten places for status changes and merges; apply the same pattern here, ideally by moving the whole create into a storage method.</p>
-          
-          <div class="tags"><span>transactions</span><span>publications</span><span>grants</span></div>
-        </article>
-        <article class="finding" data-priority="low" id="fr-48">
-          <div class="finding-head">
-            <span class="sev low">low</span>
-            <h3>Constrain the free-text status columns and retire the 'Published *' sentinel</h3>
-            <span class="meta"><span class="id">#48</span> · backend · effort low</span>
-          </div>
-          <p>grants.status has a CHECK listing its 13 values (<code>shared/schema.ts:1455</code>); publications.status (:341) and research_activities.status (:249) are unconstrained text. The publication workflow encodes a distinct stage as the same column value with a trailing asterisk: 'Published *' is stage 8 in <code>shared/publicationOrdering.ts:20</code>, and getPublicationsForScientist matches with LOWER(TRIM(...)) IN ('published', 'published *') (databaseStorage.ts:1130). Add CHECK constraints from the shared stage lists so a typo cannot create a new stage, and consider a separate boolean or column for the sealed state instead of the asterisk.</p>
-          
-          <div class="tags"><span>status</span><span>publications</span></div>
-        </article>
-        <article class="finding" data-priority="low" id="fr-49">
-          <div class="finding-head">
-            <span class="sev low">low</span>
-            <h3>Store date-only fields as date, not timestamp</h3>
-            <span class="meta"><span class="id">#49</span> · backend · effort medium</span>
-          </div>
-          <p>grants uses date for start_date/end_date (schema.ts:1431-1432), but research_activities.start_date/end_date (:251-252), publications.publication_date (:339), patents.filing_date/grant_date (:455-456), irb submission/decision/due dates (:483, 535-549), ibc milestone dates (:688-691) and board-member term dates (:1087-1108) are timestamp without time zone. A calendar date stored as midnight then serialised and shown in a different zone displays the previous day, and insertResearchActivitySchema (:268-277) accepts only z.string().datetime(), so a plain 'YYYY-MM-DD' from a date input is rejected. Migrate these to date and accept plain date strings in the insert schemas.</p>
-          
-          <div class="tags"><span>dates</span></div>
-        </article>
+          <div class="chips"></div>
+        </header>
+        
       </section>
       <section class="area" id="client">
         <header class="area-head">
