@@ -3615,34 +3615,47 @@ function writeFailureDetail(error: unknown): string {
         return res.status(400).json({ message: "Invalid pagination parameters. page and limit must be positive integers." });
       }
       
+      const hasOfficeAccess =
+        req.query.officeAccess === "true" &&
+        hasPublicationOfficerRole(req);
+
+      // The office list pages in SQL: the total comes from a count and only
+      // the requested rows are loaded. Every other case (an SDR's or program's
+      // publications, or a viewer whose rows must be filtered one by one) is a
+      // small set and pages in memory below, as before (finding #28).
       let publications;
+      let sqlPage: { total: number } | null = null;
       if (researchActivityId && !isNaN(researchActivityId)) {
         publications = await storage.getPublicationsForResearchActivity(researchActivityId);
       } else if (programId && !isNaN(programId)) {
         // The SDRs of the program's projects, resolved on the server so the
         // program page does not have to pull every publication to find its own.
         publications = await storage.getPublicationsForProgram(programId);
+      } else if (hasOfficeAccess && page !== undefined && limit !== undefined) {
+        const paged = await storage.getPublicationsPage(limit, (page - 1) * limit);
+        publications = paged.rows;
+        sqlPage = { total: paged.total };
       } else {
         publications = await storage.getPublications();
       }
-      const allPublicationAuthors = await storage.getAllPublicationAuthors();
 
-      const hasOfficeAccess =
-        req.query.officeAccess === "true" &&
-        hasPublicationOfficerRole(req);
+      // Authors for these rows only, not the whole table.
+      const allPublicationAuthors = await storage.getPublicationAuthorsForPublications(
+        publications.map((publication) => publication.id),
+      );
+      const authorsByPublication = new Map<number, Array<{
+        scientistId: number;
+        supervisorId: number | null;
+      }>>();
+      for (const author of allPublicationAuthors) {
+        const linked = authorsByPublication.get(author.publicationId) ?? [];
+        linked.push({
+          scientistId: author.scientistId,
+          supervisorId: author.scientist.supervisorId,
+        });
+        authorsByPublication.set(author.publicationId, linked);
+      }
       if (!hasOfficeAccess) {
-        const authorsByPublication = new Map<number, Array<{
-          scientistId: number;
-          supervisorId: number | null;
-        }>>();
-        for (const author of allPublicationAuthors) {
-          const linked = authorsByPublication.get(author.publicationId) ?? [];
-          linked.push({
-            scientistId: author.scientistId,
-            supervisorId: author.scientist.supervisorId,
-          });
-          authorsByPublication.set(author.publicationId, linked);
-        }
         const viewer = getScientistPublicationViewer(req);
         publications = publications.filter((publication) =>
           canViewPublication(
@@ -3674,8 +3687,7 @@ function writeFailureDetail(error: unknown): string {
         const canSeeInvalidReason =
           hasPublicationOfficerRole(req) ||
           (req.session.user?.scientistId != null &&
-            allPublicationAuthors.some((author) =>
-              author.publicationId === pub.id &&
+            (authorsByPublication.get(pub.id) ?? []).some((author) =>
               author.scientistId === req.session.user!.scientistId
             ));
         const { invalidReason: _privateInvalidReason, ...safePublication } = pub;
@@ -3687,20 +3699,24 @@ function writeFailureDetail(error: unknown): string {
         };
       }));
       
-      // Apply pagination if requested
+      // Apply pagination if requested. When the page came from SQL the rows are
+      // already the page and the total is the table's count.
       if (page !== undefined && limit !== undefined) {
+        const total = sqlPage ? sqlPage.total : enhancedPublications.length;
         const startIndex = (page - 1) * limit;
-        const paginatedPublications = enhancedPublications.slice(startIndex, startIndex + limit);
+        const paginatedPublications = sqlPage
+          ? enhancedPublications
+          : enhancedPublications.slice(startIndex, startIndex + limit);
         res.json({
           data: paginatedPublications,
           pagination: {
             page,
             limit,
-            total: enhancedPublications.length,
-            totalPages: Math.ceil(enhancedPublications.length / limit)
+            total,
+            totalPages: Math.ceil(total / limit)
           }
         });
-      } else {
+} else {
         res.json(enhancedPublications);
       }
     } catch (error) {
@@ -4170,8 +4186,7 @@ function writeFailureDetail(error: unknown): string {
       const hasOfficeAccess =
         req.query.officeAccess === "true" &&
         hasPublicationOfficerRole(req);
-      const linkedAuthors = (await storage.getAllPublicationAuthors())
-        .filter((author) => author.publicationId === publication.id)
+      const linkedAuthors = (await storage.getPublicationAuthors(publication.id))
         .map((author) => ({
           scientistId: author.scientistId,
           supervisorId: author.scientist.supervisorId,

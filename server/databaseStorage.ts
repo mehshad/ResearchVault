@@ -1195,8 +1195,16 @@ export class DatabaseStorage {
       );
     }
 
-    // Get all publications for the scientist first, then filter by date in JavaScript
-    const allResults = await db
+    // The time window in SQL: within `yearsSince` years, or undated (an undated
+    // record is not excluded for lacking a date). This used to load every
+    // publication the person has and cut the list down in JavaScript.
+    const cutoffDate = new Date();
+    cutoffDate.setFullYear(cutoffDate.getFullYear() - yearsSince);
+    visibilityConditions.push(
+      sql`(${publications.publicationDate} IS NULL OR ${publications.publicationDate} >= ${cutoffDate.toISOString()})`,
+    );
+
+    return await db
       .select({
         publication: publications,
         authorshipType: publicationAuthors.authorshipType,
@@ -1205,7 +1213,8 @@ export class DatabaseStorage {
       .from(publications)
       .innerJoin(publicationAuthors, eq(publications.id, publicationAuthors.publicationId))
       .where(and(...visibilityConditions))
-      .orderBy(desc(publications.id))
+      // Newest first; undated last; ties by id so paging is stable.
+      .orderBy(sql`${publications.publicationDate} DESC NULLS LAST`, desc(publications.id))
       // The whole row, so a column added to publications reaches the profile
       // without a second list to maintain here -- minus the correction reason,
       // which the profile route sends to anyone and other routes show only to
@@ -1214,28 +1223,6 @@ export class DatabaseStorage {
         const { invalidReason: _private, ...safe } = publication;
         return { ...safe, authorshipType, authorPosition };
       }));
-    
-    // Filter by date in JavaScript to avoid SQL date issues
-    const cutoffDate = new Date();
-    cutoffDate.setFullYear(cutoffDate.getFullYear() - yearsSince);
-    
-    const filteredResults = allResults.filter(pub => {
-      if (!pub.publicationDate) return true; // Include publications without date
-      const pubDate = new Date(pub.publicationDate);
-      return pubDate >= cutoffDate;
-    });
-    
-    // Sort by publication date (most recent first), then by ID for consistent ordering
-    filteredResults.sort((a, b) => {
-      if (a.publicationDate && b.publicationDate) {
-        return new Date(b.publicationDate).getTime() - new Date(a.publicationDate).getTime();
-      }
-      if (a.publicationDate && !b.publicationDate) return -1;
-      if (!a.publicationDate && b.publicationDate) return 1;
-      return b.id - a.id;
-    });
-    
-    return filteredResults;
   }
 
   async getAuthorshipStatsByYear(
@@ -1289,6 +1276,46 @@ export class DatabaseStorage {
       .leftJoin(users, eq(publicationAuthors.linkedByUserId, users.id));
 
     return results as (PublicationAuthor & { scientist: Scientist })[];
+  }
+
+  /**
+   * The linked authors of a set of publications, in one query. The list routes
+   * used to load every author row in the database and filter in memory
+   * (finding #28); an empty set costs no query.
+   */
+  async getPublicationAuthorsForPublications(publicationIds: number[]): Promise<(PublicationAuthor & { scientist: Scientist })[]> {
+    const ids = [...new Set(publicationIds)];
+    if (ids.length === 0) return [];
+    const results = await db
+      .select({
+        id: publicationAuthors.id,
+        publicationId: publicationAuthors.publicationId,
+        scientistId: publicationAuthors.scientistId,
+        authorshipType: publicationAuthors.authorshipType,
+        authorPosition: publicationAuthors.authorPosition,
+        linkedByUserId: publicationAuthors.linkedByUserId,
+        linkMethod: publicationAuthors.linkMethod,
+        linkedByName: users.name,
+        scientist: scientists
+      })
+      .from(publicationAuthors)
+      .innerJoin(scientists, eq(publicationAuthors.scientistId, scientists.id))
+      .leftJoin(users, eq(publicationAuthors.linkedByUserId, users.id))
+      .where(inArray(publicationAuthors.publicationId, ids))
+      .orderBy(publicationAuthors.publicationId, publicationAuthors.authorPosition);
+    return results as (PublicationAuthor & { scientist: Scientist })[];
+  }
+
+  /**
+   * One page of publications, newest first, with the total -- so the office
+   * list never loads every row to show twenty of them.
+   */
+  async getPublicationsPage(limit: number, offset: number): Promise<{ rows: Publication[]; total: number }> {
+    const [rows, [{ total }]] = await Promise.all([
+      db.select().from(publications).orderBy(desc(publications.id)).limit(limit).offset(offset),
+      db.select({ total: sql<number>`count(*)`.mapWith(Number) }).from(publications),
+    ]);
+    return { rows, total: total ?? 0 };
   }
 
   async getPublicationAuthors(publicationId: number): Promise<(PublicationAuthor & { scientist: Scientist })[]> {
