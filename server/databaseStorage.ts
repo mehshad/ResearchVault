@@ -1,6 +1,4 @@
-// @ts-nocheck — Pre-existing TypeScript errors in this file are suppressed so `npx tsc --noEmit` runs clean and new code in other files gets reliable type-checking feedback.
-// Most errors here stem from untyped `useQuery` results (data inferred as `unknown`), drifted shared/schema field renames, and form values typed as `unknown`. They are not known runtime bugs but should be fixed file-by-file as each is next touched: remove this directive, run `npx tsc --noEmit`, and resolve what surfaces.
-import { eq, and, desc, asc, or, sql, inArray, notInArray, gte, ilike } from "drizzle-orm";
+import { eq, and, desc, asc, or, sql, inArray, notInArray, gte, ilike, arrayContains } from "drizzle-orm";
 import { normaliseQuartile } from "@shared/journalQuartile";
 import { ACCESS_ROLES, BUILT_IN_ASSIGNABLE_ROLES } from "@shared/constants";
 import {
@@ -11,13 +9,21 @@ import {
 import { isMissingAmount } from "@shared/grantIssues";
 import { sumInQar } from "@shared/currency";
 import type { GrantDashboardStats } from "@shared/dashboardStats";
-import { db } from "./db";
+import { db as rawDb } from "./db";
+import type { NodePgDatabase } from "drizzle-orm/node-postgres";
+import * as schema from "@shared/schema";
+
+// db.ts hands back `any` because it can build a SQLite, Neon or node-postgres
+// instance. Everything in this file is written against the Postgres query
+// builder, so it is typed as such here: with `any`, every row and every
+// transaction callback was untyped, and a column that no longer existed (see
+// getTeamMembersByCategory) compiled without complaint.
+const db = rawDb as NodePgDatabase<typeof schema>;
 import {
   resolveInvestigatorScientistIds,
   resolvePrimaryInvestigatorScientistIds,
   withInvestigatorFlag,
 } from "./investigatorRoleResolver";
-import { IStorage } from "./storage";
 import { isGrantSdrEligible } from "@shared/grantSdrEligibility";
 import {
   isSdrInGrantProgram,
@@ -86,7 +92,8 @@ export type GrantSdrLifecycleStorageErrorCode =
   | "GRANT_NOT_AWARDED"
   | "GRANT_HAS_SDR_LINKS"
   | "RESEARCH_ACTIVITY_NOT_FOUND"
-  | "SDR_PI_MISMATCH";
+  | "SDR_PI_MISMATCH"
+  | "SDR_PROGRAM_MISMATCH";
 
 export class GrantSdrLifecycleStorageError extends Error {
   constructor(
@@ -121,7 +128,9 @@ function mergeUniquePublications(...lists: Publication[][]): Publication[] {
   return [...byId.values()];
 }
 
-export class DatabaseStorage implements IStorage {
+// This class is the storage contract: storage.ts exports its instance type
+// as IStorage. There is no separate hand-written interface to drift from it.
+export class DatabaseStorage {
   
   // User operations
   async getUser(id: number): Promise<User | undefined> {
@@ -1123,7 +1132,7 @@ export class DatabaseStorage implements IStorage {
     scientistId: number,
     yearsSince: number = 5,
     includeUnpublished: boolean = false,
-  ): Promise<(Publication & { authorshipType: string; authorPosition: number | null })[]> {
+  ): Promise<(Omit<Publication, "invalidReason"> & { authorshipType: string; authorPosition: number | null })[]> {
     const visibilityConditions = [eq(publicationAuthors.scientistId, scientistId)];
     if (!includeUnpublished) {
       visibilityConditions.push(
@@ -1134,34 +1143,22 @@ export class DatabaseStorage implements IStorage {
     // Get all publications for the scientist first, then filter by date in JavaScript
     const allResults = await db
       .select({
-        id: publications.id,
-        researchActivityId: publications.researchActivityId,
-        // Mutually exclusive with researchActivityId: a record either links an
-        // SDR or records why none applies. Without this the profile list cannot
-        // tell the two apart and flags an accepted exception as a missing link.
-        sdrExemptionReason: publications.sdrExemptionReason,
-        title: publications.title,
-        abstract: publications.abstract,
-        authors: publications.authors,
-        journal: publications.journal,
-        volume: publications.volume,
-        issue: publications.issue,
-        pages: publications.pages,
-        doi: publications.doi,
-        publicationDate: publications.publicationDate,
-        publicationType: publications.publicationType,
-        status: publications.status,
-        prepublicationSite: publications.prepublicationSite,
-        prepublicationUrl: publications.prepublicationUrl,
-        createdAt: publications.createdAt,
-        updatedAt: publications.updatedAt,
+        publication: publications,
         authorshipType: publicationAuthors.authorshipType,
         authorPosition: publicationAuthors.authorPosition,
       })
       .from(publications)
       .innerJoin(publicationAuthors, eq(publications.id, publicationAuthors.publicationId))
       .where(and(...visibilityConditions))
-      .orderBy(desc(publications.id));
+      .orderBy(desc(publications.id))
+      // The whole row, so a column added to publications reaches the profile
+      // without a second list to maintain here -- minus the correction reason,
+      // which the profile route sends to anyone and other routes show only to
+      // the office and the paper's own authors.
+      .then((rows) => rows.map(({ publication, authorshipType, authorPosition }) => {
+        const { invalidReason: _private, ...safe } = publication;
+        return { ...safe, authorshipType, authorPosition };
+      }));
     
     // Filter by date in JavaScript to avoid SQL date issues
     const cutoffDate = new Date();
@@ -1669,42 +1666,15 @@ export class DatabaseStorage implements IStorage {
 
   async getResearchContractsForProject(projectId: number): Promise<ResearchContract[]> {
     // Get contracts via research activities associated with the project
+    // The whole row: a hand-listed column set had fallen two columns behind
+    // the table (counterpartyContact, counterpartyCountry) without anything
+    // noticing.
     return await db
-      .select({
-        id: researchContracts.id,
-        researchActivityId: researchContracts.researchActivityId,
-        contractNumber: researchContracts.contractNumber,
-        title: researchContracts.title,
-        leadPIId: researchContracts.leadPIId,
-        irbProtocol: researchContracts.irbProtocol,
-        ibcProtocol: researchContracts.ibcProtocol,
-        qnrfNumber: researchContracts.qnrfNumber,
-        requestState: researchContracts.requestState,
-        startDate: researchContracts.startDate,
-        endDate: researchContracts.endDate,
-        remarks: researchContracts.remarks,
-        fundingSourceCategory: researchContracts.fundingSourceCategory,
-        contractorName: researchContracts.contractorName,
-        internalCostSidra: researchContracts.internalCostSidra,
-        internalCostCounterparty: researchContracts.internalCostCounterparty,
-        moneyOut: researchContracts.moneyOut,
-        isPORelevant: researchContracts.isPORelevant,
-        contractType: researchContracts.contractType,
-        status: researchContracts.status,
-        description: researchContracts.description,
-        documents: researchContracts.documents,
-        requestedByUserId: researchContracts.requestedByUserId,
-        contractValue: researchContracts.contractValue,
-        currency: researchContracts.currency,
-        initiationRequestedAt: researchContracts.initiationRequestedAt,
-        reminderEmail: researchContracts.reminderEmail,
-        officeFormStatus: researchContracts.officeFormStatus,
-        createdAt: researchContracts.createdAt,
-        updatedAt: researchContracts.updatedAt,
-      })
+      .select({ contract: researchContracts })
       .from(researchContracts)
       .innerJoin(researchActivities, eq(researchContracts.researchActivityId, researchActivities.id))
-      .where(eq(researchActivities.projectId, projectId));
+      .where(eq(researchActivities.projectId, projectId))
+      .then((rows) => rows.map((row) => row.contract));
   }
 
   async deleteResearchContract(id: number): Promise<boolean> {
@@ -2290,11 +2260,8 @@ export class DatabaseStorage implements IStorage {
       const conditions = patterns.map(pattern => 
         ilike(scientists.jobTitle, `%${pattern}%`)
       );
-      const combinedCondition = conditions.reduce((acc, condition) => 
-        acc ? or(acc, condition) : condition
-      );
       return await db.select().from(scientists)
-        .where(combinedCondition)
+        .where(or(...conditions))
         .orderBy(scientists.lastName, scientists.firstName);
     } else {
       return await db.select().from(scientists)
@@ -3896,20 +3863,23 @@ export class DatabaseStorage implements IStorage {
     status?: string;
     uploadedBy?: number;
   }): Promise<PdfImportHistory[]> {
-    let query = db.select().from(pdfImportHistory);
-    
+    // $dynamic() lets the where clause be added after the fact; a plain
+    // builder is typed as already-complete and refuses reassignment.
+    let query = db.select().from(pdfImportHistory).$dynamic();
+
     const conditions = [];
-    
+
     if (filters.scientistName) {
       conditions.push(ilike(pdfImportHistory.certificatePersonName, `%${filters.scientistName}%`));
     }
-    
+
     if (filters.courseName) {
       conditions.push(ilike(pdfImportHistory.courseName, `%${filters.courseName}%`));
     }
-    
+
     if (filters.dateFrom) {
-      conditions.push(gte(pdfImportHistory.completionDate, filters.dateFrom));
+      // completion_date is a date column read as 'YYYY-MM-DD'; compare like for like.
+      conditions.push(gte(pdfImportHistory.completionDate, filters.dateFrom.toISOString().slice(0, 10)));
     }
     
     if (filters.dateTo) {
@@ -4039,8 +4009,8 @@ export class DatabaseStorage implements IStorage {
     const ra200WithType = ra200Apps.map(app => ({ ...app, form_type: 'RA-200' as const }));
     const ra205aWithType = ra205aApps.map(app => ({ ...app, form_type: 'RA-205A' as const }));
     
-    return [...ra200WithType, ...ra205aWithType].sort((a, b) => 
-      new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+    return [...ra200WithType, ...ra205aWithType].sort((a, b) =>
+      new Date(b.createdAt ?? 0).getTime() - new Date(a.createdAt ?? 0).getTime()
     );
   }
 
@@ -4082,8 +4052,11 @@ export class DatabaseStorage implements IStorage {
   }
 
   async getTeamMembersByCategory(category: string): Promise<TeamMember[]> {
+    // A member holds several categories (lead, tester, developer); the
+    // column is an array. This compared against a `category` column that
+    // does not exist, which @ts-nocheck let through.
     return await db.select().from(teamMembers)
-      .where(eq(teamMembers.category, category))
+      .where(arrayContains(teamMembers.categories, [category]))
       .orderBy(asc(teamMembers.displayOrder), asc(teamMembers.lastName));
   }
 

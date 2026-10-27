@@ -1,5 +1,3 @@
-// @ts-nocheck — Pre-existing TypeScript errors in this file are suppressed so `npx tsc --noEmit` runs clean and new code in other files gets reliable type-checking feedback.
-// Most errors here stem from untyped `useQuery` results (data inferred as `unknown`), drifted shared/schema field renames, and form values typed as `unknown`. They are not known runtime bugs but should be fixed file-by-file as each is next touched: remove this directive, run `npx tsc --noEmit`, and resolve what surfaces.
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useLocation, useParams } from "wouter";
 import { useState, useEffect, useRef } from "react";
@@ -29,9 +27,30 @@ import { apiRequest } from "@/lib/queryClient";
 import React from "react";
 import { z } from "zod";
 import TimelineComments from "@/components/TimelineComments";
+import type { ComponentProps } from "react";
+import type { EnhancedIbcApplication } from "@/lib/types";
+import type { PersonName } from "@/utils/nameUtils";
+
+// The row type says Date, but over JSON the timestamps arrive as ISO strings; TimelineComments wants strings.
+function timelineDate(value: Date | string | null | undefined): string | undefined {
+  if (!value) return undefined;
+  return typeof value === "string" ? value : value.toISOString();
+}
+
+function timelineApplication(application: IbcApplication) {
+  return {
+    createdAt: timelineDate(application.createdAt),
+    submissionDate: timelineDate(application.submissionDate),
+    vettedDate: timelineDate(application.vettedDate),
+    underReviewDate: timelineDate(application.underReviewDate),
+    approvalDate: timelineDate(application.approvalDate),
+    expirationDate: timelineDate(application.expirationDate),
+  };
+}
 import { formatNameWithJobTitle } from "@/utils/nameUtils";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { differenceInDays, parseISO } from "date-fns";
+import { fetchList, fetchRecord } from "@/lib/fetchList";
 
 // Helper function to get certification color based on expiry date
 function getCertificationColor(expiryDate: string | null): string {
@@ -282,6 +301,9 @@ const editIbcApplicationSchema = insertIbcApplicationSchema.omit({
 
 type EditIbcApplicationFormValues = z.infer<typeof editIbcApplicationSchema>;
 
+// The JSON columns are untyped in shared/schema; the form schema above is the only description of their stored shape.
+type StoredJson<K extends keyof EditIbcApplicationFormValues> = EditIbcApplicationFormValues[K] | null | undefined;
+
 export default function IbcApplicationEdit() {
   const { id } = useParams();
   const [, navigate] = useLocation();
@@ -338,12 +360,12 @@ export default function IbcApplicationEdit() {
   const [microorganismsConfirmDialog, setMicroorganismsConfirmDialog] = useState(false);
   const [arthropodsConfirmDialog, setArthropodsConfirmDialog] = useState(false);
   const [plantsConfirmDialog, setPlantsConfirmDialog] = useState(false);
-  const prevRecombinantValue = useRef<boolean | undefined>();
-  const prevHumanNhpValue = useRef<boolean | undefined>();
-  const prevAnimalsValue = useRef<boolean | undefined>();
-  const prevMicroorganismsValue = useRef<boolean | undefined>();
-  const prevArthropodsValue = useRef<boolean | undefined>();
-  const prevPlantsValue = useRef<boolean | undefined>();
+  const prevRecombinantValue = useRef<boolean | null | undefined>();
+  const prevHumanNhpValue = useRef<boolean | null | undefined>();
+  const prevAnimalsValue = useRef<boolean | null | undefined>();
+  const prevMicroorganismsValue = useRef<boolean | null | undefined>();
+  const prevArthropodsValue = useRef<boolean | null | undefined>();
+  const prevPlantsValue = useRef<boolean | null | undefined>();
   
   // Track if form has been initialized from DB to prevent re-resetting after user interaction
   const formInitializedRef = useRef(false);
@@ -357,9 +379,9 @@ export default function IbcApplicationEdit() {
   const isRevertingArthropods = useRef(false);
   const isRevertingPlants = useRef(false);
 
-  const { data: ibcApplication, isLoading } = useQuery<IbcApplication>({
+  const { data: ibcApplication, isLoading } = useQuery<EnhancedIbcApplication>({
     queryKey: ['/api/ibc-applications', id],
-    queryFn: () => fetch(`/api/ibc-applications/${id}`).then(res => res.json()),
+    queryFn: () => fetchRecord(`/api/ibc-applications/${id}`),
     enabled: !!id,
   });
 
@@ -371,12 +393,12 @@ export default function IbcApplicationEdit() {
   // Fetch associated research activities for this IBC application
   const { data: associatedActivities } = useQuery<ResearchActivity[]>({
     queryKey: ['/api/ibc-applications', id, 'research-activities'],
-    queryFn: () => fetch(`/api/ibc-applications/${id}/research-activities`).then(res => res.json()),
+    queryFn: () => fetchList(`/api/ibc-applications/${id}/research-activities`),
     enabled: !!id,
   });
 
   // Fetch comments for this application
-  const { data: comments = [], isLoading: commentsLoading } = useQuery({
+  const { data: comments = [], isLoading: commentsLoading } = useQuery<ComponentProps<typeof TimelineComments>["comments"]>({
     queryKey: [`/api/ibc-applications/${id}/comments`],
     enabled: !!id,
     staleTime: 0,
@@ -533,7 +555,7 @@ export default function IbcApplicationEdit() {
         // Biosafety options with actual values
         recombinantSyntheticNucleicAcid: ibcApplication.recombinantSyntheticNucleicAcid || false,
         wholeAnimalsAnimalMaterial: ibcApplication.wholeAnimalsAnimalMaterial || false,
-        animalMaterialSubOptions: ibcApplication.animalMaterialSubOptions || [],
+        animalMaterialSubOptions: (ibcApplication.animalMaterialSubOptions as StoredJson<"animalMaterialSubOptions">) || [],
         humanNonHumanPrimateMaterial: ibcApplication.humanNonHumanPrimateMaterial || false,
         introducingPrimateMaterialIntoAnimals: ibcApplication.introducingPrimateMaterialIntoAnimals ?? undefined,
         microorganismsInfectiousMaterial: ibcApplication.microorganismsInfectiousMaterial || false,
@@ -548,14 +570,14 @@ export default function IbcApplicationEdit() {
         protocolSummary: ibcApplication.protocolSummary || "",
         
         // NIH Guidelines sections actual values
-        nihSectionABC: ibcApplication.nihSectionABC || {
+        nihSectionABC: (ibcApplication.nihSectionABC as StoredJson<"nihSectionABC">) || {
           requiresNihDirectorApproval: false,
           drugResistanceTraits: false,
           toxinMolecules: false,
           humanGeneTransfer: false,
           approvalDocuments: [],
         },
-        nihSectionD: ibcApplication.nihSectionD || {
+        nihSectionD: (ibcApplication.nihSectionD as StoredJson<"nihSectionD">) || {
           riskGroup2Plus: false,
           pathogenDnaRna: false,
           infectiousViral: false,
@@ -565,12 +587,12 @@ export default function IbcApplicationEdit() {
           influenzaViruses: false,
           geneDriveOrganisms: false,
         },
-        nihSectionE: ibcApplication.nihSectionE || {
+        nihSectionE: (ibcApplication.nihSectionE as StoredJson<"nihSectionE">) || {
           limitedViralGenome: false,
           plantExperiments: false,
           transgenicRodents: false,
         },
-        nihSectionF: ibcApplication.nihSectionF || {
+        nihSectionF: (ibcApplication.nihSectionF as StoredJson<"nihSectionF">) || {
           f1TissueCulture: false,
           f2EcoliK12: false,
           f3Saccharomyces: false,
@@ -580,7 +602,7 @@ export default function IbcApplicationEdit() {
           f7TransgenicRodents: false,
           f8TransgenicBreeding: false,
         },
-        nihAppendixC: ibcApplication.nihAppendixC || {
+        nihAppendixC: (ibcApplication.nihAppendixC as StoredJson<"nihAppendixC">) || {
           cI: false,
           cII: false,
           cIII: false,
@@ -591,7 +613,7 @@ export default function IbcApplicationEdit() {
           cVIII: false,
           cIX: false,
         },
-        syntheticExperiments: ibcApplication.syntheticExperiments || [],
+        syntheticExperiments: (ibcApplication.syntheticExperiments as StoredJson<"syntheticExperiments">) || [],
         
         // Legacy biosafety checkboxes actual values
         recombinantDNA: ibcApplication.recombinantDNA || false,
@@ -607,8 +629,8 @@ export default function IbcApplicationEdit() {
         nhpExposureKit: ibcApplication.nhpExposureKit ?? undefined,
         stemCells: ibcApplication.stemCells || [],
         stemCellsNihRegistry: ibcApplication.stemCellsNihRegistry ?? undefined,
-        cellLines: ibcApplication.cellLines || [],
-        hazardousProcedures: ibcApplication.hazardousProcedures || [],
+        cellLines: (ibcApplication.cellLines as StoredJson<"cellLines">) || [],
+        hazardousProcedures: (ibcApplication.hazardousProcedures as StoredJson<"hazardousProcedures">) || [],
         exposureControlPlanCompliance: ibcApplication.exposureControlPlanCompliance || false,
         handWashingDevice: ibcApplication.handWashingDevice || false,
         laundryMethod: ibcApplication.laundryMethod || [],
@@ -621,15 +643,15 @@ export default function IbcApplicationEdit() {
         researchActivityIds: associatedActivities.map(ra => ra.id) || [],
         teamMembers: (() => {
           try {
-            let savedMembers = ibcApplication.protocolTeamMembers || [];
-            
+            let savedMembers = (ibcApplication.protocolTeamMembers as StoredJson<"teamMembers"> | string) || [];
+
             if (typeof savedMembers === 'string') {
-              savedMembers = JSON.parse(savedMembers);
+              savedMembers = JSON.parse(savedMembers) as EditIbcApplicationFormValues["teamMembers"];
             }
-            
+
             const piId = ibcApplication.principalInvestigatorId;
-            
-            if (piId && !savedMembers.some((m: any) => m.scientistId === piId)) {
+
+            if (piId && !savedMembers.some((m) => "scientistId" in m && m.scientistId === piId)) {
               return [{ scientistId: piId, role: "team_leader" as const }, ...savedMembers];
             }
             
@@ -640,7 +662,7 @@ export default function IbcApplicationEdit() {
         })(),
         
         // Additional Details actual values
-        proposedBiosafetyLevels: ibcApplication.proposedBiosafetyLevels || {
+        proposedBiosafetyLevels: (ibcApplication.proposedBiosafetyLevels as StoredJson<"proposedBiosafetyLevels">) || {
           absl1: false,
           absl2a: false,
           absl2b: false,
@@ -652,11 +674,11 @@ export default function IbcApplicationEdit() {
         },
         hostOrganismDnaPropagation: ibcApplication.hostOrganismDnaPropagation || "",
         purificationMeasures: ibcApplication.purificationMeasures || "",
-        providedRestrictionVectorMaps: ibcApplication.providedRestrictionVectorMaps,
+        providedRestrictionVectorMaps: ibcApplication.providedRestrictionVectorMaps ?? undefined,
         viralGenomeRegionsAltered: ibcApplication.viralGenomeRegionsAltered || "",
-        assayingWildTypeViral: ibcApplication.assayingWildTypeViral,
-        handleMoreThan10Liters: ibcApplication.handleMoreThan10Liters,
-        geneDriveSystemCrispr: ibcApplication.geneDriveSystemCrispr,
+        assayingWildTypeViral: ibcApplication.assayingWildTypeViral ?? undefined,
+        handleMoreThan10Liters: ibcApplication.handleMoreThan10Liters ?? undefined,
+        geneDriveSystemCrispr: ibcApplication.geneDriveSystemCrispr ?? undefined,
       };
       
       form.reset(formData);
@@ -727,7 +749,7 @@ export default function IbcApplicationEdit() {
   const { isDirty } = form.formState;
 
   // Get all team member IDs
-  const teamMemberIds = form.watch('teamMembers')?.map(m => m.scientistId).filter(Boolean) || [];
+  const teamMemberIds = form.watch('teamMembers')?.map(m => ("scientistId" in m ? m.scientistId : undefined)).filter((id): id is number => !!id) || [];
 
   // Fetch certification matrix for all scientists
   const { data: certificationMatrix } = useQuery<any[]>({
@@ -1412,7 +1434,7 @@ export default function IbcApplicationEdit() {
     const piId = data.principalInvestigatorId;
     let membersToSave = teamMembers || [];
     
-    if (piId && !membersToSave.some(m => m.scientistId === piId)) {
+    if (piId && !membersToSave.some(m => "scientistId" in m && m.scientistId === piId)) {
       membersToSave = [{ scientistId: piId, role: "team_leader" as const }, ...membersToSave];
     }
     
@@ -1461,7 +1483,7 @@ export default function IbcApplicationEdit() {
     const piId = data.principalInvestigatorId;
     let membersToSave = teamMembers || [];
     
-    if (piId && !membersToSave.some(m => m.scientistId === piId)) {
+    if (piId && !membersToSave.some(m => "scientistId" in m && m.scientistId === piId)) {
       membersToSave = [{ scientistId: piId, role: "team_leader" as const }, ...membersToSave];
     }
     
@@ -1705,7 +1727,7 @@ export default function IbcApplicationEdit() {
                         <FormItem>
                           <FormLabel>Short Title</FormLabel>
                           <FormControl>
-                            <Input placeholder="Short recognition title" {...field} disabled={isReadOnly} />
+                            <Input placeholder="Short recognition title" {...field} value={field.value ?? ""} disabled={isReadOnly} />
                           </FormControl>
                           <FormMessage />
                         </FormItem>
@@ -1727,7 +1749,7 @@ export default function IbcApplicationEdit() {
                             <FormItem>
                               <FormLabel>Cayuse Protocol Number</FormLabel>
                               <FormControl>
-                                <Input placeholder="Cayuse protocol number" {...field} disabled={isReadOnly} />
+                                <Input placeholder="Cayuse protocol number" {...field} value={field.value ?? ""} disabled={isReadOnly} />
                               </FormControl>
                               <FormMessage />
                             </FormItem>
@@ -1741,7 +1763,7 @@ export default function IbcApplicationEdit() {
                             <FormItem>
                               <FormLabel>IRBnet IBC Number</FormLabel>
                               <FormControl>
-                                <Input placeholder="IRBnet IBC number" {...field} disabled={isReadOnly} />
+                                <Input placeholder="IRBnet IBC number" {...field} value={field.value ?? ""} disabled={isReadOnly} />
                               </FormControl>
                               <FormMessage />
                             </FormItem>
@@ -2480,8 +2502,8 @@ export default function IbcApplicationEdit() {
                                 ) : availableStaff && availableStaff.length > 0 ? (
                                   availableStaff.map((staff) => {
                                     const currentTeamMembers = form.watch('teamMembers') || [];
-                                    const isAlreadySelected = currentTeamMembers.some(member => 
-                                      member.scientistId === staff.id
+                                    const isAlreadySelected = currentTeamMembers.some(member =>
+                                      "scientistId" in member && member.scientistId === staff.id
                                     );
                                     return (
                                       <SelectItem 
@@ -2580,30 +2602,33 @@ export default function IbcApplicationEdit() {
                     {form.watch('teamMembers')?.map((member, index) => {
                       // Handle both new format (with scientistId) and existing format (with name, email, role)
                       let memberName, memberEmail, memberRole;
-                      
-                      if (member.scientistId) {
+                      const memberScientistId = "scientistId" in member ? member.scientistId : undefined;
+                      const storedMember = "name" in member ? member : undefined;
+
+                      if (memberScientistId) {
                         // New format - look up in available staff or check if it's the PI
-                        let staff = availableStaff?.find(s => s.id === member.scientistId);
-                        
-                        if (!staff && ibcApplication?.principalInvestigator?.id === member.scientistId) {
-                          staff = ibcApplication.principalInvestigator as any;
+                        let staff: (PersonName & { jobTitle?: string | null; email?: string | null }) | undefined =
+                          availableStaff?.find(s => s.id === memberScientistId);
+
+                        if (!staff && ibcApplication?.principalInvestigator?.id === memberScientistId) {
+                          staff = ibcApplication.principalInvestigator;
                         }
-                        
+
                         if (!staff) return null;
                         memberName = formatNameWithJobTitle(staff);
                         memberEmail = staff.email;
                         memberRole = member.role;
-                      } else if (member.name) {
+                      } else if (storedMember?.name) {
                         // Existing format - use stored values directly
-                        memberName = member.name;
-                        memberEmail = member.email;
-                        memberRole = member.role;
+                        memberName = storedMember.name;
+                        memberEmail = storedMember.email;
+                        memberRole = storedMember.role;
                       } else {
                         return null;
                       }
-                      
+
                       // Get certifications for this team member
-                      const memberCerts = member.scientistId ? (teamCertifications?.[member.scientistId] || []) : [];
+                      const memberCerts = memberScientistId ? (teamCertifications?.[memberScientistId] || []) : [];
                       
                       // Group certifications by type
                       const citiCerts = memberCerts.filter(cert => {
@@ -2617,7 +2642,7 @@ export default function IbcApplicationEdit() {
                       });
                       
                       return (
-                        <div key={`${member.scientistId || member.name}-${index}`} className="flex items-center justify-between p-3 bg-white border rounded-lg dark:bg-card">
+                        <div key={`${memberScientistId || storedMember?.name}-${index}`} className="flex items-center justify-between p-3 bg-white border rounded-lg dark:bg-card">
                           <div className="flex-1">
                             <div className="font-medium">{memberName}</div>
                             <div className="text-sm text-gray-600 dark:text-gray-300">{memberEmail}</div>
@@ -2626,7 +2651,7 @@ export default function IbcApplicationEdit() {
                             </div>
                             
                             {/* Certification Status */}
-                            {member.scientistId && (
+                            {memberScientistId && (
                               <div className="mt-3 space-y-1.5">
                                 {/* CITI Certifications */}
                                 <div className="flex items-center gap-2">
@@ -4002,14 +4027,14 @@ export default function IbcApplicationEdit() {
                         <div>
                           <FormLabel className="text-base font-semibold mb-3 block">Nature of DNA Sequences <span className="text-red-500">*</span></FormLabel>
                           <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
-                            {[
+                            {([
                               { key: 'anonymousMarker', label: 'Anonymous Marker' },
                               { key: 'genomicDNA', label: 'Genomic DNA' },
                               { key: 'toxinGene', label: 'Toxin Gene' },
                               { key: 'cDNA', label: 'cDNA' },
                               { key: 'snRNAsiRNA', label: 'snRNA/siRNA' },
                               { key: 'other', label: 'Other' },
-                            ].map(({ key, label }) => (
+                            ] as const).map(({ key, label }) => (
                               <FormField
                                 key={key}
                                 control={form.control}
@@ -4037,7 +4062,7 @@ export default function IbcApplicationEdit() {
                         <div>
                           <FormLabel className="text-base font-semibold mb-3 block">Anticipated Effect of the Insert <span className="text-red-500">*</span></FormLabel>
                           <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
-                            {[
+                            {([
                               { key: 'antiApoptotic', label: 'Anti-apoptotic' },
                               { key: 'cytokineInducer', label: 'Cytokine Inducer' },
                               { key: 'cytokineInhibitor', label: 'Cytokine Inhibitor' },
@@ -4046,7 +4071,7 @@ export default function IbcApplicationEdit() {
                               { key: 'toxic', label: 'Toxic' },
                               { key: 'tumorInducer', label: 'Tumor Inducer' },
                               { key: 'tumorInhibitor', label: 'Tumor Inhibitor' },
-                            ].map(({ key, label }) => (
+                            ] as const).map(({ key, label }) => (
                               <FormField
                                 key={key}
                                 control={form.control}
@@ -4201,7 +4226,7 @@ export default function IbcApplicationEdit() {
                         <div>
                           <FormLabel className="text-base font-semibold mb-3 block">What will be Exposed to the rDNA (check all applicable)? <span className="text-red-500">*</span></FormLabel>
                           <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-                            {[
+                            {([
                               { key: 'arthropods', label: 'Arthropods' },
                               { key: 'cellCulture', label: 'Cell Culture' },
                               { key: 'humans', label: 'Humans' },
@@ -4210,7 +4235,7 @@ export default function IbcApplicationEdit() {
                               { key: 'none', label: 'None' },
                               { key: 'plantsTransgenicPlants', label: 'Plants or Transgenic Plants' },
                               { key: 'vertebrateAnimals', label: 'Vertebrate Animals' },
-                            ].map(({ key, label }) => (
+                            ] as const).map(({ key, label }) => (
                               <FormField
                                 key={key}
                                 control={form.control}
@@ -4238,12 +4263,12 @@ export default function IbcApplicationEdit() {
                         <div>
                           <FormLabel className="text-base font-semibold mb-3 block">Who will the Vector/Insert be Acquired from?</FormLabel>
                           <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                            {[
+                            {([
                               { key: 'researchCollaborator', label: 'Acquired from a Research Collaborator' },
                               { key: 'commercialVendor', label: 'Commercial Vendor' },
                               { key: 'institutionLab', label: 'Developed/Created in my Institution Lab' },
                               { key: 'otherSource', label: 'Other Source' },
-                            ].map(({ key, label }) => (
+                            ] as const).map(({ key, label }) => (
                               <FormField
                                 key={key}
                                 control={form.control}
@@ -4291,12 +4316,12 @@ export default function IbcApplicationEdit() {
                           <div>
                             <FormLabel className="text-base font-semibold mb-3 block">Organism Source <span className="text-red-500">*</span></FormLabel>
                             <div className="grid grid-cols-2 gap-3">
-                              {[
+                              {([
                                 { key: 'library', label: 'Library' },
                                 { key: 'pcr', label: 'PCR' },
                                 { key: 'syntheticOligo', label: 'Synthetic Oligo' },
                                 { key: 'other', label: 'Other' },
-                              ].map(({ key, label }) => (
+                              ] as const).map(({ key, label }) => (
                                 <FormField
                                   key={key}
                                   control={form.control}
@@ -6326,7 +6351,7 @@ export default function IbcApplicationEdit() {
                     {/* Communication History */}
                     {comments.length > 0 && (
                       <TimelineComments 
-                        application={ibcApplication} 
+                        application={timelineApplication(ibcApplication)}
                         comments={comments} 
                         title="Communication History"
                       />
@@ -6424,7 +6449,7 @@ export default function IbcApplicationEdit() {
             {/* Communication History */}
             {comments.length > 0 && (
               <TimelineComments 
-                application={ibcApplication} 
+                application={timelineApplication(ibcApplication)}
                 comments={comments} 
                 title="Communication History"
               />

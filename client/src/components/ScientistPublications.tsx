@@ -1,5 +1,3 @@
-// @ts-nocheck — Pre-existing TypeScript errors in this file are suppressed so `npx tsc --noEmit` runs clean and new code in other files gets reliable type-checking feedback.
-// Most errors here stem from untyped `useQuery` results (data inferred as `unknown`), drifted shared/schema field renames, and form values typed as `unknown`. They are not known runtime bugs but should be fixed file-by-file as each is next touched: remove this directive, run `npx tsc --noEmit`, and resolve what surfaces.
 import React from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -61,12 +59,12 @@ const splitAuthorshipTypes = (value: string | null | undefined): string[] =>
   (value ?? '').split(',').map(normalizeAuthorshipType).filter(Boolean);
 
 export function ScientistPublications({ scientistId, yearsSince = 5 }: ScientistPublicationsProps) {
-  const { data: publications = [], isLoading: pubLoading } = useQuery({
+  const { data: publications = [], isLoading: pubLoading } = useQuery<Publication[]>({
     queryKey: ['/api/scientists', scientistId, 'publications', { years: yearsSince }],
     enabled: !!scientistId,
   });
 
-  const { data: authorshipStats = [], isLoading: statsLoading } = useQuery({
+  const { data: authorshipStats = [], isLoading: statsLoading } = useQuery<AuthorshipStats[]>({
     queryKey: ['/api/scientists', scientistId, 'authorship-stats', { years: yearsSince }],
     enabled: !!scientistId,
   });
@@ -273,7 +271,7 @@ export function ScientistPublications({ scientistId, yearsSince = 5 }: Scientist
                         className="shrink-0"
                       >
                         <a 
-                          href={formatDOILink(pub.doi)} 
+                          href={formatDOILink(pub.doi) ?? undefined} 
                           target="_blank" 
                           rel="noopener noreferrer"
                           className="flex items-center gap-1"

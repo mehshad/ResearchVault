@@ -1,5 +1,3 @@
-// @ts-nocheck — Pre-existing TypeScript errors in this file are suppressed so `npx tsc --noEmit` runs clean and new code in other files gets reliable type-checking feedback.
-// Most errors here stem from untyped `useQuery` results (data inferred as `unknown`), drifted shared/schema field renames, and form values typed as `unknown`. They are not known runtime bugs but should be fixed file-by-file as each is next touched: remove this directive, run `npx tsc --noEmit`, and resolve what surfaces.
 import { useState } from "react";
 import { useParams, useLocation } from "wouter";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
@@ -26,7 +24,8 @@ import {
   Eye
 } from "lucide-react";
 import { IrbApplication, ResearchActivity, Scientist } from "@shared/schema";
-import { formatDateLong } from "@/lib/dates";
+import { formatDateOrDash as formatDate } from "@/lib/dates";
+import { formatFullName } from "@/utils/nameUtils";
 
 export default function IrbProtocolReview() {
   const params = useParams<{ id: string }>();
@@ -125,10 +124,6 @@ export default function IrbProtocolReview() {
   const handleEmailQuestion = (subject: string, bodyTemplate: string) => {
     const protocolInfo = `Protocol: ${application?.title || 'N/A'}%0D%0AIRB Number: ${application?.irbNumber || 'N/A'}%0D%0A%0D%0A`;
     window.location.href = `mailto:irb-office@example.com?subject=${encodeURIComponent(subject)}&body=${protocolInfo}${encodeURIComponent(bodyTemplate)}`;
-  };
-
-  const formatDate = (dateStr: string) => {
-    return formatDateLong(dateStr);
   };
 
   if (isLoading) {
@@ -342,7 +337,7 @@ export default function IrbProtocolReview() {
                     {principalInvestigator.profileImageInitials}
                   </div>
                   <div>
-                    <p className="font-medium">{principalInvestigator.name}</p>
+                    <p className="font-medium">{formatFullName(principalInvestigator)}</p>
                     <p className="text-sm text-gray-500 dark:text-gray-400">{principalInvestigator.email}</p>
                   </div>
                 </div>

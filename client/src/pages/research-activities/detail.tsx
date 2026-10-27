@@ -1,5 +1,3 @@
-// @ts-nocheck — Pre-existing TypeScript errors in this file are suppressed so `npx tsc --noEmit` runs clean and new code in other files gets reliable type-checking feedback.
-// Most errors here stem from untyped `useQuery` results (data inferred as `unknown`), drifted shared/schema field renames, and form values typed as `unknown`. They are not known runtime bugs but should be fixed file-by-file as each is next touched: remove this directive, run `npx tsc --noEmit`, and resolve what surfaces.
 import { useQuery } from "@tanstack/react-query";
 import { useLocation, useParams } from "wouter";
 import { Button } from "@/components/ui/button";
@@ -7,7 +5,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Project, Scientist, ResearchActivity, IrbApplication, IbcApplication, DataManagementPlan, Publication } from "@shared/schema";
 import { useMemo } from "react";
 import { orderPublicationsForActivity } from "@shared/publicationOrdering";
-import { isLinkedToResearchActivity } from "@shared/publicationSdrLinks";
+import { fetchList } from "@/lib/fetchList";
 import { useGrantStatuses } from "@/hooks/useGrantStatuses";
 import { ArrowLeft, Banknote, Calendar, FileText, Layers, Users, Building, Beaker, FileCheck, FileSpreadsheet, Edit } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -16,9 +14,11 @@ import { format } from "date-fns";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { formatFullName } from "@/utils/nameUtils";
 import { formatDateLong } from "@/lib/dates";
+import { InstitutionName } from "@/components/InstitutionName";
 
 // Define interface for detail data
-interface ResearchActivityDetail extends ResearchActivity {
+// Named apart from the component below; sharing its name was a redeclaration.
+interface ResearchActivityWithProject extends ResearchActivity {
   project?: Project;
 }
 
@@ -28,7 +28,7 @@ export default function ResearchActivityDetail() {
   const id = parseInt(params.id);
   const { all: allStatuses } = useGrantStatuses();
 
-  const { data: activity, isLoading: activityLoading } = useQuery<ResearchActivityDetail>({
+  const { data: activity, isLoading: activityLoading } = useQuery<ResearchActivityWithProject>({
     queryKey: ['/api/research-activities', id],
     queryFn: async () => {
       const response = await fetch(`/api/research-activities/${id}`);
@@ -86,19 +86,13 @@ export default function ResearchActivityDetail() {
   );
   const leadScientist = leadScientistMember ? scientists?.find(s => s.id === leadScientistMember.scientistId) : null;
   
-  // Fetch publications for this research activity
+  // This activity's publications, primary or additional link alike; the
+  // server resolves both. The page used to download every publication in
+  // the system and keep the ones that matched. A refusal (no Publications
+  // area) reads as an empty list rather than an error that hides the card.
   const { data: publications, isLoading: publicationsLoading } = useQuery<Publication[]>({
-    queryKey: ['/api/publications'],
-    queryFn: async () => {
-      const response = await fetch('/api/publications');
-      if (!response.ok) {
-        throw new Error('Failed to fetch publications');
-      }
-      return response.json();
-    },
-    // Linked as the primary SDR or as an additional one: either way this
-    // activity lists the paper.
-    select: (data) => data.filter(pub => activity != null && isLinkedToResearchActivity(pub, activity.id)),
+    queryKey: ['/api/publications', { researchActivityId: activity?.id }],
+    queryFn: () => fetchList<Publication>(`/api/publications?researchActivityId=${activity!.id}`),
     enabled: !!activity?.id,
   });
 
@@ -113,31 +107,20 @@ export default function ResearchActivityDetail() {
     [publications],
   );
   
-  // Fetch Data Management Plan for this research activity
+  // This activity's data management plan, asked for by activity.
   const { data: dmpData } = useQuery<DataManagementPlan[]>({
-    queryKey: ['/api/data-management-plans'],
-    queryFn: async () => {
-      const response = await fetch('/api/data-management-plans');
-      if (!response.ok) {
-        throw new Error('Failed to fetch data management plans');
-      }
-      return response.json();
-    },
-    select: (data) => data.filter(dmp => dmp.researchActivityId === activity?.id),
+    queryKey: ['/api/data-management-plans', { researchActivityId: activity?.id }],
+    queryFn: () => fetchList<DataManagementPlan>(`/api/data-management-plans?researchActivityId=${activity!.id}`),
     enabled: !!activity?.id,
   });
-  
-  // Fetch IRB applications for this research activity
+
+  // This activity's IRB applications. Before, the query threw on a refused
+  // IRB area and the page showed the same nothing as an activity with no
+  // application at all; now a refusal is an empty list, and an error stays
+  // an error.
   const { data: irbApplications } = useQuery<IrbApplication[]>({
-    queryKey: ['/api/irb-applications'],
-    queryFn: async () => {
-      const response = await fetch('/api/irb-applications');
-      if (!response.ok) {
-        throw new Error('Failed to fetch IRB applications');
-      }
-      return response.json();
-    },
-    select: (data) => data.filter(irb => irb.researchActivityId === activity?.id),
+    queryKey: ['/api/irb-applications', { researchActivityId: activity?.id }],
+    queryFn: () => fetchList<IrbApplication>(`/api/irb-applications?researchActivityId=${activity!.id}`),
     enabled: !!activity?.id,
   });
   
@@ -330,7 +313,7 @@ export default function ResearchActivityDetail() {
 
                 {activity.sidraBranch && (
                   <div>
-                    <h3 className="text-sm font-medium text-foreground">Sidra Branch</h3>
+                    <h3 className="text-sm font-medium text-foreground"><InstitutionName short /> Branch</h3>
                     <div className="flex items-center gap-1">
                       <Beaker className="h-3 w-3" />
                       <Badge variant="outline" className="rounded-sm bg-purple-50 text-purple-700 border-purple-200 dark:bg-purple-950 dark:text-purple-300 dark:border-purple-800">
@@ -497,13 +480,9 @@ export default function ResearchActivityDetail() {
                           <span className="text-xs text-gray-600 truncate w-full dark:text-gray-300">{publication.title}</span>
                           <div className="flex items-center gap-2 mt-1">
                             <span className="text-xs text-gray-500 dark:text-gray-400">{publication.journal}</span>
-                            {publication.publicationDate ? (
+                            {publication.publicationDate && (
                               <span className="text-xs text-blue-600 font-medium dark:text-blue-400">
                                 {formatDateLong(publication.publicationDate)}
-                              </span>
-                            ) : publication.publicationYear && (
-                              <span className="text-xs text-blue-600 font-medium dark:text-blue-400">
-                                {publication.publicationYear}
                               </span>
                             )}
                           </div>

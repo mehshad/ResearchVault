@@ -124,9 +124,6 @@ import EditGrant from "@/pages/grants/edit";
 import PortfolioGrants from "@/pages/research-portfolio/grants";
 import PortfolioContracts from "@/pages/research-portfolio/contracts";
 
-// Research Teams
-import TeamsList from "@/pages/teams";
-import TeamDetail from "@/pages/teams/detail";
 
 // Reports
 import ReportsPage from "@/pages/reports";
@@ -369,9 +366,6 @@ function AppRouter() {
         <Route path="/research-portfolio/contracts" component={PortfolioContracts} />
         <Route path="/research-portfolio/contracts/request" component={ContractRequest} />
 
-        {/* Research Teams */}
-        <Route path="/teams" component={TeamsList} />
-        <Route path="/teams/:id" component={(props: any) => <TeamDetail researchActivityId={parseInt(props.params.id)} />} />
         
         {/* Certifications */}
         <Route path="/certifications" component={CertificationsPage} />

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState , useEffect } from "react";
 import { JOB_TITLE_TAB_ALIASES, matchesJobTitle } from "@shared/constants";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { Link, useLocation } from "wouter";
@@ -48,6 +48,9 @@ import { ScientistAvatar } from "@/components/ScientistAvatar";
 import { queryClient, apiRequest, invalidateScientistLists } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { nextSort, type SortDirection, type SortField } from "@/lib/staffSort";
+import { QueryError } from "@/components/QueryError";
+import { TablePagination } from "@/components/TablePagination";
+import { pageSlice } from "@/lib/paging";
 
 interface ImportPreview {
   toInsert: any[];
@@ -357,6 +360,7 @@ function StaffImportExportButtons() {
 
 export default function StaffList() {
   const [searchQuery, setSearchQuery] = useState("");
+  const [page, setPage] = useState(1);
   const [activeTab, setActiveTab] = useState("all");
   const [sortField, setSortField] = useState<SortField>("name");
   const [sortDirection, setSortDirection] = useState<SortDirection>("asc");
@@ -419,7 +423,7 @@ export default function StaffList() {
     },
   });
 
-  const { data: staff, isLoading } = useQuery<(Scientist & { activeResearchActivities?: number })[]>({
+  const { data: staff, isLoading, isError, error, refetch } = useQuery<(Scientist & { activeResearchActivities?: number })[]>({
     queryKey: ['/api/scientists', { includeActivityCount: true }],
     queryFn: () => fetchList<Scientist & { activeResearchActivities?: number }>('/api/scientists?includeActivityCount=true'),
   });
@@ -529,6 +533,9 @@ export default function StaffList() {
       return sortDirection === 'asc' ? comparison : -comparison;
     }
   });
+  // Fifty rows at a time; a search or tab change goes back to the first page.
+  const pagedStaff = pageSlice(sortedStaff ?? [], page);
+  useEffect(() => { setPage(1); }, [searchQuery, activeTab]);
 
   return (
     <PermissionWrapper currentUserRole={currentUser.role} navigationItem="scientists">
@@ -656,6 +663,8 @@ export default function StaffList() {
                     </div>
                   ))}
                 </div>
+              ) : isError ? (
+                <QueryError what="staff" error={error} onRetry={() => refetch()} />
               ) : (
                 <Table>
                   <TableHeader>
@@ -727,7 +736,7 @@ export default function StaffList() {
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {sortedStaff?.map((person) => (
+                    {pagedStaff.map((person) => (
                       <TableRow 
                         key={person.id}
                         className="cursor-pointer hover:bg-neutral-50/50 transition-colors"
@@ -852,6 +861,7 @@ export default function StaffList() {
                   </TableBody>
                 </Table>
               )}
+              <TablePagination total={sortedStaff?.length ?? 0} page={page} onPageChange={setPage} what="people" />
             </TabsContent>
           </Tabs>
         </CardContent>

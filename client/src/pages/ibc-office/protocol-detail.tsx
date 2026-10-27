@@ -1,5 +1,3 @@
-// @ts-nocheck — Pre-existing TypeScript errors in this file are suppressed so `npx tsc --noEmit` runs clean and new code in other files gets reliable type-checking feedback.
-// Most errors here stem from untyped `useQuery` results (data inferred as `unknown`), drifted shared/schema field renames, and form values typed as `unknown`. They are not known runtime bugs but should be fixed file-by-file as each is next touched: remove this directive, run `npx tsc --noEmit`, and resolve what surfaces.
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useRoute } from "wouter";
@@ -33,9 +31,11 @@ import {
 } from "lucide-react";
 import { format } from "date-fns";
 import { apiRequest } from "@/lib/queryClient";
-import type { IbcBoardMember } from "@shared/schema";
+import type { IbcApplication, IbcApplicationComment, IbcBoardMember, Scientist } from "@shared/schema";
 import { formatFullName } from "@/utils/nameUtils";
 import IbcProtocolView from "@/components/IbcProtocolView";
+
+type BoardMemberWithScientist = IbcBoardMember & { scientist: Scientist | null };
 
 const IBC_WORKFLOW_STATUSES = [
   { value: "draft", label: "Draft", color: "bg-gray-100 text-gray-800 dark:bg-gray-800 dark:text-gray-200", icon: FileText },
@@ -73,23 +73,23 @@ export default function IbcProtocolDetailPage(
   const { toast } = useToast();
   const queryClient = useQueryClient();
 
-  const { data: application, isLoading: applicationLoading } = useQuery({
+  const { data: application, isLoading: applicationLoading } = useQuery<IbcApplication>({
     queryKey: [`/api/ibc-applications/${applicationId}`],
     enabled: !!applicationId,
   });
 
-  const { data: comments = [] } = useQuery({
+  const { data: comments = [] } = useQuery<IbcApplicationComment[]>({
     queryKey: [`/api/ibc-applications/${applicationId}/comments`],
     enabled: !!applicationId,
     staleTime: 0,
     refetchOnMount: true,
   });
 
-  const { data: boardMembers = [] } = useQuery({
+  const { data: boardMembers = [] } = useQuery<IbcBoardMember[]>({
     queryKey: ["/api/ibc-board-members"],
   });
 
-  const { data: boardMembersWithScientists = [] } = useQuery({
+  const { data: boardMembersWithScientists = [] } = useQuery<BoardMemberWithScientist[]>({
     queryKey: ["/api/ibc-board-members-with-scientists"],
     queryFn: async () => {
       const boardMembersResponse = await fetch("/api/ibc-board-members");
@@ -135,7 +135,7 @@ export default function IbcProtocolDetailPage(
     },
   });
 
-  if (applicationLoading || !application) {
+  if (applicationLoading || !application || !applicationId) {
     return (
       <div className="p-6">
         <div className="space-y-4">
@@ -387,8 +387,8 @@ export default function IbcProtocolDetailPage(
                     <div className="flex-1 min-h-0 overflow-y-auto space-y-2 border rounded-lg p-2 bg-white dark:bg-card">
                       {Array.isArray(boardMembersWithScientists) && boardMembersWithScientists.length > 0 ? (
                         boardMembersWithScientists
-                          .filter((member: IbcBoardMember) => member.isActive)
-                          .map((member: IbcBoardMember) => (
+                          .filter((member: BoardMemberWithScientist) => member.isActive)
+                          .map((member: BoardMemberWithScientist) => (
                             <div key={member.id} className="flex items-center space-x-3 p-2 hover:bg-gray-50 rounded dark:hover:bg-gray-900">
                               <input
                                 type="checkbox"

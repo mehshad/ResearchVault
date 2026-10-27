@@ -1,6 +1,4 @@
-// @ts-nocheck — Pre-existing TypeScript errors in this file are suppressed so `npx tsc --noEmit` runs clean and new code in other files gets reliable type-checking feedback.
-// Most errors here stem from untyped `useQuery` results (data inferred as `unknown`), drifted shared/schema field renames, and form values typed as `unknown`. They are not known runtime bugs but should be fixed file-by-file as each is next touched: remove this directive, run `npx tsc --noEmit`, and resolve what surfaces.
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useLocation } from "wouter";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -12,7 +10,11 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { ArrowLeft, Save, Send, FileCheck, Clock, Users } from "lucide-react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useToast } from "@/hooks/use-toast";
+import { FieldError } from "@/components/FieldError";
+import { ra200RequiredFieldErrors, stillFailing } from "@/lib/formValidation";
 import { apiRequest } from "@/lib/queryClient";
+import { InstitutionName } from "@/components/InstitutionName";
+import type { Ra200Application } from "@shared/schema";
 
 interface Ra200Form {
   // Header Information
@@ -74,6 +76,8 @@ export default function CreateRa200() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
 
+  // Per-field messages for a submission; a draft may be saved half-filled.
+  const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const [formData, setFormData] = useState<Ra200Form>({
     title: "",
     leadScientistId: null,
@@ -122,7 +126,8 @@ export default function CreateRa200() {
   });
 
   const createApplicationMutation = useMutation({
-    mutationFn: (data: any) => apiRequest('POST', '/api/ra200-applications', data),
+    mutationFn: (data: any) =>
+      apiRequest('POST', '/api/ra200-applications', data).then((res) => res.json() as Promise<Ra200Application>),
     onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ['/api/pmo-applications'] });
       toast({ title: "RA-200 application created successfully!" });
@@ -133,7 +138,21 @@ export default function CreateRa200() {
     }
   });
 
+  useEffect(() => {
+    setFieldErrors((current) =>
+      Object.keys(current).length === 0 ? current : stillFailing(current, ra200RequiredFieldErrors(formData)),
+    );
+  }, [formData]);
+
   const handleSave = (status: 'draft' | 'submitted') => {
+    // The five fields marked with an asterisk were never enforced. A
+    // submission now names each one it lacks under its own box.
+    const errors = status === 'submitted' ? ra200RequiredFieldErrors(formData) : {};
+    setFieldErrors(errors);
+    if (Object.keys(errors).length > 0) {
+      toast({ title: "Check the highlighted fields", description: Object.values(errors)[0], variant: "destructive" });
+      return;
+    }
     const submitData = {
       ...formData,
       status,
@@ -200,6 +219,7 @@ export default function CreateRa200() {
                       placeholder="Enter the research activity title"
                       className="mt-1"
                     />
+                    <FieldError message={fieldErrors.title} />
                   </div>
 
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -220,6 +240,7 @@ export default function CreateRa200() {
                           ))}
                         </SelectContent>
                       </Select>
+                      <FieldError message={fieldErrors.leadScientistId} />
                     </div>
 
                     <div>
@@ -239,6 +260,7 @@ export default function CreateRa200() {
                           ))}
                         </SelectContent>
                       </Select>
+                      <FieldError message={fieldErrors.projectId} />
                     </div>
                   </div>
 
@@ -260,6 +282,7 @@ export default function CreateRa200() {
                           ))}
                         </SelectContent>
                       </Select>
+                      <FieldError message={fieldErrors.budgetHolderId} />
                     </div>
 
                     <div>
@@ -290,6 +313,7 @@ export default function CreateRa200() {
                       className="mt-1"
                       maxLength={5000}
                     />
+                    <FieldError message={fieldErrors.abstract} />
                     <div className="text-sm text-muted-foreground mt-1">
                       {formData.abstract.length}/5000 characters
                     </div>
@@ -490,7 +514,7 @@ export default function CreateRa200() {
                               }))
                             }
                           />
-                          <Label htmlFor="sidraBudget">Sidra budget</Label>
+                          <Label htmlFor="sidraBudget"><InstitutionName short /> budget</Label>
                         </div>
                       </div>
                     </div>

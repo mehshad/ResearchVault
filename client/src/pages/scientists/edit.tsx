@@ -13,6 +13,7 @@ import {
   FormLabel,
   FormMessage,
 } from "@/components/ui/form";
+import { fetchList, fetchRecord } from "@/lib/fetchList";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
@@ -76,26 +77,26 @@ export default function EditScientist() {
   // Fetch the scientist data
   const { data: scientist, isLoading } = useQuery<Scientist>({
     queryKey: ['/api/scientists', id],
-    queryFn: () => fetch(`/api/scientists/${id}`).then(res => res.json()),
+    queryFn: () => fetchRecord(`/api/scientists/${id}`),
     enabled: !!id,
   });
 
   // Fetch all scientists for line manager selection
   const { data: allScientists = [] } = useQuery<Scientist[]>({
     queryKey: ['/api/scientists'],
-    queryFn: () => fetch('/api/scientists').then(res => res.json()),
+    queryFn: () => fetchList('/api/scientists'),
     enabled: !isRestrictedUser,
   });
 
   // Structured org data for Department + Section dropdowns
   const { data: departments = [] } = useQuery<Department[]>({
     queryKey: ['/api/departments'],
-    queryFn: () => fetch('/api/departments').then(res => res.json()),
+    queryFn: () => fetchList('/api/departments'),
     enabled: !isRestrictedUser,
   });
   const { data: sections = [] } = useQuery<Section[]>({
     queryKey: ['/api/sections'],
-    queryFn: () => fetch('/api/sections').then(res => res.json()),
+    queryFn: () => fetchList('/api/sections'),
     enabled: !isRestrictedUser,
   });
 

@@ -91,13 +91,13 @@ function caseWord(word: string, isEdge: boolean): string {
   if (!word) return word;
   // Split on hyphens and slashes so each half is judged on its own: "CA-A"
   // is two acronyms, "C-EMERGING" is an acronym and a word.
-  const parts = word.split(/([-\/])/);
+  const parts = word.split(/([-/])/);
   if (parts.length === 1) return caseSegment(word, isEdge);
   // Every segment after a hyphen starts a phrase of its own -- these are
   // subtitle separators in practice ("GOVERNANCE-AN INTERNATIONAL JOURNAL") --
   // so none of them is ever a minor word to be kept small.
   return parts
-    .map((part, i) => (/^[-\/]$/.test(part) ? part : caseSegment(part, isEdge || i > 0)))
+    .map((part, i) => (/^[-/]$/.test(part) ? part : caseSegment(part, isEdge || i > 0)))
     .join("");
 }
 

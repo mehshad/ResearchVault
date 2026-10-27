@@ -11,6 +11,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import {
   Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle,
 } from "@/components/ui/dialog";
+import { fetchList } from "@/lib/fetchList";
 import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
@@ -81,15 +82,15 @@ export default function OrganizationStructure() {
 
   const { data: branches, isLoading: branchesLoading } = useQuery<Branch[]>({
     queryKey: ["/api/branches"],
-    queryFn: () => fetch("/api/branches").then((r) => r.json()),
+    queryFn: () => fetchList("/api/branches"),
   });
   const { data: departments, isLoading: departmentsLoading } = useQuery<Department[]>({
     queryKey: ["/api/departments"],
-    queryFn: () => fetch("/api/departments").then((r) => r.json()),
+    queryFn: () => fetchList("/api/departments"),
   });
   const { data: sections, isLoading: sectionsLoading } = useQuery<Section[]>({
     queryKey: ["/api/sections"],
-    queryFn: () => fetch("/api/sections").then((r) => r.json()),
+    queryFn: () => fetchList("/api/sections"),
   });
 
   const [collapsedBranches, setCollapsedBranches] = useState<Set<number>>(new Set());
@@ -207,7 +208,8 @@ export default function OrganizationStructure() {
 
   const toggle = (set: Set<number>, id: number, apply: (s: Set<number>) => void) => {
     const next = new Set(set);
-    next.has(id) ? next.delete(id) : next.add(id);
+    if (next.has(id)) next.delete(id);
+    else next.add(id);
     apply(next);
   };
 
@@ -299,10 +301,10 @@ export default function OrganizationStructure() {
                         <Button variant="outline" size="sm" onClick={() => openCreate("department", branch.id)} data-testid={`button-add-department-${branch.id}`}>
                           <Plus className="h-4 w-4 mr-1" /> Department
                         </Button>
-                        <Button variant="ghost" size="icon" onClick={() => openEdit("branch", branch)} data-testid={`button-edit-branch-${branch.id}`}>
+                        <Button variant="ghost" size="icon" aria-label="Edit branch" title="Edit branch" onClick={() => openEdit("branch", branch)} data-testid={`button-edit-branch-${branch.id}`}>
                           <Pencil className="h-4 w-4" />
                         </Button>
-                        <Button variant="ghost" size="icon" onClick={() => setDeleter({ open: true, level: "branch", record: branch })} data-testid={`button-delete-branch-${branch.id}`}>
+                        <Button variant="ghost" size="icon" aria-label="Delete branch" title="Delete branch" onClick={() => setDeleter({ open: true, level: "branch", record: branch })} data-testid={`button-delete-branch-${branch.id}`}>
                           <Trash2 className="h-4 w-4 text-destructive" />
                         </Button>
                       </div>
@@ -340,10 +342,10 @@ export default function OrganizationStructure() {
                                 <Button variant="outline" size="sm" onClick={() => openCreate("section", dept.id)} data-testid={`button-add-section-${dept.id}`}>
                                   <Plus className="h-4 w-4 mr-1" /> Section
                                 </Button>
-                                <Button variant="ghost" size="icon" onClick={() => openEdit("department", dept)} data-testid={`button-edit-department-${dept.id}`}>
+                                <Button variant="ghost" size="icon" aria-label="Edit department" title="Edit department" onClick={() => openEdit("department", dept)} data-testid={`button-edit-department-${dept.id}`}>
                                   <Pencil className="h-4 w-4" />
                                 </Button>
-                                <Button variant="ghost" size="icon" onClick={() => setDeleter({ open: true, level: "department", record: dept })} data-testid={`button-delete-department-${dept.id}`}>
+                                <Button variant="ghost" size="icon" aria-label="Delete department" title="Delete department" onClick={() => setDeleter({ open: true, level: "department", record: dept })} data-testid={`button-delete-department-${dept.id}`}>
                                   <Trash2 className="h-4 w-4 text-destructive" />
                                 </Button>
                               </div>
@@ -379,10 +381,10 @@ export default function OrganizationStructure() {
                                   </div>
                                   {canManage && (
                                     <div className="flex items-center gap-1 shrink-0">
-                                      <Button variant="ghost" size="icon" onClick={() => openEdit("section", section)} data-testid={`button-edit-section-${section.id}`}>
+                                      <Button variant="ghost" size="icon" aria-label="Edit section" title="Edit section" onClick={() => openEdit("section", section)} data-testid={`button-edit-section-${section.id}`}>
                                         <Pencil className="h-4 w-4" />
                                       </Button>
-                                      <Button variant="ghost" size="icon" onClick={() => setDeleter({ open: true, level: "section", record: section })} data-testid={`button-delete-section-${section.id}`}>
+                                      <Button variant="ghost" size="icon" aria-label="Delete section" title="Delete section" onClick={() => setDeleter({ open: true, level: "section", record: section })} data-testid={`button-delete-section-${section.id}`}>
                                         <Trash2 className="h-4 w-4 text-destructive" />
                                       </Button>
                                     </div>

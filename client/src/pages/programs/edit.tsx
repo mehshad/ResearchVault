@@ -1,5 +1,3 @@
-// @ts-nocheck — Pre-existing TypeScript errors in this file are suppressed so `npx tsc --noEmit` runs clean and new code in other files gets reliable type-checking feedback.
-// Most errors here stem from untyped `useQuery` results (data inferred as `unknown`), drifted shared/schema field renames, and form values typed as `unknown`. They are not known runtime bugs but should be fixed file-by-file as each is next touched: remove this directive, run `npx tsc --noEmit`, and resolve what surfaces.
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useLocation, useParams } from "wouter";
 import { Button } from "@/components/ui/button";
@@ -17,6 +15,7 @@ import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
 import { PersonSelect, PERSON_SELECT_RULES } from "@/components/PersonSelect";
 import React, { useEffect } from "react";
+import { fetchList, fetchRecord } from "@/lib/fetchList";
 
 const categories = [
   "Cancer",
@@ -36,18 +35,18 @@ export default function ProgramEdit() {
 
   const { data: program, isLoading } = useQuery<Program>({
     queryKey: ['/api/programs', id],
-    queryFn: () => fetch(`/api/programs/${id}`).then(res => res.json()),
+    queryFn: () => fetchRecord(`/api/programs/${id}`),
     enabled: !!id,
   });
 
   // Fetch scientists for dropdowns
   const { data: scientists = [] } = useQuery<Scientist[]>({
     queryKey: ['/api/scientists'],
-    queryFn: () => fetch('/api/scientists').then(res => res.json()),
+    queryFn: () => fetchList('/api/scientists'),
   });
   const { data: principalInvestigators = [] } = useQuery<Scientist[]>({
     queryKey: ['/api/principal-investigators'],
-    queryFn: () => fetch('/api/principal-investigators').then(res => res.json()),
+    queryFn: () => fetchList('/api/principal-investigators'),
   });
 
   const form = useForm<InsertProgram>({

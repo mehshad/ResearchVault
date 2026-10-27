@@ -1,5 +1,3 @@
-// @ts-nocheck — Pre-existing TypeScript errors in this file are suppressed so `npx tsc --noEmit` runs clean and new code in other files gets reliable type-checking feedback.
-// Most errors here stem from untyped `useQuery` results (data inferred as `unknown`), drifted shared/schema field renames, and form values typed as `unknown`. They are not known runtime bugs but should be fixed file-by-file as each is next touched: remove this directive, run `npx tsc --noEmit`, and resolve what surfaces.
 import { useState, useEffect } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useLocation, useRoute } from "wouter";
@@ -11,7 +9,14 @@ import { Textarea } from "@/components/ui/textarea";
 import { GrantCollaborations } from "@/components/GrantCollaborations";
 import { InstitutionCombobox } from "@/components/InstitutionCombobox";
 import { GrantCoInvestigators } from "@/components/GrantCoInvestigators";
-import type { GrantCollaborationTree, GrantCoInvestigatorList } from "@shared/schema";
+import type {
+  Grant,
+  GrantCollaborationTree,
+  GrantCoInvestigatorList,
+  GrantProgressReport,
+  ResearchActivity,
+  Scientist,
+} from "@shared/schema";
 import { isHomeInstitution } from "@shared/grantSubmission";
 import { investigatorTypeOf } from "@shared/investigatorType";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -36,6 +41,8 @@ import {
 } from "@shared/grantLifecycle";
 import { useGrantStatuses } from "@/hooks/useGrantStatuses";
 import { GrantStatusCombobox } from "@/components/GrantStatusCombobox";
+import { FieldError } from "@/components/FieldError";
+import { grantFormErrors, stillFailing } from "@/lib/formValidation";
 import { GRANT_CURRENCY_VALUES } from "@shared/schema";
 import {
   getGrantSdrCandidates,
@@ -47,6 +54,7 @@ import {
   type GrantIssueCode,
 } from "@shared/grantIssues";
 import { formatDate } from "@/lib/dates";
+import { InstitutionName } from "@/components/InstitutionName";
 
 const GRANT_ISSUE_TARGETS: Record<GrantIssueCode, string> = {
   missing_project_number: "grant-field-project-number",
@@ -60,6 +68,50 @@ const GRANT_ISSUE_TARGETS: Record<GrantIssueCode, string> = {
   missing_start_date: "grant-field-start-date",
   missing_end_date: "grant-field-end-date",
   missing_sdr: "grant-field-sdrs",
+};
+
+// What GET /api/grants/:id returns: the row, its two link tables, and the
+// audit ids resolved to names (getGrant in server/databaseStorage.ts).
+type GrantDetail = Grant & {
+  collaboratingInstitutions?: GrantCollaborationTree;
+  coInvestigatorLinks?: GrantCoInvestigatorList;
+  createdByName?: string | null;
+  updatedByName?: string | null;
+};
+
+// Each column as the text in its input; only the award switch is a boolean.
+type GrantFormState = {
+  projectNumber: string;
+  title: string;
+  description: string;
+  cycle: string;
+  programId: string;
+  status: string;
+  grantType: string;
+  fundingAgency: string;
+  sourceCategory: string;
+  sourceRecordKey: string;
+  submittingInstitution: string;
+  grantLpiName: string;
+  coInvestigators: string;
+  investigatorType: string;
+  lpiId: string;
+  requestedAmount: string;
+  awardedAmount: string;
+  submittedYear: string;
+  awardedYear: string;
+  awarded: boolean;
+  runningTimeYears: string;
+  currentGrantYear: string;
+  startDate: string;
+  endDate: string;
+  reportingIntervalMonths: string;
+  collaborators: string;
+  subawardCompletedYear: string;
+  contributionType: string;
+  contributionDetails: string;
+  durationMonths: string;
+  currency: string;
 };
 
 export default function EditGrant() {
@@ -77,7 +129,7 @@ export default function EditGrant() {
   const [coInvestigatorLinks, setCoInvestigatorLinks] =
     useState<GrantCoInvestigatorList>([]);
 
-  const [formData, setFormData] = useState({
+  const [formData, setFormData] = useState<GrantFormState>({
     projectNumber: "",
     title: "",
     description: "",
@@ -124,7 +176,7 @@ export default function EditGrant() {
   const [uploadedFile, setUploadedFile] = useState<File | null>(null);
   const [isUploading, setIsUploading] = useState(false);
 
-  const { data: grant, isLoading: isLoadingGrant } = useQuery({
+  const { data: grant, isLoading: isLoadingGrant } = useQuery<GrantDetail>({
     queryKey: [`/api/grants/${grantId}`],
     enabled: !!grantId,
   });
@@ -133,7 +185,7 @@ export default function EditGrant() {
   // Only for the Grant LPI suggestions: names already recorded elsewhere.
   const { data: allGrants = [] } = useQuery<any[]>({ queryKey: ["/api/grants"] });
 
-  const { data: scientists = [] } = useQuery({
+  const { data: scientists = [] } = useQuery<Scientist[]>({
     queryKey: ['/api/scientists']
   });
 
@@ -151,12 +203,13 @@ export default function EditGrant() {
     queryKey: ['/api/projects']
   });
 
-  const { data: grantSdrs = [] } = useQuery({
+  // The four columns getGrantResearchActivities selects, not whole rows.
+  const { data: grantSdrs = [] } = useQuery<Pick<ResearchActivity, "id" | "sdrNumber" | "title" | "status">[]>({
     queryKey: [`/api/grants/${grantId}/research-activities`],
     enabled: !!grantId,
   });
 
-  const { data: progressReports = [] } = useQuery({
+  const { data: progressReports = [] } = useQuery<GrantProgressReport[]>({
     queryKey: [`/api/grants/${grantId}/progress-reports`],
     enabled: !!grantId && canManageProgressReports,
   });
@@ -164,7 +217,7 @@ export default function EditGrant() {
   // Load linked SDRs once when server data arrives
   useEffect(() => {
     if (grantSdrs && Array.isArray(grantSdrs)) {
-      const ids = grantSdrs.map((sdr: any) => sdr.id);
+      const ids = grantSdrs.map((sdr) => sdr.id);
       setLinkedSdrs(ids);
     }
   }, [grantSdrs?.length]);
@@ -223,6 +276,19 @@ export default function EditGrant() {
   // The combobox fetches its own options; this is only for naming the status
   // in a validation message.
   const { all: allStatuses } = useGrantStatuses();
+  const statusLabel = (status: string) =>
+    allStatuses.find((option) => option.value === status)?.label ?? status;
+
+  // Per-field messages, set on submit. They clear as the reader fixes each
+  // field, but no new ones appear until they submit again -- a form that
+  // scolds on every keystroke is worse than one that waits to be asked.
+  const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
+  useEffect(() => {
+    setFieldErrors((current) =>
+      Object.keys(current).length === 0 ? current : stillFailing(current, grantFormErrors(formData, statusLabel)),
+    );
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [formData]);
 
   const handleStatusChange = (value: string) => {
     if (
@@ -321,19 +387,14 @@ export default function EditGrant() {
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
 
-    // Client-side date validation
-    if (grantStatusRequiresStartDate(formData.status) && !formData.startDate) {
+    // Every failing field is named under its own box; the toast only says
+    // to look, since a toast cannot point at a field.
+    const errors = grantFormErrors(formData, statusLabel);
+    setFieldErrors(errors);
+    if (Object.keys(errors).length > 0) {
       toast({
-        title: "Validation Error",
-        description: `${allStatuses.find(o => o.value === formData.status)?.label} grants require a start date.`,
-        variant: "destructive",
-      });
-      return;
-    }
-    if (formData.startDate && formData.endDate && formData.endDate < formData.startDate) {
-      toast({
-        title: "Validation Error",
-        description: "End date cannot be before the start date.",
+        title: "Check the highlighted fields",
+        description: Object.values(errors)[0],
         variant: "destructive",
       });
       return;
@@ -716,6 +777,7 @@ export default function EditGrant() {
                   placeholder="e.g., NIH-R01-123456"
                   required
                 />
+                <FieldError message={fieldErrors.projectNumber} />
               </div>
 
               <div>
@@ -727,6 +789,7 @@ export default function EditGrant() {
                   onChange={handleStatusChange}
                   data-testid="select-grant-status"
                 />
+                <FieldError message={fieldErrors.status} />
               </div>
 
               <div>
@@ -811,13 +874,14 @@ export default function EditGrant() {
                 placeholder="Grant title"
                 required
               />
+              <FieldError message={fieldErrors.title} />
             </div>
 
             {/* Third Row: Sidra Lead PI, Investigator Type, Running Time, Current Year */}
             <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mt-4">
               <div id="grant-field-lpi" className={issueFieldClass("missing_lpi")}>
                 <label className="text-sm font-medium text-gray-700 mb-2 block dark:text-gray-300">
-                  Sidra Lead PI
+                  <InstitutionName short /> Lead PI
                   {isSubaward && (
                     <span className="ml-1 font-normal text-xs text-muted-foreground">
                       (who owns our part)
@@ -832,7 +896,7 @@ export default function EditGrant() {
                     <SelectValue placeholder="Select scientist" />
                   </SelectTrigger>
                   <SelectContent>
-                    {scientists.map((scientist: any) => (
+                    {scientists.map((scientist) => (
                       <SelectItem key={scientist.id} value={scientist.id.toString()}>
                         {formatFullName(scientist)}
                       </SelectItem>
@@ -852,7 +916,7 @@ export default function EditGrant() {
                 </label>
                 <p className="text-sm py-2" data-testid="text-investigator-type">
                   {!selectedLpiId ? (
-                    <span className="text-muted-foreground">Select a Sidra Lead PI</span>
+                    <span className="text-muted-foreground">Select a <InstitutionName short /> Lead PI</span>
                   ) : sidraLpiInvestigatorType ? (
                     sidraLpiInvestigatorType
                   ) : (
@@ -906,6 +970,7 @@ export default function EditGrant() {
                       value={formData.startDate}
                       onChange={(e) => setFormData({...formData, startDate: e.target.value})}
                     />
+                    <FieldError message={fieldErrors.startDate} />
                   </div>
 
                   <div id="grant-field-end-date" className={issueFieldClass("missing_end_date")}>
@@ -917,6 +982,7 @@ export default function EditGrant() {
                       value={formData.endDate}
                       onChange={(e) => setFormData({...formData, endDate: e.target.value})}
                     />
+                    <FieldError message={fieldErrors.endDate} />
                   </div>
                 </>
               )}
@@ -1005,6 +1071,7 @@ export default function EditGrant() {
                   onChange={(e) => setFormData({...formData, requestedAmount: e.target.value})}
                   placeholder="$0.00"
                 />
+                <FieldError message={fieldErrors.requestedAmount} />
               </div>
 
               <div id="grant-field-awarded-budget" className={issueFieldClass("missing_awarded_budget")}>
@@ -1016,6 +1083,7 @@ export default function EditGrant() {
                   onChange={(e) => setFormData({...formData, awardedAmount: e.target.value})}
                   placeholder="$626,565.00"
                 />
+                <FieldError message={fieldErrors.awardedAmount} />
               </div>
 
               <div id="grant-field-currency" className={issueFieldClass("missing_currency")}>
@@ -1045,6 +1113,7 @@ export default function EditGrant() {
                   onChange={(e) => setFormData({...formData, submittedYear: e.target.value})}
                   placeholder="2024"
                 />
+                <FieldError message={fieldErrors.submittedYear} />
               </div>
 
               <div id="grant-field-awarded-year" className={issueFieldClass("missing_awarded_year")}>
@@ -1057,6 +1126,7 @@ export default function EditGrant() {
                   onChange={(e) => setFormData({...formData, awardedYear: e.target.value})}
                   placeholder="2024"
                 />
+                <FieldError message={fieldErrors.awardedYear} />
               </div>
             </div>
 
@@ -1204,7 +1274,7 @@ export default function EditGrant() {
 
             <div className="space-y-2">
               <label className="text-sm font-medium text-gray-700 block dark:text-gray-300">
-                Sidra Medicine co-investigators
+                <InstitutionName /> co-investigators
               </label>
               <p className="text-xs text-muted-foreground">
                 Our own staff on this grant, chosen from the directory. People at other
@@ -1237,7 +1307,7 @@ export default function EditGrant() {
           <CardContent>
             {progressReports && progressReports.length > 0 ? (
               <div className="space-y-4">
-                {progressReports.map((report: any) => (
+                {progressReports.map((report) => (
                   <div key={report.id} className="flex items-center justify-between p-4 border rounded-lg">
                     <div className="flex-1">
                       <div className="flex items-center gap-4 mb-2">

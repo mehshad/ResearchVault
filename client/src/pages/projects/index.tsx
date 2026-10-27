@@ -24,6 +24,7 @@ import { Table as TableIcon, FilePlus, Search, MoreHorizontal, Users } from "luc
 import { formatFullName, getInitials } from "@/utils/nameUtils";
 import { useCurrentUser } from "@/hooks/useCurrentUser";
 import { PermissionWrapper } from "@/components/PermissionWrapper";
+import { QueryError } from "@/components/QueryError";
 
 interface Program {
   id: number;
@@ -62,7 +63,7 @@ export default function ProjectsList() {
   const [, setLocation] = useLocation();
   const { currentUser } = useCurrentUser();
 
-  const { data: projects, isLoading: isLoadingProjects } = useQuery<Project[]>({
+  const { data: projects, isLoading: isLoadingProjects, isError, error, refetch } = useQuery<Project[]>({
     queryKey: ['/api/projects'],
   });
 
@@ -164,6 +165,8 @@ export default function ProjectsList() {
                 </div>
               ))}
             </div>
+          ) : isError ? (
+            <QueryError what="projects" error={error} onRetry={() => refetch()} />
           ) : (
             <Table>
               <TableHeader>

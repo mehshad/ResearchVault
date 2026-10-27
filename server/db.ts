@@ -1,9 +1,19 @@
 import * as schema from "@shared/schema";
 
-if (!process.env.DATABASE_URL) {
-  throw new Error(
-    "DATABASE_URL must be set. Did you forget to provision a database?",
-  );
+export const DATABASE_URL_MISSING =
+  "DATABASE_URL must be set. Did you forget to provision a database?";
+
+/**
+ * Whether a database is configured at all. server/index.ts asks this at boot
+ * and refuses to start without one; here the module no longer throws at
+ * import time, because the route-handler unit tests import modules that
+ * import this one and never issue a query. They used to fail with the
+ * message above before a single assertion ran, which read as broken tests
+ * rather than a missing variable. Anything that does query without a
+ * database gets the same message, at the first query.
+ */
+export function isDatabaseConfigured(): boolean {
+  return Boolean(process.env.DATABASE_URL);
 }
 
 // ── Driver selection ──────────────────────────────────────────────────────────
@@ -18,7 +28,7 @@ if (!process.env.DATABASE_URL) {
 //
 //  DB_TYPE=sqlite|mssql|postgres can override auto-detection.
 
-const url = process.env.DATABASE_URL;
+const url = process.env.DATABASE_URL ?? "";
 
 const isSQLite =
   process.env.DB_TYPE === "sqlite" ||
@@ -36,7 +46,23 @@ const isNeon = !isSQLite && !isMSSQL && url.includes("neon.tech");
 let pool: any;
 let db: any;
 
-if (isSQLite) {
+if (!url) {
+  // No database configured: a stand-in that refuses the first use with the
+  // message the import used to throw, so a unit test that never queries can
+  // import freely and anything that does query is told exactly what is
+  // missing. index.ts checks isDatabaseConfigured() before this is reached.
+  const refuse = () => {
+    throw new Error(DATABASE_URL_MISSING);
+  };
+  // A property a test has set on it (a stubbed insert, say) is returned;
+  // anything else is refused.
+  db = new Proxy(function unconfiguredDatabase() {}, {
+    get: (target, prop) => (Object.prototype.hasOwnProperty.call(target, prop) ? (target as any)[prop] : refuse()),
+    apply: refuse,
+    construct: refuse,
+  });
+  pool = null;
+} else if (isSQLite) {
   const filePath = url.startsWith("sqlite:") ? url.slice("sqlite:".length) : url;
   const { default: Database } = await import("better-sqlite3");
   const { drizzle } = await import("drizzle-orm/better-sqlite3");

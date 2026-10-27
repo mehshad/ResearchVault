@@ -2,7 +2,6 @@
 // Most errors here stem from untyped `useQuery` results (data inferred as `unknown`), drifted shared/schema field renames, and form values typed as `unknown`. They are not known runtime bugs but should be fixed file-by-file as each is next touched: remove this directive, run `npx tsc --noEmit`, and resolve what surfaces.
 import type { Express, Request, Response, NextFunction } from "express";
 import { createServer, type Server } from "http";
-import { createHmac, timingSafeEqual } from "crypto";
 import {
   GrantSdrLifecycleStorageError,
   storage,
@@ -24,7 +23,15 @@ import {
   ObjectStorageService,
   ObjectNotFoundError,
 } from "./objectStorage";
-import { LocalObjectStorageService } from "./localObjectStorage";
+import { LocalObjectStorageService, ObjectAlreadyExistsError } from "./localObjectStorage";
+import {
+  MAX_LOCAL_UPLOAD_BYTES,
+  generateFinalizeToken,
+  localUploadSubject,
+  verifyFinalizeToken,
+  verifyUploadToken,
+  withLocalUploadToken,
+} from "./uploadTokens";
 import { db } from "./db";
 import { scientists, publicationAuthors, journals, journalImpactFactorMetrics, manuscriptHistory, users, branches, departments, sections, roleGroups, userRoleAssignments, auditLog, type ResearchActivity } from "@shared/schema";
 import { and, eq, inArray, isNull, desc, sql, gte, lte, count, type SQL } from "drizzle-orm";
@@ -200,37 +207,15 @@ function getObjectStorageService(): ObjectStorageService | LocalObjectStorageSer
   return isLocalStorage ? new LocalObjectStorageService() : new ObjectStorageService();
 }
 
-// ── Upload finalization tokens ────────────────────────────────────────────────
-// When the server mints a presigned upload URL it also issues a short-lived
-// HMAC token that binds the objectPath to the requesting user and an expiry.
-// The client must present this token when calling POST /api/uploads/finalize,
-// preventing any other authenticated user from setting/hijacking ACL on an
-// object they did not upload.
+// Upload tokens (finalize and local upload) live in ./uploadTokens.ts, where
+// they are tested. The finalize token binds an object path to the requesting
+// user so nobody else can claim the object; the local upload token does the
+// same for the PUT itself when files live on the local filesystem.
 
-const FINALIZE_TOKEN_TTL_SEC = 3600; // 1 hour
-
-function generateFinalizeToken(objectPath: string, userId: string): string {
-  const expiry = Math.floor(Date.now() / 1000) + FINALIZE_TOKEN_TTL_SEC;
-  const secret = process.env.SESSION_SECRET ?? "dev-fallback-secret";
-  const payload = `${objectPath}|${userId}|${expiry}`;
-  const sig = createHmac("sha256", secret).update(payload).digest("hex");
-  return `${expiry}.${sig}`;
-}
-
-function verifyFinalizeToken(objectPath: string, userId: string, token: string): boolean {
-  const dotIdx = token.indexOf(".");
-  if (dotIdx < 1) return false;
-  const expiryStr = token.slice(0, dotIdx);
-  const sig = token.slice(dotIdx + 1);
-  const expiry = parseInt(expiryStr, 10);
-  if (!Number.isFinite(expiry) || Math.floor(Date.now() / 1000) > expiry) return false;
-  const secret = process.env.SESSION_SECRET ?? "dev-fallback-secret";
-  const payload = `${objectPath}|${userId}|${expiry}`;
-  const expectedSig = createHmac("sha256", secret).update(payload).digest("hex");
-  const sigBuf = Buffer.from(sig, "hex");
-  const expBuf = Buffer.from(expectedSig, "hex");
-  if (sigBuf.length !== expBuf.length || sigBuf.length === 0) return false;
-  return timingSafeEqual(sigBuf, expBuf);
+/** The identity an upload is bound to: the session user, or "demo" in demo mode. */
+function uploadUserId(req: Request): string {
+  const sessionUser = (req.session as any)?.user;
+  return sessionUser?.id?.toString() ?? "demo";
 }
 
 // Optional text fields on `scientists` that allow NULL. Blank/empty strings are
@@ -1218,11 +1203,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post("/api/objects/upload", requireAuth, async (req, res) => {
     const objectStorageService = getObjectStorageService();
     try {
-      const uploadURL = await objectStorageService.getObjectEntityUploadURL();
+      let uploadURL = await objectStorageService.getObjectEntityUploadURL();
       const objectPath = objectStorageService.normalizeObjectEntityPath(uploadURL);
-      const sessionUser = (req.session as any)?.user;
-      const userId = sessionUser?.id?.toString() ?? "demo";
+      const userId = uploadUserId(req);
       const finalizeToken = generateFinalizeToken(objectPath, userId);
+      // On local storage the upload URL is one of our own routes, so it is
+      // signed for this user and this id: the PUT below refuses anything
+      // else. A presigned cloud URL carries its own signature.
+      if (isLocalStorage) {
+        const uploadId = objectPath.split("/").pop() ?? "";
+        uploadURL = withLocalUploadToken(uploadURL, uploadId, userId);
+      }
       res.json({ uploadURL, objectPath, finalizeToken });
     } catch (error) {
       console.error("Error getting upload URL:", error);
@@ -1356,21 +1347,54 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Local filesystem upload handler (used when STORAGE_TYPE=local)
+  // Three things stand between a signed-in account and somebody else's file:
+  // the URL must carry the token minted for this id and this user, the id
+  // must not already hold a file, and the body is capped. The ids themselves
+  // are not secret -- they sit in file_url columns and are returned to anyone
+  // who may read the parent record -- so requireAuth alone was not a guard.
   app.put("/api/objects/local-upload/:id", requireAuth, async (req, res) => {
     if (!isLocalStorage) return res.status(404).end();
     const { id } = req.params;
+    if (!verifyUploadToken(localUploadSubject(id), uploadUserId(req), req.query.token)) {
+      req.resume();
+      return res.status(403).json({ error: "This upload URL was not issued to you, or has expired. Request a new one." });
+    }
+    const declared = Number(req.headers["content-length"]);
+    if (Number.isFinite(declared) && declared > MAX_LOCAL_UPLOAD_BYTES) {
+      req.resume();
+      return res.status(413).json({ error: `Files are limited to ${MAX_LOCAL_UPLOAD_BYTES / (1024 * 1024)} MB.` });
+    }
     const chunks: Buffer[] = [];
-    req.on("data", (chunk: Buffer) => chunks.push(chunk));
+    let received = 0;
+    let refused = false;
+    req.on("data", (chunk: Buffer) => {
+      if (refused) return;
+      received += chunk.length;
+      if (received > MAX_LOCAL_UPLOAD_BYTES) {
+        refused = true;
+        chunks.length = 0;
+        if (!res.headersSent) {
+          res.status(413).json({ error: `Files are limited to ${MAX_LOCAL_UPLOAD_BYTES / (1024 * 1024)} MB.` });
+        }
+        req.destroy();
+        return;
+      }
+      chunks.push(chunk);
+    });
     req.on("end", async () => {
+      if (refused) return;
       try {
         const localService = new LocalObjectStorageService();
         await localService.saveFile(id, Buffer.concat(chunks), req.headers["content-type"] || "application/octet-stream");
         res.status(200).end();
       } catch (err: any) {
+        if (err instanceof ObjectAlreadyExistsError) {
+          return res.status(409).json({ error: "This upload id has already been used. Request a new upload URL." });
+        }
         console.error("Local upload error:", err);
         // localFilePath throws for non-UUID ids and path traversal attempts.
         const status = err?.message?.includes("Invalid file id") || err?.message?.includes("Path traversal") ? 400 : 500;
-        if (!res.headersSent) res.status(status).json({ error: err?.message || "Upload failed" });
+        if (!res.headersSent) res.status(status).json({ error: status === 400 ? err.message : "Upload failed" });
       }
     });
     req.on("error", () => { if (!res.headersSent) res.status(500).json({ error: "Upload failed" }); });
@@ -3855,7 +3879,7 @@ function writeFailureDetail(error: unknown): string {
           ...member,
           scientist: scientist ? {
             id: scientist.id,
-            name: `-e `,
+            name: [scientist.honorificTitle, scientist.firstName, scientist.lastName].filter(Boolean).join(" "),
             title: scientist.jobTitle,
             profileImageInitials: scientist.profileImageInitials
           } : null
@@ -3988,7 +4012,7 @@ function writeFailureDetail(error: unknown): string {
             researchActivityTitle: activity.title,
             scientist: scientist ? {
               id: scientist.id,
-              name: `-e `,
+              name: [scientist.honorificTitle, scientist.firstName, scientist.lastName].filter(Boolean).join(" "),
               title: scientist.jobTitle,
               profileImageInitials: scientist.profileImageInitials
             } : null
@@ -4067,7 +4091,7 @@ function writeFailureDetail(error: unknown): string {
         researchActivityTitle: researchActivity.title,
         scientist: {
           id: scientist.id,
-          name: `-e `,
+          name: [scientist.honorificTitle, scientist.firstName, scientist.lastName].filter(Boolean).join(" "),
           title: scientist.jobTitle,
           profileImageInitials: scientist.profileImageInitials
         }
@@ -4220,7 +4244,7 @@ function writeFailureDetail(error: unknown): string {
         ...member,
         scientist: {
           id: scientist.id,
-          name: `-e `,
+          name: [scientist.honorificTitle, scientist.firstName, scientist.lastName].filter(Boolean).join(" "),
           title: scientist.jobTitle,
           email: scientist.email,
           staffId: scientist.staffId,
@@ -4266,10 +4290,16 @@ function writeFailureDetail(error: unknown): string {
   app.get('/api/data-management-plans', async (req: Request, res: Response) => {
     try {
       const projectId = req.query.projectId ? parseInt(req.query.projectId as string) : undefined;
-      
+      const researchActivityId = req.query.researchActivityId ? parseInt(req.query.researchActivityId as string) : undefined;
+
       let plans;
       if (projectId && !isNaN(projectId)) {
         const plan = await storage.getDataManagementPlanForProject(projectId);
+        plans = plan ? [plan] : [];
+      } else if (researchActivityId && !isNaN(researchActivityId)) {
+        // The SDR page asks for its own plan; it used to download every plan
+        // and keep one.
+        const plan = await storage.getDataManagementPlanForResearchActivity(researchActivityId);
         plans = plan ? [plan] : [];
       } else {
         plans = await storage.getDataManagementPlans();
@@ -7357,7 +7387,7 @@ function writeFailureDetail(error: unknown): string {
                   honorificTitle: scientist.honorificTitle,
                   firstName: scientist.firstName,
                   lastName: scientist.lastName,
-                  name: `-e `,
+                  name: [scientist.honorificTitle, scientist.firstName, scientist.lastName].filter(Boolean).join(" "),
                   email: scientist.email,
                   department: scientist.department,
                   jobTitle: scientist.jobTitle,

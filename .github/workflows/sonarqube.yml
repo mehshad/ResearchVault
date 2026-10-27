@@ -25,19 +25,20 @@ jobs:
       - name: Install dependencies
         run: NODE_ENV=development npm ci --legacy-peer-deps
 
+      # Both steps used to be wrapped in `|| true` and continue-on-error, so
+      # a broken typecheck or a failing test still produced a green nightly
+      # run with a coverage file from whatever survived. They fail now; the
+      # typecheck passes and the unit tests need no database.
       - name: TypeScript check (for issue reporting)
-        run: npx tsc --noEmit 2>&1 | tee tsc-output.txt || true
+        run: npx tsc --noEmit 2>&1 | tee tsc-output.txt
 
       - name: Run unit tests with coverage
-        env:
-          DATABASE_URL: postgresql://ci:ci@localhost:5432/ci_test
         run: |
           node --import tsx \
                --experimental-test-coverage \
                --test-reporter=lcov \
                --test-reporter-destination=coverage/lcov.info \
-               --test $(find server -name '*.test.ts' ! -name '*.integration.test.ts') || true
-        continue-on-error: true
+               --test $(find server shared client/src -name '*.test.ts' ! -name '*.integration.test.ts')
 
       - name: SonarQube Scan
         uses: SonarSource/sonarqube-scan-action@master

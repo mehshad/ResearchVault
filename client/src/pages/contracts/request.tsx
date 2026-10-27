@@ -34,6 +34,7 @@ import { PermissionWrapper } from "@/components/PermissionWrapper";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
+import { InstitutionName } from "@/components/InstitutionName";
 
 // Using shared contract type definitions from schema
 
@@ -800,7 +801,7 @@ export default function ContractRequest() {
                                         </SelectTrigger>
                                       </FormControl>
                                       <SelectContent>
-                                        <SelectItem value="sidra">Sidra</SelectItem>
+                                        <SelectItem value="sidra"><InstitutionName short /></SelectItem>
                                         <SelectItem value="counterparty">Counterparty</SelectItem>
                                       </SelectContent>
                                     </Select>

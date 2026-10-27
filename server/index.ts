@@ -19,8 +19,16 @@ import { restrictDefaultUserApiAccess } from "./restrictedUserPolicy";
 import { registerNavigationAccessGuards } from "./navigationAccess";
 import { auditContextMiddleware } from "./auditContext";
 import { startBulkDataArchiveScheduler } from "./bulkDataArchives";
-import { db } from "./db";
+import { db, isDatabaseConfigured, DATABASE_URL_MISSING } from "./db";
 import { sql } from "drizzle-orm";
+
+// Refuse to start without a database. db.ts no longer throws at import (unit
+// tests import it without one), so the check that used to live there is here,
+// where a missing variable should stop the process before it listens.
+if (!isDatabaseConfigured()) {
+  console.error(DATABASE_URL_MISSING);
+  process.exit(1);
+}
 
 const PgSession = connectPgSimple(session);
 const MemSession = MemoryStore(session);

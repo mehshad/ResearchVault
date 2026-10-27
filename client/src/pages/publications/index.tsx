@@ -1,5 +1,3 @@
-// @ts-nocheck — Pre-existing TypeScript errors in this file are suppressed so `npx tsc --noEmit` runs clean and new code in other files gets reliable type-checking feedback.
-// Most errors here stem from untyped `useQuery` results (data inferred as `unknown`), drifted shared/schema field renames, and form values typed as `unknown`. They are not known runtime bugs but should be fixed file-by-file as each is next touched: remove this directive, run `npx tsc --noEmit`, and resolve what surfaces.
 import { useState, useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Link, useLocation } from "wouter";
@@ -27,6 +25,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { EnhancedPublication } from "@/lib/types";
+import type { ResearchActivity } from "@shared/schema";
 import { formatFullName } from "@/utils/nameUtils";
 import { Plus, Search, MoreHorizontal, CalendarRange, Bookmark, FileText, Download, Star, ArrowUpDown, ArrowUp, ArrowDown, X, ChevronDown } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -41,10 +40,15 @@ import { isLinkedToResearchActivity } from "@shared/publicationSdrLinks";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ImpactFactorsReadOnly } from "@/components/ImpactFactorsReadOnly";
 import PublicationImport from "./import";
-import { formatDate } from "@/lib/dates";
+import { formatMonthYear } from "@/lib/dates";
+import { statusBadgeClass } from "@/lib/statusStyles";
+import { QueryError } from "@/components/QueryError";
+import { TablePagination } from "@/components/TablePagination";
+import { pageSlice } from "@/lib/paging";
 
 export default function PublicationsList() {
   const [searchQuery, setSearchQuery] = useState("");
+  const [page, setPage] = useState(1);
   const [location, navigate] = useLocation();
   const [filterResearchActivityId, setFilterResearchActivityId] = useState<number | null>(null);
   const [filterJournal, setFilterJournal] = useState<string | null>(null);
@@ -170,7 +174,7 @@ export default function PublicationsList() {
     currentUser.role as (typeof FULL_PUBLICATION_VISIBILITY_ROLES)[number],
   );
 
-  const { data: publications, isLoading } = useQuery<EnhancedPublication[]>({
+  const { data: publications, isLoading, isError, error, refetch } = useQuery<EnhancedPublication[]>({
     queryKey: ['/api/publications', 'visible', currentUser.role, currentUser.id],
     queryFn: async () => {
       const params = new URLSearchParams({
@@ -205,28 +209,11 @@ export default function PublicationsList() {
   })();
 
   // Get research activity details if we're filtering by one
-  const { data: researchActivity } = useQuery({
+  const { data: researchActivity } = useQuery<ResearchActivity>({
     queryKey: ['/api/research-activities', filterResearchActivityId],
     enabled: !isRestrictedOnly(currentUser) && !!filterResearchActivityId,
   });
 
-  const formatDate = (date: string | Date | null | undefined) => {
-    if (!date) return "—";
-    return new Date(date).toLocaleDateString('en-US', { 
-      year: 'numeric', 
-      month: 'short'
-    });
-  };
-
-  const statusColors = {
-    published: "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400",
-    "published - invalid": "bg-red-100 text-red-700 dark:bg-red-950 dark:text-red-300",
-    "published *": "bg-green-600 text-white dark:bg-green-700 dark:text-green-100",
-    submitted: "bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400",
-    "in preparation": "bg-blue-100 text-blue-600 dark:bg-blue-900/30 dark:text-blue-400",
-    rejected: "bg-red-100 text-red-600 dark:bg-red-900/30 dark:text-red-400",
-    "under review": "bg-purple-100 text-purple-600 dark:bg-purple-900/30 dark:text-purple-400"
-  };
 
   const filteredPublications = publications?.filter(publication => {
     // First apply research activity filter
@@ -335,6 +322,9 @@ export default function PublicationsList() {
       return sortDirection === 'asc' ? cmp : -cmp;
     });
   })();
+  // Fifty rows at a time; a filter change goes back to the first page.
+  const pagedPublications = pageSlice(sortedPublications ?? [], page);
+  useEffect(() => { setPage(1); }, [searchQuery, journalFilter, statusFilters, authorFilter, startDateFilter, endDateFilter, filterResearchActivityId, filterJournal]);
 
   const SortIcon = ({ column }: { column: string }) => {
     if (sortColumn !== column) {
@@ -685,7 +675,7 @@ export default function PublicationsList() {
                     <TableCell><Skeleton className="h-8 w-8" /></TableCell>
                   </TableRow>
                 ))}
-                {!isLoading && (sortedPublications?.length ?? 0) === 0 && (
+                {!isLoading && !isError && (sortedPublications?.length ?? 0) === 0 && (
                   <TableRow>
                     <TableCell colSpan={6} className="text-center py-8 text-muted-foreground" data-testid="text-publications-empty">
                       {hasActiveFilters
@@ -694,7 +684,14 @@ export default function PublicationsList() {
                     </TableCell>
                   </TableRow>
                 )}
-                {!isLoading && sortedPublications?.map((publication) => (
+                {isError && (
+                  <TableRow>
+                    <TableCell colSpan={6}>
+                      <QueryError what="publications" error={error} onRetry={() => refetch()} />
+                    </TableCell>
+                  </TableRow>
+                )}
+                {!isLoading && !isError && pagedPublications.map((publication) => (
                   <TableRow 
                     key={publication.id} 
                     className="hover:bg-gray-50 cursor-pointer transition-colors dark:hover:bg-gray-900"
@@ -724,7 +721,7 @@ export default function PublicationsList() {
                     <TableCell>
                       <div className="flex items-center text-sm">
                         <CalendarRange className="h-4 w-4 mr-1 text-gray-600 dark:text-gray-300" />
-                        <span>{formatDate(publication.publicationDate)}</span>
+                        <span>{formatMonthYear(publication.publicationDate, "—")}</span>
                       </div>
                     </TableCell>
                     <TableCell>
@@ -742,7 +739,7 @@ export default function PublicationsList() {
                       {publication.status && (
                         <Badge 
                           variant={publication.status.includes('*') ? 'default' : 'outline'}
-                          className={`capitalize ${statusColors[publication.status.toLowerCase() as keyof typeof statusColors] || "bg-gray-100 text-gray-600"}`}
+                          className={`capitalize ${statusBadgeClass("publication", publication.status)}`}
                         >
                           {publication.status.includes('*') ? (
                             <div className="flex items-center gap-1">
@@ -790,6 +787,7 @@ export default function PublicationsList() {
               </TableBody>
             </Table>
           )}
+          <TablePagination total={sortedPublications?.length ?? 0} page={page} onPageChange={setPage} what="publications" />
         </CardContent>
       </Card>
         </TabsContent>

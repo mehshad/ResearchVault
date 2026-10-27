@@ -1,11 +1,9 @@
-// @ts-nocheck — Pre-existing TypeScript errors in this file are suppressed so `npx tsc --noEmit` runs clean and new code in other files gets reliable type-checking feedback.
-// Most errors here stem from untyped `useQuery` results (data inferred as `unknown`), drifted shared/schema field renames, and form values typed as `unknown`. They are not known runtime bugs but should be fixed file-by-file as each is next touched: remove this directive, run `npx tsc --noEmit`, and resolve what surfaces.
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { queryClient } from "@/lib/queryClient";
 import { useLocation, useParams } from "wouter";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { ResearchActivity, Publication, Patent, PublicationAuthor, Scientist, InsertPublicationAuthor, ManuscriptHistory } from "@shared/schema";
+import { ResearchActivity, Publication, Patent, PublicationAuthor, Scientist, InsertPublicationAuthor, ManuscriptHistory, JournalImpactFactor } from "@shared/schema";
 import { ArrowLeft, Calendar, FileText, Book, Layers, ExternalLink, Award, Edit, Plus, Trash2, Users, Info, CheckCircle, Clock, AlertCircle, AlertTriangle } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Alert, AlertDescription } from "@/components/ui/alert";
@@ -163,14 +161,14 @@ export default function PublicationDetail() {
   });
 
   // Query for journal impact factor
-  const { data: impactFactor } = useQuery({
+  const { data: impactFactor } = useQuery<JournalImpactFactor | null>({
     queryKey: [`/api/journal-impact-factors/journal/${publication?.journal}/year/${publication?.publicationDate ? new Date(publication.publicationDate).getFullYear() : ''}`],
     enabled: !!publication?.journal && !!publication?.publicationDate,
     retry: false // Don't retry if not found
   });
 
   // Also query for previous year impact factor
-  const { data: previousYearImpactFactor } = useQuery({
+  const { data: previousYearImpactFactor } = useQuery<JournalImpactFactor | null>({
     queryKey: [`/api/journal-impact-factors/journal/${publication?.journal}/year/${publication?.publicationDate ? new Date(publication.publicationDate).getFullYear() - 1 : ''}`],
     enabled: !!publication?.journal && !!publication?.publicationDate,
     retry: false
@@ -192,7 +190,7 @@ export default function PublicationDetail() {
   });
   const mostCurrentIfYear = availableIfYears.length ? Math.max(...availableIfYears) : null;
 
-  const { data: currentYearImpactFactor } = useQuery({
+  const { data: currentYearImpactFactor } = useQuery<JournalImpactFactor | null>({
     queryKey: [`/api/journal-impact-factors/journal/${publication?.journal}/year/${mostCurrentIfYear ?? ''}`],
     enabled: !!publication?.journal && mostCurrentIfYear != null,
     retry: false
@@ -240,7 +238,7 @@ export default function PublicationDetail() {
     },
   });
 
-  const { data: publicationAuthors = [], isLoading: authorsLoading } = useQuery<(PublicationAuthor & { scientist: Scientist })[]>({
+  const { data: publicationAuthors = [], isLoading: authorsLoading } = useQuery<(PublicationAuthor & { scientist: Scientist; linkedByName: string | null })[]>({
     queryKey: [`/api/publications/${id}/authors`],
     enabled: !!publication,
   });
@@ -1040,7 +1038,7 @@ export default function PublicationDetail() {
                                 <div className="flex items-center gap-2">
                                   {formatFullName(author.scientist)}
                                   {!isInText && (
-                                    <AlertTriangle className="h-4 w-4 text-amber-600 dark:text-amber-400" title="Not found in authors text" />
+                                    <AlertTriangle className="h-4 w-4 text-amber-600 dark:text-amber-400"><title>Not found in authors text</title></AlertTriangle>
                                   )}
                                 </div>
                               </TableCell>
@@ -1189,7 +1187,7 @@ export default function PublicationDetail() {
                         <Checkbox
                           id="corresponding-author"
                           checked={isCorrespondingAuthor}
-                          onCheckedChange={setIsCorrespondingAuthor}
+                          onCheckedChange={(checked) => setIsCorrespondingAuthor(checked === true)}
                         />
                         <Label htmlFor="corresponding-author" className="text-sm font-normal">
                           Also corresponding author
@@ -1201,7 +1199,7 @@ export default function PublicationDetail() {
                           <Checkbox
                             id="shared-position"
                             checked={isSharedPosition}
-                            onCheckedChange={setIsSharedPosition}
+                            onCheckedChange={(checked) => setIsSharedPosition(checked === true)}
                           />
                           <Label htmlFor="shared-position" className="text-sm font-normal">
                             Shared position (Co-)
@@ -1371,7 +1369,9 @@ export default function PublicationDetail() {
                         // Pre-populate form with existing values
                         setJournalName(publication.journal || '');
                         setDoiValue(publication.doi || '');
-                        setPublicationDateStr(publication.publicationDate ? (typeof publication.publicationDate === 'string' ? publication.publicationDate.split('T')[0] : new Date(publication.publicationDate).toISOString().split('T')[0]) : '');
+                        // Over the wire the timestamp is an ISO string, whatever the row type says.
+                        const rawPublicationDate = publication.publicationDate as string | Date | null;
+                        setPublicationDateStr(rawPublicationDate ? (typeof rawPublicationDate === 'string' ? rawPublicationDate.split('T')[0] : new Date(rawPublicationDate).toISOString().split('T')[0]) : '');
                         setPrepublicationUrl(publication.prepublicationUrl || '');
                         setPrepublicationSite(publication.prepublicationSite || '');
                         setAuthorsValue(publication.authors || '');
@@ -1513,7 +1513,7 @@ export default function PublicationDetail() {
                             </Badge>
                           )}
                           <span className="text-gray-500 dark:text-gray-400">
-                            {format(new Date(entry.createdAt), 'MMM d, yyyy HH:mm')}
+                            {format(new Date(entry.createdAt ?? 0), 'MMM d, yyyy HH:mm')}
                           </span>
                         </div>
                         <p className="text-xs text-gray-600 mt-1 dark:text-gray-300" data-testid={`text-actor-${entry.id}`}>
@@ -1724,10 +1724,12 @@ function StatusUpdateForm({
       updatedFields.publicationDate = publicationDateStr ? publicationDateStr : null;
       updatedFields.doi = doiValue;
       
-      const oldDate = publication.publicationDate ? 
-        (typeof publication.publicationDate === 'string' ? 
-          publication.publicationDate.split('T')[0] : 
-          format(new Date(publication.publicationDate), 'yyyy-MM-dd')) : '';
+      // Over the wire the timestamp is an ISO string, whatever the row type says.
+      const rawPublicationDate = publication.publicationDate as string | Date | null;
+      const oldDate = rawPublicationDate ?
+        (typeof rawPublicationDate === 'string' ?
+          rawPublicationDate.split('T')[0] :
+          format(new Date(rawPublicationDate), 'yyyy-MM-dd')) : '';
       if (publicationDateStr !== oldDate) {
         changes.push({
           field: 'publicationDate',

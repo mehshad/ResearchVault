@@ -5,6 +5,7 @@ import { Label } from "@/components/ui/label";
 import { SearchableSelect } from "@/components/ui/searchable-select";
 import { Trash2, UserPlus } from "lucide-react";
 import type { GrantCoInvestigatorList } from "@shared/schema";
+import { InstitutionName } from "@/components/InstitutionName";
 
 interface GrantCoInvestigatorsProps {
   value: GrantCoInvestigatorList;
@@ -45,7 +46,7 @@ export function GrantCoInvestigators({ value, onChange, disabled }: GrantCoInves
   return (
     <div className="space-y-2" data-testid="grant-co-investigators">
       {rows.length === 0 && (
-        <p className="text-sm text-muted-foreground">No Sidra Medicine co-investigators recorded.</p>
+        <p className="text-sm text-muted-foreground">No <InstitutionName /> co-investigators recorded.</p>
       )}
 
       {rows.map((row, index) => {

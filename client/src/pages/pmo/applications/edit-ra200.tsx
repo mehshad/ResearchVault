@@ -1,5 +1,3 @@
-// @ts-nocheck — Pre-existing TypeScript errors in this file are suppressed so `npx tsc --noEmit` runs clean and new code in other files gets reliable type-checking feedback.
-// Most errors here stem from untyped `useQuery` results (data inferred as `unknown`), drifted shared/schema field renames, and form values typed as `unknown`. They are not known runtime bugs but should be fixed file-by-file as each is next touched: remove this directive, run `npx tsc --noEmit`, and resolve what surfaces.
 import { useState, useEffect } from "react";
 import { useLocation, useRoute } from "wouter";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
@@ -12,8 +10,12 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { ArrowLeft, Save, Send, FileCheck, Clock, Users, MessageSquare, History } from "lucide-react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useToast } from "@/hooks/use-toast";
+import { FieldError } from "@/components/FieldError";
+import { ra200RequiredFieldErrors, stillFailing } from "@/lib/formValidation";
 import { apiRequest } from "@/lib/queryClient";
 import { formatDate } from "@/lib/dates";
+import { InstitutionName } from "@/components/InstitutionName";
+import type { Ra200Application } from "@shared/schema";
 
 interface Ra200Form {
   // Header Information
@@ -62,6 +64,21 @@ interface Ra200Form {
   preliminaryData: string;
 }
 
+// Entries the PMO office appends to the three json comment columns.
+interface ReviewHistoryEntry {
+  timestamp: string;
+  action: string;
+  user: string;
+  comment?: string;
+}
+
+interface ApplicationComment {
+  timestamp: string;
+  user: string;
+  comment: string;
+  action?: string;
+}
+
 const coreLabOptions = [
   "Genomics Core", "Omics Core", "Microscopy Core", "Flow Core",
   "Mass Spec Core", "Zebrafish Facility Core", "Advanced Cell Therapy Core",
@@ -72,12 +89,14 @@ const coreLabOptions = [
 
 export default function EditRa200() {
   const [, setLocation] = useLocation();
-  const [match] = useRoute("/pmo/applications/:id/edit-ra200");
+  const [, params] = useRoute("/pmo/applications/:id/edit-ra200");
   const { toast } = useToast();
   const queryClient = useQueryClient();
 
-  const applicationId = match?.id;
+  const applicationId = params?.id;
 
+  // Per-field messages for a submission; a draft may be saved half-filled.
+  const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const [formData, setFormData] = useState<Ra200Form>({
     title: "",
     leadScientistId: null,
@@ -117,7 +136,7 @@ export default function EditRa200() {
   });
 
   // Load application data
-  const { data: application, isLoading } = useQuery({
+  const { data: application, isLoading } = useQuery<Ra200Application>({
     queryKey: ['/api/ra200-applications', applicationId],
     enabled: !!applicationId
   });
@@ -145,28 +164,28 @@ export default function EditRa200() {
         objectivesPreliminary: application.objectivesPreliminary || "",
         approachMethods: application.approachMethods || "",
         discussionConclusion: application.discussionConclusion || "",
-        ethicsRequirements: application.ethicsRequirements || {
+        ethicsRequirements: (application.ethicsRequirements as Ra200Form["ethicsRequirements"] | null) || {
           humanSubjects: false,
           irbNeeded: false,
           animalSamples: false,
           iacucNeeded: false,
           clinicalTrial: false
         },
-        collaborationRequirements: application.collaborationRequirements || {
+        collaborationRequirements: (application.collaborationRequirements as Ra200Form["collaborationRequirements"] | null) || {
           outsideCollaborators: false,
           dataSharing: false
         },
-        budgetRequirements: application.budgetRequirements || {
+        budgetRequirements: (application.budgetRequirements as Ra200Form["budgetRequirements"] | null) || {
           noCost: false,
           externalFunding: false,
           sidraBudget: false
         },
-        sampleDataProcessing: application.sampleDataProcessing || {
+        sampleDataProcessing: (application.sampleDataProcessing as Ra200Form["sampleDataProcessing"] | null) || {
           collaborationWithPI: false,
           sidraCores: false
         },
         durationMonths: application.durationMonths,
-        coreLabs: application.coreLabs || [],
+        coreLabs: (application.coreLabs as string[] | null) || [],
         studyDesignMethods: application.studyDesignMethods || "",
         proposalObjectives: application.proposalObjectives || "",
         preliminaryData: application.preliminaryData || ""
@@ -186,7 +205,21 @@ export default function EditRa200() {
     }
   });
 
+  useEffect(() => {
+    setFieldErrors((current) =>
+      Object.keys(current).length === 0 ? current : stillFailing(current, ra200RequiredFieldErrors(formData)),
+    );
+  }, [formData]);
+
   const handleSave = (status?: 'draft' | 'submitted') => {
+    // The five fields marked with an asterisk were never enforced. A
+    // submission now names each one it lacks under its own box.
+    const errors = status === 'submitted' ? ra200RequiredFieldErrors(formData) : {};
+    setFieldErrors(errors);
+    if (Object.keys(errors).length > 0) {
+      toast({ title: "Check the highlighted fields", description: Object.values(errors)[0], variant: "destructive" });
+      return;
+    }
     const submitData = {
       ...formData,
       status: status || application?.status || 'draft'
@@ -213,6 +246,10 @@ export default function EditRa200() {
   }
 
   const canEdit = application.status === 'draft' || application.status === 'revision_requested';
+  // The json columns come back untyped.
+  const reviewHistory = (application.reviewHistory ?? []) as ReviewHistoryEntry[];
+  const officeComments = (application.officeComments ?? []) as ApplicationComment[];
+  const piComments = (application.piComments ?? []) as ApplicationComment[];
 
   if (!canEdit) {
     return (
@@ -286,6 +323,7 @@ export default function EditRa200() {
                       placeholder="Enter the research activity title"
                       className="mt-1"
                     />
+                    <FieldError message={fieldErrors.title} />
                   </div>
 
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -306,6 +344,7 @@ export default function EditRa200() {
                           ))}
                         </SelectContent>
                       </Select>
+                      <FieldError message={fieldErrors.leadScientistId} />
                     </div>
 
                     <div>
@@ -325,6 +364,7 @@ export default function EditRa200() {
                           ))}
                         </SelectContent>
                       </Select>
+                      <FieldError message={fieldErrors.projectId} />
                     </div>
                   </div>
 
@@ -346,6 +386,7 @@ export default function EditRa200() {
                           ))}
                         </SelectContent>
                       </Select>
+                      <FieldError message={fieldErrors.budgetHolderId} />
                     </div>
 
                     <div>
@@ -376,6 +417,7 @@ export default function EditRa200() {
                       className="mt-1"
                       maxLength={5000}
                     />
+                    <FieldError message={fieldErrors.abstract} />
                     <div className="text-sm text-muted-foreground mt-1">
                       {formData.abstract.length}/5000 characters
                     </div>
@@ -576,7 +618,7 @@ export default function EditRa200() {
                               }))
                             }
                           />
-                          <Label htmlFor="sidraBudget">Sidra budget</Label>
+                          <Label htmlFor="sidraBudget"><InstitutionName short /> budget</Label>
                         </div>
                       </div>
                     </div>
@@ -725,8 +767,8 @@ export default function EditRa200() {
             </CardHeader>
             <CardContent>
               <div className="space-y-3">
-                {application.reviewHistory && application.reviewHistory.length > 0 ? (
-                  application.reviewHistory.map((entry: any, index: number) => (
+                {reviewHistory.length > 0 ? (
+                  reviewHistory.map((entry, index) => (
                     <div key={index} className="border-l-4 border-blue-200 pl-4 pb-3 dark:border-blue-800">
                       <div className="flex justify-between items-start">
                         <div>
@@ -763,8 +805,8 @@ export default function EditRa200() {
                 <div>
                   <h4 className="font-medium text-sm mb-2">Office Comments</h4>
                   <div className="space-y-2">
-                    {application.officeComments && application.officeComments.length > 0 ? (
-                      application.officeComments.map((comment: any, index: number) => (
+                    {officeComments.length > 0 ? (
+                      officeComments.map((comment, index) => (
                         <div key={index} className="bg-red-50 p-3 rounded border-l-4 border-red-200 dark:bg-red-950 dark:border-red-800">
                           <div className="flex justify-between items-start mb-1">
                             <span className="font-medium text-sm">{comment.user}</span>
@@ -788,8 +830,8 @@ export default function EditRa200() {
                 <div>
                   <h4 className="font-medium text-sm mb-2">PI Comments</h4>
                   <div className="space-y-2">
-                    {application.piComments && application.piComments.length > 0 ? (
-                      application.piComments.map((comment: any, index: number) => (
+                    {piComments.length > 0 ? (
+                      piComments.map((comment, index) => (
                         <div key={index} className="bg-blue-50 p-3 rounded border-l-4 border-blue-200 dark:bg-blue-950 dark:border-blue-800">
                           <div className="flex justify-between items-start mb-1">
                             <span className="font-medium text-sm">{comment.user}</span>

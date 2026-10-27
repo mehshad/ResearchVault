@@ -1,5 +1,3 @@
-// @ts-nocheck — Pre-existing TypeScript errors in this file are suppressed so `npx tsc --noEmit` runs clean and new code in other files gets reliable type-checking feedback.
-// Most errors here stem from untyped `useQuery` results (data inferred as `unknown`), drifted shared/schema field renames, and form values typed as `unknown`. They are not known runtime bugs but should be fixed file-by-file as each is next touched: remove this directive, run `npx tsc --noEmit`, and resolve what surfaces.
 import { useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -115,7 +113,7 @@ export function ReviewForm({ application, onSubmit, onCancel, isLoading }: Revie
           {/* Review Type */}
           <div>
             <Label className="text-base font-medium">Review Type</Label>
-            <RadioGroup value={reviewType} onValueChange={setReviewType} className="mt-2">
+            <RadioGroup value={reviewType} onValueChange={(value) => setReviewType(value as typeof reviewType)} className="mt-2">
               <div className="flex items-center space-x-2">
                 <RadioGroupItem value="expedited" id="expedited" />
                 <Label htmlFor="expedited">Expedited Review</Label>
@@ -253,7 +251,7 @@ export function ReviewForm({ application, onSubmit, onCancel, isLoading }: Revie
           {/* Final Decision */}
           <div>
             <Label className="text-base font-medium">Final Decision</Label>
-            <RadioGroup value={finalDecision} onValueChange={setFinalDecision} className="mt-2">
+            <RadioGroup value={finalDecision} onValueChange={(value) => setFinalDecision(value as typeof finalDecision)} className="mt-2">
               <div className="flex items-center space-x-2">
                 <RadioGroupItem value="approved" id="approved" />
                 <Label htmlFor="approved" className="flex items-center gap-2">

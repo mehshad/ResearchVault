@@ -1,6 +1,4 @@
-// @ts-nocheck — Pre-existing TypeScript errors in this file are suppressed so `npx tsc --noEmit` runs clean and new code in other files gets reliable type-checking feedback.
-// Most errors here stem from untyped `useQuery` results (data inferred as `unknown`), drifted shared/schema field renames, and form values typed as `unknown`. They are not known runtime bugs but should be fixed file-by-file as each is next touched: remove this directive, run `npx tsc --noEmit`, and resolve what surfaces.
-import { useState } from "react";
+import { useState , useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { Link, useLocation } from "wouter";
 import { Button } from "@/components/ui/button";
@@ -52,7 +50,11 @@ import { usePermissions } from "@/hooks/usePermissions";
 import { PermissionWrapper, useElementPermissions } from "@/components/PermissionWrapper";
 import { GrantCleanupDialog } from "@/components/GrantCleanupDialog";
 import { GrantRulesDialog } from "@/components/GrantRulesDialog";
-import { formatDateLong } from "@/lib/dates";
+import { formatDateOrDash as formatDate } from "@/lib/dates";
+import { statusBadgeClass } from "@/lib/statusStyles";
+import { QueryError } from "@/components/QueryError";
+import { TablePagination } from "@/components/TablePagination";
+import { pageSlice } from "@/lib/paging";
 
 type EnhancedGrant = Grant & {
   lpi?: {
@@ -70,6 +72,7 @@ type EnhancedGrant = Grant & {
 
 export default function GrantsList() {
   const [searchQuery, setSearchQuery] = useState("");
+  const [page, setPage] = useState(1);
   const [statusFilter, setStatusFilter] = useState<string>("all");
   const [yearFilter, setYearFilter] = useState<string>("all");
   const [issueFilter, setIssueFilter] = useState<"all" | "any" | GrantIssueCode>("all");
@@ -80,7 +83,7 @@ export default function GrantsList() {
   const { currentUser } = useCurrentUser();
   const { all: allStatuses } = useGrantStatuses();
 
-  const { data: grants, isLoading } = useQuery<EnhancedGrant[]>({
+  const { data: grants, isLoading, isError, error, refetch } = useQuery<EnhancedGrant[]>({
     queryKey: ['/api/grants'],
   });
 
@@ -119,31 +122,6 @@ export default function GrantsList() {
         maximumFractionDigits: 0,
       }).format(numAmount)}`;
     }
-  };
-
-  const formatDate = (date: string | Date | null | undefined) => {
-    if (!date) return "—";
-    return formatDateLong(date);
-  };
-
-  const statusColors: Record<string, string> = {
-    submitted: "bg-yellow-100 text-yellow-700 dark:bg-yellow-950 dark:text-yellow-300",
-    pending: "bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-300",
-    in_review: "bg-purple-100 text-purple-700 dark:bg-purple-950 dark:text-purple-300",
-    awarded: "bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300",
-    active: "bg-green-100 text-green-700 dark:bg-green-950 dark:text-green-300",
-    completed: "bg-blue-100 text-blue-700 dark:bg-blue-950 dark:text-blue-300",
-    not_awarded: "bg-orange-100 text-orange-700 dark:bg-orange-950 dark:text-orange-300",
-    rejected: "bg-orange-100 text-orange-700 dark:bg-orange-950 dark:text-orange-300",
-    cancelled: "bg-red-100 text-red-600 dark:bg-red-950 dark:text-red-400",
-    withdrawn: "bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300",
-    terminated: "bg-red-100 text-red-600 dark:bg-red-950 dark:text-red-400",
-    transferred: "bg-sky-100 text-sky-700 dark:bg-sky-950 dark:text-sky-300",
-    suspended: "bg-amber-100 text-amber-700 dark:bg-amber-950 dark:text-amber-300",
-  };
-
-  const getStatusColor = (status: string) => {
-    return statusColors[status.toLowerCase() as keyof typeof statusColors] || "bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-300";
   };
 
   // Retired statuses included: a grant that still carries one has to keep
@@ -309,6 +287,9 @@ export default function GrantsList() {
 
   // Get unique years and statuses for filters
   const years = [...new Set(grants?.map(g => g.submittedYear).filter(Boolean))].sort((a, b) => (b || 0) - (a || 0));
+  // Fifty rows at a time; a filter or sort change goes back to the first page.
+  const pagedGrants = pageSlice(filteredAndSortedGrants ?? [], page);
+  useEffect(() => { setPage(1); }, [searchQuery, statusFilter, yearFilter, issueFilter, sortField, sortDirection]);
   // The filter offers retired statuses too, because grants still carry them and
   // an unfilterable status is worse than a long list.
   const statuses = allStatuses;
@@ -472,6 +453,9 @@ export default function GrantsList() {
               horizontal overflow already makes this div the scroll container,
               and sticky positions against the nearest scrolling ancestor. */}
           <div className="max-h-[70vh] overflow-auto rounded-md border">
+          {isError ? (
+            <QueryError what="grants" error={error} onRetry={() => refetch()} />
+          ) : (
             <Table className="min-w-[1950px]">
               {/* Eleven columns and a hundred rows: without this you lose track
                   of which column you are reading a few rows in. Opaque
@@ -538,7 +522,7 @@ export default function GrantsList() {
                     </TableCell>
                   </TableRow>
                 ) : (
-                  filteredAndSortedGrants?.map((grant) => (
+                  pagedGrants.map((grant) => (
                     <TableRow 
                       key={grant.id} 
                       className="hover:bg-gray-50 cursor-pointer dark:hover:bg-gray-900"
@@ -669,7 +653,7 @@ export default function GrantsList() {
                       </TableCell>
                       <TableCell className="text-right font-mono text-sm">
                         <div className="flex items-center justify-end gap-2">
-                          {formatCurrency(grant.awardedAmount, grant.currency)}
+                          {formatCurrency(grant.awardedAmount, grant.currency ?? undefined)}
                           {grant.awarded === true && (grant.linkedSdrsCount ?? 0) > 0 && (
                             <div className="flex items-center gap-1" title={`${grant.linkedSdrsCount} linked SDR${grant.linkedSdrsCount! > 1 ? 's' : ''}`}>
                               <LinkIcon className="h-3 w-3 text-blue-600 dark:text-blue-400" />
@@ -679,7 +663,7 @@ export default function GrantsList() {
                         </div>
                       </TableCell>
                       <TableCell className="text-right">
-                        <Badge variant="secondary" className={getStatusColor(grant.status)}>
+                        <Badge variant="secondary" className={statusBadgeClass("grant", grant.status)}>
                           {getStatusLabel(grant.status)}
                         </Badge>
                       </TableCell>
@@ -722,6 +706,8 @@ export default function GrantsList() {
                 )}
               </TableBody>
             </Table>
+          )}
+          <TablePagination total={filteredAndSortedGrants?.length ?? 0} page={page} onPageChange={setPage} what="grants" />
           </div>
         </CardContent>
         </Card>

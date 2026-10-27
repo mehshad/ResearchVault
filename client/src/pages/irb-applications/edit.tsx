@@ -14,6 +14,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
 import React from "react";
+import { fetchRecord } from "@/lib/fetchList";
 
 export default function IrbApplicationEdit() {
   const { id } = useParams();
@@ -23,7 +24,7 @@ export default function IrbApplicationEdit() {
 
   const { data: irbApplication, isLoading } = useQuery<IrbApplication>({
     queryKey: ['/api/irb-applications', id],
-    queryFn: () => fetch(`/api/irb-applications/${id}`).then(res => res.json()),
+    queryFn: () => fetchRecord(`/api/irb-applications/${id}`),
     enabled: !!id,
   });
 

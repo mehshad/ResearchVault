@@ -7,24 +7,34 @@ on:
   workflow_dispatch:
     inputs:
       target_url:
-        description: Base URL to test (defaults to demo)
+        description: Base URL to test (defaults to the PERF_TARGET_URL secret)
         required: false
         default: ""
 
 jobs:
   k6:
-    name: Load Test (k6 → demo)
+    name: Load Test (k6)
     runs-on: ubuntu-latest
 
     env:
-      # Falls back to the demo instance on Sidra's server.
-      # Override via workflow_dispatch or by setting the secret TARGET_URL.
-      BASE_URL: ${{ inputs.target_url || secrets.PERF_TARGET_URL || 'http://172.32.79.20/demo' }}
+      # No built-in default. The old fallback was a private address on
+      # Sidra's network that a GitHub-hosted runner cannot reach, so the
+      # nightly run failed every night PERF_TARGET_URL was unset and the
+      # failure meant nothing. With no target the job now says so and
+      # stops, green; set the secret (or pass target_url) to make it run.
+      BASE_URL: ${{ inputs.target_url || secrets.PERF_TARGET_URL }}
 
     steps:
+      - name: Check for a target
+        if: env.BASE_URL == ''
+        run: |
+          echo "::notice::No target: set the PERF_TARGET_URL secret, or pass target_url to workflow_dispatch. Skipping the load test."
+
       - uses: actions/checkout@v4
+        if: env.BASE_URL != ''
 
       - name: Install k6
+        if: env.BASE_URL != ''
         run: |
           sudo gpg -k
           sudo gpg --no-default-keyring --keyring /usr/share/keyrings/k6-archive-keyring.gpg \
@@ -34,13 +44,15 @@ jobs:
           sudo apt-get update && sudo apt-get install -y k6
 
       - name: Health check
+        if: env.BASE_URL != ''
         run: k6 run --env BASE_URL=${{ env.BASE_URL }} tests/performance/k6/health.js
 
       - name: API core load test
+        if: env.BASE_URL != ''
         run: k6 run --env BASE_URL=${{ env.BASE_URL }} tests/performance/k6/api-core.js
 
       - name: Upload k6 summary
-        if: always()
+        if: always() && env.BASE_URL != ''
         uses: actions/upload-artifact@v4
         with:
           name: k6-results-${{ github.run_id }}

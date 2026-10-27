@@ -1,5 +1,3 @@
-// @ts-nocheck — Pre-existing TypeScript errors in this file are suppressed so `npx tsc --noEmit` runs clean and new code in other files gets reliable type-checking feedback.
-// Most errors here stem from untyped `useQuery` results (data inferred as `unknown`), drifted shared/schema field renames, and form values typed as `unknown`. They are not known runtime bugs but should be fixed file-by-file as each is next touched: remove this directive, run `npx tsc --noEmit`, and resolve what surfaces.
 import { useState, useEffect } from "react";
 import { useParams, useLocation } from "wouter";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
@@ -27,7 +25,14 @@ interface DocumentUpload {
   uploaded: boolean;
   signatureRequired: boolean;
   signatures: { scientistId: number; signedAt: string; signedBy: string }[];
+  uploadedFile?: { id: string; name: string; type: string; size: number; uploadedAt: string };
 }
+
+// What /api/research-activities/:id/members returns: the membership row plus
+// the subset of the scientist the server attaches to it.
+type SdrTeamMember = ProjectMember & {
+  scientist: Pick<Scientist, "id" | "firstName" | "lastName" | "honorificTitle" | "jobTitle" | "email" | "staffId" | "profileImageInitials"> | null;
+};
 
 interface ProtocolMember {
   id: number;
@@ -109,7 +114,7 @@ export default function ProtocolAssembly() {
     enabled: !!application?.researchActivityId,
   });
 
-  const { data: projectMembers = [] } = useQuery<ProjectMember[]>({
+  const { data: projectMembers = [] } = useQuery<SdrTeamMember[]>({
     queryKey: [`/api/research-activities/${application?.researchActivityId}/members`],
     enabled: !!application?.researchActivityId,
   });
@@ -752,7 +757,7 @@ export default function ProtocolAssembly() {
         {/* Sidebar */}
         <div className="space-y-6">
           {/* IRB Review Comments */}
-          {application?.workflowStatus === 'revisions_requested' && application?.reviewComments && (
+          {application?.workflowStatus === 'revisions_requested' && !!application?.reviewComments && (
             <Card className="border-orange-200 bg-orange-50 dark:border-orange-800 dark:bg-orange-950">
               <CardHeader>
                 <CardTitle className="text-lg text-orange-800 flex items-center gap-2 dark:text-orange-300">

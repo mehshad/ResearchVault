@@ -1,5 +1,3 @@
-// @ts-nocheck — Pre-existing TypeScript errors in this file are suppressed so `npx tsc --noEmit` runs clean and new code in other files gets reliable type-checking feedback.
-// Most errors here stem from untyped `useQuery` results (data inferred as `unknown`), drifted shared/schema field renames, and form values typed as `unknown`. They are not known runtime bugs but should be fixed file-by-file as each is next touched: remove this directive, run `npx tsc --noEmit`, and resolve what surfaces.
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useLocation, useParams } from "wouter";
 import { Button } from "@/components/ui/button";
@@ -22,6 +20,13 @@ import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
 import { z } from "zod";
 import React from "react";
+import { fetchRecord } from "@/lib/fetchList";
+
+// The date input works in yyyy-mm-dd strings; onSubmit turns it into a Date.
+interface EditPublicationFormValues extends Omit<InsertPublication, "publicationDate"> {
+  publicationDate?: string;
+  additionalResearchActivityIds?: number[];
+}
 
 export default function PublicationEdit() {
   const { id } = useParams();
@@ -47,7 +52,7 @@ export default function PublicationEdit() {
     Publication & { additionalResearchActivities?: { id: number }[] }
   >({
     queryKey: ['/api/publications', id],
-    queryFn: () => fetch(`/api/publications/${id}`).then(res => res.json()),
+    queryFn: () => fetchRecord(`/api/publications/${id}`),
     enabled: !!id,
   });
 
@@ -72,7 +77,7 @@ export default function PublicationEdit() {
       },
     );
 
-  const form = useForm<InsertPublication & { additionalResearchActivityIds?: number[] }>({
+  const form = useForm<EditPublicationFormValues>({
     resolver: zodResolver(editPublicationSchema),
     defaultValues: {
       researchActivityId: publication?.researchActivityId || undefined,
@@ -331,6 +336,7 @@ export default function PublicationEdit() {
                         placeholder="List of authors (e.g., Smith J, Doe A, Johnson B)"
                         autoComplete="off" data-1p-ignore="true" data-lpignore="true"
                         {...field}
+                        value={field.value ?? ""}
                       />
                     </FormControl>
                     <FormMessage />
@@ -346,7 +352,7 @@ export default function PublicationEdit() {
                     <FormItem>
                       <FormLabel>Journal</FormLabel>
                       <FormControl>
-                        <Input placeholder="Journal name" autoComplete="off" data-1p-ignore="true" data-lpignore="true" {...field} />
+                        <Input placeholder="Journal name" autoComplete="off" data-1p-ignore="true" data-lpignore="true" {...field} value={field.value ?? ""} />
                       </FormControl>
                       <FormMessage />
                     </FormItem>
@@ -376,7 +382,7 @@ export default function PublicationEdit() {
                     <FormItem>
                       <FormLabel>Volume</FormLabel>
                       <FormControl>
-                        <Input placeholder="Volume number" autoComplete="off" data-1p-ignore="true" data-lpignore="true" {...field} />
+                        <Input placeholder="Volume number" autoComplete="off" data-1p-ignore="true" data-lpignore="true" {...field} value={field.value ?? ""} />
                       </FormControl>
                       <FormMessage />
                     </FormItem>
@@ -390,7 +396,7 @@ export default function PublicationEdit() {
                     <FormItem>
                       <FormLabel>Issue</FormLabel>
                       <FormControl>
-                        <Input placeholder="Issue number" autoComplete="off" data-1p-ignore="true" data-lpignore="true" {...field} />
+                        <Input placeholder="Issue number" autoComplete="off" data-1p-ignore="true" data-lpignore="true" {...field} value={field.value ?? ""} />
                       </FormControl>
                       <FormMessage />
                     </FormItem>
@@ -404,7 +410,7 @@ export default function PublicationEdit() {
                     <FormItem>
                       <FormLabel>Pages</FormLabel>
                       <FormControl>
-                        <Input placeholder="e.g., 123-130" autoComplete="off" data-1p-ignore="true" data-lpignore="true" {...field} />
+                        <Input placeholder="e.g., 123-130" autoComplete="off" data-1p-ignore="true" data-lpignore="true" {...field} value={field.value ?? ""} />
                       </FormControl>
                       <FormMessage />
                     </FormItem>
@@ -419,7 +425,7 @@ export default function PublicationEdit() {
                   <FormItem>
                     <FormLabel>DOI</FormLabel>
                     <FormControl>
-                      <Input placeholder="Digital Object Identifier" autoComplete="off" data-1p-ignore="true" data-lpignore="true" {...field} />
+                      <Input placeholder="Digital Object Identifier" autoComplete="off" data-1p-ignore="true" data-lpignore="true" {...field} value={field.value ?? ""} />
                     </FormControl>
                     <FormMessage />
                   </FormItem>
@@ -447,7 +453,7 @@ export default function PublicationEdit() {
                   <FormItem className="flex flex-row items-center space-x-3 space-y-0 rounded-md border p-4 bg-gray-50 dark:bg-gray-900">
                     <FormControl>
                       <Checkbox
-                        checked={field.value}
+                        checked={field.value ?? false}
                         disabled={true}
                         className="cursor-not-allowed"
                       />
@@ -520,6 +526,7 @@ export default function PublicationEdit() {
                             placeholder={`Enter ${form.watch("prepublicationSite")} URL...`}
                             autoComplete="off" data-1p-ignore="true" data-lpignore="true"
                             {...field} 
+                            value={field.value ?? ""}
                           />
                         </FormControl>
                         <FormDescription>
@@ -538,7 +545,7 @@ export default function PublicationEdit() {
                 render={({ field }) => (
                   <FormItem>
                     <FormLabel>Publication Type</FormLabel>
-                    <Select onValueChange={field.onChange} value={field.value}>
+                    <Select onValueChange={field.onChange} value={field.value ?? undefined}>
                       <FormControl>
                         <SelectTrigger>
                           <SelectValue placeholder="Select publication type" />
@@ -571,6 +578,7 @@ export default function PublicationEdit() {
                         className="min-h-[150px]"
                         autoComplete="off" data-1p-ignore="true" data-lpignore="true"
                         {...field}
+                        value={field.value ?? ""}
                       />
                     </FormControl>
                     <FormMessage />

@@ -6,6 +6,12 @@ import { DatabaseStorage } from "./databaseStorage";
 import { roleGroups, rolePermissions } from "@shared/schema";
 import { ACCESS_ROLES } from "@shared/constants";
 
+// Writes to whatever DATABASE_URL points at -- deleting and inserting role
+// group rows -- so it runs only when asked, like the bulk hub integration
+// test. `npm test` used to include it, against the developer's own database.
+const runIntegration = process.env.RUN_INTEGRATION_TESTS === "1";
+const integrationTest = runIntegration ? test : test.skip;
+
 /**
  * Saving the permission matrix.
  *
@@ -34,7 +40,7 @@ async function cleanup(navigationItem: string) {
   await db.delete(roleGroups).where(eq(roleGroups.name, RETIRED_ROLE));
 }
 
-test("a bulk save creates and then updates a cell for an assignable role", async () => {
+integrationTest("a bulk save creates and then updates a cell for an assignable role", async () => {
   const storage = new DatabaseStorage();
   const navigationItem = `access-matrix-regression-${process.pid}-${Date.now()}`;
 
@@ -65,7 +71,7 @@ test("a bulk save creates and then updates a cell for an assignable role", async
   }
 });
 
-test("a bulk save cannot resurrect a retired role", async () => {
+integrationTest("a bulk save cannot resurrect a retired role", async () => {
   const storage = new DatabaseStorage();
   const navigationItem = `access-matrix-retired-${process.pid}-${Date.now()}`;
 
@@ -85,7 +91,7 @@ test("a bulk save cannot resurrect a retired role", async () => {
   }
 });
 
-test("one stale cell does not fail the whole save", async () => {
+integrationTest("one stale cell does not fail the whole save", async () => {
   // A browser holding an old grid submits everything at once. Rejecting the
   // batch would make the matrix unsavable until the page was reloaded, so the
   // unknown role is dropped and the rest is written.

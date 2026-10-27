@@ -31,6 +31,7 @@ import { SdrImportDialog } from "@/components/SdrImportDialog";
 import { Upload, UserRound } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { AlertTriangle } from "lucide-react";
+import { QueryError } from "@/components/QueryError";
 
 interface Program {
   id: number;
@@ -103,7 +104,7 @@ export default function ResearchActivitiesList() {
   const [, navigate] = useLocation();
   const { currentUser } = useCurrentUser();
 
-  const { data: researchActivities, isLoading: isLoadingActivities } = useQuery<ResearchActivity[]>({
+  const { data: researchActivities, isLoading: isLoadingActivities, isError, error, refetch } = useQuery<ResearchActivity[]>({
     queryKey: ['/api/research-activities'],
   });
 
@@ -349,6 +350,8 @@ export default function ResearchActivitiesList() {
                 </div>
               ))}
             </div>
+          ) : isError ? (
+            <QueryError what="research activities" error={error} onRetry={() => refetch()} />
           ) : (
             <Table>
               <TableHeader>

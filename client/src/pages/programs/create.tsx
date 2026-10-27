@@ -1,5 +1,3 @@
-// @ts-nocheck — Pre-existing TypeScript errors in this file are suppressed so `npx tsc --noEmit` runs clean and new code in other files gets reliable type-checking feedback.
-// Most errors here stem from untyped `useQuery` results (data inferred as `unknown`), drifted shared/schema field renames, and form values typed as `unknown`. They are not known runtime bugs but should be fixed file-by-file as each is next touched: remove this directive, run `npx tsc --noEmit`, and resolve what surfaces.
 import { useLocation } from "wouter";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -14,6 +12,7 @@ import {
   FormLabel,
   FormMessage,
 } from "@/components/ui/form";
+import { fetchList } from "@/lib/fetchList";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
@@ -26,7 +25,8 @@ import { ArrowLeft } from "lucide-react";
 import type { Scientist } from "@shared/schema";
 
 // programId (PRM number) is optional — auto-generated on submit if not provided.
-const createProgramSchema = insertProgramSchema.omit({ programId: true }).extend({
+const createProgramSchema = insertProgramSchema.extend({
+  programId: z.string().optional(),
   name: z.string().min(3, "Program name must be at least 3 characters"),
   description: z.string().optional(),
   category: z.string().optional(),
@@ -41,11 +41,11 @@ export default function CreateProgram() {
   // Fetch scientists for dropdowns
   const { data: scientists = [] } = useQuery<Scientist[]>({
     queryKey: ['/api/scientists'],
-    queryFn: () => fetch('/api/scientists').then(res => res.json()),
+    queryFn: () => fetchList('/api/scientists'),
   });
   const { data: principalInvestigators = [] } = useQuery<Scientist[]>({
     queryKey: ['/api/principal-investigators'],
-    queryFn: () => fetch('/api/principal-investigators').then(res => res.json()),
+    queryFn: () => fetchList('/api/principal-investigators'),
   });
 
   // Fetch existing programs so we can auto-assign the next PRM number
@@ -70,7 +70,7 @@ export default function CreateProgram() {
         const m = /^PRM-(\d+)$/.exec(p.programId || "");
         return m ? Math.max(max, parseInt(m[1], 10)) : max;
       }, 0);
-      const programId = `PRM-${String(maxNum + 1).padStart(3, '0')}`;
+      const programId = data.programId?.trim() || `PRM-${String(maxNum + 1).padStart(3, '0')}`;
       const response = await apiRequest("POST", "/api/programs", { ...data, programId });
       return response.json();
     },

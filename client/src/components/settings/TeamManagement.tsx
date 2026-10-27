@@ -15,6 +15,7 @@ import { useToast } from "@/hooks/use-toast";
 import { Plus, Pencil, Trash2, Users, Shield, Code, FlaskConical, GripVertical, Upload, X } from "lucide-react";
 import type { TeamMember, InsertTeamMember } from "@shared/schema";
 import { UploadingModal } from "@/components/ui/upload-modal";
+import { apiRequest } from "@/lib/queryClient";
 
 const categoryOptions = [
   { value: "lead", label: "Element Lead", icon: Shield },
@@ -401,7 +402,7 @@ export default function TeamManagement() {
 
   const deleteMutation = useMutation({
     mutationFn: (id: number) =>
-      fetch(`/api/team-members/${id}`, { method: 'DELETE' }).then(res => res.json()),
+      apiRequest("DELETE", `/api/team-members/${id}`).then((res) => res.json()),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['/api/team-members'] });
       toast({ title: "Team member removed" });
@@ -469,6 +470,8 @@ export default function TeamManagement() {
             <Button
               variant="ghost"
               size="icon"
+              aria-label="Edit team member"
+              title="Edit team member"
               onClick={() => handleEdit(member)}
               data-testid={`button-edit-member-${member.id}`}
             >
@@ -477,6 +480,8 @@ export default function TeamManagement() {
             <Button
               variant="ghost"
               size="icon"
+              aria-label="Delete team member"
+              title="Delete team member"
               onClick={() => handleDelete(member)}
               data-testid={`button-delete-member-${member.id}`}
             >

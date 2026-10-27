@@ -20,6 +20,7 @@ import {
   type GrantIssueWhen,
 } from "@shared/grantIssues";
 import { GRANT_MINIMUM_ISSUE_CODES } from "@shared/grantValidity";
+import { InstitutionName } from "@/components/InstitutionName";
 
 interface GrantRulesDialogProps {
   open: boolean;
@@ -185,7 +186,7 @@ export function GrantRulesDialog({ open, onOpenChange }: GrantRulesDialogProps) 
             </li>
             <li>
               Where another institution submitted the grant, its Lead PI goes to Grant LPI and the
-              Sidra Lead PI is taken from Co-Investigators, but only when exactly one of them is
+              <InstitutionName short /> Lead PI is taken from Co-Investigators, but only when exactly one of them is
               one of ours.
             </li>
             <li>A row that breaks the status rule above is refused; the rest of the file still imports.</li>

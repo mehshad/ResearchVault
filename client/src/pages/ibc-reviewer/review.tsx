@@ -1,5 +1,3 @@
-// @ts-nocheck — Pre-existing TypeScript errors in this file are suppressed so `npx tsc --noEmit` runs clean and new code in other files gets reliable type-checking feedback.
-// Most errors here stem from untyped `useQuery` results (data inferred as `unknown`), drifted shared/schema field renames, and form values typed as `unknown`. They are not known runtime bugs but should be fixed file-by-file as each is next touched: remove this directive, run `npx tsc --noEmit`, and resolve what surfaces.
 import { useState } from "react";
 import { useRoute, useLocation } from "wouter";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
@@ -22,8 +20,16 @@ import {
   MessageSquare,
 } from "lucide-react";
 import { format } from "date-fns";
+import type { ComponentProps } from "react";
+import type { IbcApplication } from "@shared/schema";
 import TimelineComments from "@/components/TimelineComments";
 import IbcProtocolView from "@/components/IbcProtocolView";
+
+// The row type says Date, but over JSON the timestamps arrive as ISO strings; TimelineComments wants strings.
+function timelineDate(value: Date | string | null | undefined): string | undefined {
+  if (!value) return undefined;
+  return typeof value === "string" ? value : value.toISOString();
+}
 
 const IBC_WORKFLOW_STATUSES = [
   { value: "draft", label: "Draft", color: "bg-gray-100 text-gray-800 dark:bg-gray-800 dark:text-gray-200", icon: FileText },
@@ -50,13 +56,13 @@ export default function IbcReviewPage() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
 
-  const { data: application, isLoading } = useQuery({
+  const { data: application, isLoading } = useQuery<IbcApplication>({
     queryKey: [`/api/ibc-applications/${applicationId}`],
     enabled: !!applicationId,
   });
 
   // Fetch comments from the new comments table
-  const { data: comments = [] } = useQuery({
+  const { data: comments = [] } = useQuery<ComponentProps<typeof TimelineComments>["comments"]>({
     queryKey: [`/api/ibc-applications/${applicationId}/comments`],
     enabled: !!applicationId,
     staleTime: 0, // Force fresh data
@@ -112,7 +118,7 @@ export default function IbcReviewPage() {
     });
   };
 
-  if (isLoading || !application) {
+  if (isLoading || !application || !applicationId) {
     return (
       <div className="p-6">
         <div className="animate-pulse space-y-4">
@@ -258,7 +264,14 @@ export default function IbcReviewPage() {
 
             {/* Communication History */}
             <TimelineComments
-              application={application}
+              application={{
+                createdAt: timelineDate(application.createdAt),
+                submissionDate: timelineDate(application.submissionDate),
+                vettedDate: timelineDate(application.vettedDate),
+                underReviewDate: timelineDate(application.underReviewDate),
+                approvalDate: timelineDate(application.approvalDate),
+                expirationDate: timelineDate(application.expirationDate),
+              }}
               comments={comments}
               title="Communication History"
             />

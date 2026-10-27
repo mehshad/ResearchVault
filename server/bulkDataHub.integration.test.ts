@@ -27,7 +27,10 @@ import {
 import { db } from "./db.js";
 import { applySection, previewSection } from "./bulkDataHub.js";
 
-const runIntegration = process.env.RUN_BULK_HUB_INTEGRATION === "1";
+// RUN_INTEGRATION_TESTS is the switch `npm run test:integration` and the CI
+// integration job set; the older name still works for anyone typing it.
+const runIntegration =
+  process.env.RUN_INTEGRATION_TESTS === "1" || process.env.RUN_BULK_HUB_INTEGRATION === "1";
 const integrationTest = runIntegration ? test : test.skip;
 
 type SheetInput = {

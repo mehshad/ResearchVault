@@ -17,20 +17,16 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { PermissionWrapper } from "@/components/PermissionWrapper";
 import { usePermissions } from "@/hooks/usePermissions";
 import { useCurrentUser } from "@/hooks/useCurrentUser";
-import { formatDateLong } from "@/lib/dates";
+import { formatDateOrDash as formatDate } from "@/lib/dates";
+import { QueryError } from "@/components/QueryError";
 
 export default function DataManagementList() {
   const [searchQuery, setSearchQuery] = useState("");
   const { currentUser } = useCurrentUser();
 
-  const { data: plans, isLoading } = useQuery<EnhancedDataManagementPlan[]>({
+  const { data: plans, isLoading, isError, error, refetch } = useQuery<EnhancedDataManagementPlan[]>({
     queryKey: ['/api/data-management-plans'],
   });
-
-  const formatDate = (date: string | Date | null | undefined) => {
-    if (!date) return "—";
-    return formatDateLong(date);
-  };
 
   const filteredPlans = plans?.filter(plan => {
     return (
@@ -92,6 +88,8 @@ export default function DataManagementList() {
                 </div>
               ))}
             </div>
+          ) : isError ? (
+            <QueryError what="data management plans" error={error} onRetry={() => refetch()} />
           ) : (
             <Table>
               <TableHeader>

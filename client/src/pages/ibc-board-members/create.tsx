@@ -1,5 +1,3 @@
-// @ts-nocheck — Pre-existing TypeScript errors in this file are suppressed so `npx tsc --noEmit` runs clean and new code in other files gets reliable type-checking feedback.
-// Most errors here stem from untyped `useQuery` results (data inferred as `unknown`), drifted shared/schema field renames, and form values typed as `unknown`. They are not known runtime bugs but should be fixed file-by-file as each is next touched: remove this directive, run `npx tsc --noEmit`, and resolve what surfaces.
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { formatFullName } from "@/utils/nameUtils";
@@ -65,7 +63,7 @@ export default function CreateIbcBoardMember() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
 
-  const { data: scientists = [], isLoading: scientistsLoading } = useQuery({
+  const { data: scientists = [], isLoading: scientistsLoading } = useQuery<Scientist[]>({
     queryKey: ["/api/scientists"],
   });
 

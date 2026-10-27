@@ -13,6 +13,7 @@ import {
   FormLabel,
   FormMessage,
 } from "@/components/ui/form";
+import { fetchList } from "@/lib/fetchList";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Switch } from "@/components/ui/switch";
@@ -59,17 +60,17 @@ export default function CreateScientist() {
   // Fetch all scientists for line manager selection
   const { data: allScientists = [] } = useQuery<Scientist[]>({
     queryKey: ['/api/scientists'],
-    queryFn: () => fetch('/api/scientists').then(res => res.json()),
+    queryFn: () => fetchList('/api/scientists'),
   });
 
   // Structured org data for Department + Section dropdowns
   const { data: departments = [] } = useQuery<Department[]>({
     queryKey: ['/api/departments'],
-    queryFn: () => fetch('/api/departments').then(res => res.json()),
+    queryFn: () => fetchList('/api/departments'),
   });
   const { data: sections = [] } = useQuery<Section[]>({
     queryKey: ['/api/sections'],
-    queryFn: () => fetch('/api/sections').then(res => res.json()),
+    queryFn: () => fetchList('/api/sections'),
   });
 
   // Default form values  

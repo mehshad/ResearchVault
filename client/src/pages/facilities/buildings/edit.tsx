@@ -1,5 +1,3 @@
-// @ts-nocheck — Pre-existing TypeScript errors in this file are suppressed so `npx tsc --noEmit` runs clean and new code in other files gets reliable type-checking feedback.
-// Most errors here stem from untyped `useQuery` results (data inferred as `unknown`), drifted shared/schema field renames, and form values typed as `unknown`. They are not known runtime bugs but should be fixed file-by-file as each is next touched: remove this directive, run `npx tsc --noEmit`, and resolve what surfaces.
 import { useState, useEffect } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -21,6 +19,7 @@ import {
   FormLabel,
   FormMessage,
 } from "@/components/ui/form";
+import { fetchRecord } from "@/lib/fetchList";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Building2, ArrowLeft } from "lucide-react";
 import { insertBuildingSchema, Building } from "@shared/schema";
@@ -40,7 +39,7 @@ export default function EditBuilding() {
 
   const { data: building, isLoading } = useQuery<Building>({
     queryKey: ['/api/buildings', buildingId],
-    queryFn: () => fetch(`/api/buildings/${buildingId}`).then(res => res.json()),
+    queryFn: () => fetchRecord(`/api/buildings/${buildingId}`),
     enabled: !!buildingId,
   });
 
@@ -224,6 +223,7 @@ export default function EditBuilding() {
                         placeholder="Building address or location details"
                         rows={2}
                         {...field}
+                        value={field.value ?? ""}
                       />
                     </FormControl>
                     <FormMessage />
@@ -242,6 +242,7 @@ export default function EditBuilding() {
                         placeholder="Brief description of the building and its purpose"
                         rows={3}
                         {...field}
+                        value={field.value ?? ""}
                       />
                     </FormControl>
                     <FormMessage />
@@ -280,6 +281,7 @@ export default function EditBuilding() {
                         <Input
                           placeholder="Emergency contact information"
                           {...field}
+                          value={field.value ?? ""}
                         />
                       </FormControl>
                       <FormMessage />
@@ -299,6 +301,7 @@ export default function EditBuilding() {
                         placeholder="Important safety information for this building"
                         rows={3}
                         {...field}
+                        value={field.value ?? ""}
                       />
                     </FormControl>
                     <FormMessage />

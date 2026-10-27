@@ -12,27 +12,16 @@ import { Badge } from "@/components/ui/badge";
 import { EnhancedPatent } from "@/lib/types";
 import { Plus, Search, MoreHorizontal, Calendar, Award } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
-import { formatDateLong } from "@/lib/dates";
+import { formatDateOrDash as formatDate } from "@/lib/dates";
+import { statusBadgeClass } from "@/lib/statusStyles";
+import { QueryError } from "@/components/QueryError";
 
 export default function PatentsList() {
   const [searchQuery, setSearchQuery] = useState("");
 
-  const { data: patents, isLoading } = useQuery<EnhancedPatent[]>({
+  const { data: patents, isLoading, isError, error, refetch } = useQuery<EnhancedPatent[]>({
     queryKey: ['/api/patents'],
   });
-
-  const formatDate = (date: string | Date | undefined) => {
-    if (!date) return "—";
-    return formatDateLong(date);
-  };
-
-  const statusColors = {
-    filed: "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400",
-    granted: "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400",
-    pending: "bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400",
-    rejected: "bg-red-100 text-red-600 dark:bg-red-900/30 dark:text-red-400",
-    "in preparation": "bg-purple-100 text-purple-600 dark:bg-purple-900/30 dark:text-purple-400"
-  };
 
   const filteredPatents = patents?.filter(patent => {
     return (
@@ -86,6 +75,8 @@ export default function PatentsList() {
                 </div>
               ))}
             </div>
+          ) : isError ? (
+            <QueryError what="patents" error={error} onRetry={() => refetch()} />
           ) : (
             <Table>
               <TableHeader>
@@ -148,7 +139,7 @@ export default function PatentsList() {
                       {patent.status && (
                         <Badge 
                           variant="outline"
-                          className={`capitalize ${statusColors[patent.status.toLowerCase() as keyof typeof statusColors] || "bg-gray-100 text-gray-600"}`}
+                          className={`capitalize ${statusBadgeClass("patent", patent.status)}`}
                         >
                           {patent.status}
                         </Badge>
