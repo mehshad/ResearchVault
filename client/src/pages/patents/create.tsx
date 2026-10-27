@@ -65,7 +65,13 @@ export default function CreatePatent() {
 
   const createPatentMutation = useMutation({
     mutationFn: async (data: CreatePatentFormValues) => {
-      const response = await apiRequest("POST", "/api/patents", data);
+      // Days as picked, not their UTC instants (a local midnight serialises as
+      // the previous day east of Greenwich).
+      const response = await apiRequest("POST", "/api/patents", {
+        ...data,
+        filingDate: data.filingDate ? format(data.filingDate, "yyyy-MM-dd") : undefined,
+        grantDate: data.grantDate ? format(data.grantDate, "yyyy-MM-dd") : undefined,
+      });
       return response.json();
     },
     onSuccess: () => {

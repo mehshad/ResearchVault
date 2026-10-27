@@ -21,10 +21,12 @@ export function registerIbcRoutes(app: Express): void {
       // IBC applications are not directly linked to projects, so ignore projectId filter
       const applications = await storage.getIbcApplications();
       
-      // Enhance applications with PI details (IBC applications are not directly linked to projects)
+      // Enhance applications with PI details (IBC applications are not directly
+      // linked to projects) -- one lookup for the list.
+      const piById = await storage.getScientistsByIds(applications.map((app) => app.principalInvestigatorId));
       const enhancedApplications = await Promise.all(applications.map(async (app) => {
-        const pi = await storage.getScientist(app.principalInvestigatorId);
-        
+        const pi = app.principalInvestigatorId != null ? piById.get(app.principalInvestigatorId) : undefined;
+
         return {
           ...app,
           principalInvestigator: pi ? {
@@ -307,12 +309,14 @@ export function registerIbcRoutes(app: Express): void {
         return res.status(400).json({ message: "Invalid IBC application ID" });
       }
 
+      const existing = await storage.getIbcApplication(id);
       const success = await storage.deleteIbcApplication(id);
       
       if (!success) {
         return res.status(404).json({ message: "IBC application not found" });
       }
       
+      if (existing) await req.audit.logDelete("ibc_applications", id, existing as Record<string, unknown>);
       res.status(204).send();
     } catch (error) {
       res.status(500).json({ message: "Failed to delete IBC application" });
@@ -350,10 +354,13 @@ export function registerIbcRoutes(app: Express): void {
       // Get personnel from the application's protocolTeamMembers field if it exists
       if (application.protocolTeamMembers && Array.isArray(application.protocolTeamMembers)) {
         // Enhance personnel data with scientist details
+        const personnelById = await storage.getScientistsByIds(
+          application.protocolTeamMembers.map((person: any) => person.scientistId),
+        );
         const enhancedPersonnel = await Promise.all(
           application.protocolTeamMembers.map(async (person: any) => {
             if (person.scientistId) {
-              const scientist = await storage.getScientist(person.scientistId);
+              const scientist = personnelById.get(person.scientistId);
               return {
                 ...person,
                 scientist: scientist ? {

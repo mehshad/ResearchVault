@@ -161,7 +161,7 @@ export default function PublicationEdit() {
     // Convert string date from HTML input to Date object for API
     const submitData = {
       ...editableData,
-      publicationDate: data.publicationDate ? new Date(data.publicationDate) : null,
+      publicationDate: data.publicationDate || null,
       researchActivityId: data.researchActivityId || null,
       // Mutually exclusive: linking an SDR clears the exception, and the
       // server enforces the same rule regardless of what is sent.

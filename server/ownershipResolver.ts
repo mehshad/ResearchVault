@@ -31,7 +31,7 @@ export async function resolveOwnershipAccess(
   const userRows = await db.execute(
     sql`SELECT scientist_id FROM users WHERE id = ${userId} LIMIT 1`
   );
-  const userRow = (userRows as any).rows?.[0] ?? userRows[0];
+  const userRow = (userRows as any).rows?.[0] ?? (userRows as any)[0];
   const scientistId: number | null = userRow?.scientist_id ?? null;
   if (!scientistId) return null;
 

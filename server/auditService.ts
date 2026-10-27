@@ -64,6 +64,14 @@ function redact(obj: unknown): unknown {
 export class AuditService {
   constructor(private ctx: AuditContext) {}
 
+  private entries = 0;
+
+  /** Entries this request has written, or tried to. The DELETE fallback in
+   *  auditContext checks it so a route that audited itself is not doubled. */
+  get entriesWritten(): number {
+    return this.entries;
+  }
+
   private base(): Omit<typeof auditLog.$inferInsert, "tableName" | "recordId" | "action"> {
     return {
       changedBy:  this.ctx.userId,
@@ -92,6 +100,7 @@ export class AuditService {
     entry: typeof auditLog.$inferInsert,
     describe: string,
   ): Promise<void> {
+    this.entries += 1;
     try {
       await db.insert(auditLog).values(entry);
     } catch (error) {
@@ -151,7 +160,7 @@ export class AuditService {
   /** Call after a successful DELETE (pass the row snapshot before deletion). */
   async logDelete(
     tableName: string,
-    recordId:  number,
+    recordId:  number | null,
     oldValues: Record<string, unknown>,
     reason?:   string,
   ): Promise<void> {

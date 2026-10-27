@@ -50,6 +50,7 @@ test("SECTION_META covers all structured bulk-data sections", () => {
     "research-services",
     "research-output",
     "access-control",
+    "platform",
   ]);
 });
 
@@ -61,13 +62,14 @@ test("the access-control section carries roles, the matrix and accounts", () => 
     "Role Permissions",
     "User Accounts",
     "User Roles",
+    "Ownership Overrides",
   ]);
   // Roles must precede the matrix that references them and the accounts that
   // hold them; accounts must precede the secondary-role links that point at
   // them. The sheet order is the apply order.
   assert.deepEqual(
     meta.sheets.map((s) => s.businessKey),
-    ["role name", "role name + navigation item", "username", "username + role name"],
+    ["role name", "role name + navigation item", "username", "username + role name", "module + relationship"],
   );
 });
 
@@ -108,12 +110,13 @@ test("getSectionMeta returns correct meta for research-management", () => {
     "Rooms",
     "Certification Modules",
     "Certifications",
+    "Certification Configuration",
   ]);
 });
 
 test("getSectionMeta returns correct meta for pmo-office", () => {
   const meta = getSectionMeta("pmo-office");
-  assert.equal(meta.sheets.length, 4);
+  assert.equal(meta.sheets.length, 5);
   const names = meta.sheets.map((s) => s.name);
   assert.ok(names.includes("Programs"));
   assert.ok(names.includes("Projects"));
@@ -132,7 +135,12 @@ test("getSectionMeta returns correct meta for research-services", () => {
   const meta = getSectionMeta("research-services");
   assert.equal(meta.label, "Research Office");
   assert.equal(meta.description, "Research Contracts and Grants");
-  assert.deepEqual(meta.sheets.map((s) => s.name), ["Research Contracts", "Grants"]);
+  // Reference lists first, then the records, then what hangs off them.
+  assert.deepEqual(meta.sheets.map((s) => s.name), [
+    "Institutions", "Grant Statuses", "Contract Types",
+    "Research Contracts", "Grants",
+    "Grant SDR Links", "Grant Progress Reports", "Contract Scope Items", "Contract Extensions", "Contract Documents",
+  ]);
 });
 
 test("getSectionMeta returns correct meta for research-output", () => {
@@ -143,6 +151,8 @@ test("getSectionMeta returns correct meta for research-output", () => {
     "Publications",
     "Journal Impact Factors",
     "Publication Authors",
+    "Publication SDR Links",
+    "Manuscript History",
   ]);
 });
 
@@ -386,6 +396,11 @@ test("all sheet column headers are non-empty strings", () => {
     "Role Permissions",
     "User Accounts",
     "User Roles",
+    // table sheets (bulkDataTableSheets.ts)
+    "Institutions", "Grant Statuses", "Contract Types", "Grant SDR Links", "Grant Progress Reports",
+    "Contract Scope Items", "Contract Extensions", "Contract Documents", "Data Management Plans",
+    "Publication SDR Links", "Manuscript History", "Certification Configuration", "Ownership Overrides",
+    "System Configurations", "Team Members", "Feature Requests", "Audit Log",
   ]);
 
   for (const section of SECTION_META) {
@@ -403,7 +418,11 @@ test("new templates expose structured fields and exclude workflow and file data"
   await management.xlsx.load(await buildTemplateWorkbook("research-management"));
   assert.deepEqual(management.worksheets.slice(1).map((sheet) => sheet.name), [
     "Branches", "Departments", "Sections", "Scientists", "Buildings", "Rooms", "Certification Modules", "Certifications",
+    "Certification Configuration",
   ]);
+  // The CITI credentials stay out of the configuration sheet.
+  const configurationHeaders = management.getWorksheet("Certification Configuration")!.getRow(1).values as unknown[];
+  assert.equal(configurationHeaders.some((header) => /key|secret/i.test(String(header))), false);
   const roomHeaders = management.getWorksheet("Rooms")!.getRow(1).values as unknown[];
   assert.equal(roomHeaders.includes("IBC Application"), false);
   assert.equal(roomHeaders.includes("Backbone Junction"), false);
@@ -422,6 +441,7 @@ test("research output templates expose safe publication and journal metric colum
   await workbook.xlsx.load(await buildTemplateWorkbook("research-output"));
   assert.deepEqual(workbook.worksheets.slice(1).map((sheet) => sheet.name), [
     "Patents", "Publications", "Journal Impact Factors", "Publication Authors",
+    "Publication SDR Links", "Manuscript History",
   ]);
   const publicationHeaders = (workbook.getWorksheet("Publications")!.getRow(1).values as unknown[]).slice(1);
   assert.deepEqual(publicationHeaders, [
@@ -533,8 +553,17 @@ test("SECTION_META: research-compliance has correct business keys", () => {
 
 test("SECTION_META: research-services groups contracts and grants", () => {
   const section = getSectionMeta("research-services");
-  assert.match(section.sheets[0].businessKey, /contractNumber/);
-  assert.match(section.sheets[1].businessKey, /projectNumber/);
+  const names = section.sheets.map((sheet) => sheet.name);
+  const contracts = section.sheets.find((sheet) => sheet.name === "Research Contracts")!;
+  const grants = section.sheets.find((sheet) => sheet.name === "Grants")!;
+  assert.match(contracts.businessKey, /contractNumber/);
+  assert.match(grants.businessKey, /projectNumber/);
+  // Apply order: the lists a grant or contract refers to come first, and the
+  // links that refer to a grant come after it.
+  assert.ok(names.indexOf("Contract Types") < names.indexOf("Research Contracts"));
+  assert.ok(names.indexOf("Grant Statuses") < names.indexOf("Grants"));
+  assert.ok(names.indexOf("Grants") < names.indexOf("Grant SDR Links"));
+  assert.ok(names.indexOf("Contract Extensions") < names.indexOf("Contract Documents"));
 });
 
 test("SECTION_META: research-output documents all stable keys", () => {
