@@ -51,14 +51,6 @@ export function isOwnScientistProfile(
 }
 
 /**
- * In demo mode all requests are allowed for any scientist id so the feature
- * can be exercised without real user accounts.
- */
-export function isDemo(): boolean {
-  return getAuthMode() === "demo";
-}
-
-/**
  * Returns true when the session user holds a privileged role for the
  * publication-officer group (Outcome Officer, Management, admin, superadmin).
  */
@@ -243,8 +235,8 @@ export function registerSidraScoreRoutes(app: Express): void {
           return res.status(400).json({ message: "Invalid scientist ID" });
         }
 
-        // Authorization: own profile or demo mode.
-        if (!isDemo() && !isOwnScientistProfile(req, id)) {
+        // Authorization: own profile only.
+        if (!isOwnScientistProfile(req, id)) {
           return res.status(403).json({
             message:
               "Forbidden. You may only view the Sidra score for your own linked profile.",
@@ -291,8 +283,8 @@ export function registerSidraScoreRoutes(app: Express): void {
 
         const includeOther = req.query.includeOther === "true";
 
-        // includeOther (all statuses) is restricted to own profile or demo.
-        if (includeOther && !isDemo() && !isOwnScientistProfile(req, id)) {
+        // includeOther (all statuses) is restricted to the linked owner.
+        if (includeOther && !isOwnScientistProfile(req, id)) {
           return res.status(403).json({
             message:
               "Forbidden. Only the linked owner may request grants with includeOther=true.",

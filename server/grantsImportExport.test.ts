@@ -7,12 +7,90 @@ import { buildStaffNameIndex } from "@shared/staffNameMatching";
 import {
   buildMissingGrantStaffWorkbookBuffer,
   collectMissingGrantStaff,
+  formatProgramLabel,
+  grantsToRows,
   previewGrantRows,
 } from "./grantsImportExport";
+import type { Program } from "@shared/schema";
 
 const noExistingGrants = new Map<string, Grant>();
 const noScientistsByEmail = new Map<string, Scientist>();
 const noScientistsByName = buildStaffNameIndex([]);
+
+// One programme, keyed the way the import route keys them: PRM code, name, and
+// the "code — name" label an export writes.
+const demoProgram = { id: 7, programId: "PRM-001", name: "Precision Medicine" } as Program;
+const programByKey = new Map<string, number>([
+  ["prm-001", 7],
+  ["precision medicine", 7],
+  ["prm-001 — precision medicine", 7],
+]);
+const programById = new Map<number, Program>([[7, demoProgram]]);
+
+test("grant import resolves a programme by its PRM code", () => {
+  const [preview] = previewGrantRows(
+    [{ "Project Number": "IMPORT-PRG-CODE", "Title": "Coded programme", "Sidra Programme": "PRM-001" }],
+    noExistingGrants,
+    noScientistsByEmail,
+    noScientistsByName,
+    programByKey,
+  );
+  assert.equal(preview.action, "create");
+  assert.equal(preview.data?.programId, 7);
+});
+
+test("grant import resolves a programme by the exported 'code — name' label", () => {
+  const [preview] = previewGrantRows(
+    [{ "Project Number": "IMPORT-PRG-LABEL", "Title": "Labelled programme", "Sidra Programme": "PRM-001 — Precision Medicine" }],
+    noExistingGrants,
+    noScientistsByEmail,
+    noScientistsByName,
+    programByKey,
+  );
+  assert.equal(preview.action, "create");
+  assert.equal(preview.data?.programId, 7);
+});
+
+test("grant import skips a row whose programme matches nothing", () => {
+  const [preview] = previewGrantRows(
+    [{ "Project Number": "IMPORT-PRG-BAD", "Title": "Unknown programme", "Sidra Programme": "PRM-999" }],
+    noExistingGrants,
+    noScientistsByEmail,
+    noScientistsByName,
+    programByKey,
+  );
+  assert.equal(preview.action, "skip");
+  assert.equal(preview.reasonCode, "unmatched_program");
+});
+
+test("grant import clears the programme on the literal CLEAR", () => {
+  const existing = new Map<string, Grant>([
+    ["import-prg-clear", { id: 1, projectNumber: "IMPORT-PRG-CLEAR", title: "Has a programme", programId: 7 } as Grant],
+  ]);
+  const [preview] = previewGrantRows(
+    [{ "Project Number": "IMPORT-PRG-CLEAR", "Sidra Programme": "clear" }],
+    existing,
+    noScientistsByEmail,
+    noScientistsByName,
+    programByKey,
+  );
+  assert.equal(preview.action, "update");
+  assert.equal(preview.data?.programId, null);
+});
+
+test("grant export writes the programme as its 'code — name' label", () => {
+  const [row] = grantsToRows(
+    [{ id: 1, projectNumber: "EXP-PRG", title: "Exported grant", programId: 7 } as Grant],
+    new Map(),
+    programById,
+  );
+  assert.equal(row["Sidra Programme"], "PRM-001 — Precision Medicine");
+});
+
+test("formatProgramLabel is blank when the grant names no programme", () => {
+  assert.equal(formatProgramLabel(null, programById), "");
+  assert.equal(formatProgramLabel(999, programById), "");
+});
 
 test("grant import rejects Active rows without a start date", () => {
   const [preview] = previewGrantRows(
@@ -368,6 +446,37 @@ test("our own grants are untouched by any of this", () => {
   assert.equal(preview.action, "create");
   assert.equal(preview.data?.lpiId, 35);
   assert.equal(preview.data?.grantLpiName, undefined, "no external Lead PI on a grant we submitted");
+});
+
+test("a subaward that names the external lead in Grant LPI takes the Sidra lead from Sidra LPI", () => {
+  // The office's master gives both: the external Lead Name and our Sidra PI.
+  // When Grant LPI is filled, trust Sidra LPI directly rather than hunting the
+  // Co-Investigators column for one of ours.
+  const [preview] = previewGrantRows(
+    [{
+      "Project Number": "SUB-DIRECT",
+      "Title": "A subaward with both leads named",
+      "Submitting Institution": "Qatar University",
+      "Sidra LPI": "Dr Ammira Akil",
+      "Grant LPI": "Prof. External Lead",
+      "Status": "submitted",
+    }],
+    noExistingGrants, noScientistsByEmail, subawardStaff,
+  );
+  assert.equal(preview.action, "create");
+  assert.equal(preview.data?.lpiId, 27);
+  assert.equal(preview.data?.grantLpiName, "Prof. External Lead");
+});
+
+test("the old LPI Name header is still accepted as Sidra LPI", () => {
+  const [preview] = previewGrantRows(
+    [{ "Project Number": "LEGACY-HDR", "Title": "Old header", "LPI Email": "kfakhro@sidra.org" }],
+    noExistingGrants,
+    new Map([["kfakhro@sidra.org", { id: 35 } as Scientist]]),
+    subawardStaff,
+  );
+  assert.equal(preview.action, "create");
+  assert.equal(preview.data?.lpiId, 35);
 });
 
 test("an LPI email still wins over the co-investigator fallback", () => {

@@ -9,11 +9,6 @@ import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle }
 import { useLocation } from 'wouter';
 import { useAuth } from '@/hooks/useAuth';
 
-interface AuthConfig {
-  mode: 'demo' | 'local' | 'ldap' | 'oidc';
-  providerName: string | null;
-}
-
 const loginSchema = z.object({
   username: z.string().min(1, 'Username is required'),
   password: z.string().min(1, 'Password is required'),
@@ -21,17 +16,8 @@ const loginSchema = z.object({
 
 export default function LoginPage() {
   const [, navigate] = useLocation();
-  const { login, loading, isAuthenticated } = useAuth();
-  const [authConfig, setAuthConfig] = useState<AuthConfig | null>(null);
+  const { login, loginAsDemo, loading, isAuthenticated, authConfig } = useAuth();
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
-
-  // Fetch auth configuration from the server
-  useEffect(() => {
-    fetch('/api/auth/config')
-      .then(r => r.json())
-      .then(setAuthConfig)
-      .catch(() => setAuthConfig({ mode: 'local', providerName: null }));
-  }, []);
 
   // Parse any error from the OIDC callback redirect
   useEffect(() => {
@@ -45,11 +31,6 @@ export default function LoginPage() {
     if (isAuthenticated) navigate('/');
   }, [isAuthenticated, navigate]);
 
-  // Demo mode: redirect immediately — no login needed
-  useEffect(() => {
-    if (authConfig?.mode === 'demo') navigate('/');
-  }, [authConfig, navigate]);
-
   const form = useForm<z.infer<typeof loginSchema>>({
     resolver: zodResolver(loginSchema),
     defaultValues: { username: '', password: '' },
@@ -61,17 +42,15 @@ export default function LoginPage() {
     if (success) navigate('/');
   };
 
+  const handleDemoSignIn = async (username: string) => {
+    setErrorMsg(null);
+    const success = await loginAsDemo(username);
+    if (success) navigate('/');
+  };
+
   const handleOidcLogin = () => {
     window.location.href = '/api/auth/oidc';
   };
-
-  if (!authConfig || authConfig.mode === 'demo') {
-    return (
-      <div className="flex items-center justify-center min-h-screen bg-slate-50 dark:bg-slate-900">
-        <p className="text-muted-foreground">Redirecting…</p>
-      </div>
-    );
-  }
 
   const isFormMode = authConfig.mode === 'local' || authConfig.mode === 'ldap';
   const providerName = authConfig.providerName ?? 'SSO';
@@ -152,6 +131,28 @@ export default function LoginPage() {
             <Button className="w-full" onClick={handleOidcLogin} disabled={loading}>
               Sign in with {providerName}
             </Button>
+          )}
+
+          {/* Demo instance: sign in as a seeded account with no password. */}
+          {authConfig.demoLogin && authConfig.demoAccounts.length > 0 && (
+            <div className="mt-6 border-t pt-4">
+              <p className="mb-2 text-sm font-medium text-muted-foreground">Or explore the demo as:</p>
+              <div className="grid gap-2">
+                {authConfig.demoAccounts.map((account) => (
+                  <Button
+                    key={account.username}
+                    variant="outline"
+                    className="w-full justify-between"
+                    onClick={() => handleDemoSignIn(account.username)}
+                    disabled={loading}
+                    data-testid={`button-demo-${account.username}`}
+                  >
+                    <span>{account.name}</span>
+                    <span className="text-xs text-muted-foreground">{account.role}</span>
+                  </Button>
+                ))}
+              </div>
+            </div>
           )}
         </CardContent>
 

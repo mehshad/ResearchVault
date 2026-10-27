@@ -98,7 +98,6 @@ import { resolveInvestigatorScientistIds } from "./investigatorRoleResolver";
 import {
   registerSidraScoreRoutes,
   isOwnScientistProfile,
-  isDemo,
   hasManagementRole,
   hasPublicationOfficerRole,
   canEditPublicationForLinkedScientists,
@@ -179,29 +178,14 @@ import { log, logError } from "./logger";
 const isLocalStorage = process.env.STORAGE_TYPE === "local";
 
 function getScientistPublicationViewer(req: Request): ScientistPublicationViewer {
-  const viewer: ScientistPublicationViewer = {
+  // The signed-in session is the sole authority. Demo used to accept viewer=*
+  // query hints here so the client selector could claim any role or identity;
+  // demo is real seeded accounts now, so those hints are gone.
+  return {
     userId: req.session.user?.id,
     role: req.session.user?.role,
     scientistId: req.session.user?.scientistId,
   };
-
-  // The demo role selector is client-side. Honor these hints only in demo;
-  // real auth modes always rely exclusively on the signed-in server session.
-  if (getAuthMode() === "demo") {
-    if (typeof req.query.viewerUserId === "string") {
-      const demoUserId = parseInt(req.query.viewerUserId);
-      if (!isNaN(demoUserId)) viewer.userId = demoUserId;
-    }
-    if (typeof req.query.viewerRole === "string") {
-      viewer.role = req.query.viewerRole;
-    }
-    if (typeof req.query.viewerScientistId === "string") {
-      const demoScientistId = parseInt(req.query.viewerScientistId);
-      if (!isNaN(demoScientistId)) viewer.scientistId = demoScientistId;
-    }
-  }
-
-  return viewer;
 }
 
 function getObjectStorageService(): ObjectStorageService | LocalObjectStorageService {
@@ -350,36 +334,34 @@ export async function registerRoutes(app: Express): Promise<Server> {
     if (!objectPath || typeof objectPath !== "string") {
       return res.status(400).json({ error: "objectPath is required" });
     }
-    const authMode = getAuthMode();
     const sessionUser = (req.session as any)?.user;
 
-    if (authMode !== "demo") {
-      // Real auth modes: require and verify the HMAC token.
-      if (!sessionUser) {
-        return res.status(401).json({ error: "Authentication required" });
-      }
-      if (!finalizeToken || typeof finalizeToken !== "string") {
-        return res.status(400).json({ error: "finalizeToken is required" });
-      }
-      const userId = sessionUser.id.toString();
-      if (!verifyFinalizeToken(objectPath, userId, finalizeToken)) {
-        return res.status(403).json({ error: "Invalid or expired finalize token" });
-      }
-      // Token is valid: set private ACL with this user as owner.
-      if (!isLocalStorage) {
-        const objectStorageService = new ObjectStorageService();
-        try {
-          await objectStorageService.trySetObjectEntityAclPolicy(objectPath, {
-            owner: userId,
-            visibility: "private",
-          });
-        } catch (error) {
-          logError("Failed to set ACL on upload", "routes", error);
-          return res.status(500).json({ error: "Failed to finalize upload" });
-        }
+    // Require and verify the HMAC token for everyone. This used to be skipped
+    // in demo mode, which is now real signed-in accounts like any other.
+    if (!sessionUser) {
+      return res.status(401).json({ error: "Authentication required" });
+    }
+    if (!finalizeToken || typeof finalizeToken !== "string") {
+      return res.status(400).json({ error: "finalizeToken is required" });
+    }
+    const userId = sessionUser.id.toString();
+    if (!verifyFinalizeToken(objectPath, userId, finalizeToken)) {
+      return res.status(403).json({ error: "Invalid or expired finalize token" });
+    }
+    // Token is valid: set a private ACL with this user as owner on cloud
+    // storage. Local storage has no ACL metadata; nothing to set.
+    if (!isLocalStorage) {
+      const objectStorageService = new ObjectStorageService();
+      try {
+        await objectStorageService.trySetObjectEntityAclPolicy(objectPath, {
+          owner: userId,
+          visibility: "private",
+        });
+      } catch (error) {
+        logError("Failed to set ACL on upload", "routes", error);
+        return res.status(500).json({ error: "Failed to finalize upload" });
       }
     }
-    // demo mode or local storage: no GCS ACL to set; return success.
     res.json({ ok: true });
   });
   
@@ -424,38 +406,37 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const objectFile = await objectStorageService.getObjectEntityFile(req.path);
 
-      const authMode = getAuthMode();
       const sessionUser = (req.session as any)?.user;
 
-      if (authMode !== "demo") {
-        // Real authentication modes: enforce access control.
-        if (!isLocalStorage) {
-          const aclPolicy = await getObjectAclPolicy(objectFile as any);
-          if (aclPolicy?.visibility !== "public") {
-            // Non-public (private ACL or no ACL): require a real session.
-            if (!sessionUser) {
-              return res.status(401).json({ error: "Authentication required" });
-            }
-            // Route all private/no-ACL decisions through canAccessObjectEntity so
-            // deny-by-default is enforced: no-ACL → false, private+non-owner → false.
-            const canAccess = await (objectStorageService as ObjectStorageService).canAccessObjectEntity({
-              userId: sessionUser.id.toString(),
-              objectFile: objectFile as any,
-              requestedPermission: ObjectPermission.READ,
-            });
-            if (!canAccess) {
-              return res.status(403).json({ error: "Access denied" });
-            }
-          }
-          // aclPolicy?.visibility === "public" → world-readable, fall through to download.
-        } else {
-          // Local storage: no GCS ACL metadata; session presence is the sole gate.
+      // Access control applies to everyone. Demo used to serve every object
+      // with no check at all -- the whole app was unauthenticated -- which let
+      // the demo instance hand out any file, production uploads included when a
+      // volume was shared. Demo is signed-in accounts now.
+      if (!isLocalStorage) {
+        const aclPolicy = await getObjectAclPolicy(objectFile as any);
+        if (aclPolicy?.visibility !== "public") {
+          // Non-public (private ACL or no ACL): require a real session.
           if (!sessionUser) {
             return res.status(401).json({ error: "Authentication required" });
           }
+          // Route all private/no-ACL decisions through canAccessObjectEntity so
+          // deny-by-default is enforced: no-ACL → false, private+non-owner → false.
+          const canAccess = await (objectStorageService as ObjectStorageService).canAccessObjectEntity({
+            userId: sessionUser.id.toString(),
+            objectFile: objectFile as any,
+            requestedPermission: ObjectPermission.READ,
+          });
+          if (!canAccess) {
+            return res.status(403).json({ error: "Access denied" });
+          }
+        }
+        // aclPolicy?.visibility === "public" → world-readable, fall through to download.
+      } else {
+        // Local storage: no GCS ACL metadata; session presence is the sole gate.
+        if (!sessionUser) {
+          return res.status(401).json({ error: "Authentication required" });
         }
       }
-      // demo mode: fall through to download with no restriction.
 
       await objectStorageService.downloadObject(objectFile as any, res);
     } catch (error) {
@@ -597,12 +578,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
           }
 
           // Authorization: verify the caller is allowed to read this object.
-          // In demo mode the whole app is open and /api/uploads/finalize does
-          // NOT set any GCS ACL, so there is no owner to check against — skip
-          // the ACL check (otherwise every demo upload is denied and OCR never
-          // runs). In real-auth modes finalize sets the uploader as owner, so
-          // we enforce the GCS ACL ownership check here.
-          if (!isLocalStorage && getAuthMode() !== "demo") {
+          // Finalize sets the uploader as the owner on cloud storage, so the
+          // ownership check applies. Local storage has no ACL to check.
+          if (!isLocalStorage) {
             try {
               const canAccess = await (objectStorageService as ObjectStorageService).canAccessObjectEntity({
                 userId: callerId,
@@ -2595,8 +2573,8 @@ function writeFailureDetail(error: unknown): string {
         return res.status(400).json({ message: "Invalid scientist ID" });
       }
 
-      // Own-profile or privileged (Management/admin/superadmin). Demo mode passes.
-      if (!isDemo() && !isOwnScientistProfile(req, id) && !hasManagementRole(req)) {
+      // Own profile, or privileged (Management/admin/superadmin).
+      if (!isOwnScientistProfile(req, id) && !hasManagementRole(req)) {
         return res.status(403).json({
           message: "Forbidden. You may only edit your own scientist profile, or you need Management/admin access.",
         });
@@ -9049,8 +9027,8 @@ function writeFailureDetail(error: unknown): string {
         return res.status(400).json({ message: "Invalid scientist ID" });
       }
 
-      // Own profile OR publication officer group. Demo mode passes.
-      if (!isDemo() && !isOwnScientistProfile(req, id) && !hasPublicationOfficerRole(req)) {
+      // Own profile, or a publication officer.
+      if (!isOwnScientistProfile(req, id) && !hasPublicationOfficerRole(req)) {
         return res.status(403).json({
           message: "Forbidden. You may only import papers for your own linked profile, or you need Publication Officer access.",
         });
@@ -9453,9 +9431,10 @@ function writeFailureDetail(error: unknown): string {
   app.get('/api/grants/export/csv', requireAuth, async (req: Request, res: Response) => {
     try {
       const format = req.query.format === 'xlsx' ? 'xlsx' : 'csv';
-      const [grants, scientists] = await Promise.all([storage.getGrants(), storage.getScientists()]);
+      const [grants, scientists, programs] = await Promise.all([storage.getGrants(), storage.getScientists(), storage.getPrograms()]);
       const scientistById = new Map(scientists.map((s: any) => [s.id, s]));
-      const rows = grantsToRows(grants, scientistById);
+      const programById = new Map(programs.map((p: any) => [p.id, p]));
+      const rows = grantsToRows(grants, scientistById, programById);
       const stamp = new Date().toISOString().slice(0, 10);
 
       if (format === 'xlsx') {
@@ -9497,14 +9476,23 @@ function writeFailureDetail(error: unknown): string {
     if (fileBase64.length > 15_000_000) throw new Error("File too large (max ~10 MB)");
     const rawRows = await parseUploadedFile(fileBase64, fileName);
     if (rawRows.length > 2000) throw new Error("Too many rows in one import (max 2000)");
-    const [grants, scientists] = await Promise.all([storage.getGrants(), storage.getScientists()]);
+    const [grants, scientists, programs] = await Promise.all([storage.getGrants(), storage.getScientists(), storage.getPrograms()]);
     const existingByProjectNumber = new Map(grants.map((g: any) => [String(g.projectNumber).toLowerCase(), g]));
     const scientistByEmail = new Map(scientists.filter((s: any) => s.email).map((s: any) => [s.email.toLowerCase(), s]));
     // Indexed rather than keyed on an exact "first last" string: the office's
     // files write the title into the name field and sometimes a middle name,
     // so "Dr. Khalid Fakhro" never matched the record "Khalid Fakhro".
     const scientistByName = buildStaffNameIndex(scientists as any);
-    return previewGrantRows(rawRows, existingByProjectNumber, scientistByEmail, scientistByName);
+    // A grant's programme, keyed for import by its PRM code, its name, and the
+    // "PRM-001 — Name" label an export writes, so any of the three resolves.
+    const programByKey = new Map<string, number>();
+    for (const program of programs as any[]) {
+      const add = (raw: string) => { const key = String(raw).trim().toLowerCase(); if (key) programByKey.set(key, program.id); };
+      if (program.programId) add(program.programId);
+      if (program.name) add(program.name);
+      if (program.programId && program.name) add(`${program.programId} — ${program.name}`);
+    }
+    return previewGrantRows(rawRows, existingByProjectNumber, scientistByEmail, scientistByName, programByKey);
   }
 
   app.post('/api/grants/import/preview', requireAuth, async (req: Request, res: Response) => {

@@ -1,5 +1,4 @@
 import type { NextFunction, Request, Response } from "express";
-import { getAuthMode } from "./auth";
 import { RESTRICTED_USER_ROLE } from "@shared/constants";
 import { isRestrictedOnly } from "@shared/effectiveRoles";
 
@@ -111,7 +110,6 @@ export function rejectRestrictedUserProfileAccessChanges(
   next: NextFunction
 ) {
   if (
-    getAuthMode() !== "demo" &&
     isRestrictedOnly(req.session?.user) &&
     requestsRestrictedProfileAccessChange(req.body)
   ) {
@@ -130,7 +128,7 @@ export function restrictDefaultUserApiAccess(
 ) {
   // "user" means "not yet assigned". Granting any secondary role is an
   // assignment, so the onboarding lockout lifts and that role's access applies.
-  if (getAuthMode() === "demo" || !isRestrictedOnly(req.session?.user)) {
+  if (!isRestrictedOnly(req.session?.user)) {
     return next();
   }
 

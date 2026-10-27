@@ -10,7 +10,7 @@ import { GRANT_CURRENCY_VALUES } from "@shared/schema";
 import { matchStaffByName, type StaffNameIndex } from "@shared/staffNameMatching";
 import { isHomeInstitution, resolveGrantLpiName } from "@shared/grantSubmission";
 import type { GrantSkipCode } from "@shared/grantImportReasons";
-import type { Grant, InsertGrant, Scientist } from "@shared/schema";
+import type { Grant, InsertGrant, Scientist, Program } from "@shared/schema";
 import { scientistDisplayName } from "@shared/scientistName";
 import {
   GrantLifecycleError,
@@ -21,8 +21,8 @@ export const GRANT_COLUMNS: Array<{ header: string; key: string }> = [
   { header: "Project Number", key: "projectNumber" },
   { header: "Cycle", key: "cycle" },
   { header: "Title", key: "title" },
-  { header: "LPI Email", key: "lpiEmail" },
-  { header: "LPI Name", key: "lpiName" },
+  { header: "Sidra LPI Email", key: "lpiEmail" },
+  { header: "Sidra LPI", key: "lpiName" },
   { header: "Investigator Type", key: "investigatorType" },
   { header: "Grant Type", key: "grantType" },
   { header: "Grant Source", key: "sourceCategory" },
@@ -49,22 +49,47 @@ export const GRANT_COLUMNS: Array<{ header: string; key: string }> = [
   { header: "Reporting Interval (Months)", key: "reportingIntervalMonths" },
   { header: "Collaborators", key: "collaborators" },
   { header: "Description", key: "description" },
+  { header: "Sidra Programme", key: "program" },
 ];
 
 const HEADER_TO_KEY: Record<string, string> = GRANT_COLUMNS.reduce((acc, col) => {
   acc[col.header.toLowerCase().trim()] = col.key;
   return acc;
 }, {} as Record<string, string>);
+// The app UI calls this the Sidra Programme; accept the British "Programme"
+// spelling too. Deliberately NOT "Program": the grants office uses that header
+// for the funding mechanism (NPRP, IRF, ...), which maps to Grant Source, so a
+// bare "Program" column must never be read as the research programme.
+HEADER_TO_KEY["programme"] = "program";
+// The Sidra Lead PI columns were once "LPI Name"/"LPI Email"; still accept them.
+HEADER_TO_KEY["lpi name"] = "lpiName";
+HEADER_TO_KEY["lpi email"] = "lpiEmail";
+
+/**
+ * "PRM-001 — Name" for the export and template, or "" when the grant names
+ * no programme. The same label an import resolves back to a programme.
+ */
+export function formatProgramLabel(
+  programId: number | null | undefined,
+  programById: Map<number, Program>,
+): string {
+  if (programId == null) return "";
+  const program = programById.get(programId);
+  if (!program) return "";
+  return program.programId ? `${program.programId} — ${program.name}` : program.name;
+}
 
 export function grantsToRows(
   grants: Grant[],
   scientistById: Map<number, Scientist>,
+  programById: Map<number, Program> = new Map(),
 ): Record<string, any>[] {
   return grants.map((g) => {
     const lpi = g.lpiId ? scientistById.get(g.lpiId) : undefined;
     const values: Record<string, any> = {
       projectNumber: g.projectNumber,
       cycle: g.cycle ?? "",
+      program: formatProgramLabel(g.programId, programById),
       title: g.title,
       lpiEmail: lpi?.email ?? "",
       lpiName: lpi ? scientistDisplayName(lpi) : "",
@@ -149,9 +174,10 @@ export function buildGrantsTemplateRows(): Record<string, any>[] {
     {
       "Project Number": "PRJ-2026-001",
       "Cycle": "2026-1",
+      "Sidra Programme": "PRM-001 — Example Programme",
       "Title": "Example grant title (delete this row before importing)",
-      "LPI Email": "lead.pi@sidra.org",
-      "LPI Name": "",
+      "Sidra LPI Email": "lead.pi@sidra.org",
+      "Sidra LPI": "",
       "Investigator Type": "Researcher",
       "Grant Type": "Local",
       "Grant Source": "QNRF Grant",
@@ -360,6 +386,7 @@ export function previewGrantRows(
   existingByProjectNumber: Map<string, Grant>,
   scientistByEmail: Map<string, Scientist>,
   scientistByName: StaffNameIndex,
+  programByKey: Map<string, number> = new Map(),
 ): GrantRowPreview[] {
   const previews: GrantRowPreview[] = [];
   const seenProjectNumbers = new Set<string>();
@@ -422,18 +449,21 @@ export function previewGrantRows(
     // Held until `data` exists, further down.
     let pendingGrantLpiName: string | null | undefined = undefined;
 
-    // A grant somebody else submitted. Its Lead PI works at the prime
+    // A grant somebody else submitted: its Lead PI works at the prime
     // institution and will never be in our directory, so that name goes to the
-    // external field and the Sidra Lead PI is taken from the Co-Investigators
-    // column instead -- on a subaward, our person is listed there.
+    // external "Grant LPI" field while Sidra LPI holds our person.
     //
-    // Only when exactly one co-investigator resolves to staff. Two would be a
-    // guess about which of them leads our part, and none means the file never
-    // says who here owns it; both are left for a person, because the Sidra
-    // Lead PI is the one field on a grant that must not be empty.
+    // When the file names the external lead outright (Grant LPI is filled),
+    // trust it: Sidra LPI is resolved normally below and Grant LPI is the
+    // external. Only when the file gives a single name and no external lead do
+    // we fall back to reading the Sidra person out of the Co-Investigators
+    // column -- exactly one that resolves to staff, because two would be a guess
+    // about which of them leads our part and none leaves nobody to record, and
+    // the Sidra Lead PI is the one field on a grant that must not be empty.
     const submitting = row.submittingInstitution ?? "";
     const isSubaward = submitting !== "" && !isClear(submitting) && !isHomeInstitution(submitting);
-    if (isSubaward && lpiName && !lpiEmail) {
+    const hasExplicitGrantLpi = writes("grantLpiName") && textVal("grantLpiName") !== null;
+    if (isSubaward && lpiName && !lpiEmail && !hasExplicitGrantLpi) {
       const sidraCandidates: number[] = [];
       for (const candidate of splitList(row.coInvestigators ?? "")) {
         const m = matchStaffByName(scientistByName, candidate);
@@ -480,8 +510,8 @@ export function previewGrantRows(
         lpiId = match.scientist.id;
       } else {
         const reason = match.status === "ambiguous"
-          ? `"${lpiName}" matches ${match.candidates.length} staff members. Use LPI Email to say which.`
-          : `No staff member found named "${lpiName}" (use LPI Email for reliable matching)`;
+          ? `"${lpiName}" matches ${match.candidates.length} staff members. Use Sidra LPI Email to say which.`
+          : `No staff member found named "${lpiName}" (use Sidra LPI Email for reliable matching)`;
         errorCodes.push(match.status === "ambiguous" ? "ambiguous_staff" : "unmatched_staff");
         errors.push(reason);
         unmatchedStaff = { lpiName, lpiEmail, reason };
@@ -564,6 +594,26 @@ export function previewGrantRows(
     appendUniqueList("coInvestigators", existing?.coInvestigators);
     appendUniqueList("collaborators", existing?.collaborators);
     if (writes("description")) data.description = textVal("description");
+    // Programme resolves by its human code (PRM-nnn) or its name. An exported
+    // file writes "PRM-001 — Name"; match the whole cell, then fall back to
+    // the code before the em dash, so a hand-typed code or name also works.
+    if (writes("program")) {
+      const rawProgram = row.program ?? "";
+      if (rawProgram === "" || isClear(rawProgram)) {
+        data.programId = null;
+      } else {
+        let resolved = programByKey.get(rawProgram.trim().toLowerCase());
+        if (resolved == null && rawProgram.includes("—")) {
+          resolved = programByKey.get(rawProgram.split("—")[0].trim().toLowerCase());
+        }
+        if (resolved == null) {
+          errorCodes.push("unmatched_program");
+          errors.push(`No programme found matching "${rawProgram}" (use its PRM code or exact name)`);
+        } else {
+          data.programId = resolved;
+        }
+      }
+    }
     if (lpiId !== undefined) data.lpiId = lpiId;
     if (pendingGrantLpiName !== undefined) data.grantLpiName = pendingGrantLpiName;
 

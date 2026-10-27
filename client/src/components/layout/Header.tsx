@@ -13,7 +13,7 @@ interface HeaderProps {
 export default function Header({ onMenuClick }: HeaderProps) {
   const { resolvedTheme, setTheme } = useTheme();
   const isDark = resolvedTheme === "dark";
-  const { authConfig, user, refreshUser } = useAuth();
+  const { user, refreshUser } = useAuth();
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const [previewPending, setPreviewPending] = useState(false);
@@ -21,7 +21,7 @@ export default function Header({ onMenuClick }: HeaderProps) {
   // Offered on what the database says you hold, not on the resolved answer:
   // while previewing you are not an administrator anywhere, and the control to
   // turn it back on would disappear with the rights.
-  const canPreview = authConfig.mode !== "demo" && holdsAdministratorRole(user);
+  const canPreview = holdsAdministratorRole(user);
   const previewOff = user?.adminPreviewOff === true;
 
   const toggleAdminPreview = async () => {

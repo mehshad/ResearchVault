@@ -12,8 +12,6 @@ interface PublicationsPanelProps {
   hasOrcid: boolean;
   hasScholar: boolean;
   canImport?: boolean;
-  demoViewerRole?: string;
-  demoViewerScientistId?: number;
   showAuthorFixes?: boolean;
   /**
    * The "find works we do not have yet" tool. Gated separately from having an
@@ -31,8 +29,6 @@ export function PublicationsPanel({
   hasOrcid,
   hasScholar,
   canImport = true,
-  demoViewerRole,
-  demoViewerScientistId,
   showAuthorFixes = true,
   showMissingPapers = true,
   showInvalidIssues = false,
@@ -57,8 +53,6 @@ export function PublicationsPanel({
             <InvalidPublicationIssues
               scientistId={scientistId}
               canAct={canActOnInvalid}
-              demoViewerRole={demoViewerRole}
-              demoViewerScientistId={demoViewerScientistId}
             />
             <Separator />
           </>
@@ -67,8 +61,6 @@ export function PublicationsPanel({
           scientistId={scientistId}
           yearsSince={yearsSince}
           embedded
-          demoViewerRole={demoViewerRole}
-          demoViewerScientistId={demoViewerScientistId}
         />
         {showAuthorFixes && (
           <>
@@ -76,8 +68,6 @@ export function PublicationsPanel({
             <PublicationsToFix
               scientistId={scientistId}
               embedded
-              demoViewerRole={demoViewerRole}
-              demoViewerScientistId={demoViewerScientistId}
             />
           </>
         )}

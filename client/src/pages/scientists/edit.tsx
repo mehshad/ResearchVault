@@ -40,7 +40,6 @@ import { ArrowLeft, Loader2, Trash2 } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
 import React, { useEffect, useState } from "react";
 import { useAuth } from "@/hooks/useAuth";
-import { useCurrentUser } from "@/hooks/useCurrentUser";
 import { hasAnyRole, isRestrictedOnly } from "@shared/effectiveRoles";
 import { sanitizeScientistUpdatePayload } from "@/lib/restrictedUserProfilePolicy";
 import { JOB_TITLES, canonicalJobTitle, isCanonicalJobTitle } from "@shared/constants";
@@ -63,15 +62,13 @@ export default function EditScientist() {
   const [, navigate] = useLocation();
   const { toast } = useToast();
   const queryClient = useQueryClient();
-  const { user, authConfig } = useAuth();
-  const { currentUser } = useCurrentUser();
+  const { user } = useAuth();
   const targetId = parseInt(id || "0");
-  const isOwner = (authConfig.mode === "demo" ? currentUser.id : user?.scientistId) === targetId;
+  const isOwner = user?.scientistId === targetId;
   // The person, not one role string: administrator rights are normally a
   // secondary role, and a list test against the primary alone misses them.
-  const effectiveUser = authConfig.mode === "demo" ? currentUser : user;
-  const isRestrictedUser = authConfig.mode !== "demo" && isRestrictedOnly(effectiveUser);
-  const canManage = hasAnyRole(effectiveUser, ["Management", "admin", "superadmin"]);
+  const isRestrictedUser = isRestrictedOnly(user);
+  const canManage = hasAnyRole(user, ["Management", "admin", "superadmin"]);
   const canEdit = isOwner || canManage;
 
   // Fetch the scientist data
