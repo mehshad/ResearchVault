@@ -17,13 +17,14 @@ export async function setupVite(app: Express, server: Server) {
   const vite = await createViteServer({
     ...viteConfig,
     configFile: false,
-    customLogger: {
-      ...viteLogger,
-      error: (msg, options) => {
-        viteLogger.error(msg, options);
-        process.exit(1);
-      },
-    },
+    // Log Vite's errors and carry on. This used to call process.exit(1) on
+    // every one of them, and Vite reports a client file that fails to parse
+    // -- an unbalanced tag, a duplicate identifier, the ordinary state of a
+    // file mid-edit -- through this same hook. So one typo in one page took
+    // the whole API down with it, and nothing brought it back. Vite shows
+    // the error in the browser overlay and recovers on the next save; the
+    // server has no reason to die over it.
+    customLogger: viteLogger,
     server: {
       middlewareMode: true,
       hmr: { server },

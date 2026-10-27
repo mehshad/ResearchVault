@@ -8,7 +8,8 @@ import ExcelJS from "exceljs";
 
 process.env.DATABASE_URL ||= "postgresql://ci:ci@localhost:5432/ci_test";
 
-import { scientistDisplayName, buildLinkImportTemplate } from "./publicationLinksImport";
+import { buildLinkImportTemplate } from "./publicationLinksImport";
+import { scientistDisplayName } from "@shared/scientistName";
 import type { Scientist } from "@shared/schema";
 
 // ---------------------------------------------------------------------------

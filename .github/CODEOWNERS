@@ -1,0 +1,4 @@
+# Every pull request needs the repository owner's review before it merges.
+# This makes GitHub request that review automatically instead of relying on
+# the author to ask in person.
+* @mehshad

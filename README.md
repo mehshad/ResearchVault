@@ -301,7 +301,7 @@ docker compose build app
 docker compose up -d
 ```
 
-Database schema changes are applied automatically at startup via `drizzle-kit push`.
+Database schema changes are applied at container start by `docker-entrypoint.sh`, which runs the SQL files it lists under `migrations/` with `psql`. `drizzle-kit push` is never run in the image; it is a development convenience only (see below). A new table or column therefore needs a migration file **and** a line in the entrypoint's list, or it will exist in development and not in production.
 
 ---
 
@@ -312,7 +312,7 @@ To run the app locally without Docker:
 ### Requirements
 
 - Node.js 20+
-- PostgreSQL 14+ running locally or a [Neon](https://neon.tech) database
+- PostgreSQL 14+ running locally (the Docker Compose file provides one on port 5432)
 
 ```bash
 # Install dependencies
@@ -335,7 +335,9 @@ The dev server runs on `http://localhost:5000`.
 | `npm run dev` | Start dev server with hot-reload |
 | `npm run build` | Build for production |
 | `npm start` | Run the production build |
-| `npm run db:push` | Apply schema changes to the database |
+| `npm run db:push` | Push `shared/schema.ts` to your **development** database; production uses the migration files instead |
+| `npm test` | Unit tests (server, shared, client) with no database, then the component tests |
+| `npm run test:integration` | The database-backed tests, against `DATABASE_URL`, with `RUN_INTEGRATION_TESTS=1` set for you |
 | `npm run check` | TypeScript type-check |
 
 ---

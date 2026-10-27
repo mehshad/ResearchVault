@@ -1,7 +1,7 @@
 # Changelog Archive
 
-Older changelog entries moved out of `replit.md` to keep the project README concise.
-Newest archived entries first. The active changelog lives in `replit.md`.
+Older changelog entries moved out of `docs/architecture.md` to keep the project README concise.
+Newest archived entries first. The active changelog lives in `docs/architecture.md`.
 
 - May 31, 2026. Made the IBC application edit page's right sidebar (Communication History, Submission Comment, Save/Submit) collapsible on desktop to give the main form more editing width
 - January 20, 2026. Redesigned IBC application edit page with two-column layout: main form on left, sticky right sidebar with Communication History, Submission Comment, and Save/Submit buttons for better usability

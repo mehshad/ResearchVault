@@ -16,6 +16,7 @@ import ExcelJS from "exceljs";
 import { parseUploadedFile } from "./scientistsImportExport";
 import { normalizeDoi } from "@shared/publicationDeduplication";
 import type { Publication, ResearchActivity, Scientist } from "@shared/schema";
+import { scientistDisplayName } from "@shared/scientistName";
 
 export const TEMPLATE_HEADERS = [
   "Publication ID",
@@ -89,10 +90,6 @@ function pickColumn(rowObj: Record<string, any>, candidates: string[]): string {
     if (key !== undefined) return String(rowObj[key] ?? "").trim();
   }
   return "";
-}
-
-export function scientistDisplayName(s: Scientist): string {
-  return [s.honorificTitle, s.firstName, s.lastName].filter(Boolean).join(" ").trim();
 }
 
 function matchScientistByName(name: string, scientists: Scientist[]): Scientist[] {

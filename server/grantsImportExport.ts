@@ -11,6 +11,7 @@ import { matchStaffByName, type StaffNameIndex } from "@shared/staffNameMatching
 import { isHomeInstitution, resolveGrantLpiName } from "@shared/grantSubmission";
 import type { GrantSkipCode } from "@shared/grantImportReasons";
 import type { Grant, InsertGrant, Scientist } from "@shared/schema";
+import { scientistDisplayName } from "@shared/scientistName";
 import {
   GrantLifecycleError,
   reconcileGrantLifecycle,
@@ -54,10 +55,6 @@ const HEADER_TO_KEY: Record<string, string> = GRANT_COLUMNS.reduce((acc, col) =>
   acc[col.header.toLowerCase().trim()] = col.key;
   return acc;
 }, {} as Record<string, string>);
-
-export function scientistDisplayName(s: Scientist): string {
-  return [s.honorificTitle, s.firstName, s.lastName].filter(Boolean).join(" ");
-}
 
 export function grantsToRows(
   grants: Grant[],
