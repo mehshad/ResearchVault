@@ -10,6 +10,7 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { SdrExemptionDialog, NO_SDR_OPTION } from "@/components/SdrExemptionDialog";
+import { AdditionalSdrPicker, SdrCombobox } from "@/components/PublicationSdrFields";
 import { Checkbox } from "@/components/ui/checkbox";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { useForm } from "react-hook-form";
@@ -42,7 +43,9 @@ export default function PublicationEdit() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
 
-  const { data: publication, isLoading } = useQuery<Publication>({
+  const { data: publication, isLoading } = useQuery<
+    Publication & { additionalResearchActivities?: { id: number }[] }
+  >({
     queryKey: ['/api/publications', id],
     queryFn: () => fetch(`/api/publications/${id}`).then(res => res.json()),
     enabled: !!id,
@@ -55,6 +58,8 @@ export default function PublicationEdit() {
   const editPublicationSchema = insertPublicationSchema
     .extend({
       researchActivityId: z.number().min(1).optional().nullable(),
+      // Other SDRs the paper also belongs to. Optional, no rule of their own.
+      additionalResearchActivityIds: z.array(z.number()).optional(),
       sdrExemptionReason: z.string().trim().optional().nullable(),
     })
     .refine(
@@ -67,10 +72,11 @@ export default function PublicationEdit() {
       },
     );
 
-  const form = useForm<InsertPublication>({
+  const form = useForm<InsertPublication & { additionalResearchActivityIds?: number[] }>({
     resolver: zodResolver(editPublicationSchema),
     defaultValues: {
       researchActivityId: publication?.researchActivityId || undefined,
+      additionalResearchActivityIds: publication?.additionalResearchActivities?.map((activity) => activity.id) ?? [],
       sdrExemptionReason: publication?.sdrExemptionReason || undefined,
       title: publication?.title || "",
       authors: publication?.authors || "",
@@ -99,6 +105,7 @@ export default function PublicationEdit() {
     if (publication) {
       form.reset({
         researchActivityId: publication.researchActivityId || undefined,
+        additionalResearchActivityIds: publication.additionalResearchActivities?.map((activity) => activity.id) ?? [],
         sdrExemptionReason: publication.sdrExemptionReason || undefined,
         title: publication.title,
         authors: publication.authors || "",
@@ -246,36 +253,22 @@ export default function PublicationEdit() {
                 render={({ field }) => (
                   <FormItem>
                     <FormLabel>Research Activity (SDR) *</FormLabel>
-                    <Select
-                      onValueChange={(value) => {
-                        if (value === NO_SDR_OPTION) {
-                          setExemptionDialogOpen(true);
-                          return;
-                        }
-                        field.onChange(Number(value));
-                        form.setValue("sdrExemptionReason", null);
-                      }}
-                      value={
-                        field.value?.toString()
-                        || (exemptionReason ? NO_SDR_OPTION : "")
-                      }
-                    >
-                      <FormControl>
-                        <SelectTrigger data-testid="select-research-activity">
-                          <SelectValue placeholder="Select a research activity" />
-                        </SelectTrigger>
-                      </FormControl>
-                      <SelectContent>
-                        {researchActivities?.map((activity) => (
-                          <SelectItem key={activity.id} value={activity.id.toString()}>
-                            {activity.sdrNumber} - {activity.title}
-                          </SelectItem>
-                        ))}
-                        <SelectItem value={NO_SDR_OPTION} data-testid="option-no-sdr">
-                          No SDR applies — request an exception
-                        </SelectItem>
-                      </SelectContent>
-                    </Select>
+                    <FormControl>
+                      <SdrCombobox
+                        activities={researchActivities ?? []}
+                        value={field.value ?? null}
+                        exceptionSelected={!!exemptionReason}
+                        onChange={(value) => {
+                          if (value === NO_SDR_OPTION) {
+                            setExemptionDialogOpen(true);
+                            return;
+                          }
+                          field.onChange(value);
+                          form.setValue("sdrExemptionReason", null);
+                        }}
+                        data-testid="select-research-activity"
+                      />
+                    </FormControl>
                     {exemptionReason && (
                       <div className="mt-2 rounded-md border border-amber-300 bg-amber-50 p-3 text-sm dark:border-amber-900 dark:bg-amber-950/40">
                         <div className="flex items-start justify-between gap-3">
@@ -299,6 +292,29 @@ export default function PublicationEdit() {
                         </div>
                       </div>
                     )}
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
+              <FormField
+                control={form.control}
+                name="additionalResearchActivityIds"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Additional SDRs <span className="text-gray-500 dark:text-gray-400">(Optional)</span></FormLabel>
+                    <FormControl>
+                      <AdditionalSdrPicker
+                        activities={researchActivities ?? []}
+                        primaryId={form.watch("researchActivityId")}
+                        selectedIds={field.value ?? []}
+                        onChange={field.onChange}
+                        data-testid="picker-additional-sdrs"
+                      />
+                    </FormControl>
+                    <FormDescription>
+                      Other research activities this paper also belongs to. It is listed on each of them; the SDR above stays the one on the record.
+                    </FormDescription>
                     <FormMessage />
                   </FormItem>
                 )}

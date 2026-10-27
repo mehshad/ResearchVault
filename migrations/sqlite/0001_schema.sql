@@ -108,6 +108,19 @@ CREATE TABLE IF NOT EXISTS "certifications" (
   "updated_at" TEXT
 );
 
+-- contractTypes
+CREATE TABLE IF NOT EXISTS "contract_types" (
+  "id" INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+  "name" TEXT NOT NULL,
+  "name_key" TEXT NOT NULL,
+  "sort_order" INTEGER NOT NULL DEFAULT 0,
+  "is_built_in" INTEGER NOT NULL DEFAULT 0,
+  "created_by_user_id" INTEGER,
+  "created_at" TEXT,
+  "updated_at" TEXT,
+  CONSTRAINT "contract_types_name_key_unique" UNIQUE ("name_key")
+);
+
 -- dataManagementPlans
 CREATE TABLE IF NOT EXISTS "data_management_plans" (
   "id" INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
@@ -213,10 +226,26 @@ CREATE TABLE IF NOT EXISTS "grant_research_activities" (
   "updated_at" TEXT
 );
 
+-- grantStatuses
+CREATE TABLE IF NOT EXISTS "grant_statuses" (
+  "id" INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+  "value" TEXT NOT NULL,
+  "label" TEXT NOT NULL,
+  "stage" TEXT NOT NULL,
+  "sort_order" INTEGER NOT NULL DEFAULT 0,
+  "is_built_in" INTEGER NOT NULL DEFAULT 0,
+  "retired_at" TEXT,
+  "created_by_user_id" INTEGER,
+  "created_at" TEXT,
+  "updated_at" TEXT,
+  CONSTRAINT "grant_statuses_value_unique" UNIQUE ("value")
+);
+
 -- grants
 CREATE TABLE IF NOT EXISTS "grants" (
   "id" INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
   "cycle" TEXT,
+  "program_id" INTEGER,
   "project_number" TEXT NOT NULL,
   "lpi_id" INTEGER,
   "investigator_type" TEXT,
@@ -477,6 +506,18 @@ CREATE TABLE IF NOT EXISTS "ibc_submissions" (
   "updated_at" TEXT
 );
 
+-- institutions
+CREATE TABLE IF NOT EXISTS "institutions" (
+  "id" INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+  "name" TEXT NOT NULL,
+  "name_key" TEXT NOT NULL,
+  "country" TEXT,
+  "created_by_user_id" INTEGER,
+  "created_at" TEXT,
+  "updated_at" TEXT,
+  CONSTRAINT "institutions_name_key_unique" UNIQUE ("name_key")
+);
+
 -- irbApplications
 CREATE TABLE IF NOT EXISTS "irb_applications" (
   "id" INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
@@ -725,6 +766,14 @@ CREATE TABLE IF NOT EXISTS "publication_authors" (
   "author_position" INTEGER,
   "linked_by_user_id" INTEGER,
   "link_method" TEXT NOT NULL DEFAULT 'manual'
+);
+
+-- publicationResearchActivities
+CREATE TABLE IF NOT EXISTS "publication_research_activities" (
+  "id" INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+  "publication_id" INTEGER NOT NULL,
+  "research_activity_id" INTEGER NOT NULL,
+  "created_at" TEXT
 );
 
 -- publications

@@ -10,6 +10,7 @@ import {
 } from "./databaseStorage";
 import { resolveAuthorCheckSubject } from "./authorCheckSubject";
 import { normaliseQuartile } from "@shared/journalQuartile";
+import { normaliseAdditionalSdrIds } from "@shared/publicationSdrLinks";
 import { registerImpactFactorSummaryRoutes } from "./impactFactorSummaryRoutes";
 import {
   canViewPublication,
@@ -25,7 +26,7 @@ import {
 } from "./objectStorage";
 import { LocalObjectStorageService } from "./localObjectStorage";
 import { db } from "./db";
-import { scientists, publicationAuthors, journals, journalImpactFactorMetrics, manuscriptHistory, users, branches, departments, sections, roleGroups, userRoleAssignments, auditLog } from "@shared/schema";
+import { scientists, publicationAuthors, journals, journalImpactFactorMetrics, manuscriptHistory, users, branches, departments, sections, roleGroups, userRoleAssignments, auditLog, type ResearchActivity } from "@shared/schema";
 import { and, eq, inArray, isNull, desc, sql, gte, lte, count, type SQL } from "drizzle-orm";
 import {
   buildExportBuffer,
@@ -4507,6 +4508,7 @@ function writeFailureDetail(error: unknown): string {
   app.get('/api/publications', async (req: Request, res: Response) => {
     try {
       const researchActivityId = req.query.researchActivityId ? parseInt(req.query.researchActivityId as string) : undefined;
+      const programId = req.query.programId ? parseInt(req.query.programId as string) : undefined;
       const page = req.query.page ? parseInt(req.query.page as string) : undefined;
       const limit = req.query.limit ? parseInt(req.query.limit as string) : undefined;
       
@@ -4519,6 +4521,10 @@ function writeFailureDetail(error: unknown): string {
       let publications;
       if (researchActivityId && !isNaN(researchActivityId)) {
         publications = await storage.getPublicationsForResearchActivity(researchActivityId);
+      } else if (programId && !isNaN(programId)) {
+        // The SDRs of the program's projects, resolved on the server so the
+        // program page does not have to pull every publication to find its own.
+        publications = await storage.getPublicationsForProgram(programId);
       } else {
         publications = await storage.getPublications();
       }
@@ -4550,9 +4556,24 @@ function writeFailureDetail(error: unknown): string {
         );
       }
       
-      // Enhance publications with research activity details
+      // Enhance publications with research activity details: the primary SDR
+      // and any additional ones. Both read from one load of the activities
+      // rather than a query per row.
+      const activityById = new Map(
+        (await storage.getResearchActivities()).map((activity) => [activity.id, activity]),
+      );
+      const additionalActivityIdsByPublication = new Map<number, number[]>();
+      for (const link of await storage.getAllPublicationResearchActivityLinks()) {
+        const ids = additionalActivityIdsByPublication.get(link.publicationId) ?? [];
+        ids.push(link.researchActivityId);
+        additionalActivityIdsByPublication.set(link.publicationId, ids);
+      }
       const enhancedPublications = await Promise.all(publications.map(async (pub) => {
-        const researchActivity = pub.researchActivityId ? await storage.getResearchActivity(pub.researchActivityId) : null;
+        const researchActivity = pub.researchActivityId ? activityById.get(pub.researchActivityId) ?? null : null;
+        const additionalResearchActivities = (additionalActivityIdsByPublication.get(pub.id) ?? [])
+          .map((activityId) => activityById.get(activityId))
+          .filter((activity): activity is NonNullable<typeof activity> => activity != null)
+          .map(summariseResearchActivity);
         const canSeeInvalidReason =
           hasPublicationOfficerRole(req) ||
           (req.session.user?.scientistId != null &&
@@ -4564,11 +4585,8 @@ function writeFailureDetail(error: unknown): string {
         return {
           ...safePublication,
           ...(canSeeInvalidReason ? { invalidReason: pub.invalidReason } : {}),
-          researchActivity: researchActivity ? {
-            id: researchActivity.id,
-            sdrNumber: researchActivity.sdrNumber,
-            title: researchActivity.title
-          } : null
+          researchActivity: researchActivity ? summariseResearchActivity(researchActivity) : null,
+          additionalResearchActivities,
         };
       }));
       
@@ -5088,11 +5106,9 @@ function writeFailureDetail(error: unknown): string {
             ...(canSeeInvalidReason ? { invalidReason: publication.invalidReason } : {}),
           };
         })(),
-        researchActivity: researchActivity ? {
-          id: researchActivity.id,
-          sdrNumber: researchActivity.sdrNumber,
-          title: researchActivity.title
-        } : null
+        researchActivity: researchActivity ? summariseResearchActivity(researchActivity) : null,
+        additionalResearchActivities: (await storage.getPublicationResearchActivities(id))
+          .map(summariseResearchActivity),
       };
 
       res.json(enhancedPublication);
@@ -5233,12 +5249,30 @@ function writeFailureDetail(error: unknown): string {
       // The demo session uses id 0, which is not a real user row, so `??` here
       // wrote 0 and the users foreign key rejected the insert -- creating a
       // publication in demo mode failed outright. `||` records nobody instead.
+      // Additional SDRs, sent with the record so the form saves in one step.
+      // Optional; the primary above carries every rule. Checked before the
+      // record is written so a bad id refuses the whole request rather than
+      // leaving a publication behind without its links.
+      const additionalIds = Array.isArray(req.body.additionalResearchActivityIds)
+        ? normaliseAdditionalSdrIds(publicationData.researchActivityId, req.body.additionalResearchActivityIds)
+        : null;
+      if (additionalIds) {
+        const missing = await findMissingResearchActivityIds(additionalIds);
+        if (missing.length > 0) {
+          return res.status(404).json({ message: `Research activity ${missing.join(", ")} not found` });
+        }
+      }
+
       const creatorUserId = req.session?.user?.id || null;
       const publication = await storage.createPublication({
         ...publicationData,
         ...exemption.fields,
         createdByUserId: creatorUserId,
       } as any);
+
+      if (additionalIds && additionalIds.length > 0) {
+        await storage.setPublicationResearchActivities(publication.id, additionalIds);
+      }
 
       // Create initial history entry for publication creation. Attribute it
       // to the session user so the timeline shows who created the record;
@@ -5330,6 +5364,22 @@ function writeFailureDetail(error: unknown): string {
         return res.status(400).json({ message: exemption.message });
       }
 
+      // Additional SDRs travel with the edit. The list sent is the whole set,
+      // normalised against whichever primary the record will have after this
+      // update, and checked before anything is written.
+      const primaryAfterUpdate = validateData.researchActivityId !== undefined
+        ? validateData.researchActivityId
+        : existing.researchActivityId;
+      const additionalIds = Array.isArray(req.body.additionalResearchActivityIds)
+        ? normaliseAdditionalSdrIds(primaryAfterUpdate, req.body.additionalResearchActivityIds)
+        : null;
+      if (additionalIds) {
+        const missing = await findMissingResearchActivityIds(additionalIds);
+        if (missing.length > 0) {
+          return res.status(404).json({ message: `Research activity ${missing.join(", ")} not found` });
+        }
+      }
+
       const publication = await storage.updatePublication(id, {
         ...validateData,
         ...exemption.fields,
@@ -5337,6 +5387,10 @@ function writeFailureDetail(error: unknown): string {
 
       if (!publication) {
         return res.status(404).json({ message: "Publication not found" });
+      }
+
+      if (additionalIds) {
+        await storage.setPublicationResearchActivities(id, additionalIds);
       }
 
       if (typeof exemption.fields.sdrExemptionReason === 'string') {
@@ -5394,6 +5448,94 @@ function writeFailureDetail(error: unknown): string {
   });
 
   // Manuscript History
+  // What a publication payload says about an SDR it is linked to: enough to
+  // name it, link to it, and place it under its project.
+  function summariseResearchActivity(activity: ResearchActivity) {
+    return {
+      id: activity.id,
+      sdrNumber: activity.sdrNumber,
+      title: activity.title,
+      projectId: activity.projectId,
+    };
+  }
+
+  async function findMissingResearchActivityIds(ids: number[]): Promise<number[]> {
+    const found = await Promise.all(ids.map((activityId) => storage.getResearchActivity(activityId)));
+    return ids.filter((_, index) => !found[index]);
+  }
+
+  // The additional SDRs a publication is linked to, beyond the one on the
+  // record. The primary stays on the record and keeps every rule; these are
+  // optional, and a paper is listed on each of them.
+  app.get('/api/publications/:id/research-activities', async (req: Request, res: Response) => {
+    try {
+      const id = parseInt(req.params.id);
+      if (isNaN(id)) {
+        return res.status(400).json({ message: "Invalid publication ID" });
+      }
+      const publication = await storage.getPublication(id);
+      if (!publication) {
+        return res.status(404).json({ message: "Publication not found" });
+      }
+      const linkedAuthors = await storage.getPublicationAuthors(id);
+      if (!canViewPublication(
+        getScientistPublicationViewer(req),
+        publication,
+        linkedAuthors.map((author) => ({
+          scientistId: author.scientistId,
+          supervisorId: author.scientist?.supervisorId ?? null,
+        })),
+      )) {
+        return res.status(404).json({ message: "Publication not found" });
+      }
+      const activities = await storage.getPublicationResearchActivities(id);
+      res.json(activities.map(summariseResearchActivity));
+    } catch (error) {
+      console.error("Error fetching publication research activities:", error);
+      res.status(500).json({ message: "Failed to fetch publication research activities" });
+    }
+  });
+
+  // Replaces the set. Same rule as editing the record: not sealed, and the
+  // caller is linked to the paper or works in the Outcome Office.
+  app.put('/api/publications/:id/research-activities', requireAuth, async (req: Request, res: Response) => {
+    try {
+      const id = parseInt(req.params.id);
+      if (isNaN(id)) {
+        return res.status(400).json({ message: "Invalid publication ID" });
+      }
+      if (!Array.isArray(req.body?.researchActivityIds)) {
+        return res.status(400).json({ message: "researchActivityIds must be a list of research activity ids" });
+      }
+      const existing = await storage.getPublication(id);
+      if (!existing) {
+        return res.status(404).json({ message: "Publication not found" });
+      }
+      if (existing.status === 'Published *') {
+        return res.status(403).json({
+          message: "This publication is sealed (Published *). Revert the final approval in the Outcome Office before editing.",
+        });
+      }
+      const linkedAuthors = await storage.getPublicationAuthors(id);
+      if (!canEditPublicationForLinkedScientists(req, linkedAuthors.map((author) => author.scientistId))) {
+        return res.status(403).json({
+          message:
+            "You may only edit publications linked to your scientist profile. Add or confirm your own internal-author link first, or ask Outcome Office for help.",
+        });
+      }
+      const additionalIds = normaliseAdditionalSdrIds(existing.researchActivityId, req.body.researchActivityIds);
+      const missing = await findMissingResearchActivityIds(additionalIds);
+      if (missing.length > 0) {
+        return res.status(404).json({ message: `Research activity ${missing.join(", ")} not found` });
+      }
+      const activities = await storage.setPublicationResearchActivities(id, additionalIds);
+      res.json(activities.map(summariseResearchActivity));
+    } catch (error) {
+      console.error("Error updating publication research activities:", error);
+      res.status(500).json({ message: "Failed to update publication research activities" });
+    }
+  });
+
   app.get('/api/publications/:id/history', async (req: Request, res: Response) => {
     try {
       const id = parseInt(req.params.id);
@@ -5788,9 +5930,9 @@ function writeFailureDetail(error: unknown): string {
         return res.status(403).json({ message: "This publication is sealed (Published *). Revert the final approval before changing author links." });
       }
 
-      // Check if scientist is already an author before authorizing the action.
-      // Researchers may manage only their own link; new self-links must also
-      // match the free-text author list. Outcome Office may manage any link.
+      // An author of the paper may manage any of its links; anyone else may
+      // manage only their own, and a new self-link must also match the
+      // free-text author list. Outcome Office may manage any link.
       const existingAuthors = await storage.getPublicationAuthors(publicationId);
       const existingAuthor = existingAuthors.find(author => author.scientistId === validateData.scientistId);
       const targetScientist = existingAuthor?.scientist ?? await storage.getScientist(validateData.scientistId);
@@ -5807,12 +5949,13 @@ function writeFailureDetail(error: unknown): string {
           req,
           validateData.scientistId,
           Boolean(existingAuthor),
-          authorNameMatches
+          authorNameMatches,
+          existingAuthors.map((author) => author.scientistId)
         )
       ) {
         return res.status(403).json({
           message:
-            "You may only add or update your own matching internal-author link. Ask Outcome Office to correct other author links.",
+            "You may only manage internal-author links on a publication you are an author of. Ask Outcome Office to correct links elsewhere.",
         });
       }
 
@@ -5839,6 +5982,23 @@ function writeFailureDetail(error: unknown): string {
             linkedByUserId: actorId,
           }
         );
+        // Recorded because an author may now change a co-author's link, and
+        // a change to somebody else's authorship credit has to be
+        // attributable rather than anonymous. linkedByUserId alone says who
+        // created a link, not who last altered one.
+        await req.audit.logUpdate(
+          "publication_authors",
+          existingAuthor.id,
+          {
+            authorshipType: existingAuthor.authorshipType,
+            authorPosition: existingAuthor.authorPosition,
+          },
+          {
+            authorshipType: updatedAuthor?.authorshipType ?? null,
+            authorPosition: updatedAuthor?.authorPosition ?? null,
+          },
+          `Internal-author link updated on publication ${publicationId}`,
+        );
         res.status(200).json(updatedAuthor);
       } else {
         // Add new author
@@ -5847,6 +6007,12 @@ function writeFailureDetail(error: unknown): string {
           linkMethod: "manual",
           linkedByUserId: actorId,
         });
+        await req.audit.logInsert(
+          "publication_authors",
+          author.id,
+          author as unknown as Record<string, unknown>,
+          `Internal author linked to publication ${publicationId}`,
+        );
         res.status(201).json(author);
       }
     } catch (error) {
@@ -5879,12 +6045,13 @@ function writeFailureDetail(error: unknown): string {
           req,
           scientistId,
           Boolean(existingAuthor),
-          false
+          false,
+          existingAuthors.map((author) => author.scientistId)
         )
       ) {
         return res.status(403).json({
           message:
-            "You may only remove your own internal-author link. Ask Outcome Office to correct other author links.",
+            "You may only remove internal-author links on a publication you are an author of. Ask Outcome Office to correct links elsewhere.",
         });
       }
 
@@ -5894,6 +6061,22 @@ function writeFailureDetail(error: unknown): string {
         return res.status(404).json({ message: "Publication author not found" });
       }
       
+      // A removal leaves nothing behind to show who did it, which is the
+      // whole reason an author may now remove somebody else's link.
+      if (existingAuthor) {
+        await req.audit.logDelete(
+          "publication_authors",
+          existingAuthor.id,
+          {
+            publicationId,
+            scientistId,
+            authorshipType: existingAuthor.authorshipType,
+            authorPosition: existingAuthor.authorPosition,
+          },
+          `Internal-author link removed from publication ${publicationId}`,
+        );
+      }
+
       res.status(204).send();
     } catch (error) {
       res.status(500).json({ message: "Failed to remove publication author" });

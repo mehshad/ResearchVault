@@ -34,6 +34,7 @@ import {
   dataManagementPlans, DataManagementPlan, InsertDataManagementPlan,
   publications, Publication, InsertPublication,
   publicationAuthors, PublicationAuthor, InsertPublicationAuthor,
+  publicationResearchActivities, PublicationResearchActivity,
   manuscriptHistory, ManuscriptHistory, InsertManuscriptHistory,
   patents, Patent, InsertPatent,
   irbApplications, IrbApplication, InsertIrbApplication,
@@ -107,6 +108,18 @@ import { normalizeJournalName } from "@shared/journalName";
 // SQL expression mirroring normalizeJournalName for a given column.
 const normalizedJournalSql = (col: any) =>
   sql`btrim(regexp_replace(regexp_replace(lower(${col}), '[^a-z0-9]+', ' ', 'g'), '^the\\s+', ''))`;
+
+// A publication linked to an SDR both as its primary and as an additional
+// link -- or to two SDRs under the same program -- is still one publication.
+function mergeUniquePublications(...lists: Publication[][]): Publication[] {
+  const byId = new Map<number, Publication>();
+  for (const list of lists) {
+    for (const publication of list) {
+      if (!byId.has(publication.id)) byId.set(publication.id, publication);
+    }
+  }
+  return [...byId.values()];
+}
 
 export class DatabaseStorage implements IStorage {
   
@@ -457,8 +470,73 @@ export class DatabaseStorage implements IStorage {
     return publication;
   }
 
+  // Linked as the primary SDR or as an additional one: either way the paper
+  // belongs to the activity and the activity should list it.
   async getPublicationsForResearchActivity(researchActivityId: number): Promise<Publication[]> {
-    return await db.select().from(publications).where(eq(publications.researchActivityId, researchActivityId));
+    const primary = await db.select().from(publications).where(eq(publications.researchActivityId, researchActivityId));
+    const additional = await db
+      .select({ publication: publications })
+      .from(publicationResearchActivities)
+      .innerJoin(publications, eq(publicationResearchActivities.publicationId, publications.id))
+      .where(eq(publicationResearchActivities.researchActivityId, researchActivityId))
+      .then((rows) => rows.map((row) => row.publication));
+    return mergeUniquePublications(primary, additional);
+  }
+
+  // Every publication whose SDR sits under one of the program's projects. The
+  // link runs publication -> research activity -> project -> program, through
+  // the primary SDR or an additional one; a publication with no SDR (an
+  // exempted one) belongs to no program.
+  async getPublicationsForProgram(programId: number): Promise<Publication[]> {
+    const primary = await db
+      .select({ publication: publications })
+      .from(publications)
+      .innerJoin(researchActivities, eq(publications.researchActivityId, researchActivities.id))
+      .innerJoin(projects, eq(researchActivities.projectId, projects.id))
+      .where(eq(projects.programId, programId))
+      .then((rows) => rows.map((row) => row.publication));
+    const additional = await db
+      .select({ publication: publications })
+      .from(publicationResearchActivities)
+      .innerJoin(publications, eq(publicationResearchActivities.publicationId, publications.id))
+      .innerJoin(researchActivities, eq(publicationResearchActivities.researchActivityId, researchActivities.id))
+      .innerJoin(projects, eq(researchActivities.projectId, projects.id))
+      .where(eq(projects.programId, programId))
+      .then((rows) => rows.map((row) => row.publication));
+    return mergeUniquePublications(primary, additional);
+  }
+
+  async getPublicationResearchActivities(publicationId: number): Promise<ResearchActivity[]> {
+    return await db
+      .select({ activity: researchActivities })
+      .from(publicationResearchActivities)
+      .innerJoin(researchActivities, eq(publicationResearchActivities.researchActivityId, researchActivities.id))
+      .where(eq(publicationResearchActivities.publicationId, publicationId))
+      .orderBy(asc(researchActivities.sdrNumber))
+      .then((rows) => rows.map((row) => row.activity));
+  }
+
+  async getAllPublicationResearchActivityLinks(): Promise<PublicationResearchActivity[]> {
+    return await db.select().from(publicationResearchActivities);
+  }
+
+  // Replaces the whole set: the form sends what should be linked, not a diff,
+  // so a removal is simply an id that is no longer in the list.
+  async setPublicationResearchActivities(
+    publicationId: number,
+    researchActivityIds: number[],
+  ): Promise<ResearchActivity[]> {
+    await db.transaction(async (tx) => {
+      await tx
+        .delete(publicationResearchActivities)
+        .where(eq(publicationResearchActivities.publicationId, publicationId));
+      if (researchActivityIds.length > 0) {
+        await tx.insert(publicationResearchActivities).values(
+          researchActivityIds.map((researchActivityId) => ({ publicationId, researchActivityId })),
+        );
+      }
+    });
+    return this.getPublicationResearchActivities(publicationId);
   }
 
   async createPublication(
@@ -674,6 +752,8 @@ export class DatabaseStorage implements IStorage {
   }
 
   async deletePublication(id: number): Promise<boolean> {
+    // No foreign key carries the links away with the row.
+    await db.delete(publicationResearchActivities).where(eq(publicationResearchActivities.publicationId, id));
     const result = await db.delete(publications).where(eq(publications.id, id));
     return (result.rowCount ?? 0) > 0;
   }
@@ -882,6 +962,34 @@ export class DatabaseStorage implements IStorage {
           .update(publications)
           .set(updateData)
           .where(eq(publications.id, survivorId));
+      }
+
+      // Additional SDR links follow the survivor too, except one it already
+      // holds or one that is now its primary; the rest would be duplicates.
+      if (ids.length) {
+        const survivorPrimaryId =
+          (updateData as { researchActivityId?: number | null }).researchActivityId ??
+          survivor.researchActivityId ??
+          null;
+        const survivorLinks = await tx
+          .select()
+          .from(publicationResearchActivities)
+          .where(eq(publicationResearchActivities.publicationId, survivorId));
+        const held = new Set(survivorLinks.map((link) => link.researchActivityId));
+        const mergedLinks = await tx
+          .select()
+          .from(publicationResearchActivities)
+          .where(inArray(publicationResearchActivities.publicationId, ids));
+        const toCarry = [...new Set(mergedLinks.map((link) => link.researchActivityId))]
+          .filter((activityId) => activityId !== survivorPrimaryId && !held.has(activityId));
+        if (toCarry.length) {
+          await tx.insert(publicationResearchActivities).values(
+            toCarry.map((researchActivityId) => ({ publicationId: survivorId, researchActivityId })),
+          );
+        }
+        await tx
+          .delete(publicationResearchActivities)
+          .where(inArray(publicationResearchActivities.publicationId, ids));
       }
 
       // Delete the merged-away records (their dependent rows are already moved).

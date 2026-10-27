@@ -10,6 +10,7 @@ import {
   projectMembers, ProjectMember, InsertProjectMember,
   dataManagementPlans, DataManagementPlan, InsertDataManagementPlan,
   publications, Publication, InsertPublication, ManuscriptHistory, InsertManuscriptHistory,
+  PublicationResearchActivity,
   patents, Patent, InsertPatent,
   irbApplications, IrbApplication, InsertIrbApplication,
   ibcApplications, IbcApplication, InsertIbcApplication,
@@ -110,6 +111,12 @@ export interface IStorage {
   getPublications(): Promise<Publication[]>;
   getPublication(id: number): Promise<Publication | undefined>;
   getPublicationsForResearchActivity(researchActivityId: number): Promise<Publication[]>;
+  getPublicationsForProgram(programId: number): Promise<Publication[]>;
+  // Additional SDR links, beyond publications.researchActivityId. See
+  // shared/publicationSdrLinks.ts for what the primary keeps to itself.
+  getPublicationResearchActivities(publicationId: number): Promise<ResearchActivity[]>;
+  getAllPublicationResearchActivityLinks(): Promise<PublicationResearchActivity[]>;
+  setPublicationResearchActivities(publicationId: number, researchActivityIds: number[]): Promise<ResearchActivity[]>;
   createPublication(publication: InsertPublication): Promise<Publication>;
   createPublicationWithHistory(
     publication: InsertPublication & { createdByUserId?: number | null },

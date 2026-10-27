@@ -168,6 +168,38 @@ export function grantInvolvement(
   return null;
 }
 
+/** The viewer's own part on a grant, when they are named on it. */
+export type GrantRole = "lead" | "co-investigator" | null;
+
+/**
+ * Which part the viewer plays on a grant: leading it, named on it, or
+ * neither. Leading wins when a person is somehow recorded as both.
+ *
+ * `grantInvolvement` folds both into "mine", which is the right answer for
+ * whether the grant is the viewer's business. The portfolio page also wants
+ * the two apart -- the grants I hold and the grants I contribute to are
+ * different lists to the person reading them -- so the distinction is made
+ * here, once, rather than by the page re-deriving it from the names.
+ */
+export function grantRole(grant: GrantParticipants, viewer: PortfolioViewer): GrantRole {
+  if (viewer.scientistId == null) return null;
+  if (grant.lpiId === viewer.scientistId) return "lead";
+  if ((grant.coInvestigatorIds ?? []).includes(viewer.scientistId)) return "co-investigator";
+  return null;
+}
+
+/**
+ * Whether a grant names anybody in the given section -- as lead PI or as a
+ * co-investigator. Asked with the viewer's own section, whatever their role:
+ * Management see every grant, but "my team's grants" still means the section
+ * their staff record sits in, not the institution.
+ */
+export function grantNamesSection(grant: GrantParticipants, sectionMembers: ReadonlySet<number>): boolean {
+  return [grant.lpiId, ...(grant.coInvestigatorIds ?? [])].some(
+    (id) => id != null && sectionMembers.has(id),
+  );
+}
+
 export interface ContractParticipants {
   /** The lead PI's staff record. */
   leadPIId?: number | null;

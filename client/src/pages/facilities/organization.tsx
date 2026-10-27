@@ -28,6 +28,10 @@ import {
 import { isAdministrator, hasAnyRole } from "@shared/effectiveRoles";
 import { groupInvestigatorsBySection } from "@/lib/organizationInvestigators";
 
+// The roles that may change the structure, besides administrators. One list,
+// read by the permission check and by the note that tells the reader.
+const ORGANIZATION_EDITOR_ROLES = ["Management"] as const;
+
 type Level = "branch" | "department" | "section";
 
 interface EditorState {
@@ -70,9 +74,10 @@ export default function OrganizationStructure() {
   const { currentUser } = useCurrentUser();
 
   // Every slot, not the primary alone. isAdministrator already covers admin
-  // and superadmin wherever they are held.
+  // and superadmin wherever they are held. The note under the title reads the
+  // same list, so what it says and what the buttons do cannot part company.
   const canManage =
-    hasAnyRole(currentUser, ["Management"]) || isAdministrator(currentUser);
+    hasAnyRole(currentUser, ORGANIZATION_EDITOR_ROLES) || isAdministrator(currentUser);
 
   const { data: branches, isLoading: branchesLoading } = useQuery<Branch[]>({
     queryKey: ["/api/branches"],
@@ -224,6 +229,10 @@ export default function OrganizationStructure() {
             <h1 className="text-2xl font-semibold text-foreground">Organization Structure</h1>
             <p className="text-sm text-muted-foreground">
               Branches, departments, and their sections (labs, offices, cores)
+            </p>
+            <p className="text-sm text-muted-foreground" data-testid="text-who-can-edit">
+              {ORGANIZATION_EDITOR_ROLES.join(", ")} and administrators can edit this structure.
+              {canManage ? " You can." : " You are viewing it read-only."}
             </p>
           </div>
         </div>
